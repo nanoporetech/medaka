@@ -1,0 +1,46 @@
+medaka\.util package
+====================
+
+Submodules
+----------
+
+medaka\.util\.generators module
+-------------------------------
+
+.. automodule:: medaka.util.generators
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+medaka\.util\.pileup module
+---------------------------
+
+.. automodule:: medaka.util.pileup
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+medaka\.util\.reshape module
+----------------------------
+
+.. automodule:: medaka.util.reshape
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+medaka\.util\.sequences module
+------------------------------
+
+.. automodule:: medaka.util.sequences
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: medaka.util
+    :members:
+    :undoc-members:
+    :show-inheritance:

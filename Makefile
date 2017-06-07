@@ -25,6 +25,11 @@ ALLSPHINXOPTS   = -d $(BUILDDIR)/doctrees $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) .
 
 docs: venv
 	${IN_VENV} && pip install sphinx sphinx_rtd_theme sphinx-argparse
-	${IN_VENV} && cd docs && $(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
+	${IN_VENV} && cd doc_src && $(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 	@echo
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
+	rm -rf docs/*
+	mkdir -p docs
+	cp -r doc_src/$(BUILDDIR)/html/* docs
+	touch docs/.nojekyll
+

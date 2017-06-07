@@ -1,0 +1,829 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>medaka.util package &mdash; Medaka 0.0.1 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+        <link rel="index" title="Index"
+              href="genindex.html"/>
+        <link rel="search" title="Search" href="search.html"/>
+    <link rel="top" title="Medaka 0.0.1 documentation" href="index.html"/>
+        <link rel="up" title="medaka package" href="medaka.html"/>
+        <link rel="prev" title="medaka package" href="medaka.html"/> 
+
+  
+  <script src="_static/js/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+   
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search">
+          
+
+          
+            <a href="index.html" class="icon icon-home"> Medaka
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                0.0.1
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="examples.html">Medaka Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="future.html">History and Future Directions</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="medaka.html">medaka package</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="medaka.html#subpackages">Subpackages</a><ul class="current">
+<li class="toctree-l3 current"><a class="current reference internal" href="#">medaka.util package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#submodules">Submodules</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#module-medaka.util.generators">medaka.util.generators module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#module-medaka.util.pileup">medaka.util.pileup module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#module-medaka.util.reshape">medaka.util.reshape module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#module-medaka.util.sequences">medaka.util.sequences module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#module-medaka.util">Module contents</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="medaka.html#submodules">Submodules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="medaka.html#module-medaka.correct">medaka.correct module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="medaka.html#module-medaka.prepare">medaka.prepare module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="medaka.html#module-medaka.train">medaka.train module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="medaka.html#module-medaka">Module contents</a></li>
+</ul>
+</li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Medaka</a>
+        
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html">Docs</a> &raquo;</li>
+        
+          <li><a href="medaka.html">medaka package</a> &raquo;</li>
+        
+      <li>medaka.util package</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="_sources/medaka.util.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="medaka-util-package">
+<h1>medaka.util package<a class="headerlink" href="#medaka-util-package" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="module-medaka.util.generators">
+<span id="medaka-util-generators-module"></span><h2>medaka.util.generators module<a class="headerlink" href="#module-medaka.util.generators" title="Permalink to this headline">¶</a></h2>
+<dl class="function">
+<dt id="medaka.util.generators.serve_data">
+<code class="descclassname">medaka.util.generators.</code><code class="descname">serve_data</code><span class="sig-paren">(</span><em>data</em>, <em>window_size</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/generators.html#serve_data"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.generators.serve_data" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate windowed data items infinitely</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>data</strong> – full feature array (each row is a feature)</li>
+<li><strong>window_size</strong> – int (odd) window of positions flanking predicted label</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">2D data array (shape=(window_size, feature_length))</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.generators.serve_data_batch">
+<code class="descclassname">medaka.util.generators.</code><code class="descname">serve_data_batch</code><span class="sig-paren">(</span><em>data</em>, <em>batch_size</em>, <em>window_size</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/generators.html#serve_data_batch"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.generators.serve_data_batch" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate batches of windowed data items</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>data</strong> – full feature array (each row is a feature)</li>
+<li><strong>label</strong> – full label array</li>
+<li><strong>window_size</strong> – int (odd) window of positions flanking predicted label</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">3D data batch array (shape=(batch_size, window_size, feature_length))</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.generators.serve_sample">
+<code class="descclassname">medaka.util.generators.</code><code class="descname">serve_sample</code><span class="sig-paren">(</span><em>data</em>, <em>label</em>, <em>window_size</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/generators.html#serve_sample"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.generators.serve_sample" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate windowed (data, label) tuples infinitely</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>data</strong> – 2D feature array (each row is a feature)</li>
+<li><strong>label</strong> – 1D label array</li>
+<li><strong>window_size</strong> – int (odd) window of positions flanking predicted label</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last"><p>tuple (data, label)</p>
+<ul class="simple">
+<li>data: 2D array (shape=(window_size, feature_length))</li>
+<li>label: 1D array (shape=window_size,)</li>
+</ul>
+</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.generators.serve_sample_batch">
+<code class="descclassname">medaka.util.generators.</code><code class="descname">serve_sample_batch</code><span class="sig-paren">(</span><em>data</em>, <em>label</em>, <em>batch_size</em>, <em>window_size</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/generators.html#serve_sample_batch"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.generators.serve_sample_batch" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate batches of windowed (data, label) samples</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>data</strong> – full feature array (each row is a feature)</li>
+<li><strong>label</strong> – full label array</li>
+<li><strong>batch_size</strong> – int batch size</li>
+<li><strong>window_size</strong> – int (odd) window of positions flanking predicted label</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last"><p>tuple (data batch, label batch)</p>
+<ul class="simple">
+<li>data batch: 3D array (shape=(batch_size, window_size, feature_length))</li>
+<li>label batch: 2D array (shape=batch_size, window_size,)</li>
+</ul>
+</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+<div class="section" id="module-medaka.util.pileup">
+<span id="medaka-util-pileup-module"></span><h2>medaka.util.pileup module<a class="headerlink" href="#module-medaka.util.pileup" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="medaka.util.pileup.AlignPos">
+<em class="property">class </em><code class="descclassname">medaka.util.pileup.</code><code class="descname">AlignPos</code><span class="sig-paren">(</span><em>qpos</em>, <em>qbase</em>, <em>rpos</em>, <em>rbase</em><span class="sig-paren">)</span><a class="headerlink" href="#medaka.util.pileup.AlignPos" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal"><span class="pre">tuple</span></code></p>
+<dl class="attribute">
+<dt id="medaka.util.pileup.AlignPos.qbase">
+<code class="descname">qbase</code><a class="headerlink" href="#medaka.util.pileup.AlignPos.qbase" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 1</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="medaka.util.pileup.AlignPos.qpos">
+<code class="descname">qpos</code><a class="headerlink" href="#medaka.util.pileup.AlignPos.qpos" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 0</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="medaka.util.pileup.AlignPos.rbase">
+<code class="descname">rbase</code><a class="headerlink" href="#medaka.util.pileup.AlignPos.rbase" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 3</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="medaka.util.pileup.AlignPos.rpos">
+<code class="descname">rpos</code><a class="headerlink" href="#medaka.util.pileup.AlignPos.rpos" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 2</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.pileup.bam_to_feature_array">
+<code class="descclassname">medaka.util.pileup.</code><code class="descname">bam_to_feature_array</code><span class="sig-paren">(</span><em>reads_bam</em>, <em>ref</em>, <em>start=None</em>, <em>end=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/pileup.html#bam_to_feature_array"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.pileup.bam_to_feature_array" title="Permalink to this definition">¶</a></dt>
+<dd><p>Converts a section of an alignment pileup (as shown
+by e.g. samtools tview) to a base frequency feature array</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>reads_bam</strong> – (sorted indexed) bam with read alignment to reference</li>
+<li><strong>ref</strong> – name of reference to process</li>
+<li><strong>start</strong> – starting position within reference</li>
+<li><strong>end</strong> – ending position within reference</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first"><p>tuple(positions, feature_array)</p>
+<ul>
+<li><p class="first">positions: numpy structured array with ‘ref_major’
+(reference position index) and ‘ref_minor’
+(trailing insertion index) fields.</p>
+</li>
+<li><p class="first">feature_array: 2D numpy array where each row is an
+11-element feature array for a pileup position:
+array([(encoded) reference base, nA+, nC+, nG+, 
+nT+, nDel+, nA-, nC-, nG-, nT-, nDel-])</p>
+<p>(e.g. nA+ = num. forward reads aligning with A
+to ref pos) (reference bases are encoded by
+<a class="reference internal" href="#medaka.util.pileup.feature_index" title="medaka.util.pileup.feature_index"><code class="xref py py-func docutils literal"><span class="pre">feature_index()</span></code></a>)</p>
+</li>
+</ul>
+</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Example:</th><td class="field-body"></td>
+</tr>
+</tbody>
+</table>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">Outputs</span> <span class="k">for</span> <span class="n">a</span> <span class="n">minimal</span> <span class="n">pileup</span> <span class="k">with</span> <span class="mi">3</span> <span class="n">aligned</span> <span class="n">reads</span><span class="p">:</span>
+
+<span class="n">reference</span> <span class="n">sequence</span><span class="p">:</span> <span class="n">AC</span><span class="o">**</span><span class="n">T</span>
+             <span class="n">read1</span><span class="p">:</span> <span class="n">ACG</span><span class="o">*</span><span class="n">T</span>  <span class="p">(</span><span class="n">forward</span> <span class="n">alignment</span><span class="p">)</span>
+             <span class="n">read2</span><span class="p">:</span> <span class="n">ACGGT</span>  <span class="p">(</span><span class="n">forward</span> <span class="n">alignment</span><span class="p">)</span>
+             <span class="n">read3</span><span class="p">:</span> <span class="n">ac</span><span class="o">**</span><span class="n">t</span>  <span class="p">(</span><span class="n">reverse</span> <span class="n">alignment</span><span class="p">)</span>
+
+<span class="n">positions</span><span class="p">:</span>
+
+    <span class="n">ref_major</span>  <span class="n">ref_minor</span>
+    <span class="mi">1</span>          <span class="mi">0</span>
+    <span class="mi">2</span>          <span class="mi">0</span>
+    <span class="mi">2</span>          <span class="mi">1</span>
+    <span class="mi">2</span>          <span class="mi">2</span>
+    <span class="mi">3</span>          <span class="mi">0</span>
+
+<span class="n">feature_array</span><span class="p">:</span>
+
+    <span class="n">array</span><span class="p">([[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>   <span class="p">(</span><span class="mi">2</span><span class="n">xA</span><span class="o">+</span><span class="p">,</span> <span class="mi">1</span><span class="n">xA</span><span class="o">-</span><span class="p">)</span>
+           <span class="p">[</span><span class="mi">2</span>  <span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>   <span class="p">(</span><span class="mi">2</span><span class="n">xC</span><span class="o">+</span><span class="p">,</span> <span class="mi">1</span><span class="n">xC</span><span class="o">-</span><span class="p">)</span>
+           <span class="p">[</span><span class="mi">5</span>  <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span>   <span class="p">(</span><span class="mi">2</span><span class="n">xG</span><span class="o">+</span><span class="p">,</span> <span class="mi">1</span><span class="n">xDel</span><span class="o">-</span><span class="p">)</span>
+           <span class="p">[</span><span class="mi">5</span>  <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span>   <span class="p">(</span><span class="mi">1</span><span class="n">xG</span><span class="o">+</span><span class="p">,</span> <span class="mi">1</span><span class="n">xDel</span><span class="o">+</span><span class="p">,</span> <span class="mi">1</span><span class="n">xDel</span><span class="o">-</span><span class="p">)</span>
+           <span class="p">[</span><span class="mi">4</span>  <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]])</span> <span class="p">(</span><span class="mi">1</span><span class="n">xT</span><span class="o">+</span><span class="p">,</span> <span class="mi">1</span><span class="n">xT</span><span class="o">-</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.pileup.bam_to_label">
+<code class="descclassname">medaka.util.pileup.</code><code class="descname">bam_to_label</code><span class="sig-paren">(</span><em>truth_bam</em>, <em>ref</em>, <em>start=None</em>, <em>end=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/pileup.html#bam_to_label"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.pileup.bam_to_label" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create encoded truth array.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>truth_bam</strong> – (sorted indexed) bam with true sequence aligned to reference</li>
+<li><strong>ref</strong> – name of reference to process</li>
+<li><strong>start</strong> – starting position within reference</li>
+<li><strong>end</strong> – ending position within reference</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last"><p>tuple(positions, encoded_label_array)</p>
+<ul class="simple">
+<li>positions: numpy structured array with ‘ref_major’
+(reference position index) and ‘ref_minor’
+(trailing insertion index) fields.</li>
+<li>feature_array: 1D numpy array of encoded labels</li>
+</ul>
+</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.pileup.feature_index">
+<code class="descclassname">medaka.util.pileup.</code><code class="descname">feature_index</code><span class="sig-paren">(</span><em>rev</em>, <em>base</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/pileup.html#feature_index"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.pileup.feature_index" title="Permalink to this definition">¶</a></dt>
+<dd><p>Defines integer encoding of base and del symbols</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>rev</strong> – boolean read maps to reverse orientation</li>
+<li><strong>base</strong> – {‘A’, ‘C’, ‘G’, ‘T’, None}. None indicates deletion.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">int encoded base</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.pileup.get_reference_length">
+<code class="descclassname">medaka.util.pileup.</code><code class="descname">get_reference_length</code><span class="sig-paren">(</span><em>bam</em>, <em>ref</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/pileup.html#get_reference_length"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.pileup.get_reference_length" title="Permalink to this definition">¶</a></dt>
+<dd><p>Obtain length of a reference</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>bam</strong> – bam file</li>
+<li><strong>ref</strong> – name of reference</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">int length of reference</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.pileup.get_reference_names">
+<code class="descclassname">medaka.util.pileup.</code><code class="descname">get_reference_names</code><span class="sig-paren">(</span><em>bam</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/pileup.html#get_reference_names"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.pileup.get_reference_names" title="Permalink to this definition">¶</a></dt>
+<dd><p>Obtain reference names</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>bam</strong> – bam file</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">list of reference names</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.pileup.multiple_coverage">
+<code class="descclassname">medaka.util.pileup.</code><code class="descname">multiple_coverage</code><span class="sig-paren">(</span><em>bam</em>, <em>ref</em>, <em>start=None</em>, <em>end=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/pileup.html#multiple_coverage"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.pileup.multiple_coverage" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns list of reference positions with 2 or more
+aligned query sequences</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>bam</strong> – bam file</li>
+<li><strong>ref</strong> – name of reference to process</li>
+<li><strong>start</strong> – starting position within reference</li>
+<li><strong>end</strong> – ending position within reference</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">list of int reference positions with multiple query
+sequence coverage</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.pileup.no_coverage">
+<code class="descclassname">medaka.util.pileup.</code><code class="descname">no_coverage</code><span class="sig-paren">(</span><em>bam</em>, <em>ref</em>, <em>start=None</em>, <em>end=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/pileup.html#no_coverage"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.pileup.no_coverage" title="Permalink to this definition">¶</a></dt>
+<dd><p>Obtain reference positions with 0 aligned query sequences</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>bam</strong> – bam file</li>
+<li><strong>ref</strong> – name of reference to process</li>
+<li><strong>start</strong> – starting position within reference</li>
+<li><strong>end</strong> – ending position within reference</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">list of int reference positions without query sequence coverage</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.pileup.prepare_training_data">
+<code class="descclassname">medaka.util.pileup.</code><code class="descname">prepare_training_data</code><span class="sig-paren">(</span><em>reads_bam</em>, <em>truth_bam</em>, <em>ref</em>, <em>limits=(None</em>, <em>None)</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/pileup.html#prepare_training_data"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.pileup.prepare_training_data" title="Permalink to this definition">¶</a></dt>
+<dd><p>Prepare data for model training</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>reads_bam</strong> – (sorted indexed) bam with read alignment to reference</li>
+<li><strong>truth_bam</strong> – (sorted indexed) bam with true sequence aligned to reference</li>
+<li><strong>ref</strong> – name of reference to process</li>
+<li><strong>limits</strong> – start and end points of reference</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last"><p>tuple (filtered_features, labels)</p>
+<ul class="simple">
+<li>filtered_features: 2D numpy array with base frequency features
+as described in <a class="reference internal" href="#medaka.util.pileup.bam_to_feature_array" title="medaka.util.pileup.bam_to_feature_array"><code class="xref py py-func docutils literal"><span class="pre">bam_to_feature_array()</span></code></a> for valid reference
+positions (where there is an unambiguous ‘truth’ label provided by
+the known sequence.</li>
+<li>labels: 1D numpy array of integer encoded labels for each valid
+reference position.</li>
+</ul>
+</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+<div class="section" id="module-medaka.util.reshape">
+<span id="medaka-util-reshape-module"></span><h2>medaka.util.reshape module<a class="headerlink" href="#module-medaka.util.reshape" title="Permalink to this headline">¶</a></h2>
+<dl class="function">
+<dt id="medaka.util.reshape.trim_to_step_multiple">
+<code class="descclassname">medaka.util.reshape.</code><code class="descname">trim_to_step_multiple</code><span class="sig-paren">(</span><em>arr</em>, <em>batch_size</em>, <em>window_size</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/reshape.html#trim_to_step_multiple"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.reshape.trim_to_step_multiple" title="Permalink to this definition">¶</a></dt>
+<dd><p>Trim array to be a multiple of batch size
+(keras generator methods require exact numbers of batches)</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>arr</strong> – numpy array</li>
+<li><strong>batch_size</strong> – int batch size</li>
+<li><strong>window_size</strong> – int window size</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">array truncated to exact batch multiple</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+<div class="section" id="module-medaka.util.sequences">
+<span id="medaka-util-sequences-module"></span><h2>medaka.util.sequences module<a class="headerlink" href="#module-medaka.util.sequences" title="Permalink to this headline">¶</a></h2>
+<dl class="function">
+<dt id="medaka.util.sequences.assemble_sequences">
+<code class="descclassname">medaka.util.sequences.</code><code class="descname">assemble_sequences</code><span class="sig-paren">(</span><em>sequences</em>, <em>segment_len=50000</em>, <em>overlap_len=1000</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/sequences.html#assemble_sequences"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.sequences.assemble_sequences" title="Permalink to this definition">¶</a></dt>
+<dd><p>Join overlapping sequences to assemble complete sequence</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>sequences</strong> – list of biopython SeqRecords</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Segment_len:</th><td class="field-body">length of sequences</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Overlap_len:</th><td class="field-body">length of overlaps at sequence ends</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">list of reference SeqRecords</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<dl class="last docutils">
+<dt>reproduced almost verbatim from</dt>
+<dd><a class="reference external" href="https://github.com/jts/nanopolish/blob/master/scripts/nanopolish_makerange.py">nanopolish</a></dd>
+</dl>
+</div>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.sequences.get_benchmark">
+<code class="descclassname">medaka.util.sequences.</code><code class="descname">get_benchmark</code><span class="sig-paren">(</span><em>X</em>, <em>y</em>, <em>steps</em>, <em>batch_size</em>, <em>window_size</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/sequences.html#get_benchmark"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.sequences.get_benchmark" title="Permalink to this definition">¶</a></dt>
+<dd><p>Identify proportion ref positions in which reference matches truth,
+a starting point for the correction</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>X</strong> – feature array</li>
+<li><strong>y</strong> – label array</li>
+<li><strong>steps</strong> – num. of batches</li>
+<li><strong>batch_size</strong> – int batch_size</li>
+<li><strong>window_size</strong> – int window_size</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">float proportion of correct reference positions</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.sequences.get_original_sequence">
+<code class="descclassname">medaka.util.sequences.</code><code class="descname">get_original_sequence</code><span class="sig-paren">(</span><em>data</em>, <em>name</em>, <em>window_size</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/sequences.html#get_original_sequence"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.sequences.get_original_sequence" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert from encoded reference base column, excising any deletions
+and respecting truncations due to windowing</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>data</strong> – feature array</li>
+<li><strong>name</strong> – str prefix for output fasta files</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">SeqRecord original fasta sequence</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.sequences.merge_into_sequence">
+<code class="descclassname">medaka.util.sequences.</code><code class="descname">merge_into_sequence</code><span class="sig-paren">(</span><em>existing</em>, <em>incoming</em>, <em>overlap_length</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/sequences.html#merge_into_sequence"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.sequences.merge_into_sequence" title="Permalink to this definition">¶</a></dt>
+<dd><p>Append string to another string using pairwise alignment of
+overlapping ends to select join</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>existing</strong> – str growing sequence</li>
+<li><strong>incoming</strong> – str new sequence to be appended</li>
+<li><strong>overlap_length</strong> – int length of overlap between sequence ends</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">str new sequence</p>
+</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">reproduced almost verbatim from
+<a class="reference external" href="https://github.com/jts/nanopolish/blob/master/scripts/nanopolish_merge.py">nanopolish_merge</a></p>
+</div>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.sequences.model_output_to_fasta">
+<code class="descclassname">medaka.util.sequences.</code><code class="descname">model_output_to_fasta</code><span class="sig-paren">(</span><em>predictions</em>, <em>name</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/sequences.html#model_output_to_fasta"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.sequences.model_output_to_fasta" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert from one hot encoding to bases, excising any deletions</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>predictions</strong> – numpy array model output, one-hot encoding (num_classes 6)
+0=blank, 1=A, 2=C, 3=G, 4=T, 5=Del</li>
+<li><strong>name</strong> – str prefix for output fasta files</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">SeqRecord corrected fasta sequence</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.sequences.segment_limits">
+<code class="descclassname">medaka.util.sequences.</code><code class="descname">segment_limits</code><span class="sig-paren">(</span><em>endpoint</em>, <em>segment_len=50000</em>, <em>overlap_len=1000</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/sequences.html#segment_limits"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.sequences.segment_limits" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate segments of a range [0, end_point].</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>endpoint</strong> – endpoint of range.</li>
+<li><strong>segment_len</strong> – length of resultant segments.</li>
+<li><strong>overlap_len</strong> – length of overlap between segments.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Yields:</th><td class="field-body"><p class="first last">tuples (start, end) indicating overlapping segments of
+the input range.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="medaka.util.sequences.write_test_sequences">
+<code class="descclassname">medaka.util.sequences.</code><code class="descname">write_test_sequences</code><span class="sig-paren">(</span><em>test_data</em>, <em>model</em>, <em>test_steps</em>, <em>batch_size</em>, <em>window_size</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/medaka/util/sequences.html#write_test_sequences"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#medaka.util.sequences.write_test_sequences" title="Permalink to this definition">¶</a></dt>
+<dd><p>Extract and write original and correctd fasta sequences from test data</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>test_data</strong> – test data array</li>
+<li><strong>model</strong> – keras model</li>
+<li><strong>test_steps</strong> – int number of steps (batches)</li>
+<li><strong>batch_size</strong> – int batch_size</li>
+<li><strong>window_size</strong> – int window_size</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+<div class="section" id="module-medaka.util">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-medaka.util" title="Permalink to this headline">¶</a></h2>
+</div>
+</div>
+
+
+           </div>
+           <div class="articleComments">
+            
+           </div>
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+      
+        <a href="medaka.html" class="btn btn-neutral" title="medaka package" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2017, Oxford Nanopore Technologies.
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'./',
+            VERSION:'0.0.1',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true,
+            SOURCELINK_SUFFIX: '.txt'
+        };
+    </script>
+      <script type="text/javascript" src="_static/jquery.js"></script>
+      <script type="text/javascript" src="_static/underscore.js"></script>
+      <script type="text/javascript" src="_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>
