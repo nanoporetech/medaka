@@ -1,0 +1,546 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>medaka.util.pileup &mdash; Medaka 0.0.1 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+        <link rel="index" title="Index"
+              href="../../../genindex.html"/>
+        <link rel="search" title="Search" href="../../../search.html"/>
+    <link rel="top" title="Medaka 0.0.1 documentation" href="../../../index.html"/>
+        <link rel="up" title="Module code" href="../../index.html"/> 
+
+  
+  <script src="../../../_static/js/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+   
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search">
+          
+
+          
+            <a href="../../../index.html" class="icon icon-home"> Medaka
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                0.0.1
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../examples.html">Medaka Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../future.html">History and Future Directions</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../medaka.html">medaka package</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">Medaka</a>
+        
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../../../index.html">Docs</a> &raquo;</li>
+        
+          <li><a href="../../index.html">Module code</a> &raquo;</li>
+        
+      <li>medaka.util.pileup</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <h1>Source code for medaka.util.pileup</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span> <span class="nn">collections</span> <span class="k">import</span> <span class="n">defaultdict</span><span class="p">,</span> <span class="n">Counter</span><span class="p">,</span> <span class="n">namedtuple</span>
+<span class="kn">import</span> <span class="nn">itertools</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">pysam</span>
+
+
+<div class="viewcode-block" id="get_reference_names"><a class="viewcode-back" href="../../../medaka.util.html#medaka.util.pileup.get_reference_names">[docs]</a><span class="k">def</span> <span class="nf">get_reference_names</span><span class="p">(</span><span class="n">bam</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Obtain reference names</span>
+
+<span class="sd">    :param bam: bam file</span>
+<span class="sd">    :returns: list of reference names</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">idx_stats</span> <span class="o">=</span> <span class="n">pysam</span><span class="o">.</span><span class="n">idxstats</span><span class="p">(</span><span class="n">bam</span><span class="p">)</span>
+    <span class="n">ref_stats</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">)</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">idx_stats</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)[:</span><span class="o">-</span><span class="mi">2</span><span class="p">]]</span>
+    <span class="n">ref_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">ref_stats</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">ref_names</span></div>
+
+
+<div class="viewcode-block" id="get_reference_length"><a class="viewcode-back" href="../../../medaka.util.html#medaka.util.pileup.get_reference_length">[docs]</a><span class="k">def</span> <span class="nf">get_reference_length</span><span class="p">(</span><span class="n">bam</span><span class="p">,</span> <span class="n">ref</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Obtain length of a reference</span>
+
+<span class="sd">    :param bam: bam file</span>
+<span class="sd">    :param ref: name of reference</span>
+<span class="sd">    :returns: int length of reference</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">idx_stats</span> <span class="o">=</span> <span class="n">pysam</span><span class="o">.</span><span class="n">idxstats</span><span class="p">(</span><span class="n">bam</span><span class="p">)</span>
+    <span class="n">ref_stats</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">)</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">idx_stats</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)[:</span><span class="o">-</span><span class="mi">2</span><span class="p">]]</span>
+    <span class="n">ref_length</span> <span class="o">=</span> <span class="p">{</span><span class="n">r</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span> <span class="n">r</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">ref_stats</span><span class="p">}</span>
+    <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">ref_length</span><span class="p">[</span><span class="n">ref</span><span class="p">])</span></div>
+
+
+<div class="viewcode-block" id="no_coverage"><a class="viewcode-back" href="../../../medaka.util.html#medaka.util.pileup.no_coverage">[docs]</a><span class="k">def</span> <span class="nf">no_coverage</span><span class="p">(</span><span class="n">bam</span><span class="p">,</span> <span class="n">ref</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Obtain reference positions with 0 aligned query sequences</span>
+
+<span class="sd">    :param bam: bam file</span>
+<span class="sd">    :param ref: name of reference to process</span>
+<span class="sd">    :param start: starting position within reference</span>
+<span class="sd">    :param end: ending position within reference</span>
+<span class="sd">    :returns: list of int reference positions without query sequence coverage</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">start</span> <span class="ow">and</span> <span class="n">end</span><span class="p">):</span>
+        <span class="n">depth</span> <span class="o">=</span> <span class="n">pysam</span><span class="o">.</span><span class="n">depth</span><span class="p">(</span><span class="s1">&#39;-aa&#39;</span><span class="p">,</span> <span class="n">bam</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">pos</span> <span class="o">=</span> <span class="s1">&#39;</span><span class="si">{}</span><span class="s1">:</span><span class="si">{}</span><span class="s1">-</span><span class="si">{}</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">ref</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span>
+        <span class="n">depth</span> <span class="o">=</span> <span class="n">pysam</span><span class="o">.</span><span class="n">depth</span><span class="p">(</span><span class="s1">&#39;-aa&#39;</span><span class="p">,</span> <span class="n">bam</span><span class="p">,</span> <span class="s1">&#39;-r&#39;</span><span class="p">,</span> <span class="n">pos</span><span class="p">)</span>
+    <span class="n">data_lines</span> <span class="o">=</span> <span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">)</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">depth</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+    <span class="n">no_aln</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="o">-</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">data_lines</span> <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">p</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">no_aln</span></div>
+
+
+<div class="viewcode-block" id="multiple_coverage"><a class="viewcode-back" href="../../../medaka.util.html#medaka.util.pileup.multiple_coverage">[docs]</a><span class="k">def</span> <span class="nf">multiple_coverage</span><span class="p">(</span><span class="n">bam</span><span class="p">,</span> <span class="n">ref</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Returns list of reference positions with 2 or more</span>
+<span class="sd">    aligned query sequences</span>
+
+<span class="sd">    :param bam: bam file</span>
+<span class="sd">    :param ref: name of reference to process</span>
+<span class="sd">    :param start: starting position within reference</span>
+<span class="sd">    :param end: ending position within reference</span>
+<span class="sd">    :returns: list of int reference positions with multiple query</span>
+<span class="sd">        sequence coverage</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">start</span> <span class="ow">and</span> <span class="n">end</span><span class="p">):</span>
+        <span class="n">depth</span> <span class="o">=</span> <span class="n">pysam</span><span class="o">.</span><span class="n">depth</span><span class="p">(</span><span class="s1">&#39;-aa&#39;</span><span class="p">,</span> <span class="n">bam</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">pos</span> <span class="o">=</span> <span class="s1">&#39;</span><span class="si">{}</span><span class="s1">:</span><span class="si">{}</span><span class="s1">-</span><span class="si">{}</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">ref</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span>
+        <span class="n">depth</span> <span class="o">=</span> <span class="n">pysam</span><span class="o">.</span><span class="n">depth</span><span class="p">(</span><span class="s1">&#39;-aa&#39;</span><span class="p">,</span> <span class="n">bam</span><span class="p">,</span> <span class="s1">&#39;-r&#39;</span><span class="p">,</span> <span class="n">pos</span><span class="p">)</span>
+    <span class="n">data_lines</span> <span class="o">=</span> <span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\t</span><span class="s1">&#39;</span><span class="p">)</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">depth</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+    <span class="n">multi_aln</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="o">-</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">data_lines</span> <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">p</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">multi_aln</span></div>
+
+
+<span class="n">AlignPos</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s1">&#39;AlignPos&#39;</span><span class="p">,</span> <span class="p">(</span><span class="s1">&#39;qpos&#39;</span><span class="p">,</span> <span class="s1">&#39;qbase&#39;</span><span class="p">,</span> <span class="s1">&#39;rpos&#39;</span><span class="p">,</span> <span class="s1">&#39;rbase&#39;</span><span class="p">))</span>
+
+
+<div class="viewcode-block" id="feature_index"><a class="viewcode-back" href="../../../medaka.util.html#medaka.util.pileup.feature_index">[docs]</a><span class="k">def</span> <span class="nf">feature_index</span><span class="p">(</span><span class="n">rev</span><span class="p">,</span> <span class="n">base</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Defines integer encoding of base and del symbols</span>
+
+<span class="sd">    :param rev: boolean read maps to reverse orientation</span>
+<span class="sd">    :param base: {&#39;A&#39;, &#39;C&#39;, &#39;G&#39;, &#39;T&#39;, None}. None indicates deletion.</span>
+<span class="sd">    :returns: int encoded base</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">fwd_base_mapping</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;A&#39;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s1">&#39;C&#39;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="s1">&#39;G&#39;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span> <span class="s1">&#39;T&#39;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span> <span class="kc">None</span><span class="p">:</span> <span class="mi">5</span><span class="p">}</span>
+    <span class="n">rev_base_mapping</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;A&#39;</span><span class="p">:</span> <span class="mi">6</span><span class="p">,</span> <span class="s1">&#39;C&#39;</span><span class="p">:</span> <span class="mi">7</span><span class="p">,</span> <span class="s1">&#39;G&#39;</span><span class="p">:</span> <span class="mi">8</span><span class="p">,</span> <span class="s1">&#39;T&#39;</span><span class="p">:</span> <span class="mi">9</span><span class="p">,</span> <span class="kc">None</span><span class="p">:</span> <span class="mi">10</span><span class="p">}</span>
+    <span class="k">if</span> <span class="n">rev</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">rev_base_mapping</span><span class="p">[</span><span class="n">base</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">fwd_base_mapping</span><span class="p">[</span><span class="n">base</span><span class="p">]</span></div>
+
+<span class="c1"># convert oriented base symbol to integer code</span>
+<span class="n">orient_base_to_int</span> <span class="o">=</span> <span class="p">{</span><span class="n">x</span><span class="p">:</span> <span class="n">feature_index</span><span class="p">(</span><span class="o">*</span><span class="n">x</span><span class="p">)</span>
+                      <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">itertools</span><span class="o">.</span><span class="n">product</span><span class="p">((</span><span class="kc">True</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span>
+                                                 <span class="nb">list</span><span class="p">(</span><span class="s1">&#39;ACGT&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="p">[</span><span class="kc">None</span><span class="p">])}</span>
+
+<span class="c1"># convert integer code back to base symbols</span>
+<span class="n">int_to_orient_base</span> <span class="o">=</span> <span class="p">{</span><span class="n">code</span><span class="p">:</span> <span class="p">(</span><span class="s1">&#39;d&#39;</span> <span class="k">if</span> <span class="n">is_rev</span> <span class="ow">and</span> <span class="n">base</span> <span class="ow">is</span> <span class="kc">None</span>
+                             <span class="k">else</span> <span class="s1">&#39;D&#39;</span> <span class="k">if</span> <span class="n">base</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span>
+                             <span class="n">base</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">if</span> <span class="n">is_rev</span> <span class="k">else</span>
+                             <span class="n">base</span><span class="p">)</span>
+                      <span class="k">for</span> <span class="p">(</span><span class="n">is_rev</span><span class="p">,</span> <span class="n">base</span><span class="p">),</span> <span class="n">code</span> <span class="ow">in</span> <span class="n">orient_base_to_int</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+
+
+<div class="viewcode-block" id="bam_to_feature_array"><a class="viewcode-back" href="../../../medaka.util.html#medaka.util.pileup.bam_to_feature_array">[docs]</a><span class="k">def</span> <span class="nf">bam_to_feature_array</span><span class="p">(</span><span class="n">reads_bam</span><span class="p">,</span> <span class="n">ref</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Converts a section of an alignment pileup (as shown</span>
+<span class="sd">    by e.g. samtools tview) to a base frequency feature array</span>
+
+<span class="sd">    :param reads_bam: (sorted indexed) bam with read alignment to reference</span>
+<span class="sd">    :param ref: name of reference to process</span>
+<span class="sd">    :param start: starting position within reference</span>
+<span class="sd">    :param end: ending position within reference</span>
+<span class="sd">    :returns: tuple(positions, feature_array)</span>
+
+<span class="sd">        - positions: numpy structured array with &#39;ref_major&#39;</span>
+<span class="sd">          (reference position index) and &#39;ref_minor&#39;</span>
+<span class="sd">          (trailing insertion index) fields.</span>
+
+<span class="sd">        - feature_array: 2D numpy array where each row is an</span>
+<span class="sd">          11-element feature array for a pileup position:</span>
+<span class="sd">          array([(encoded) reference base, nA+, nC+, nG+, </span>
+<span class="sd">          nT+, nDel+, nA-, nC-, nG-, nT-, nDel-])</span>
+
+<span class="sd">          (e.g. nA+ = num. forward reads aligning with A</span>
+<span class="sd">          to ref pos) (reference bases are encoded by</span>
+<span class="sd">          :func:`feature_index`)</span>
+
+<span class="sd">    :Example:</span>
+
+<span class="sd">    ::</span>
+
+<span class="sd">         Outputs for a minimal pileup with 3 aligned reads:</span>
+
+<span class="sd">         reference sequence: AC**T</span>
+<span class="sd">                      read1: ACG*T  (forward alignment)</span>
+<span class="sd">                      read2: ACGGT  (forward alignment)</span>
+<span class="sd">                      read3: ac**t  (reverse alignment)</span>
+
+<span class="sd">         positions:</span>
+
+<span class="sd">             ref_major  ref_minor</span>
+<span class="sd">             1          0</span>
+<span class="sd">             2          0</span>
+<span class="sd">             2          1</span>
+<span class="sd">             2          2</span>
+<span class="sd">             3          0</span>
+
+<span class="sd">         feature_array:</span>
+
+<span class="sd">             array([[1, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0]   (2xA+, 1xA-)</span>
+<span class="sd">                    [2  0, 2, 0, 0, 0, 0, 1, 0, 0, 0]   (2xC+, 1xC-)</span>
+<span class="sd">                    [5  0, 0, 2, 0, 0, 0, 0, 0, 0, 1]   (2xG+, 1xDel-)</span>
+<span class="sd">                    [5  0, 0, 1, 0, 1, 0, 0, 0, 0, 1]   (1xG+, 1xDel+, 1xDel-)</span>
+<span class="sd">                    [4  0, 0, 0, 2, 0, 0, 0, 0, 1, 0]]) (1xT+, 1xT-)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">aln_counters</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="n">Counter</span><span class="p">)</span>
+    <span class="n">ref_bases</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+
+    <span class="k">with</span> <span class="n">pysam</span><span class="o">.</span><span class="n">AlignmentFile</span><span class="p">(</span><span class="n">reads_bam</span><span class="p">,</span> <span class="s1">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">bamfile</span><span class="p">:</span>
+        <span class="n">n_aln</span> <span class="o">=</span> <span class="n">bamfile</span><span class="o">.</span><span class="n">count</span><span class="p">(</span><span class="n">ref</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;</span><span class="si">{}</span><span class="s1"> reads aligned to ref segment.&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">n_aln</span><span class="p">))</span>
+        <span class="n">aln_reads</span> <span class="o">=</span> <span class="n">bamfile</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">ref</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">aln</span> <span class="ow">in</span> <span class="n">aln_reads</span><span class="p">:</span>
+
+            <span class="n">seq</span> <span class="o">=</span> <span class="n">aln</span><span class="o">.</span><span class="n">query_sequence</span>
+            <span class="n">reverse</span> <span class="o">=</span> <span class="n">aln</span><span class="o">.</span><span class="n">is_reverse</span>
+
+            <span class="n">pairs</span> <span class="o">=</span> <span class="p">(</span><span class="n">AlignPos</span><span class="p">(</span><span class="n">qp</span><span class="p">,</span> <span class="n">seq</span><span class="p">[</span><span class="n">qp</span><span class="p">],</span> <span class="n">rp</span><span class="p">,</span> <span class="n">rb</span><span class="p">)</span> <span class="k">if</span> <span class="n">qp</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                     <span class="k">else</span> <span class="n">AlignPos</span><span class="p">(</span><span class="n">qp</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">rp</span><span class="p">,</span> <span class="n">rb</span><span class="p">)</span>
+                     <span class="k">for</span> <span class="n">qp</span><span class="p">,</span> <span class="n">rp</span><span class="p">,</span> <span class="n">rb</span> <span class="ow">in</span> <span class="n">aln</span><span class="o">.</span><span class="n">get_aligned_pairs</span><span class="p">(</span><span class="n">with_seq</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+
+            <span class="n">ins_count</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">for</span> <span class="n">pair</span> <span class="ow">in</span> <span class="n">itertools</span><span class="o">.</span><span class="n">dropwhile</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">rpos</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="n">pairs</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">pair</span><span class="o">.</span><span class="n">rpos</span> <span class="o">==</span> <span class="n">aln</span><span class="o">.</span><span class="n">reference_end</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="k">if</span> <span class="n">pair</span><span class="o">.</span><span class="n">rpos</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">ins_count</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">ins_count</span> <span class="o">=</span> <span class="mi">0</span>
+                    <span class="n">current_pos</span> <span class="o">=</span> <span class="n">pair</span><span class="o">.</span><span class="n">rpos</span>
+
+                <span class="p">(</span><span class="n">aln_counters</span><span class="p">[(</span><span class="n">current_pos</span><span class="p">,</span> <span class="n">ins_count</span><span class="p">)]</span>
+                 <span class="p">[</span><span class="n">orient_base_to_int</span><span class="p">[</span><span class="n">reverse</span><span class="p">,</span> <span class="n">pair</span><span class="o">.</span><span class="n">qbase</span><span class="p">]])</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="n">ref_base</span> <span class="o">=</span> <span class="p">(</span><span class="n">orient_base_to_int</span><span class="p">[</span><span class="kc">False</span><span class="p">,</span> <span class="n">pair</span><span class="o">.</span><span class="n">rbase</span><span class="o">.</span><span class="n">upper</span><span class="p">()]</span>
+                             <span class="k">if</span> <span class="n">pair</span><span class="o">.</span><span class="n">rbase</span> <span class="k">else</span> <span class="n">orient_base_to_int</span><span class="p">[</span><span class="kc">False</span><span class="p">,</span> <span class="kc">None</span><span class="p">])</span>
+                <span class="n">ref_bases</span><span class="p">[(</span><span class="n">current_pos</span><span class="p">,</span> <span class="n">ins_count</span><span class="p">)]</span> <span class="o">=</span> <span class="n">ref_base</span>
+
+        <span class="c1"># trim to the region of interest</span>
+        <span class="k">if</span> <span class="n">start</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">if</span> <span class="n">end</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">end</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;Inf&#39;</span><span class="p">)</span>
+        <span class="n">aln_counters</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">aln_counters</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+                        <span class="k">if</span> <span class="n">k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">start</span> <span class="ow">and</span> <span class="n">k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">end</span><span class="p">}</span>
+        <span class="n">ref_bases</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">ref_bases</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+                      <span class="k">if</span> <span class="n">k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">start</span> <span class="ow">and</span> <span class="n">k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">end</span><span class="p">}</span>
+
+        <span class="n">aln_cols</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">aln_counters</span><span class="p">)</span>
+        <span class="n">feature_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">orient_base_to_int</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="n">feature_array</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">aln_cols</span><span class="p">,</span> <span class="n">feature_len</span><span class="p">))</span>
+        <span class="n">positions</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">aln_cols</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="p">[(</span><span class="s1">&#39;ref_major&#39;</span><span class="p">,</span> <span class="nb">int</span><span class="p">),</span>
+                                              <span class="p">(</span><span class="s1">&#39;ref_minor&#39;</span><span class="p">,</span> <span class="nb">int</span><span class="p">)])</span>
+
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">((</span><span class="n">pos</span><span class="p">,</span> <span class="n">counts</span><span class="p">),</span> <span class="p">(</span><span class="n">_</span><span class="p">,</span> <span class="n">ref_base</span><span class="p">))</span> <span class="ow">in</span> \
+                <span class="nb">enumerate</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">aln_counters</span><span class="o">.</span><span class="n">items</span><span class="p">()),</span>
+                              <span class="nb">sorted</span><span class="p">(</span><span class="n">ref_bases</span><span class="o">.</span><span class="n">items</span><span class="p">()))):</span>
+            <span class="n">positions</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">pos</span>
+            <span class="n">feature_array</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">ref_base</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">counts</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">feature_array</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">counts</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+
+        <span class="k">return</span> <span class="n">positions</span><span class="p">,</span> <span class="n">feature_array</span></div>
+
+
+<div class="viewcode-block" id="bam_to_label"><a class="viewcode-back" href="../../../medaka.util.html#medaka.util.pileup.bam_to_label">[docs]</a><span class="k">def</span> <span class="nf">bam_to_label</span><span class="p">(</span><span class="n">truth_bam</span><span class="p">,</span> <span class="n">ref</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Create encoded truth array.</span>
+
+<span class="sd">    :param truth_bam: (sorted indexed) bam with true sequence aligned to reference</span>
+<span class="sd">    :param ref: name of reference to process</span>
+<span class="sd">    :param start: starting position within reference</span>
+<span class="sd">    :param end: ending position within reference</span>
+<span class="sd">    :returns: tuple(positions, encoded_label_array)</span>
+
+<span class="sd">        - positions: numpy structured array with &#39;ref_major&#39;</span>
+<span class="sd">          (reference position index) and &#39;ref_minor&#39;</span>
+<span class="sd">          (trailing insertion index) fields.</span>
+
+<span class="sd">        - feature_array: 1D numpy array of encoded labels</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">position_to_label</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">with</span> <span class="n">pysam</span><span class="o">.</span><span class="n">AlignmentFile</span><span class="p">(</span><span class="n">truth_bam</span><span class="p">,</span> <span class="s1">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">bamfile</span><span class="p">:</span>
+        <span class="n">aln_reads</span> <span class="o">=</span> <span class="n">bamfile</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">ref</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">aln</span> <span class="ow">in</span> <span class="n">aln_reads</span><span class="p">:</span>
+
+            <span class="n">seq</span> <span class="o">=</span> <span class="n">aln</span><span class="o">.</span><span class="n">query_sequence</span>
+
+            <span class="n">pairs</span> <span class="o">=</span> <span class="p">(</span><span class="n">AlignPos</span><span class="p">(</span><span class="n">qp</span><span class="p">,</span> <span class="n">seq</span><span class="p">[</span><span class="n">qp</span><span class="p">],</span> <span class="n">rp</span><span class="p">,</span> <span class="n">rb</span><span class="p">)</span> <span class="k">if</span> <span class="n">qp</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                     <span class="k">else</span> <span class="n">AlignPos</span><span class="p">(</span><span class="n">qp</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">rp</span><span class="p">,</span> <span class="n">rb</span><span class="p">)</span>
+                     <span class="k">for</span> <span class="n">qp</span><span class="p">,</span> <span class="n">rp</span><span class="p">,</span> <span class="n">rb</span> <span class="ow">in</span> <span class="n">aln</span><span class="o">.</span><span class="n">get_aligned_pairs</span><span class="p">(</span><span class="n">with_seq</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+
+            <span class="n">ins_count</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">for</span> <span class="n">pair</span> <span class="ow">in</span> <span class="n">itertools</span><span class="o">.</span><span class="n">dropwhile</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">rpos</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">,</span> <span class="n">pairs</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">pair</span><span class="o">.</span><span class="n">rpos</span> <span class="o">==</span> <span class="n">aln</span><span class="o">.</span><span class="n">reference_end</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="k">if</span> <span class="n">pair</span><span class="o">.</span><span class="n">rpos</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">ins_count</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">ins_count</span> <span class="o">=</span> <span class="mi">0</span>
+                    <span class="n">current_pos</span> <span class="o">=</span> <span class="n">pair</span><span class="o">.</span><span class="n">rpos</span>
+                <span class="n">position_to_label</span><span class="p">[(</span><span class="n">current_pos</span><span class="p">,</span> <span class="n">ins_count</span><span class="p">)]</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">orient_base_to_int</span><span class="p">[</span><span class="kc">False</span><span class="p">,</span> <span class="n">pair</span><span class="o">.</span><span class="n">qbase</span><span class="o">.</span><span class="n">upper</span><span class="p">()]</span>
+                    <span class="k">if</span> <span class="n">pair</span><span class="o">.</span><span class="n">qbase</span> <span class="k">else</span> <span class="n">orient_base_to_int</span><span class="p">[</span><span class="kc">False</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span>
+                <span class="p">)</span>
+
+        <span class="c1"># trim to the region of interest</span>
+        <span class="k">if</span> <span class="n">start</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">if</span> <span class="n">end</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">end</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;Inf&#39;</span><span class="p">)</span>
+
+        <span class="n">position_to_label</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">position_to_label</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+                             <span class="k">if</span> <span class="n">k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">start</span> <span class="ow">and</span> <span class="n">k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">end</span><span class="p">}</span>
+
+        <span class="n">aln_cols</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">position_to_label</span><span class="p">)</span>
+        <span class="n">label_array</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">aln_cols</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="n">positions</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">aln_cols</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="p">[(</span><span class="s1">&#39;ref_major&#39;</span><span class="p">,</span> <span class="nb">int</span><span class="p">),</span>
+                                              <span class="p">(</span><span class="s1">&#39;ref_minor&#39;</span><span class="p">,</span> <span class="nb">int</span><span class="p">)])</span>
+
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">label</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">position_to_label</span><span class="o">.</span><span class="n">items</span><span class="p">())):</span>
+            <span class="n">positions</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">pos</span>
+            <span class="n">label_array</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">label</span>
+
+        <span class="k">return</span> <span class="n">position</span><span class="p">,</span> <span class="n">label</span></div>
+
+<div class="viewcode-block" id="prepare_training_data"><a class="viewcode-back" href="../../../medaka.util.html#medaka.util.pileup.prepare_training_data">[docs]</a><span class="k">def</span> <span class="nf">prepare_training_data</span><span class="p">(</span><span class="n">reads_bam</span><span class="p">,</span> <span class="n">truth_bam</span><span class="p">,</span> <span class="n">ref</span><span class="p">,</span> <span class="n">limits</span><span class="o">=</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)):</span>
+    <span class="sd">&quot;&quot;&quot;Prepare data for model training</span>
+
+<span class="sd">    :param reads_bam: (sorted indexed) bam with read alignment to reference</span>
+<span class="sd">    :param truth_bam: (sorted indexed) bam with true sequence aligned to reference</span>
+<span class="sd">    :param ref: name of reference to process</span>
+<span class="sd">    :param limits: start and end points of reference</span>
+<span class="sd">    :returns: tuple (filtered_features, labels)</span>
+
+<span class="sd">        - filtered_features: 2D numpy array with base frequency features</span>
+<span class="sd">          as described in :func:`bam_to_feature_array` for valid reference</span>
+<span class="sd">          positions (where there is an unambiguous &#39;truth&#39; label provided by</span>
+<span class="sd">          the known sequence.</span>
+
+<span class="sd">        - labels: 1D numpy array of integer encoded labels for each valid</span>
+<span class="sd">          reference position.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">start</span><span class="p">,</span> <span class="n">end</span> <span class="o">=</span> <span class="n">limits</span>
+    <span class="n">read_pos</span><span class="p">,</span> <span class="n">read_features</span> <span class="o">=</span> <span class="n">bam_to_feature_array</span><span class="p">(</span><span class="n">reads_bam</span><span class="p">,</span> <span class="n">ref</span><span class="p">,</span>
+                                                   <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span>
+    <span class="n">truth_pos</span><span class="p">,</span> <span class="n">label_array</span> <span class="o">=</span> <span class="n">bam_to_label</span><span class="p">(</span><span class="n">truth_bam</span><span class="p">,</span> <span class="n">ref</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span>
+    <span class="n">position_to_label</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">([</span><span class="nb">tuple</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">positions</span><span class="p">],</span>
+                                 <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">label_array</span><span class="p">]))</span>
+
+    <span class="n">no_label</span> <span class="o">=</span> <span class="n">no_coverage</span><span class="p">(</span><span class="n">truth_bam</span><span class="p">,</span> <span class="n">ref</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span>
+    <span class="n">multi_label</span> <span class="o">=</span> <span class="n">multiple_coverage</span><span class="p">(</span><span class="n">truth_bam</span><span class="p">,</span> <span class="n">ref</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span>
+    <span class="n">blacklist</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">no_label</span> <span class="o">+</span> <span class="n">multi_label</span><span class="p">)</span>
+
+    <span class="n">good_pos_mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">in1d</span><span class="p">(</span><span class="n">read_pos</span><span class="p">[</span><span class="s1">&#39;ref_major&#39;</span><span class="p">],</span> <span class="n">blacklist</span><span class="p">,</span> <span class="n">invert</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">filtered_features</span> <span class="o">=</span> <span class="n">read_features</span><span class="p">[</span><span class="n">good_pos_mask</span><span class="p">]</span>
+    <span class="n">filtered_read_pos</span> <span class="o">=</span> <span class="n">read_pos</span><span class="p">[</span><span class="n">good_pos_mask</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">encode_label</span><span class="p">(</span><span class="n">pos</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">label</span> <span class="o">=</span> <span class="n">position_to_label</span><span class="p">[</span><span class="n">pos</span><span class="p">]</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="n">label</span> <span class="o">=</span> <span class="mi">5</span>
+        <span class="k">return</span> <span class="n">label</span>
+
+    <span class="n">valid_positions</span> <span class="o">=</span> <span class="p">((</span><span class="n">pos</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">pos</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="k">for</span> <span class="n">pos</span> <span class="ow">in</span> <span class="n">filtered_read_pos</span><span class="p">)</span>
+    <span class="n">labels</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">encode_label</span><span class="p">(</span><span class="n">vp</span><span class="p">)</span> <span class="k">for</span> <span class="n">vp</span> <span class="ow">in</span> <span class="n">valid_positions</span><span class="p">])</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">filtered_features</span><span class="p">,</span> <span class="n">labels</span></div>
+</pre></div>
+
+           </div>
+           <div class="articleComments">
+            
+           </div>
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2017, Oxford Nanopore Technologies.
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../../',
+            VERSION:'0.0.1',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true,
+            SOURCELINK_SUFFIX: '.txt'
+        };
+    </script>
+      <script type="text/javascript" src="../../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>
