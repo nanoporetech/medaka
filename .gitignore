@@ -2,7 +2,6 @@ venv
 *.pyd
 *.pyc
 *.so
-*.html
 *#
 *~
 *.swp
