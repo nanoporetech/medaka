@@ -272,7 +272,7 @@ def bam_to_label(truth_bam, ref, start=None, end=None):
             positions[i] = pos
             label_array[i] = label
 
-        return position, label
+        return positions, label_array
 
 def prepare_training_data(reads_bam, truth_bam, ref, limits=(None, None)):
     """Prepare data for model training
@@ -295,7 +295,7 @@ def prepare_training_data(reads_bam, truth_bam, ref, limits=(None, None)):
     read_pos, read_features = bam_to_feature_array(reads_bam, ref,
                                                    start, end)
     truth_pos, label_array = bam_to_label(truth_bam, ref, start, end)
-    position_to_label = dict(zip([tuple(p) for p in positions],
+    position_to_label = dict(zip([tuple(p) for p in truth_pos],
                                  [int(a) for a in label_array]))
 
     no_label = no_coverage(truth_bam, ref, start, end)
