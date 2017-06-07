@@ -23,7 +23,7 @@ data of multiple reads. For more details see :ref:`FutureDirections`.
 
 
 Sequence correction
-------------------
+-------------------
 
 `medaka_correct` uses a neural network error model to fix errors in input sequences.
 

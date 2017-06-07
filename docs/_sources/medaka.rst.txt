@@ -1,0 +1,46 @@
+medaka package
+==============
+
+Subpackages
+-----------
+
+.. toctree::
+
+    medaka.data
+    medaka.util
+
+Submodules
+----------
+
+medaka\.correct module
+----------------------
+
+.. automodule:: medaka.correct
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+medaka\.prepare module
+----------------------
+
+.. automodule:: medaka.prepare
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+medaka\.train module
+--------------------
+
+.. automodule:: medaka.train
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: medaka
+    :members:
+    :undoc-members:
+    :show-inheritance:
