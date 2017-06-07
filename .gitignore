@@ -1,0 +1,17 @@
+venv
+*.pyd
+*.pyc
+*.so
+*.html
+*#
+*~
+*.swp
+.#*
+*.egg-info
+build
+dist
+deb_dist
+tmp/
+*.gz
+*__pycache__*
+*.fna

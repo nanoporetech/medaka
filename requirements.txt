@@ -1,0 +1,9 @@
+# medaka requirements. 
+# Add comments to keep track of why we are using particular versions
+biopython
+h5py
+keras
+tensorflow
+numpy
+pysam
+
