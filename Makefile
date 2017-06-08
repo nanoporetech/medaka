@@ -26,8 +26,8 @@ ALLSPHINXOPTS   = -d $(BUILDDIR)/doctrees $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) .
 DOCSRC = docs
 
 docs: venv
-        ${IN_VENV} && pip install sphinx sphinx_rtd_theme sphinx-argparse
-        ${IN_VENV} && cd $(DOCSRC) && $(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
-        @echo
-        @echo "Build finished. The HTML pages are in $(DOCSRC)/$(BUILDDIR)/html."
-        touch $(DOCSRC)/$(BUILDDIR)/html/.nojekyll
+	${IN_VENV} && pip install sphinx sphinx_rtd_theme sphinx-argparse
+	${IN_VENV} && cd $(DOCSRC) && $(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
+	@echo
+	@echo "Build finished. The HTML pages are in $(DOCSRC)/$(BUILDDIR)/html."
+	touch $(DOCSRC)/$(BUILDDIR)/html/.nojekyll
