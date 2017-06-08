@@ -1,7 +1,0 @@
-medaka
-======
-
-.. toctree::
-   :maxdepth: 4
-
-   medaka
