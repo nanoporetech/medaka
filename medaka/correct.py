@@ -24,7 +24,7 @@ from medaka.util.sequences import (model_output_to_fasta, assemble_sequences,
 def correct_reference_segment(bam, reference, model, limits=(None, None)):
     """Correct a segment of a reference sequence
 
-    :param bam: (sorted indexed) bam with read alignment to assembly
+    :param bam: (sorted indexed) bam with read alignment to reference
     :param reference: name of reference to process
     :param model: keras model object
     :param limits: int start and end points of segment
