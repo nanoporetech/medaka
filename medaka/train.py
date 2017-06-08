@@ -100,7 +100,7 @@ def train_lstm(data, label, tvt_ratio, data_pp, batch_size, window_size,
                                                        limits,
                                                        *params)
 
-    # establish the baseline accuracy of the assembly
+    # establish the baseline accuracy of the reference
     train_benchmark = get_benchmark(X_train, y_train,
                                     train_steps, *params)
     validate_benchmark = get_benchmark(X_validate, y_validate,
@@ -108,11 +108,11 @@ def train_lstm(data, label, tvt_ratio, data_pp, batch_size, window_size,
     test_benchmark = get_benchmark(X_test, y_test,
                                    test_steps, *params)
     print('benchmark accuracy on training set {}, '
-          '(assembly gives correct base).'.format(train_benchmark))
+          '(reference gives correct base).'.format(train_benchmark))
     print('benchmark accuracy on validation set {}, '
-          '(assembly gives correct base).'.format(validate_benchmark))
+          '(reference gives correct base).'.format(validate_benchmark))
     print('benchmark accuracy on test set {}, '
-          '(assembly gives correct base).'.format(test_benchmark))
+          '(reference gives correct base).'.format(test_benchmark))
 
     np.random.seed(0)
 
