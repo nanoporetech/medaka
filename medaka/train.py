@@ -171,16 +171,17 @@ def get_parser():
     return parser
 
 
-def load_data(datafile):
+def load_data(datafile, data_pp):
     with h5py.File(datafile) as f:
-        data = f['data'][()]
-        label = f['label'][()]
+        limit = int(f['data'].shape[0] * data_pp)
+        data = f['data'][:limit]
+        label = f['label'][:limit]
     return data, label
 
 
 def main():
     args = get_parser().parse_args()
-    data, label = load_data(args.datafile)
+    data, label = load_data(args.datafile, args.data_pp)
     train_lstm(
         data,
         label,
