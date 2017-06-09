@@ -67,28 +67,27 @@ def build_lstm(batch_shape):
     return model
 
 
-def calculate_tvt_limits(data_size, tvt_ratio, data_pp):
+def calculate_tvt_limits(data_size, tvt_ratio):
     """
     Calculate indices separating training, validate and test set
 
     :param data_size: int number of rows in feature array
     :param tvt_ratio: list ratio of [training, validatation, test] set sizes
-    :param data_pp: proportion of data to use (e.g. 0.5 for first half of data)
     :returns: 4-element numpy array of indices
     """
     tvt_ratio = np.array(tvt_ratio, 'float')
-    lims = [0] +  [int(l) for l in (np.cumsum(tvt_ratio) / np.sum(tvt_ratio)) *
-                   (data_size * data_pp)]
+    lims = [0] +  [int(l) for l in (np.cumsum(tvt_ratio) /
+                   np.sum(tvt_ratio)) * data_size]
     return lims
 
 
-def train_lstm(data, label, tvt_ratio, data_pp, batch_size, window_size,
+def train_lstm(data, label, tvt_ratio, batch_size, window_size,
                out_prefix, epochs):
     """
     Train LSTM model.
     """
     # indices marking limits of train, validate, test sets.
-    limits = calculate_tvt_limits(data.shape[0], tvt_ratio, data_pp)
+    limits = calculate_tvt_limits(data.shape[0], tvt_ratio)
 
     params = (batch_size, window_size)
 
