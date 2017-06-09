@@ -185,7 +185,6 @@ def main():
         data,
         label,
         args.tvt_ratio,
-        args.data_pp,
         args.batch_size,
         args.window_size,
         args.out_prefix,
