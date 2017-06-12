@@ -23,8 +23,7 @@ provided to fetch, compile and install all direct dependencies into an
 environment.
 
 To setup the environment run:
-
-    git clone --recursive https://git/research/pomoxis.git
-    cd pomoxis
+    git clone https://github.com/nanoporetech/medaka.git
+    cd medaka
     make install
     . ./venv/bin/activate
