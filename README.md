@@ -24,7 +24,7 @@ environment.
 
 To setup the environment run:
 
-    git clone --recursive https://git/research/pomoxis.git
-    cd pomoxis
+    git clone https://github.com/nanoporetech/medaka.git
+    cd medaka
     make install
     . ./venv/bin/activate
