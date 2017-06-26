@@ -70,18 +70,17 @@ def build_lstm(batch_shape):
     return model
 
 
-def calculate_tvt_limits(data_size, tvt_ratio, data_pp):
+def calculate_tvt_limits(data_size, tvt_ratio):
     """
     Calculate indices separating training, validate and test set
 
     :param data_size: int number of rows in feature array
     :param tvt_ratio: list ratio of [training, validatation, test] set sizes
-    :param data_pp: proportion of data to use (e.g. 0.5 for first half of data)
     :returns: 4-element numpy array of indices
     """
     tvt_ratio = np.array(tvt_ratio, 'float')
-    lims = [0] +  [int(l) for l in (np.cumsum(tvt_ratio) / np.sum(tvt_ratio)) *
-                   (data_size * data_pp)]
+    lims = [0] +  [int(l) for l in (np.cumsum(tvt_ratio) /
+                   np.sum(tvt_ratio)) * data_size]
     return lims
 
 
@@ -109,7 +108,7 @@ def train_lstm(data, label, tvt_ratio, data_pp, batch_size, window_size,
     Train LSTM model.
     """
     # indices marking limits of train, validate, test sets.
-    limits = calculate_tvt_limits(data.shape[0], tvt_ratio, data_pp)
+    limits = calculate_tvt_limits(data.shape[0], tvt_ratio)
 
     params = (batch_size, window_size)
 
@@ -199,10 +198,11 @@ def get_parser():
     return parser
 
 
-def load_data(datafile):
+def load_data(datafile, data_pp):
     with h5py.File(datafile) as f:
-        data = f['data'][()]
-        label = f['label'][()]
+        limit = int(f['data'].shape[0] * data_pp)
+        data = f['data'][:limit]
+        label = f['label'][:limit]
     return data, label
 
 
@@ -219,7 +219,6 @@ def main():
         data,
         label,
         args.tvt_ratio,
-        args.data_pp,
         args.batch_size,
         args.window_size,
         args.out_prefix,
