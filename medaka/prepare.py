@@ -16,7 +16,7 @@ def get_parser():
     parser = argparse.ArgumentParser(
         description="""Generate training data from bam files.""",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--threads', type=int, default=4,
+    parser.add_argument('--threads', type=int, default=1,
                         help='number of processes')
     parser.add_argument('truth_to_ref',
                         help='bam file with true sequence aligned to reference.')
@@ -27,7 +27,7 @@ def get_parser():
     return parser
 
 
-def multi_prepare_reference(reads_bam, truth_bam, reference, threads=4):
+def multi_prepare_reference(reads_bam, truth_bam, reference, threads=1):
     """prepare reference segments in parallel"""
     ref_length = get_reference_length(reads_bam, reference)
     limits = segment_limits(ref_length, overlap_len=0)
