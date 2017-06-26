@@ -40,7 +40,7 @@ Sequence correction
 
     optional arguments:
       -h, --help         show this help message and exit
-      --threads THREADS  number of processes (default: 4)
+      --threads THREADS  number of processes (default: 1)
 
 
 Neural network training
@@ -64,16 +64,17 @@ Generate a training data HDF5 file using `medaka_prepare`.
     
     optional arguments:
       -h, --help         show this help message and exit
-      --threads THREADS  number of processes (default: 4)
+      --threads THREADS  number of processes (default: 1)
 
 Then supply the training data file to `medaka_train`.
 
 .. code-block:: bash
 
-    usage: medaka_train.py [-h] [--out_prefix OUT_PREFIX] [--epochs EPOCHS]
-                           [--window_size WINDOW_SIZE] [--batch_size BATCH_SIZE]
-                           [--data_pp DATA_PP] [--tvt_ratio train validate test]
-                           datafile
+    usage: medaka_train [-h] [--out_prefix OUT_PREFIX] [--epochs EPOCHS]
+                        [--window_size WINDOW_SIZE] [--batch_size BATCH_SIZE]
+                        [--data_pp DATA_PP] [--tvt_ratio train validate test]
+                        [--threads THREADS]
+                        datafile
     
     Train model using preprocessed training data.
     
@@ -94,3 +95,4 @@ Then supply the training data file to `medaka_train`.
       --tvt_ratio train validate test
                             select train:validate:test ratio. (default: [64, 16,
                             20])
+      --threads THREADS     number of concurrent training threads (default: 1)

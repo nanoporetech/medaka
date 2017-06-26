@@ -1,77 +1,141 @@
 import itertools
+import functools
+import threading
 import numpy as np
 
 
-def serve_sample(data, label, window_size):
-    """Generate windowed (data, label) tuples infinitely
+class ThreadsafeIter:
+    """Takes an iterator and makes it thread-safe by
+    serializing call to `next` method.
 
-    :param data: 2D feature array (each row is a feature)
-    :param label: 1D label array
-    :param window_size: int (odd) window of positions flanking predicted label
+    `<http://anandology.com/blog/using-iterators-and-generators/>`_
+    """
+    def __init__(self, it):
+        self.it = it
+        self.lock = threading.Lock()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        with self.lock:
+            return next(self.it)
+
+
+def threadsafe_generator(f):
+    """A decorator that takes a generator function and makes it
+    thread-safe.
+
+    `<http://anandology.com/blog/using-iterators-and-generators/>`_
+    """
+    @functools.wraps(f)
+    def g(*args, **kwargs):
+        return ThreadsafeIter(f(*args, **kwargs))
+    return g
+
+
+def stack_slice(it, n):
+    """stack first n array-like elements from iterable
+    along first dimension (equal size elements required)
+
+    :param it: iterable
+    :param n: upper limit of slice into iterable
+    :returns: numpy ndarray
+    """
+    while True:
+        yield np.stack(itertools.islice(it, n))
+
+
+def _serve_windows_once(arr, window_size):
+    """generator yielding subarrays constituting
+    a sliding window along the first dimension of an array
+
+    :param arr: numpy ndarray
+    :param window_size: int (odd) sliding window size
+    :returns: numpy ndarray
+
+    """
+    assert window_size % 2 != 0
+    for i in range(arr.shape[0] - window_size + 1):
+        yield arr[i: i + window_size]
+
+
+@threadsafe_generator
+def serve_windows(arr, window_size):
+    """returns generator infinitely yielding subarrays constituting
+    a sliding window along the first dimension of the array
+
+    :param arr: numpy ndarray
+    :param window_size: int (odd) sliding window size
+    """
+    return itertools.cycle(_serve_windows_once(arr, window_size))
+
+
+def serve_centrals(label, window_size):
+    """returns generator infinitely yielding the central value
+    from a sliding window along the first dimension of an array
+
+    :param arr: numpy ndarray
+    :param window_size: int (odd) sliding window size
+    """
+    assert window_size % 2 != 0
+    return itertools.cycle(label[window_size // 2: window_size // 2 + 1])
+
+
+@threadsafe_generator
+def serve_sample(data, label, window_size):
+    """return generator infinitely yielding windowed (data, label) tuples
+
+    :param data: 2D numpy ndarray feature array (each row is a feature)
+    :param label: 2D numpy ndarray label array (each row is a label)
+    :param window_size: int (odd) sliding window size
     :returns: tuple (data, label)
 
-        - data: 2D array (shape=(window_size, feature_length))
-        - label: 1D array (shape=window_size,)
-
+        - data: numpy ndarray (shape=(window_size, feature dim))
+        - label: numpy ndarray (shape=(window_size, label dim))
     """
-    assert window_size % 2 != 0
-    i = 0
-    while True:
-        yield data[i:i + window_size], label[i + window_size // 2]
-        i += 1
-        if i == data.shape[0] - window_size + 1:
-            i = 0
+    return zip(serve_windows(data, window_size),
+               serve_centrals(label, window_size))
 
 
-def serve_sample_batch(data, label, batch_size, window_size):
-    """Generate batches of windowed (data, label) samples
-
-    :param data: full feature array (each row is a feature)
-    :param label: full label array
-    :param batch_size: int batch size
-    :param window_size: int (odd) window of positions flanking predicted label
-    :returns: tuple (data batch, label batch)
-
-        - data batch: 3D array (shape=(batch_size, window_size, feature_length))
-        - label batch: 2D array (shape=batch_size, window_size,)
-
-    """
-    dataiter = serve_sample(data, label, window_size)
-    while True:
-        nb1, nb2 = itertools.tee(itertools.islice(dataiter, 0, batch_size))
-        data_out = np.stack(d[0] for d in nb1)
-        label_out = np.stack(d[1] for d in nb2)
-        yield data_out, label_out
-
-
-def serve_data(data, window_size):
-    """Generate windowed data items infinitely
-
-    :param data: full feature array (each row is a feature)
-    :param window_size: int (odd) window of positions flanking predicted label
-    :returns: 2D data array (shape=(window_size, feature_length))
-
-    """
-    assert window_size % 2 != 0
-    i = 0
-    while True:
-        yield data[i:i + window_size]
-        i += 1
-        if i == data.shape[0] - window_size + 1:
-            i = 0
-
-
+@threadsafe_generator
 def serve_data_batch(data, batch_size, window_size):
-    """Generate batches of windowed data items
+    """return generator infinitely yielding batches of windowed data
 
-    :param data: full feature array (each row is a feature)
-    :param label: full label array
-    :param window_size: int (odd) window of positions flanking predicted label
-    :returns: 3D data batch array (shape=(batch_size, window_size, feature_length))
+    :param arr: 2D numpy ndarray feature array (each row is a feature)
+    :param batch_size: int batch size
+    :param window_size: int (odd) sliding window size
+    :returns: numpy ndarray (shape=(batch_size, window_size, feature dim))
+    """
+    return stack_slice(serve_windows(data, window_size), batch_size)
+
+
+def serve_label_batch(label, batch_size, window_size):
+    """return generator infinitely yielding batches of central
+    values from a sliding window along first dimension of array
+
+    :param arr: 2D numpy ndarray label array (each row is a value)
+    :param batch_size: int batch size
+    :param window_size: int (odd) sliding window size
+    :returns: numpy ndarray (shape=(batch_size, value dim))
+    """
+    return stack_slice(serve_centrals(label, window_size), batch_size)
+
+
+@threadsafe_generator
+def serve_sample_batch(data, label, batch_size, window_size):
+    """return generator infinitely yielding tuples of
+    (window data batch, central label value batch)
+
+    :param data: 2D numpy ndarray feature array (each row is a feature)
+    :param label: 2D numpy ndarray label array (each row is a label)
+    :param batch_size: int batch size
+    :param window_size: int (odd) sliding window size
+    :returns: tuple (data, label)
+
+        - data: numpy ndarray (shape=(batch_size, window_size, feature dim))
+        - label: numpy ndarray (shape=(window_size, label dim))
 
     """
-    dataiter = serve_data(data, window_size)
-    while True:
-        sl = itertools.islice(dataiter, 0, batch_size)
-        data_out = np.stack(sl)
-        yield data_out
+    return zip(serve_data_batch(data, batch_size, window_size),
+               serve_label_batch(label, batch_size, window_size))
