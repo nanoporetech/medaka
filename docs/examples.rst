@@ -21,6 +21,7 @@ as for instance performed by `nanopolish <https://github.com/jts/nanopolish>`_.
 Future versions will implement correction schemes working directly from signal
 data of multiple reads. For more details see :ref:`FutureDirections`.
 
+.. _SequenceCorrection:
 
 Sequence correction
 -------------------
@@ -96,3 +97,4 @@ Then supply the training data file to `medaka_train`.
                             select train:validate:test ratio. (default: [64, 16,
                             20])
       --threads THREADS     number of concurrent training threads (default: 1)
+
