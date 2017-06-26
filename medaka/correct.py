@@ -40,7 +40,7 @@ def correct_reference_segment(bam, reference, model, limits=(None, None)):
     return corrected_seq
 
 
-def multi_correct_reference(bam, reference, model, threads=4):
+def multi_correct_reference(bam, reference, model, threads=1):
     """Correct reference segments in parallel
     """
     ref_length = get_reference_length(bam, reference)
@@ -58,7 +58,7 @@ def get_parser():
         description="""Take an alignment of reads to a reference sequence
                      and produce a corrected reference sequence.""",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--threads', type=int, default=4,
+    parser.add_argument('--threads', type=int, default=1,
                         help='number of processes')
     parser.add_argument('bam', help='alignment of reads to reference')
     parser.add_argument('model', help='model .h5 filepath')

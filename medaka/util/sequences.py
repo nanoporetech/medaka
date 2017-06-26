@@ -1,12 +1,11 @@
 import itertools
 
 import numpy as np
-from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio import pairwise2
 
-from medaka.util.generators import serve_sample, serve_data_batch
+from medaka.util.generators import serve_sample
 
 decode = {1: 'A', 2: 'C', 3: 'G', 4: 'T', 5: '*'}
 
@@ -43,7 +42,7 @@ def model_output_to_fasta(predictions, name):
     return corrected_sequence
 
 
-def get_original_sequence(data, name, window_size):
+def get_original_sequence(data, window_size, name):
     """Convert from encoded reference base column, excising any deletions
     and respecting truncations due to windowing
 
@@ -56,23 +55,6 @@ def get_original_sequence(data, name, window_size):
     )
     original_sequence = SeqRecord(Seq(original_sequence), name, '', '')
     return original_sequence
-
-
-def write_test_sequences(test_data, model, test_steps, batch_size, window_size):
-    """Extract and write original and correctd fasta sequences from test data
-
-    :param test_data: test data array
-    :param model: keras model
-    :param test_steps: int number of steps (batches)
-    :param batch_size: int batch_size
-    :param window_size: int window_size
-    """
-    test_data_generator = serve_data_batch(test_data, batch_size, window_size)
-    predictions = model.predict_generator(test_data_generator, test_steps)
-    corrected = model_output_to_fasta(predictions, 'test_sequence')
-    SeqIO.write(corrected, 'test_corrected_sequence.fa', 'fasta')
-    original = get_original_sequence(test_data, 'test_sequence', window_size)
-    SeqIO.write(original, 'test_original_sequence.fa', 'fasta')
 
 
 def merge_into_sequence(existing, incoming, overlap_length):
