@@ -102,7 +102,7 @@ def write_original_and_corrected_sequence(data, model, threads=1, name=''):
     SeqIO.write(original, '_'.join([name, 'original.fa']), 'fasta')
 
 
-def train_lstm(data, label, tvt_ratio, data_pp, batch_size, window_size,
+def train_lstm(data, label, tvt_ratio, batch_size, window_size,
                out_prefix, epochs, threads=1, class_weights=None):
     """
     Train LSTM model.
@@ -208,7 +208,7 @@ def load_data(datafile, data_pp):
 
 def main():
     args = get_parser().parse_args()
-    data, label = load_data(args.datafile)
+    data, label = load_data(args.datafile, args.data_pp)
 
     if args.class_weights:
         args.class_weights = json.loads(args.class_weights)
