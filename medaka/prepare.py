@@ -33,8 +33,7 @@ def multi_prepare_reference(reads_bam, truth_bam, reference, threads=1):
     limits = segment_limits(ref_length, overlap_len=0)
     func = partial(prepare_training_data, reads_bam, truth_bam, reference)
     pool = Pool(threads)
-    for d, l, p in pool.imap(func, limits):
-        yield (d, l, p)
+    yield from pool.imap(func, limits)
     pool.close()
     pool.join()
 
