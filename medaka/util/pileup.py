@@ -295,8 +295,10 @@ def prepare_training_data(reads_bam, truth_bam, ref, limits=(None, None)):
     read_pos, read_features = bam_to_feature_array(reads_bam, ref,
                                                    start, end)
     truth_pos, label_array = bam_to_label(truth_bam, ref, start, end)
-    position_to_label = dict(zip([tuple(p) for p in truth_pos],
-                                 [int(a) for a in label_array]))
+
+    position_to_label = defaultdict(itertools.repeat(5).__next__,
+                                    zip([tuple(p) for p in truth_pos],
+                                        [int(a) for a in label_array]))
 
     no_label = no_coverage(truth_bam, ref, start, end)
     multi_label = multiple_coverage(truth_bam, ref, start, end)
@@ -306,14 +308,7 @@ def prepare_training_data(reads_bam, truth_bam, ref, limits=(None, None)):
     filtered_features = read_features[good_pos_mask]
     filtered_read_pos = read_pos[good_pos_mask]
 
-    def encode_label(pos):
-        try:
-            label = position_to_label[pos]
-        except KeyError:
-            label = 5
-        return label
-
     valid_positions = ((pos[0], pos[1]) for pos in filtered_read_pos)
-    labels = np.array([encode_label(vp) for vp in valid_positions]).reshape(-1,1)
+    labels = np.array([position_to_label[vp] for vp in valid_positions]).reshape(-1,1)
 
     return filtered_features, labels, filtered_read_pos
