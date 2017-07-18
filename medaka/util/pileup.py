@@ -104,6 +104,19 @@ int_to_orient_base = {code: ('d' if is_rev and base is None
                       for (is_rev, base), code in orient_base_to_int.items()}
 
 
+def get_pairs(aln):
+    """Return generator yielding AlignPos objects for
+    aligned pairs of an AlignedSegment.
+
+    :param aln: pysam AlignedSegment
+    """
+    seq = aln.query_sequence
+    pairs = (AlignPos(qp, seq[qp], rp, rb) if qp is not None
+             else AlignPos(qp, None, rp, rb)
+             for qp, rp, rb in aln.get_aligned_pairs(with_seq=True))
+    return pairs
+
+
 def bam_to_feature_array(reads_bam, ref, start=None, end=None):
     """Converts a section of an alignment pileup (as shown
     by e.g. samtools tview) to a base frequency feature array
@@ -171,17 +184,15 @@ def bam_to_feature_array(reads_bam, ref, start=None, end=None):
 
         for aln in aln_reads:
 
-            seq = aln.query_sequence
             reverse = aln.is_reverse
-
-            pairs = (AlignPos(qp, seq[qp], rp, rb) if qp is not None
-                     else AlignPos(qp, None, rp, rb)
-                     for qp, rp, rb in aln.get_aligned_pairs(with_seq=True))
+            
+            pairs = get_pairs(aln)
 
             ins_count = 0
             for pair in itertools.dropwhile(lambda x: (x.rpos is None)
                                             or (x.rpos < start), pairs):
-                if (pair.rpos == aln.reference_end - 1) or (pair.rpos is not None and pair.rpos >= end):
+                if ((pair.rpos == aln.reference_end - 1) or
+                    (pair.rpos is not None and pair.rpos >= end)):
                     break
                 if pair.rpos is None:
                     ins_count += 1
@@ -232,17 +243,22 @@ def bam_to_label(truth_bam, ref, start=None, end=None):
 
     with pysam.AlignmentFile(truth_bam, 'rb') as bamfile:
         aln_reads = bamfile.fetch(ref, start, end)
+
+        if start is None:
+            start = 0
+        if end is None:
+            end = float('Inf')
+
         for aln in aln_reads:
 
-            seq = aln.query_sequence
-
-            pairs = (AlignPos(qp, seq[qp], rp, rb) if qp is not None
-                     else AlignPos(qp, None, rp, rb)
-                     for qp, rp, rb in aln.get_aligned_pairs(with_seq=True))
+            pairs = get_pairs(aln)
 
             ins_count = 0
-            for pair in itertools.dropwhile(lambda x: x.rpos is None, pairs):
-                if pair.rpos == aln.reference_end - 1:
+
+            for pair in itertools.dropwhile(lambda x: (x.rpos is None)
+                                            or (x.rpos < start), pairs):
+                if ((pair.rpos == aln.reference_end - 1) or
+                    (pair.rpos is not None and pair.rpos >= end)):
                     break
                 if pair.rpos is None:
                     ins_count += 1
@@ -253,15 +269,6 @@ def bam_to_label(truth_bam, ref, start=None, end=None):
                     orient_base_to_int[False, pair.qbase.upper()]
                     if pair.qbase else orient_base_to_int[False, None]
                 )
-
-        # trim to the region of interest
-        if start is None:
-            start = 0
-        if end is None:
-            end = float('Inf')
-
-        position_to_label = {k: v for k, v in position_to_label.items()
-                             if k[0] >= start and k[0] < end}
 
         aln_cols = len(position_to_label)
         label_array = np.zeros(shape=(aln_cols, 1))
@@ -312,3 +319,5 @@ def prepare_training_data(reads_bam, truth_bam, ref, limits=(None, None)):
     labels = np.array([position_to_label[vp] for vp in valid_positions]).reshape(-1,1)
 
     return filtered_features, labels, filtered_read_pos
+
+
