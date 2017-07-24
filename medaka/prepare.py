@@ -33,8 +33,7 @@ def multi_prepare_reference(reads_bam, truth_bam, reference, threads=1):
     limits = segment_limits(ref_length, overlap_len=0)
     func = partial(prepare_training_data, reads_bam, truth_bam, reference)
     pool = Pool(threads)
-    for d, l in pool.imap(func, limits):
-        yield (d, l)
+    yield from pool.imap(func, limits)
     pool.close()
     pool.join()
 
@@ -45,6 +44,7 @@ def main():
 
     data = []
     label = []
+    position = []
 
     for reference in references:
         for X, y in multi_prepare_reference(args.reads_to_ref,
@@ -53,11 +53,13 @@ def main():
 
             data.append(X)
             label.append(y)
+            position.append(p)
 
     data = np.vstack(data)
     label = np.vstack(label)
-    names = ('data', 'label')
-    data_items = (data, label)
+    position = np.concatenate(position)
+    names = ('data', 'label', 'position')
+    data_items = (data, label, position)
 
     output_filename = '_'.join([args.output_name, 'training_data.h5'])
 

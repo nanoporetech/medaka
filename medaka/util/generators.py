@@ -79,7 +79,8 @@ def serve_centrals(label, window_size):
     :param window_size: int (odd) sliding window size
     """
     assert window_size % 2 != 0
-    return itertools.cycle(label[window_size // 2: window_size // 2 + 1])
+    centrals_iter = iter(label[window_size // 2: -window_size // 2 + 1])
+    return itertools.cycle(centrals_iter)
 
 
 @threadsafe_generator

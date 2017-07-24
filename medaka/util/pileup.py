@@ -40,9 +40,11 @@ def no_coverage(bam, ref, start=None, end=None):
     :param end: ending position within reference
     :returns: list of int reference positions without query sequence coverage
     """
-    if not (start and end):
+    if start is None and end is None:
         depth = pysam.depth('-aa', bam)
     else:
+        assert start is not None and end is not None, \
+            "must provide neither or both start and end coords"
         pos = '{}:{}-{}'.format(ref, start, end)
         depth = pysam.depth('-aa', bam, '-r', pos)
     data_lines = (line.split('\t') for line in depth.split('\n')[:-1])
@@ -61,9 +63,11 @@ def multiple_coverage(bam, ref, start=None, end=None):
     :returns: list of int reference positions with multiple query
         sequence coverage
     """
-    if not (start and end):
+    if start is None and end is None:
         depth = pysam.depth('-aa', bam)
     else:
+        assert start is not None and end is not None, \
+            "must provide neither or both start and end coords"
         pos = '{}:{}-{}'.format(ref, start, end)
         depth = pysam.depth('-aa', bam, '-r', pos)
     data_lines = (line.split('\t') for line in depth.split('\n')[:-1])
@@ -98,6 +102,19 @@ int_to_orient_base = {code: ('d' if is_rev and base is None
                              base.lower() if is_rev else
                              base)
                       for (is_rev, base), code in orient_base_to_int.items()}
+
+
+def get_pairs(aln):
+    """Return generator yielding AlignPos objects for
+    aligned pairs of an AlignedSegment.
+
+    :param aln: pysam AlignedSegment
+    """
+    seq = aln.query_sequence
+    pairs = (AlignPos(qp, seq[qp], rp, rb) if qp is not None
+             else AlignPos(qp, None, rp, rb)
+             for qp, rp, rb in aln.get_aligned_pairs(with_seq=True))
+    return pairs
 
 
 def bam_to_feature_array(reads_bam, ref, start=None, end=None):
@@ -160,18 +177,22 @@ def bam_to_feature_array(reads_bam, ref, start=None, end=None):
         print('{} reads aligned to ref segment.'.format(n_aln))
         aln_reads = bamfile.fetch(ref, start, end)
 
+        if start is None:
+            start = 0
+        if end is None:
+            end = float('Inf')
+
         for aln in aln_reads:
 
-            seq = aln.query_sequence
             reverse = aln.is_reverse
-
-            pairs = (AlignPos(qp, seq[qp], rp, rb) if qp is not None
-                     else AlignPos(qp, None, rp, rb)
-                     for qp, rp, rb in aln.get_aligned_pairs(with_seq=True))
+            
+            pairs = get_pairs(aln)
 
             ins_count = 0
-            for pair in itertools.dropwhile(lambda x: x.rpos is None, pairs):
-                if pair.rpos == aln.reference_end - 1:
+            for pair in itertools.dropwhile(lambda x: (x.rpos is None)
+                                            or (x.rpos < start), pairs):
+                if ((pair.rpos == aln.reference_end - 1) or
+                    (pair.rpos is not None and pair.rpos >= end)):
                     break
                 if pair.rpos is None:
                     ins_count += 1
@@ -184,16 +205,6 @@ def bam_to_feature_array(reads_bam, ref, start=None, end=None):
                 ref_base = (orient_base_to_int[False, pair.rbase.upper()]
                              if pair.rbase else orient_base_to_int[False, None])
                 ref_bases[(current_pos, ins_count)] = ref_base
-
-        # trim to the region of interest
-        if start is None:
-            start = 0
-        if end is None:
-            end = float('Inf')
-        aln_counters = {k: v for k, v in aln_counters.items()
-                        if k[0] >= start and k[0] < end}
-        ref_bases = {k: v for k, v in ref_bases.items()
-                      if k[0] >= start and k[0] < end}
 
         aln_cols = len(aln_counters)
         feature_len = len(orient_base_to_int) + 1
@@ -232,17 +243,22 @@ def bam_to_label(truth_bam, ref, start=None, end=None):
 
     with pysam.AlignmentFile(truth_bam, 'rb') as bamfile:
         aln_reads = bamfile.fetch(ref, start, end)
+
+        if start is None:
+            start = 0
+        if end is None:
+            end = float('Inf')
+
         for aln in aln_reads:
 
-            seq = aln.query_sequence
-
-            pairs = (AlignPos(qp, seq[qp], rp, rb) if qp is not None
-                     else AlignPos(qp, None, rp, rb)
-                     for qp, rp, rb in aln.get_aligned_pairs(with_seq=True))
+            pairs = get_pairs(aln)
 
             ins_count = 0
-            for pair in itertools.dropwhile(lambda x: x.rpos is None, pairs):
-                if pair.rpos == aln.reference_end - 1:
+
+            for pair in itertools.dropwhile(lambda x: (x.rpos is None)
+                                            or (x.rpos < start), pairs):
+                if ((pair.rpos == aln.reference_end - 1) or
+                    (pair.rpos is not None and pair.rpos >= end)):
                     break
                 if pair.rpos is None:
                     ins_count += 1
@@ -253,15 +269,6 @@ def bam_to_label(truth_bam, ref, start=None, end=None):
                     orient_base_to_int[False, pair.qbase.upper()]
                     if pair.qbase else orient_base_to_int[False, None]
                 )
-
-        # trim to the region of interest
-        if start is None:
-            start = 0
-        if end is None:
-            end = float('Inf')
-
-        position_to_label = {k: v for k, v in position_to_label.items()
-                             if k[0] >= start and k[0] < end}
 
         aln_cols = len(position_to_label)
         label_array = np.zeros(shape=(aln_cols, 1))
@@ -295,8 +302,10 @@ def prepare_training_data(reads_bam, truth_bam, ref, limits=(None, None)):
     read_pos, read_features = bam_to_feature_array(reads_bam, ref,
                                                    start, end)
     truth_pos, label_array = bam_to_label(truth_bam, ref, start, end)
-    position_to_label = dict(zip([tuple(p) for p in truth_pos],
-                                 [int(a) for a in label_array]))
+
+    position_to_label = defaultdict(itertools.repeat(5).__next__,
+                                    zip([tuple(p) for p in truth_pos],
+                                        [int(a) for a in label_array]))
 
     no_label = no_coverage(truth_bam, ref, start, end)
     multi_label = multiple_coverage(truth_bam, ref, start, end)
@@ -306,14 +315,9 @@ def prepare_training_data(reads_bam, truth_bam, ref, limits=(None, None)):
     filtered_features = read_features[good_pos_mask]
     filtered_read_pos = read_pos[good_pos_mask]
 
-    def encode_label(pos):
-        try:
-            label = position_to_label[pos]
-        except KeyError:
-            label = 5
-        return label
-
     valid_positions = ((pos[0], pos[1]) for pos in filtered_read_pos)
-    labels = np.array([encode_label(vp) for vp in valid_positions]).reshape(-1,1)
+    labels = np.array([position_to_label[vp] for vp in valid_positions]).reshape(-1,1)
 
-    return filtered_features, labels
+    return filtered_features, labels, filtered_read_pos
+
+
