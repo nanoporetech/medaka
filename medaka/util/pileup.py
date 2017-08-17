@@ -31,6 +31,26 @@ def get_reference_length(bam, ref):
     return int(ref_length[ref])
 
 
+def get_coverage(bam, ref, start=None, end=None):
+    """Generate coverage stats across a region.
+
+    :param bam: bam file
+    :param ref: name of reference to process
+    :param start: starting position within reference
+    :param end: ending position within reference
+    :yields: tuples of (position, coverage)
+    """
+    if start is None and end is None:
+        depth = pysam.depth('-aa', bam)
+    else:
+        assert start is not None and end is not None, \
+            "must provide neither or both start and end coords"
+        pos = '{}:{}-{}'.format(ref, start, end)
+        depth = pysam.depth('-aa', bam, '-r', pos)
+    for line in (line.split('\t') for line in depth.split('\n')[:-1]):
+        yield (int(p[1]) - 1, int(p[2]))
+
+
 def no_coverage(bam, ref, start=None, end=None):
     """Obtain reference positions with 0 aligned query sequences
 
@@ -40,16 +60,8 @@ def no_coverage(bam, ref, start=None, end=None):
     :param end: ending position within reference
     :returns: list of int reference positions without query sequence coverage
     """
-    if start is None and end is None:
-        depth = pysam.depth('-aa', bam)
-    else:
-        assert start is not None and end is not None, \
-            "must provide neither or both start and end coords"
-        pos = '{}:{}-{}'.format(ref, start, end)
-        depth = pysam.depth('-aa', bam, '-r', pos)
-    data_lines = (line.split('\t') for line in depth.split('\n')[:-1])
-    no_aln = [int(p[1]) - 1 for p in data_lines if int(p[2]) == 0]
-    return no_aln
+    coverage = get_coverage(bam, ref, start=None, end=None)
+    return [p[0] for p in coverage if p[1] == 0]
 
 
 def multiple_coverage(bam, ref, start=None, end=None):
@@ -63,16 +75,8 @@ def multiple_coverage(bam, ref, start=None, end=None):
     :returns: list of int reference positions with multiple query
         sequence coverage
     """
-    if start is None and end is None:
-        depth = pysam.depth('-aa', bam)
-    else:
-        assert start is not None and end is not None, \
-            "must provide neither or both start and end coords"
-        pos = '{}:{}-{}'.format(ref, start, end)
-        depth = pysam.depth('-aa', bam, '-r', pos)
-    data_lines = (line.split('\t') for line in depth.split('\n')[:-1])
-    multi_aln = [int(p[1]) - 1 for p in data_lines if int(p[2]) > 1]
-    return multi_aln
+    coverage = get_coverage(bam, ref, start=None, end=None)
+    return [p[0] for p in coverage if p[1] > 1]
 
 
 AlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'rpos', 'rbase'))
@@ -115,6 +119,41 @@ def get_pairs(aln):
              else AlignPos(qp, None, rp, rb)
              for qp, rp, rb in aln.get_aligned_pairs(with_seq=True))
     return pairs
+
+
+def iterate_bam(bam, ref, start, end):
+    """Iterate though alignment positions in the region of a bam.
+
+    :param reads_bam: (sorted indexed) bam with read alignment to reference
+    :param ref: name of reference to process
+    :param start: starting position within reference
+    :param end: ending position within reference
+    :yields: tuple(`pysam.aligned_pair`, position, insertion index, is_reverse)
+    """
+
+    with pysam.AlignmentFile(bam, 'rb') as bamfile:
+        aln_reads = bamfile.fetch(ref, start, end)
+
+        if start is None:
+            start = 0
+        if end is None:
+            end = float('Inf')
+
+        for aln in aln_reads:
+            reverse = aln.is_reverse
+            pairs = get_pairs(aln)
+            ins_count = 0
+            for pair in itertools.dropwhile(lambda x: (x.rpos is None)
+                                            or (x.rpos < start), pairs):
+                if ((pair.rpos == aln.reference_end - 1) or
+                    (pair.rpos is not None and pair.rpos >= end)):
+                    break
+                if pair.rpos is None:
+                    ins_count += 1
+                else:
+                    ins_count = 0
+                    current_pos = pair.rpos
+                yield pair, current_pos, ins_count, reverse
 
 
 def bam_to_feature_array(reads_bam, ref, start=None, end=None):
@@ -172,55 +211,29 @@ def bam_to_feature_array(reads_bam, ref, start=None, end=None):
     aln_counters = defaultdict(Counter)
     ref_bases = dict()
 
-    with pysam.AlignmentFile(reads_bam, 'rb') as bamfile:
-        n_aln = bamfile.count(ref, start, end)
-        print('{} reads aligned to ref segment.'.format(n_aln))
-        aln_reads = bamfile.fetch(ref, start, end)
+    aln_info = iterate_bam(bam, ref, start, stop)
+    for (pair, current_pos, ins_count, reverse) in aln_info:
+        (aln_counters[(current_pos, ins_count)]
+         [orient_base_to_int[reverse, pair.qbase]]) += 1
+        ref_base = (orient_base_to_int[False, pair.rbase.upper()]
+                     if pair.rbase else orient_base_to_int[False, None])
+        ref_bases[(current_pos, ins_count)] = ref_base
 
-        if start is None:
-            start = 0
-        if end is None:
-            end = float('Inf')
+    aln_cols = len(aln_counters)
+    feature_len = len(orient_base_to_int) + 1
+    feature_array = np.zeros(shape=(aln_cols, feature_len))
+    positions = np.empty(aln_cols, dtype=[('ref_major', int),
+                                          ('ref_minor', int)])
 
-        for aln in aln_reads:
+    for i, ((pos, counts), (_, ref_base)) in \
+            enumerate(zip(sorted(aln_counters.items()),
+                          sorted(ref_bases.items()))):
+        positions[i] = pos
+        feature_array[i, 0] = ref_base
+        for j in counts.keys():
+            feature_array[i, j] = counts[j]
 
-            reverse = aln.is_reverse
-            
-            pairs = get_pairs(aln)
-
-            ins_count = 0
-            for pair in itertools.dropwhile(lambda x: (x.rpos is None)
-                                            or (x.rpos < start), pairs):
-                if ((pair.rpos == aln.reference_end - 1) or
-                    (pair.rpos is not None and pair.rpos >= end)):
-                    break
-                if pair.rpos is None:
-                    ins_count += 1
-                else:
-                    ins_count = 0
-                    current_pos = pair.rpos
-
-                (aln_counters[(current_pos, ins_count)]
-                 [orient_base_to_int[reverse, pair.qbase]]) += 1
-                ref_base = (orient_base_to_int[False, pair.rbase.upper()]
-                             if pair.rbase else orient_base_to_int[False, None])
-                ref_bases[(current_pos, ins_count)] = ref_base
-
-        aln_cols = len(aln_counters)
-        feature_len = len(orient_base_to_int) + 1
-        feature_array = np.zeros(shape=(aln_cols, feature_len))
-        positions = np.empty(aln_cols, dtype=[('ref_major', int),
-                                              ('ref_minor', int)])
-
-        for i, ((pos, counts), (_, ref_base)) in \
-                enumerate(zip(sorted(aln_counters.items()),
-                              sorted(ref_bases.items()))):
-            positions[i] = pos
-            feature_array[i, 0] = ref_base
-            for j in counts.keys():
-                feature_array[i, j] = counts[j]
-
-        return positions, feature_array
+    return positions, feature_array
 
 
 def bam_to_label(truth_bam, ref, start=None, end=None):
@@ -238,48 +251,27 @@ def bam_to_label(truth_bam, ref, start=None, end=None):
 
         - feature_array: 1D numpy array of encoded labels
     """
-
     position_to_label = {}
 
-    with pysam.AlignmentFile(truth_bam, 'rb') as bamfile:
-        aln_reads = bamfile.fetch(ref, start, end)
+    aln_info = iterate_bam(bam, ref, start, stop)
+    for (pair, current_pos, ins_count, reverse) in aln_info:
+        # Note: fwd/rev is collapsed here
+        position_to_label[(current_pos, ins_count)] = (
+            orient_base_to_int[False, pair.qbase.upper()]
+            if pair.qbase else orient_base_to_int[False, None]
+        )
 
-        if start is None:
-            start = 0
-        if end is None:
-            end = float('Inf')
+    aln_cols = len(position_to_label)
+    label_array = np.zeros(shape=(aln_cols, 1))
+    positions = np.empty(aln_cols, dtype=[('ref_major', int),
+                                          ('ref_minor', int)])
 
-        for aln in aln_reads:
+    for i, (pos, label) in enumerate(sorted(position_to_label.items())):
+        positions[i] = pos
+        label_array[i] = label
 
-            pairs = get_pairs(aln)
+    return positions, label_array
 
-            ins_count = 0
-
-            for pair in itertools.dropwhile(lambda x: (x.rpos is None)
-                                            or (x.rpos < start), pairs):
-                if ((pair.rpos == aln.reference_end - 1) or
-                    (pair.rpos is not None and pair.rpos >= end)):
-                    break
-                if pair.rpos is None:
-                    ins_count += 1
-                else:
-                    ins_count = 0
-                    current_pos = pair.rpos
-                position_to_label[(current_pos, ins_count)] = (
-                    orient_base_to_int[False, pair.qbase.upper()]
-                    if pair.qbase else orient_base_to_int[False, None]
-                )
-
-        aln_cols = len(position_to_label)
-        label_array = np.zeros(shape=(aln_cols, 1))
-        positions = np.empty(aln_cols, dtype=[('ref_major', int),
-                                              ('ref_minor', int)])
-
-        for i, (pos, label) in enumerate(sorted(position_to_label.items())):
-            positions[i] = pos
-            label_array[i] = label
-
-        return positions, label_array
 
 def prepare_training_data(reads_bam, truth_bam, ref, limits=(None, None)):
     """Prepare data for model training
