@@ -5,5 +5,5 @@ h5py
 keras
 tensorflow
 numpy
+pandas
 pysam
-
