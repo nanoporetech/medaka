@@ -24,7 +24,7 @@ with open(os.path.join(dir_path, 'requirements.txt')) as fh:
 setup(
     name='medaka',
     version=__version__,
-    url='https://git.oxfordnanolabs.local/research/medaka',
+    url='https://github.com/nanoporetech/medaka',
     author='syoung',
     author_email='stephen.young@nanoporetech.com',
     description='Neural network sequence error correction.',
