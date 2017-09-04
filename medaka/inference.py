@@ -10,7 +10,7 @@ from timeit import default_timer as now
 
 from keras import backend as K
 from keras.models import Sequential, load_model, save_model
-from keras.layers import LSTM, Dense
+from keras.layers import Dense, GRU
 from keras.layers.wrappers import Bidirectional, TimeDistributed
 from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
 
@@ -54,23 +54,20 @@ def generate_features(pileup_gen, coverage_filter=features.coverage_filter,
     return all_data
 
 
-def build_model(timesteps, data_dim, num_classes):
-    """Builds a nanonet-style graph."""
+def build_model(chunk_size, feature_len, num_classes, gru_size=128):
+    """Builds a bidirectional GRU model"""
 
     model = Sequential()
     # Bidirectional wrapper takes a copy of the first argument and reverses
     #   the direction. Weights are independent between components.
     model.add(Bidirectional(
-        LSTM(96, return_sequences=True, name='lstm1'),
-        input_shape=(timesteps, data_dim)
-    ))
-    model.add(TimeDistributed(Dense(128, activation='tanh', name='ff1')))
+        GRU(gru_size, activation='tanh', return_sequences=True, name='gru1'), 
+        input_shape=(chunk_size, feature_len))
+    )
     model.add(Bidirectional(
-        LSTM(96, return_sequences=True, name='lstm2')
-    ))
-    model.add(TimeDistributed(Dense(128, activation='tanh', name='ff2')))
+        GRU(gru_size, activation='tanh', return_sequences=True, name='gru2'))
+    )
     model.add(Dense(num_classes, activation='softmax', name='classify'))
-
     return model
 
 

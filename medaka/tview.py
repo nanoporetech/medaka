@@ -237,10 +237,17 @@ def join_read_seps(pileup_row, read_sep, gap_val):
     return pileup_row
 
 
-def _process_labels(truth, pileups, positions):
+def _process_labels(truth, pileups):
+    """Process labels
+    :param truth: `Pileup` object
+    :param pileups: list of `Pileup` objects
+    :returns: np.array of labels
+    """
+    # get common index of truth and reads
+    all_pos = get_common_index((pileups[0].positions, truth.positions)) 
 
     # reindex reads to common index, taking care of _gap_ and _read_sep_
-    truth = reindex_pileup(truth, positions)
+    truth = reindex_pileup(truth, all_pos)
     labels = [decoding[i].upper() for i in truth.reads[0]]
 
     # Where we have no evidence in the pileup (and hence ref draft assembly)
@@ -249,18 +256,20 @@ def _process_labels(truth, pileups, positions):
     # When this happens, we will have a truth minor position not present in the reads.
 
     # create index of pileup (without truth, which has already been removed from pileups)
-    pileup_index = pd.Index(get_common_index([p.positions for p in pileups]))
-    labels = pd.DataFrame(labels, index=positions)
+    pileup_index = pd.Index(pileups[0].positions)
+    labels = pd.DataFrame(labels, index=all_pos)
     # loop over minor positions in truth
     for (major, minor) in truth.positions[np.where(truth.positions['minor'] > 0)]:
         if (major, minor) not in pileup_index:
             labels.iloc[labels.index.get_loc((major, 0))] += labels.iloc[labels.index.get_loc((major, minor))]
+            labels.drop((major, minor), inplace=True)  # we don't want this position to appear in the labels
     # convert any _ref_gap_ labels to _gap_
     # TODO: do we need to do this?
     labels[labels[labels.columns[0]] == _ref_gap_] = _gap_
 
     # convert labels to numpy array
     labels = np.char.decode(labels.to_records(index=False).astype('S'))
+    assert len(labels) == len(pileups[0].positions)
     return labels
 
 
@@ -280,10 +289,7 @@ def bams_to_pileup(bams, ref_fasta, ref_name, start, end, truth_bam=None, base_r
         base_ratios: dict of updated base ratios.
     """
 
-    if truth_bam is not None:
-        bams = list(bams) + [truth_bam]  # we don't want to modify the bams argument
-    else:
-        labels = None
+    labels = None
 
     ratios = defaultdict(lambda: 1.0)
     if base_ratios is not None:
@@ -300,30 +306,27 @@ def bams_to_pileup(bams, ref_fasta, ref_name, start, end, truth_bam=None, base_r
     if len(set([p.positions['major'][0] for p in pileups])) > 1:
         raise ValueError("Something went wrong with the tview call")
 
-    need_to_reindex = len(pileups) > 1
-    if need_to_reindex:
-        positions = get_common_index([p.positions for p in pileups])
-    else:
-        positions = pileups[0].positions
-
-    if truth_bam is not None:
-        truth = pileups.pop()
-        # TODO make less wasteful
-        if truth.reads.shape[0] > 1:
-            logging.warn("Unwilling to process truthset region with multiple mappings.")
-            return None, ratios
-        # reindex labels to common index, taking care of _gap_ and _read_sep_
-        t0 = now()
-        labels = _process_labels(truth, pileups, positions)
-        t1 = now()
-        logger.info("Processed labels for {}-{} \t({:.3f}s)".format(start, end, t1 - t0))
-
     # reindex reads to common index, taking care of _gap_ and _read_sep_
-    if need_to_reindex:
+    if len(pileups) > 1:  # otherwise we don't need to reindex
+        positions = get_common_index([p.positions for p in pileups])
         t0 = now()
         pileups = [reindex_pileup(p, positions) for p in pileups]
         t1 = now()
         logger.info("Re-indexed pileups for {}-{} \t({:.3f}s)".format(start, end, t1 - t0))
+
+    if truth_bam is not None:
+        truth, ratios[truth_bam] = bam_to_pileup(truth_bam, ref_fasta, ref_name, start, end,
+                                                 bases_per_ref_base=ratios[bam])
+        # TODO make less wasteful
+        if truth.reads.shape[0] > 1:
+            logging.warn("Unwilling to process truthset region with multiple mappings.")
+            return None, ratios
+
+        # reindex labels to common index, taking care of _gap_ and _read_sep_
+        t0 = now()
+        labels = _process_labels(truth, pileups)
+        t1 = now()
+        logger.info("Processed labels for {}-{} \t({:.3f}s)".format(start, end, t1 - t0))
 
     return pileups, labels, ratios
 

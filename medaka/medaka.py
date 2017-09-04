@@ -7,14 +7,14 @@ from medaka.tview import prepare
 
 def main():
     logging.basicConfig(format='[%(asctime)s - %(name)s] %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
-    parser = argparse.ArgumentParser('NN consensus from pileup data.')
+    parser = argparse.ArgumentParser('medaka')
     subparsers = parser.add_subparsers(title='subcommands', description='valid commands', help='additional help', dest='command')
     subparsers.required = True
 
     pparser = subparsers.add_parser('prepare', help='Create (and merge) pileup datasets.')
     pparser.set_defaults(func=prepare)
     pparser.add_argument('ref_fasta', help='.fasta reference corresponding to bams.')
-    pparser.add_argument('ref_name', help='Name of reference.')
+    pparser.add_argument('ref_name', help='Name of reference within ref_fasta.')
     pparser.add_argument('output', help='Output .hdf.')
     # pparser.add_argument('bams', nargs='+', help='Input alignments (all aligned to same ref).')
     pparser.add_argument('bam', help='Input alignments (aligned to ref).')
@@ -41,7 +41,7 @@ def main():
     ingroup = cparser.add_mutually_exclusive_group(required=True)
     ingroup.add_argument('--pileupdata', help='Pileup input data.')
     ingroup.add_argument('--feature_file', help='Pregenerated features as stored during training.')
-    ingroup.add_argument('--alignments', help='Input alignments and reference.', nargs=3,
+    ingroup.add_argument('--alignments', help='Input alignments, reference fasta and reference name (within fasta).', nargs=3,
                          metavar=('reads.bam', 'ref.fasta', 'ref_name'))
 
     args = parser.parse_args()
