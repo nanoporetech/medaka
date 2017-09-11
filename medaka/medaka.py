@@ -38,6 +38,7 @@ def main():
     cparser.add_argument('--output_fasta', default='basecalls.fasta', help='Polished consensus output file.')
     cparser.add_argument('--start', default=0, type=int, help='Reference position at which to start, only used with --alignments.')
     cparser.add_argument('--end', default=None, type=int, help='Reference position at which to end, only used with --alignments.')
+    cparser.add_argument('--overlap', default=250, type=int, help='Overlap of neighbouring polished chunks in pileup columns.')
     ingroup = cparser.add_mutually_exclusive_group(required=True)
     ingroup.add_argument('--pileupdata', help='Pileup input data.')
     ingroup.add_argument('--feature_file', help='Pregenerated features as stored during training.')
