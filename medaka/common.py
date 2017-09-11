@@ -21,23 +21,33 @@ def segment_limits(start, end, segment_len=20000, overlap_len=1000):
         yield max(start, n - overlap_len), min(n + segment_len, end - 1)
 
 
-def rle(array):
+def rle(array, low_mem=False):
     """Calculate a run length encoding (rle), of an input vector.
+
+    :param array: 1D input array.
+    :param low_mem: use a lower memory implementation
 
     returns: structured array with fields `start`, `length`, and `value`.
     """
     if len(array.shape) != 1:
         raise TypeError("Input array must be one dimensional.")
-
-    def _gen():
-        start = 0
-        for key, group in itertools.groupby(array):
-            length = sum(1 for x in group)
-            yield length, start, key
-            start += length
-
     dtype = [('length', int), ('start', int), ('value', array.dtype)]
-    return np.fromiter(_gen(), dtype=dtype)
+
+    if not low_mem: 
+        pos = np.where(np.diff(array) != 0)[0]
+        pos = np.concatenate(([0], pos+1, [len(array)]))
+        return np.fromiter(
+            ((length, start, array[start]) for (length, start) in zip(pos[1:], pos[:-1])),
+            dtype, count=len(pos) - 1,
+        )
+    else:
+        def _gen():
+            start = 0
+            for key, group in itertools.groupby(array):
+                length = sum(1 for x in group)
+                yield length, start, key
+                start += length
+        return np.fromiter(_gen(), dtype=dtype)
 
 
 def sliding_window(a, window=3, step=1, axis=0):
@@ -82,3 +92,4 @@ def mkdir_p(path, info=None):
             pass
         else:
             raise
+

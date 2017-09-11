@@ -149,17 +149,19 @@ def bam_to_pileup(bam, ref_fasta, ref_name, start, end, bases_per_ref_base=3.0, 
     :returns: (`Pileup` object, `bases_per_ref_base`)
     """
     actual_end = end - 1
+    it = 0
     while actual_end < end:
+        it += 1
         columns = int(bases_per_ref_base * (end - start))
         tview = run_tview(bam, ref_fasta, ref_name, start, columns)
         actual_end = tview.end
         bases_per_ref_base = margin * columns / float(actual_end - start)
-        columns = int(bases_per_ref_base * (end - start))
+    logger.info("Grabbing tview region required {} iterations.".format(it))
 
     t0 = now()
     reads, positions = tview_to_numpy(tview, end)
     t1 = now()
-    logger.info("Parsed tview output for {}:{}-{} \t({:.3f}s)".format(bam, start, end, t1 - t0))
+    logger.info("Parsed tview output for {}:{}-{}. Shape: {}. \t({:.3f}s)".format(bam, start, end, reads.shape, t1 - t0))
 
     return Pileup(bam, ref_name, reads, positions), bases_per_ref_base
 
@@ -188,11 +190,13 @@ def reindex_pileup(pileup, new_positions):
         reindexed[i, np.where(is_minor_pos_and_nan)] = encoding[_ref_gap_]
         # fill all remaining np.nan with _gap_
         reindexed[i, np.where(np.isnan(reindexed[i]))] = encoding[_gap_]
-        # join up / expand read separators
+    # convert back to pileup.dtype (we used nan above)
+    reindexed = reindexed.astype(pileup.reads.dtype)
+
+    # join up / expand read separators (relies on equality, hence done after casting back)
+    for i, row in enumerate(reindexed):
         reindexed[i] = join_read_seps(reindexed[i], encoding[_read_sep_], encoding[_gap_])
 
-    # after the merge, all encodings seem to be in float, convert back to pileup.dtype
-    reindexed = reindexed.astype(pileup.reads.dtype)
     return Pileup(pileup.bam, pileup.ref_name, reindexed, new_positions)
 
 
@@ -227,11 +231,16 @@ def join_read_seps(pileup_row, read_sep, gap_val):
         shape = (len(blocks) - 3 + 1, 3)
         strides = blocks.strides + (blocks.strides[-1],)
         sliding = np.lib.stride_tricks.as_strided(blocks, shape=shape, strides=strides)
+        # find windows with central blank...
         central_is_blank = sliding[:, 1]['value'] == read_sep
-        for before, central, after in sliding[np.where(central_is_blank)]:
-            for contx in before, after:
-                if contx['value'] == gap_val:
-                    pileup_row[contx['start']: contx['start'] + contx['length']] = read_sep
+        for contx in (0, 2):
+            # ...and where before (/after) is gap...
+            contx_is_gap = sliding[:, contx]['value'] == gap_val
+            # ...replace the intersection
+            replace = np.logical_and(central_is_blank, contx_is_gap)
+            for window in sliding[replace]:
+                con = window[contx]
+                pileup_row[con['start']: con['start'] + con['length']] = read_sep
 
         pileup_row = pileup_row[len(pad):-len(pad)]
     return pileup_row
@@ -476,3 +485,4 @@ def prepare(args):
         args.output, (args.bam,), args.ref_fasta, args.ref_name, chunk_len=args.chunk_len, start=args.start, end=args.end,
         truth_bam=args.truth
     )
+
