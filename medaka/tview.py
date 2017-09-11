@@ -33,6 +33,8 @@ TView = namedtuple('TView', ['coords', 'ref_seq', 'consensus', 'pileup', 'start'
 # Encoded (and possibly reindexed) pileup
 Pileup = namedtuple('Pileup', ['bam', 'ref_name', 'reads', 'positions'])
 
+class TViewException(Exception):
+    pass
 
 def run_tview(bam, ref_fasta, ref_name, start, columns):
     """Run samtools tview for a given region and columns.
@@ -63,7 +65,10 @@ def run_tview(bam, ref_fasta, ref_name, start, columns):
     logger.info("Ran tview for {}:{}, COLUMNS={} \t({:.3f}s)".format(bam, start, columns, t1 - t0))
 
     # first line contains coords, then reference, then consensus
-    coords, ref, consensus, remainder = output.split("\n", 3)
+    try:
+        coords, ref, consensus, remainder = output.split("\n", 3)
+    except:
+        raise TViewException("Tview did not output any reads.")
     start, end, end_col = _find_coords(coords)
     pileup = remainder.split("\n")
     return TView(coords, ref, consensus, pileup, start, end, end_col)
@@ -372,8 +377,13 @@ def generate_pileup_chunks(bams, ref_fasta, ref_name, start=0, end=None,
     logger.info("Chunking {}: {}-{} in chunks of {} overlapping by {}".format(ref_name, start, end, chunk_len, overlap))
 
     for chunk_start, chunk_end in segment_limits(start, end, segment_len=chunk_len, overlap_len=overlap):
-        *chunk, base_ratios = bams_to_pileup(bams, ref_fasta, ref_name, chunk_start, chunk_end,
+        try:
+            *chunk, base_ratios = bams_to_pileup(bams, ref_fasta, ref_name, chunk_start, chunk_end,
                                             truth_bam=truth_bam, base_ratios=base_ratios)
+        except TViewException:
+            logger.info("Skipping region {}-{} as TView did not find any reads".format(chunk_start, chunk_end))
+            continue
+
         if chunk[0] is not None:  # None if we encountered multiple truth mappings
             yield chunk
 

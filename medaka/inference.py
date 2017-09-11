@@ -1,6 +1,5 @@
 import glob
 import h5py
-import itertools
 import json
 import numpy as np
 import os
@@ -241,13 +240,13 @@ def run_prediction(data, model_hdf, encoding_json=None, output_file='basecalls.f
     )))
     logging.info('\n{}'.format(model.summary()))
 
-    x_data = np.stack((x[0] for x in itertools.islice(data.values(), batch_size)))
+    x_data = np.stack((x[0] for x in data.values()))
 
     t0 = now()
     class_probs = model.predict(x_data, batch_size=batch_size, verbose=1)
     t1 = now()
     logging.info('Running network took {}s for data of shape {}'.format(t1 - t0, x_data.shape))
-
+ 
     t0 = now()
     count = 0
     # write out contig name and position in fasta, ref_name:start-end
@@ -300,7 +299,7 @@ def predict(args):
     if args.pileupdata:
         # TODO make use of start and end options when loading pileup from hdf ?
         logging.info("Loading pileup from file.")
-        chunks = rechunk(load_pileup(args.pileupdata))
+        chunks = rechunk(load_pileup(args.pileupdata), overlap=args.overlap)
         data = generate_features(chunks, training=False)
     elif args.feature_file:
         logging.info("Loading features from file.")
@@ -308,7 +307,8 @@ def predict(args):
     else:
         logging.info("Generating features from bam.")
         bam, ref_fasta, ref_name = args.alignments
-        chunks = rechunk(generate_pileup_chunks((bam,), ref_fasta, ref_name=ref_name, start=args.start, end=args.end))
+        tview_gen = generate_pileup_chunks((bam,), ref_fasta, ref_name=ref_name, start=args.start, end=args.end)
+        chunks = rechunk(tview_gen, overlap=args.overlap)
         data = generate_features(chunks, training=False)
 
     logging.info("Got {} pileup chunks for inference.".format(len(data)))
