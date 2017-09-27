@@ -287,10 +287,11 @@ def train(args):
     # find unique labels and create a sparse encoding
     y_labels, encoding = to_sparse_categorical(y_labels)
 
+    label_counts = np.unique(y_labels, return_counts=True)
+    label_counts = dict(zip(label_counts[0], label_counts[1]))
     logging.info("Label encoding is:\n{}".format('\n'.join(
-        '{}: {}'.format(i, x) for i, x in enumerate(encoding)
+        '{} ({}): {}'.format(i, label_counts[i], x) for i, x in enumerate(encoding)
     )))
-
     run_training(train_name, x_data, y_labels, encoding, model_data=args.model)
 
 
