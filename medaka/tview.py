@@ -632,4 +632,3 @@ def prepare(args):
         args.output, (args.bam,), args.ref_fasta, args.ref_name, chunk_len=args.chunk_len, start=args.start, end=args.end,
         truth_bam=args.truth
     )
-
