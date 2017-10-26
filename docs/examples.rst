@@ -21,6 +21,9 @@ as for instance performed by `nanopolish <https://github.com/jts/nanopolish>`_.
 Future versions will implement correction schemes working directly from signal
 data of multiple reads. For more details see :ref:`FutureDirections`.
 
+For a complete examples starting from basecalls, through forming a draft
+assembly, to training and using a consensus network see the :ref:`Walkthrough`.
+
 .. _SequenceCorrection:
 
 Sequence correction

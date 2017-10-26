@@ -41,6 +41,8 @@ venv/bin/activate:
 install: venv | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 	${IN_VENV} && pip install -r requirements.txt && python setup.py install
 
+test: install
+	${IN_VENV} && python -m unittest discover
 
 # You can set these variables from the command line.
 SPHINXOPTS    =
