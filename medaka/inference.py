@@ -1,57 +1,66 @@
 import glob
 import h5py
-import itertools
 import json
 import numpy as np
 import os
 import sys
-from collections import OrderedDict
 from timeit import default_timer as now
+
 
 from keras import backend as K
 from keras.models import Sequential, load_model, save_model
 from keras.layers import Dense, GRU
-from keras.layers.wrappers import Bidirectional, TimeDistributed
+from keras.layers.wrappers import Bidirectional
 from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
+
+# set some Tensorflow session options
+"""
+from keras.backend.tensorflow_backend import set_session
+import tensorflow as tf
+config = tf.ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = 0.3
+set_session(tf.Session(config=config))
+"""
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-from medaka.tview import _ref_gap_, _gap_, load_pileup, generate_pileup_chunks, rechunk
+from medaka.tview import _gap_, load_pileup, generate_pileup_chunks, rechunk
 from medaka import features
-from medaka.common import mkdir_p
+from medaka.common import mkdir_p, Sample
 
 _encod_path_ = 'medaka_label_encoding'
 
 
-def generate_features(pileup_gen, coverage_filter=features.coverage_filter,
-                      feature_func=features.counts, training=True):
-    """Generate training features and labels from a pileup generator
+def generate_samples(pileup_gen,
+                      coverage_filter=lambda x: features.alphabet_filter(features.depth_filter(x)),
+                      feature_func=features.counts):
+    """Generate data samples from a pileup generator
 
     :param pileup_gen: generator of (pileups, labels) tuples;
         pileups: list of `Pileup` objects
         labels: np.array of labels or None.
     :param feature_func: function to generate features
-    :param training: bool, whether features suitable for training should be
-        generated. This requires a labelled pileup.
 
-    :returns dict of (features, labels) If `training` is False,
-        `labels` will be None.
+    :returns tuple of `Sample` named tuples.
     """
 
-    all_data = OrderedDict()  # so chunks remain in order
+    all_data = []
     t0 = now()
-    for pileups, labels in coverage_filter(pileup_gen):
-        pos = pileups[0].positions
-        ref_name = pileups[0].ref_name
-        grp = '{}:{}-{}'.format(ref_name, pos['major'][0], pos['major'][-1] + 1)
-        if training and labels is None:
-            raise ValueError("Cannot train without labels")
-        all_data[grp] = (feature_func(pileups), labels)
+    for c in coverage_filter(pileup_gen):
+        pos = c.pileups[0].positions
+        ref_name = c.pileups[0].ref_name
+        all_data.append(Sample(ref_name=ref_name,
+                               features=feature_func(c.pileups),
+                               labels=c.labels,
+                               ref_seq=c.ref_seq,
+                               positions=pos, label_probs=None
+                               )
+        )
     t1 = now()
     logging.info("Generating features took {:.3f}s.".format(t1 - t0))
-    return all_data
+    return tuple(all_data)
 
 
 def build_model(chunk_size, feature_len, num_classes, gru_size=128):
@@ -61,7 +70,7 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128):
     # Bidirectional wrapper takes a copy of the first argument and reverses
     #   the direction. Weights are independent between components.
     model.add(Bidirectional(
-        GRU(gru_size, activation='tanh', return_sequences=True, name='gru1'), 
+        GRU(gru_size, activation='tanh', return_sequences=True, name='gru1'),
         input_shape=(chunk_size, feature_len))
     )
     model.add(Bidirectional(
@@ -121,19 +130,38 @@ def load_model_hdf(model_path, encoding_json=None, need_encoding=True):
 
 
 def save_feature_file(fname, data):
-    """Save feature dictionary."""
-    np.save(fname, data)
+    with h5py.File(fname, 'w') as hdf:
+        for s in data:
+            grp = '{}:{}-{}'.format(s.ref_name, s.positions['major'][0], s.positions['major'][-1] + 1)
+            for field in s._fields:
+                if getattr(s, field) is not None:
+                    data = getattr(s, field)
+                    if isinstance(data, np.ndarray) and isinstance(data[0], np.unicode):
+                        data = np.char.encode(data)
+                    hdf['{}/{}'.format(grp, field)] = data
 
 
 def load_feature_file(fname):
     """Load the result of `save_feature_file` back to the original
     representation.
     """
-    data = OrderedDict()  # so chunks stay in order
-    src = np.load(fname)
-    for fname in src[()].keys():
-        data[fname] = src[()][fname]
-    return data
+    data = []
+    with h5py.File(fname, 'r') as hdf:
+        # keys are ref:start-end
+        get_start = lambda x: int(x.split(':')[1].split('-')[0])
+        sorted_keys = sorted(hdf.keys(), key=get_start)
+        for key in sorted_keys:
+            s = {}
+            for field in Sample._fields:
+                pth = '{}/{}'.format(key, field)
+                if pth in hdf:
+                    s[field] = hdf[pth][()]
+                    if isinstance(s[field], np.ndarray) and isinstance(s[field][0], type(b'')):
+                        s[field] = np.char.decode(s[field])
+                else:
+                    s[field] = None
+            data.append(Sample(**s))
+    return tuple(data)
 
 
 def qscore(y_true, y_pred):
@@ -145,7 +173,8 @@ def qscore(y_true, y_pred):
     return -10.0 * 0.434294481 * K.log(error)
 
 
-def run_training(train_name, x_train, y_train, encoding, model_data=None):
+def run_training(train_name, x_train, y_train, encoding, model_data=None,
+                 epochs=5000, validation_split=0.8, batch_size=100):
     """Run training."""
     data_dim = x_train.shape[2]
     timesteps = x_train.shape[1]
@@ -202,8 +231,8 @@ def run_training(train_name, x_train, y_train, encoding, model_data=None):
     # maybe possible to increase batch_size for faster processing
     model.fit(
         x_train, y_train,
-        batch_size=100, epochs=5000,
-        validation_split=0.2,
+        batch_size=batch_size, epochs=epochs,
+        validation_split=validation_split,
         callbacks=callbacks,
     )
 
@@ -225,7 +254,6 @@ def to_sparse_categorical(data):
     # sort to get reproducible ordering for identical datasets
     encoding = sorted(list(all_labels))
     decoding = {a: i for i, a in enumerate(encoding)}
-
     matrix = np.stack([
         [[decoding[x], ] for x in sample]
         for sample in data
@@ -233,46 +261,55 @@ def to_sparse_categorical(data):
     return matrix, encoding
 
 
-def run_prediction(data, model_hdf, encoding_json=None, output_file='basecalls.fasta', batch_size=1500):
+def run_prediction(data, model, encoding, output_file='consensus_chunks.fa',
+                   batch_size=200, predictions_file=None):
     """Run inference."""
-    model, encoding = load_model_hdf(model_hdf, encoding_json, need_encoding=True)
-    logging.info("Label encoding is:\n{}".format('\n'.join(
-        '{}: {}'.format(i, x) for i, x in enumerate(encoding)
-    )))
-    logging.info('\n{}'.format(model.summary()))
 
-    x_data = np.stack((x[0] for x in itertools.islice(data.values(), batch_size)))
+    x_data = np.stack((x.features for x in data))
 
     t0 = now()
     class_probs = model.predict(x_data, batch_size=batch_size, verbose=1)
     t1 = now()
     logging.info('Running network took {}s for data of shape {}'.format(t1 - t0, x_data.shape))
 
+    best = np.argmax(class_probs, -1)
+
     t0 = now()
     count = 0
     # write out contig name and position in fasta, ref_name:start-end
     with open(output_file, 'w') as fasta:
-        best = np.argmax(class_probs, -1)
-        for key, seq in zip(data.keys(), (''.join(encoding[x] for x in sample) for sample in best)):
-            for gap_sym in (_gap_, _ref_gap_):
-                seq = seq.replace(gap_sym, '')
+        for s, seq in zip(data, (''.join(encoding[x] for x in sample) for sample in best)):
+            seq = seq.replace(_gap_, '')
+            key = '{}:{}-{}'.format(s.ref_name, s.positions['major'][0] + 1, s.positions['major'][-1] + 2)
             fasta.write(">{}\n{}\n".format(key, seq))
             count += 1
         t1 = now()
         logging.info('Decoding took {}s for {} chunks.'.format(t1 - t0, count))
+
+    # write out positions and predictions for later analysis
+    data_out = []
+    for sample, pred in zip(data, class_probs):
+        sample = sample._asdict()
+        sample['label_probs'] = pred
+        data_out.append(Sample(**sample))
+
+    if predictions_file is not None:
+        save_feature_file(predictions_file, data_out)
+    return tuple(data_out)
 
 
 def train(args):
     """Training program."""
     train_name = args.train_name
     mkdir_p(train_name, info='Results will be overwritten and may use pregenerated features.')
-    dataset_name = os.path.join(train_name, '{}_squiggles.npy'.format(train_name))
+    dataset_name = os.path.join(train_name, '{}_squiggles.hdf'.format(train_name))
     logging.info("Using {} for feature storage/reading.".format(dataset_name))
 
     if not os.path.isfile(dataset_name):
         logging.info("Creating dataset. This may take a while.")
         chunks = rechunk(load_pileup(args.pileupdata))
-        data = generate_features(chunks)
+        logging.info("Max label length: {}".format(args.max_label_len if args.max_label_len is not None else 'inf'))
+        data = generate_samples(chunks)
         save_feature_file(dataset_name, data)
         if args.features:
             logging.info("Stopping as only feature generation requested.")
@@ -282,34 +319,75 @@ def train(args):
         data = load_feature_file(dataset_name)
     logging.info("Got {} pileup chunks for training.".format(len(data)))
 
-    x_data, y_labels = zip(*data.values())
+    using_ref_as_label = False
+    x_data, y_labels = [], []
+    for s in data:
+        if s.labels is None:
+            raise ValueError("Cannot train without labels.")
+        else:
+            labels = s.labels.astype('U{}'.format(args.max_label_len))
+        x_data.append(s.features)
+        y_labels.append(labels)
+
     # stack the individual samples into one big tensor
     x_data = np.stack(x_data)
     # find unique labels and create a sparse encoding
     y_labels, encoding = to_sparse_categorical(y_labels)
 
+    label_counts = np.unique(y_labels, return_counts=True)
+    label_counts = dict(zip(label_counts[0], label_counts[1]))
     logging.info("Label encoding is:\n{}".format('\n'.join(
-        '{}: {}'.format(i, x) for i, x in enumerate(encoding)
+        '{} ({}): {}'.format(i, label_counts[i], x) for i, x in enumerate(encoding)
     )))
-
-    run_training(train_name, x_data, y_labels, encoding, model_data=args.model)
+    run_training(train_name, x_data, y_labels, encoding, model_data=args.model,
+                 epochs=args.epochs, validation_split=args.validation_split,
+                 batch_size=args.batch_size)
 
 
 def predict(args):
     """Inference program."""
-    if args.pileupdata:
+    if args.pileup:
         # TODO make use of start and end options when loading pileup from hdf ?
         logging.info("Loading pileup from file.")
-        chunks = rechunk(load_pileup(args.pileupdata))
-        data = generate_features(chunks, training=False)
-    elif args.feature_file:
+        chunks = rechunk(load_pileup(args.pileup), overlap=args.overlap, chunk_size=args.sample_length)
+        data = generate_samples(chunks)
+    elif args.features:
         logging.info("Loading features from file.")
-        data = load_feature_file(args.feature_file)
+        data = load_feature_file(args.features)
     else:
         logging.info("Generating features from bam.")
         bam, ref_fasta, ref_name = args.alignments
-        chunks = rechunk(generate_pileup_chunks((bam,), ref_fasta, ref_name=ref_name, start=args.start, end=args.end))
-        data = generate_features(chunks, training=False)
+        tview_gen = generate_pileup_chunks((bam,), ref_fasta, ref_name=ref_name, start=args.start, end=args.end,
+                                           chunk_len=5*args.sample_length, overlap=args.overlap)
+        chunks = rechunk(tview_gen, overlap=args.overlap, chunk_size=args.sample_length)
+        data = generate_samples(chunks)
+
+    if args.output_features is not None:
+        save_feature_file(args.output_features, data)
+        logging.info("Saved features to {}".format(args.output_features))
+    
+    # re-build model with desired number of sequence steps per sample
+    # derived from the features so this works wherever we got features from. 
+    
+    model, encoding = load_model_hdf(args.model, args.encoding, need_encoding=True)
+    logging.info("Label encoding is:\n{}".format('\n'.join(
+        '{}: {}'.format(i, x) for i, x in enumerate(encoding)
+    )))
+    _, model_chunk_size, model_feature_dim = model.get_input_shape_at(0)
+    features_chunk_size, features_dim = data[0].features.shape
+    if not model_feature_dim == features_dim:
+        raise ValueError('Incorrect feature dimension: got {}, model expects {}'.format(features_dim, model_feature_dim))
+    model_output_dim = model.get_output_shape_at(-1)[-1] 
+    if not model_output_dim == len(encoding):
+        raise ValueError('Incorrect number of encodings: got {}, model expects {}'.format(len(encoding), model_output_dim))
+    model = build_model(features_chunk_size, model_feature_dim, model_output_dim)
+    model.load_weights(args.model)
+    logging.info('\n{}'.format(model.summary()))
 
     logging.info("Got {} pileup chunks for inference.".format(len(data)))
-    run_prediction(data, args.model, encoding_json=args.encoding, output_file=args.output_fasta)
+
+    run_prediction(data, model, encoding,
+                   output_file=args.output_fasta,
+                   predictions_file=args.output_probs,
+                   batch_size=args.batch_size,
+    )
