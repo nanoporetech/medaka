@@ -128,11 +128,15 @@ def load_model_hdf(model_path, encoding_json=None, need_encoding=True):
 
     return m, encoding
 
+def _generate_sample_name(s):
+    return '{}:{}.{}-{}.{}'.format(s.ref_name, 
+                                   s.positions['major'][0] + 1, s.positions['minor'][0],
+                                   s.positions['major'][-1] + 1, s.positions['minor'][-1])
 
 def save_feature_file(fname, data):
     with h5py.File(fname, 'w') as hdf:
         for s in data:
-            grp = '{}:{}-{}'.format(s.ref_name, s.positions['major'][0], s.positions['major'][-1] + 1)
+            grp = _generate_sample_name(s)
             for field in s._fields:
                 if getattr(s, field) is not None:
                     data = getattr(s, field)
@@ -148,7 +152,7 @@ def load_feature_file(fname):
     data = []
     with h5py.File(fname, 'r') as hdf:
         # keys are ref:start-end
-        get_start = lambda x: int(x.split(':')[1].split('-')[0])
+        get_start = lambda x: float(x.split(':')[1].split('-')[0])
         sorted_keys = sorted(hdf.keys(), key=get_start)
         for key in sorted_keys:
             s = {}
@@ -280,7 +284,7 @@ def run_prediction(data, model, encoding, output_file='consensus_chunks.fa',
     with open(output_file, 'w') as fasta:
         for s, seq in zip(data, (''.join(encoding[x] for x in sample) for sample in best)):
             seq = seq.replace(_gap_, '')
-            key = '{}:{}-{}'.format(s.ref_name, s.positions['major'][0] + 1, s.positions['major'][-1] + 2)
+            key = _generate_sample_name(s)
             fasta.write(">{}\n{}\n".format(key, seq))
             count += 1
         t1 = now()
