@@ -32,9 +32,9 @@ def main():
     tparser.add_argument('--train_name', type=str, default='keras_train', help='Name for training run.')
     tparser.add_argument('--model', help='Model definition and initial weights .hdf.')
     tparser.add_argument('--features', action='store_true', help='Stop after generating features.')
-    tparser.add_argument('--max_label_len', type=int, default=3, help='Maximum label length.')
+    tparser.add_argument('--max_label_len', type=int, default=1, help='Maximum label length.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
-    tparser.add_argument('--validation_split', type=float, default=0.8, help='Fraction of data to train on (fraction not to validate on).')
+    tparser.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
     tparser.add_argument('--batch_size', type=int, default=200, help='Training batch size.')
     #TODO: plumb these in
     #tparser.add_argument('--min_depth', type=int, default=15, help='Exclude samples in which any pileup column has insufficient depth.')
