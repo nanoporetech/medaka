@@ -212,7 +212,7 @@ Finally, we can run `stats_from_bam` to assess to what extent `medaka` has impro
 
     cd ${WALKTHROUGH}
     . pomoxis/venv/bin/activate
-    EVALREGION=$(head -1 medaka_consensus.fasta | sed 's/>//')
+    EVALREGION=$(awk -F '[>:-]' '{if(NR==1){printf("%s:%i-%i\n",$2, $3, $4)}}' medaka_consensus.fasta)
     samtools faidx ${DRAFT} ${EVALREGION} > ${EVALREGION}_draft_assm.fa
     mini_align -P -r ${DATA}/truth.fa -i ${EVALREGION}_draft_assm.fa -a -t ${NPROC} -p draft_to_truth
     echo "Draft assembly"
