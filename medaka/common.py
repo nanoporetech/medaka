@@ -5,7 +5,7 @@ import os
 import numpy as np
 import re
 from Bio import SeqIO
-from collections import OrderedDict, namedtuple, defaultdict, OrderedDict
+from collections import OrderedDict, namedtuple, defaultdict
 
 import logging
 logger = logging.getLogger(__name__)
@@ -36,14 +36,14 @@ def encode_sample_name(sample):
     :returns: str
     """
     p = sample.positions
-    key = '{}:{}.{}-{}.{}'.format(sample.ref_name, 
+    key = '{}:{}.{}-{}.{}'.format(sample.ref_name,
                                   p['major'][0] + 1, p['minor'][0],
                                   p['major'][-1] + 1, p['minor'][-1])
     return key
 
 
 def decode_sample_name(key):
-    """Decode a the result of `encode_sample_name` into a dict. 
+    """Decode a the result of `encode_sample_name` into a dict.
 
     :param key: `Sample` object.
     :returns: dict
@@ -84,7 +84,7 @@ def get_sample_overlap(s1, s2):
         # they don't overlap
         print('{} and {} do not overlap'.format(encode_sample_name(s1), encode_sample_name(s2)))
         return None, None
-    
+
     ovl_end_ind2 = np.searchsorted(s2.positions, s1.positions[-1], side='right')
     pos1_ovl = s1.positions[ovl_start_ind1:]
     pos2_ovl = s2.positions[0:ovl_end_ind2]
