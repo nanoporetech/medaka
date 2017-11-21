@@ -1,8 +1,11 @@
 import errno
+import h5py
 import itertools
 import os
 import numpy as np
-from collections import OrderedDict, namedtuple
+import re
+from Bio import SeqIO
+from collections import OrderedDict, namedtuple, defaultdict
 
 import logging
 logger = logging.getLogger(__name__)
@@ -19,7 +22,111 @@ encoding = OrderedDict(((a, i) for i, a in enumerate(decoding)))
 # Encoded (and possibly reindexed) pileup
 Pileup = namedtuple('Pileup', ['bam', 'ref_name', 'reads', 'positions'])
 LabelledPileup = namedtuple('LabelledPileup', ['pileups', 'labels', 'ref_seq'])
+
+# We might consider creating a Sample class with methods to encode, decode sample name
+# and perhaps to write/read Samples to/from hdf etc
 Sample = namedtuple('Sample', ['ref_name', 'features', 'labels', 'ref_seq', 'positions', 'label_probs'])
+_sample_name_decoder_ = re.compile(r"(?P<ref_name>\w+):(?P<start>\d+\.\d+)-(?P<end>\d+\.\d+)")
+
+
+def encode_sample_name(sample):
+    """Encode a `Sample` object into a str key.
+
+    :param sample: `Sample` object.
+    :returns: str
+    """
+    p = sample.positions
+    key = '{}:{}.{}-{}.{}'.format(sample.ref_name,
+                                  p['major'][0] + 1, p['minor'][0],
+                                  p['major'][-1] + 1, p['minor'][-1])
+    return key
+
+
+def decode_sample_name(key):
+    """Decode a the result of `encode_sample_name` into a dict.
+
+    :param key: `Sample` object.
+    :returns: dict
+    """
+    d = None
+    m = re.match(_sample_name_decoder_, key)
+    if m is not None:
+        d = m.groupdict()
+    return d
+
+
+def write_sample_to_hdf(s, hdf_fh):
+    grp = encode_sample_name(s)
+    for field in s._fields:
+        if getattr(s, field) is not None:
+            data = getattr(s, field)
+            if isinstance(data, np.ndarray) and isinstance(data[0], np.unicode):
+                data = np.char.encode(data)
+            hdf_fh['{}/{}'.format(grp, field)] = data
+
+
+def load_sample_from_hdf(key, hdf_fh):
+    s = {}
+    for field in Sample._fields:
+        pth = '{}/{}'.format(key, field)
+        if pth in hdf_fh:
+            s[field] = hdf_fh[pth][()]
+            if isinstance(s[field], np.ndarray) and isinstance(s[field][0], type(b'')):
+                s[field] = np.char.decode(s[field])
+        else:
+            s[field] = None
+    return Sample(**s)
+
+
+def get_sample_overlap(s1, s2):
+    ovl_start_ind1 = np.searchsorted(s1.positions, s2.positions[0])
+    if ovl_start_ind1 == len(s1.positions):
+        # they don't overlap
+        print('{} and {} do not overlap'.format(encode_sample_name(s1), encode_sample_name(s2)))
+        return None, None
+
+    ovl_end_ind2 = np.searchsorted(s2.positions, s1.positions[-1], side='right')
+    pos1_ovl = s1.positions[ovl_start_ind1:]
+    pos2_ovl = s2.positions[0:ovl_end_ind2]
+    assert len(pos1_ovl) == len(pos2_ovl)
+    overlap_len = len(pos1_ovl)
+    pad_1 = overlap_len // 2
+    pad_2 = overlap_len - pad_1
+    end_1_ind = ovl_start_ind1 + pad_1
+    start_2_ind = ovl_end_ind2 - pad_2
+
+    contr_1 = s1.positions[ovl_start_ind1:end_1_ind]
+    contr_2 = s2.positions[start_2_ind:ovl_end_ind2]
+    assert len(contr_1) + len(contr_2) == overlap_len
+
+    return end_1_ind, start_2_ind
+
+
+def get_sample_index_from_files(fnames, filetype='hdf'):
+    ref_names = defaultdict(list)
+    if filetype == 'hdf':
+        fhs = (h5py.File(f) for f in fnames)
+    elif filetype == 'fasta':
+        fhs = (SeqIO.index(f, 'fasta') for f in fnames)
+    for fname, fh in zip(fnames, fhs):
+        for key in fh:
+            d = decode_sample_name(key)
+            if d is not None:
+                d['key'] = key
+                d['filename'] = fname
+                ref_names[d['ref_name']].append(d)
+    for fh in fhs:
+        fh.close()
+
+    # sort dicts so that refs are in order and within a ref, chunks are in order
+    ref_names_ordered = OrderedDict()
+    for ref_name in sorted(ref_names.keys()):
+        sorter = lambda x: float(x['start'])
+        ref_names[ref_name].sort(key=sorter)
+        ref_names_ordered[ref_name] = ref_names[ref_name]
+
+    return ref_names_ordered
+
 
 def segment_limits(start, end, segment_len=20000, overlap_len=1000):
     """Generate segments of a range [0, end_point].

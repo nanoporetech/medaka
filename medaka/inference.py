@@ -3,7 +3,10 @@ import h5py
 import json
 import numpy as np
 import os
+import re
 import sys
+from operator import itemgetter
+from collections import defaultdict
 from timeit import default_timer as now
 
 
@@ -28,7 +31,9 @@ logger = logging.getLogger(__name__)
 
 from medaka.tview import _gap_, load_pileup, generate_pileup_chunks, rechunk
 from medaka import features
-from medaka.common import mkdir_p, Sample
+from medaka.common import (mkdir_p, Sample, encode_sample_name, decode_sample_name, 
+                           get_sample_index_from_files, load_sample_from_hdf,
+                           write_sample_to_hdf,)
 
 _encod_path_ = 'medaka_label_encoding'
 
@@ -92,6 +97,14 @@ def load_encoding(fname):
     return encoding
 
 
+def load_encoding_from_hdf(fname):
+    encoding = None
+    with h5py.File(fname, 'r') as h5:
+        if _encod_path_ in h5:
+            encoding = [s.decode() for s in h5[_encod_path_][()]]
+    return encoding
+
+
 def write_encoding_to_hdf(fname, encoding):
     """Write model encoding to model with label encoding."""
     with h5py.File(fname) as h5:
@@ -109,15 +122,11 @@ def save_model_hdf(fname, model, encoding):
 
 def load_model_hdf(model_path, encoding_json=None, need_encoding=True):
     """Load a model from a .hdf file. If label encodings are not present,
-    try to load them from enncoding_json."""
+    try to load them from encoding_json."""
     # try to get structure + encoding from hdf, else use the
     # one provided (or raise an exception if it is not provided).
     m = load_model(model_path, custom_objects={'qscore': qscore})
-    encoding = None
-    with h5py.File(model_path, 'r') as h5:
-        if _encod_path_ in h5:
-            encoding = [s.decode() for s in h5[_encod_path_][()]]
-            logging.info("Loaded encoding from {}.".format(model_path))
+    encoding = load_encoding_from_hdf(model_path)
 
     if encoding is None and encoding_json is not None:
         encoding = load_encoding(encoding_json)
@@ -129,39 +138,36 @@ def load_model_hdf(model_path, encoding_json=None, need_encoding=True):
     return m, encoding
 
 
-def save_feature_file(fname, data):
+def save_feature_file(fname, data, label_encoding=None):
     with h5py.File(fname, 'w') as hdf:
         for s in data:
-            grp = '{}:{}-{}'.format(s.ref_name, s.positions['major'][0], s.positions['major'][-1] + 1)
-            for field in s._fields:
-                if getattr(s, field) is not None:
-                    data = getattr(s, field)
-                    if isinstance(data, np.ndarray) and isinstance(data[0], np.unicode):
-                        data = np.char.encode(data)
-                    hdf['{}/{}'.format(grp, field)] = data
+            write_sample_to_hdf(s, hdf)
+        if label_encoding is not None:
+            hdf[_encod_path_] = [s.encode() for s in label_encoding]
 
 
-def load_feature_file(fname):
+def yield_from_feature_files(fnames, ref_names=None, index=None):
+    """Yield `Sample` objects in order from the result of `save_feature_file`.
+    """
+    if index is None:
+        index = get_sample_index_from_files(fnames, 'hdf')
+    handles = { fname: h5py.File(fname, 'r') for fname in fnames}
+    if ref_names is None:
+        ref_names = index.keys()
+
+    for ref_name in ref_names:
+        for d in index[ref_name]:
+            yield load_sample_from_hdf(d['key'], handles[d['filename']])
+
+    for fh in handles.values():
+        fh.close()
+
+
+def load_feature_file(fname, ref_names=None):
     """Load the result of `save_feature_file` back to the original
     representation.
     """
-    data = []
-    with h5py.File(fname, 'r') as hdf:
-        # keys are ref:start-end
-        get_start = lambda x: int(x.split(':')[1].split('-')[0])
-        sorted_keys = sorted(hdf.keys(), key=get_start)
-        for key in sorted_keys:
-            s = {}
-            for field in Sample._fields:
-                pth = '{}/{}'.format(key, field)
-                if pth in hdf:
-                    s[field] = hdf[pth][()]
-                    if isinstance(s[field], np.ndarray) and isinstance(s[field][0], type(b'')):
-                        s[field] = np.char.decode(s[field])
-                else:
-                    s[field] = None
-            data.append(Sample(**s))
-    return tuple(data)
+    return tuple([s for s in yield_from_feature_file(fname, ref_names)])
 
 
 def qscore(y_true, y_pred):
@@ -280,7 +286,7 @@ def run_prediction(data, model, encoding, output_file='consensus_chunks.fa',
     with open(output_file, 'w') as fasta:
         for s, seq in zip(data, (''.join(encoding[x] for x in sample) for sample in best)):
             seq = seq.replace(_gap_, '')
-            key = '{}:{}-{}'.format(s.ref_name, s.positions['major'][0] + 1, s.positions['major'][-1] + 2)
+            key = encode_sample_name(s)
             fasta.write(">{}\n{}\n".format(key, seq))
             count += 1
         t1 = now()
@@ -294,7 +300,7 @@ def run_prediction(data, model, encoding, output_file='consensus_chunks.fa',
         data_out.append(Sample(**sample))
 
     if predictions_file is not None:
-        save_feature_file(predictions_file, data_out)
+        save_feature_file(predictions_file, data_out, label_encoding=encoding)
     return tuple(data_out)
 
 
