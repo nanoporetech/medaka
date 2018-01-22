@@ -1,7 +1,7 @@
-Medaka Examples
+Getting Started
 ===============
 
-Medaka demonstrates a framework for error correcting sequencing data,
+`medaka` demonstrates a framework for error correcting sequencing data,
 particularly aimed at nanopore sequencing. Tools are provided for both training
 and inference. The code exploits the `keras <https://keras.io>`_ deep learning
 library.
@@ -18,92 +18,76 @@ The currently implemented neural networks are limited in their ability to
 correct errors: to predict an output base from a window of oriented base
 features. They make no use of primary signal data from nanopore experiments,
 as for instance performed by `nanopolish <https://github.com/jts/nanopolish>`_.
-Future versions will implement correction schemes working directly from signal
-data of multiple reads. For more details see :ref:`FutureDirections`.
+Future projects will implement correction schemes working directly from signal
+data of multiple reads. For more details see :doc:`future`.
 
-For a complete examples starting from basecalls, through forming a draft
-assembly, to training and using a consensus network see the :ref:`Walkthrough`.
+For a complete examples starting from signal data, calculating basecalls,
+through forming a draft assembly, to training and using a consensus network
+see the :doc:`walkthrough`.
 
-.. _SequenceCorrection:
+
+.. _creating_software_env:
+
+Creating a Software Environment
+-------------------------------
+
+While not strictly necessary to use `medaka`, the :doc:`walkthrough` makes use of
+several other open-source tools from Oxford Nanopore Technologies. To obtain
+these run the following:
+
+.. code-block:: bash
+
+    MEDAKAHOME=${PWD}
+    git clone https://github.com/nanoporetech/pomoxis --recursive
+    git clone https://github.com/nanoporetech/medaka
+    git clone https://github.com/nanoporetech/scrappie
+    
+    # While it is possible to install pomoxis and medaka into the same
+    #   virtual environment, we will install each package into its own
+    #   environment for simplicity. For more details see the readme for
+    #   each of the packages.
+
+    cd pomoxis && make install && cd ..
+    cd medaka && make install && cd ..
+    cd scrappie && mkdir build && cd build && cmake .. && make && cd ../../
+
+    POMOXIS=${MEDAKAHOME}/pomoxis/venv/bin/activate
+    MEDAKA=${MEDAKAHOME}/medaka/venv/bin/activate
+
+If any of the above steps fail consult the install instructions of the
+individual packages. 
+ 
+In order to train effectively consensus models it is desirable to use a system
+with a GPU. In order to use `medaka` training with a GPU, one should further
+install the `tensorflow-gpu` package from pip into the medaka virtual
+environment with:
+
+.. code-block:: bash
+
+    source ${MEDAKA}
+    pip install tensorflow-gpu
+
+Depending on your environment, specifically the versions of `CUDA` and `cuDNN`
+that one has installed, it may be necessary to use versions of this package other
+than the latest. `medaka` has been used with all release versions of `tensorflow`
+after and including version 1.0.0.
+
+
+.. _sequence_correction:
 
 Sequence correction
 -------------------
-
-`medaka consensus` uses a neural network error model to fix errors in input sequences.
-
-.. code-block:: bash
-
-	usage: medaka consensus [-h] [--encoding ENCODING]
-							[--output_fasta OUTPUT_FASTA] [--start START]
-							[--end END]
-							(--pileupdata PILEUPDATA | --feature_file FEATURE_FILE | --alignments reads.bam ref.fasta ref_name)
-							model
-
-	positional arguments:
-	  model                 Model .hdf file from training.
-
-	optional arguments:
-	  -h, --help            show this help message and exit
-	  --encoding ENCODING   Model label encoding .json, used only if encoding not
-							in .hdf model
-	  --output_fasta OUTPUT_FASTA
-							Polished consensus output file.
-	  --start START         Reference position at which to start, only used with
-							--alignments.
-	  --end END             Reference position at which to end, only used with
-							--alignments.
-	  --pileupdata PILEUPDATA
-							Pileup input data.
-	  --feature_file FEATURE_FILE
-							Pregenerated features as stored during training.
-	  --alignments reads.bam ref.fasta ref_name
-							Input alignments, reference fasta and reference name
-							(within fasta).
-
-
-Neural network training
------------------------
-
-Training an error model is a two-stage process.
-
-Generate a training data HDF5 file using `medaka prepare`.
+ 
+After installing all the necessary software (see :ref:`creating_software_env`),
+`medaka` can be run using its default settings through the `medaka_consensus`
+program. An assembly in `.fasta` format and basecalls in `.fasta` or `.fastq`
+format are required, see :ref:`basecalling_and_draft_assembly`.
 
 .. code-block:: bash
 
-	usage: medaka prepare [-h] [--start START] [--end END] [--chunk_len CHUNK_LEN]
-						  [--truth TRUTH]
-						  ref_fasta ref_name output bam
+    source ${MEDAKA}  # i.e. medaka/bin/activate as above
+    NPROC=$(nproc)
+    medaka_consensus -i basecalls.fa -d draft_assembly.fa -o medaka_consensus -t ${NPROC} -p ${POMOXIS}
 
-	positional arguments:
-	  ref_fasta             .fasta reference corresponding to bams.
-	  ref_name              Name of reference within ref_fasta.
-	  output                Output .hdf.
-	  bam                   Input alignments (aligned to ref).
-
-	optional arguments:
-	  -h, --help            show this help message and exit
-	  --start START         Start reference coordinate.
-	  --end END             End reference coordinate.
-	  --chunk_len CHUNK_LEN
-							Width of pileup chunks (in ref coords) to produce.
-	  --truth TRUTH         Input bam of truth aligned to ref to label data.
-
-Then supply the training data file to `medaka train`.
-
-.. code-block:: bash
-    
-    Train model using preprocessed training data.
-
-	usage: medaka train [-h] [--train_name TRAIN_NAME] [--model MODEL]
-						[--features]
-						pileupdata
-
-	positional arguments:
-	  pileupdata            Path for training data.
-
-	optional arguments:
-	  -h, --help            show this help message and exit
-	  --train_name TRAIN_NAME
-							Name for training run.
-	  --model MODEL         Model definition and initial weights .hdf.
-	  --features            Stop after generating features.
+When `medaka_consensus` has finished running, the consensus will be saved to
+`medaka_consensus/consensus.fasta`.

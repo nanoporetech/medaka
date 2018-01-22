@@ -2,10 +2,9 @@ import logging
 import numpy as np
 from Bio import SeqIO
 from Bio import pairwise2
-from collections import defaultdict
 from itertools import chain
-from medaka.common import _gap_, encode_sample_name, get_sample_overlap, get_sample_index_from_files
-from medaka.inference import load_encoding_from_hdf, yield_from_feature_files
+from medaka.common import (_gap_, encode_sample_name, get_sample_overlap, get_sample_index_from_files,
+                           load_yaml_data, yield_from_feature_files, _label_decod_path_)
 
 def merge_into_sequence(existing, incoming, overlap_length):
     """Append string to another string using pairwise alignment of
@@ -62,8 +61,8 @@ def stitch_from_fastas(fastas, min_overlap_len=50, ref_names=None):
 
     :param fastas: iterable of fasta filepaths.
     :min_overlap_len: int, minimum required overlap in reference positions at sequence ends
-    :ref_names: iterable of ref_names to limit stitching to. 
-    :returns: list of (contig_name, sequence) 
+    :ref_names: iterable of ref_names to limit stitching to.
+    :returns: list of (contig_name, sequence)
 
     """
     index = get_sample_index_from_files(fastas, 'fasta')
@@ -80,14 +79,14 @@ def stitch_from_fastas(fastas, min_overlap_len=50, ref_names=None):
         for chunk in index[ref]:
             if start is None:
                 start = chunk['start']
-            # if we have a gap, add what we have joined up 
+            # if we have a gap, add what we have joined up
             # and move onto the next chunk we can join together
             is_overlapping = float(chunk['start']) < float(prev_chunk_end)
-            # check we have at least min_overlap_len major reference positions 
+            # check we have at least min_overlap_len major reference positions
             enough_overlap = float(prev_chunk_end) - float(chunk['start']) > min_overlap_len
             if not is_overlapping or not enough_overlap:
                 msg = '{} will be fragmented: insufficient overlap between end {} and start {}'
-                logging.info(msg.format(ref, prev_chunk_end, chunk['start'])) 
+                logging.info(msg.format(ref, prev_chunk_end, chunk['start']))
                 name = '{}:{}-{}'.format(ref, start, prev_chunk_end)
                 ref_assemblies.append((name, ref_assembly))
                 ref_assembly = ''
@@ -97,14 +96,14 @@ def stitch_from_fastas(fastas, min_overlap_len=50, ref_names=None):
 
             sequence = fhs[chunk['filename']][chunk['key']].seq
             if ref_assembly == '':
-                ref_assembly = sequence 
+                ref_assembly = sequence
             else:
                 overlap_len = int(float(prev_chunk_end)) - int(float(chunk['start']))
                 ref_assembly = merge_into_sequence(ref_assembly, sequence, overlap_len)
 
-            prev_chunk_end = chunk['end'] 
+            prev_chunk_end = chunk['end']
 
-        name = '{}:{}-{}'.format(ref, start, prev_chunk_end) 
+        name = '{}:{}-{}'.format(ref, start, prev_chunk_end)
         ref_assemblies.append((name, ref_assembly))
 
     return ref_assemblies
@@ -116,17 +115,24 @@ def write_fasta(filename, contigs):
             fasta.write('>{}\n{}\n'.format(name, seq))
 
 
-def stitch_from_probs(probs_hdfs, ref_names=None):
+def stitch_from_probs(probs_hdfs, ref_names=None, model_yml=None):
     """Decode and join overlapping label probabilities from hdf to assemble complete sequence
 
     :param probs_hdfs: iterable of hdf filepaths.
-    :ref_names: iterable of ref_names to limit stitching to. 
-    :returns: list of (contig_name, sequence) 
+    :ref_names: iterable of ref_names to limit stitching to.
+    :returns: list of (contig_name, sequence)
 
     """
-    label_encoding = load_encoding_from_hdf(probs_hdfs[0])
-    if label_encoding is None:
-        raise ValueError('Cannot decode probabilities without label encoding')
+    label_decoding = load_yaml_data(probs_hdfs[0], _label_decod_path_)
+    logging.info("Label decoding is:\n{}".format('\n'.join(
+        '{}: {}'.format(i, x) for i, x in enumerate(label_decoding)
+    )))
+    if label_decoding is None:
+        if model_yml is not None:
+            logging.info("Loading label encoding from {}".format(model_yml))
+            label_decoding = load_yaml_data(model_yml, _label_decod_path_)
+        else:
+            raise ValueError('Cannot decode probabilities without label decoding')
     index = get_sample_index_from_files(probs_hdfs, 'hdf')
     if ref_names is None:
         ref_names = index.keys()
@@ -150,7 +156,7 @@ def stitch_from_probs(probs_hdfs, ref_names=None):
                                         encode_sample_name(s2)))
 
             best = np.argmax(s1.label_probs[start_1_ind:end_1_ind], -1)
-            seq += ''.join([label_encoding[x] for x in best]).replace(_gap_, '')
+            seq += ''.join([label_decoding[x] for x in best]).replace(_gap_, '')
             if end_1_ind is None:
                 key = '{}:{}-{}'.format(s1.ref_name, start, get_pos(s1, -1))
                 ref_assemblies.append((key, seq))
@@ -165,5 +171,5 @@ def stitch(args):
     if args.mode == 'fasta':
         joined = stitch_from_fastas(args.inputs, min_overlap_len=args.min_overlap, ref_names=args.ref_names)
     else:
-        joined = stitch_from_probs(args.inputs, ref_names=args.ref_names)
+        joined = stitch_from_probs(args.inputs, ref_names=args.ref_names, model_yml=args.model_yml)
     write_fasta(args.output, joined)
