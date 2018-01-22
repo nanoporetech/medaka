@@ -60,8 +60,10 @@ setup(
     entry_points = {
         'console_scripts': [
             '{0} = {0}.{0}:main'.format(__pkg_name__),
+            'hp_compress = {0}.{1}:main'.format(__pkg_name__, 'compress')
         ]
     },
+    scripts=['scripts/medaka_consensus'],
     zip_safe=False,
 )
 

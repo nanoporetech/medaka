@@ -1,49 +1,82 @@
 Benchmarks
 ==========
 
-The following demonstrates the utility of a recurrent neural network trained
-to make corrections of a draft assembly by considering counts of bases and
-indels in pileup columns obtained from reads aligned to the draft, as
-implemented with :ref:`SequenceCorrection`.
+The following demonstrates the utility of a recurrent neural network trained to
+perform a consensus call from a pileup in which basecalls and the draft
+assembly have been reduced using run-length encoding (as demonstrated in
+:ref:`sequence_correction`). The network receives counts of base
+run-lengths within each column of a pileup obtained by aligning the encoded
+basecalls to the encoded draft assembly. 
 
-All models here were trained from reads aligning to a region of E.coli and
-tested on a distinct, non-overlapping region. In all cases
-`scrappie <https://github.com/nanoporetech/scrappie>`_ was used to perform
-the basecalling; the 6mer transducer model was trained specifically for this
-experiment. The draft assemblies here were created using the
-`mini_assemble <https://nanoporetech.github.io/pomoxis/examples.html#fast-de-novo-assembly>`_
-pipeline in `pomoxis <https://github.com/nanoporetech/pomoxis>`_. Statistics
-were calculated using `alignqc <https://www.healthcare.uiowa.edu/labs/au/AlignQC/>`_.
+Results were obtained using the default model provided with `medaka`. This model
+was trained using data obtained from E.coli, S.cerevisaie and H.sapiens samples.
+Training data were basecalled using Guppy 0.3.0. Draft assemblies were created
+using the `mini_assemble <https://nanoporetech.github.io/pomoxis/examples.html#fast-de-novo-assembly>`_
+pipeline in `pomoxis <https://github.com/nanoporetech/pomoxis>`_. 
 
-+----------------------------+-----------------+
-|                            | Raw transducer  |
-|                            +--------+--------+
-|                            |  draft | medaka |
-+===================+========+========+========+
-| **Total Error %** |        |  0.269 |  0.081 |
-+-------------------+--------+--------+--------+
-| **Mismatch**      |        |  0.007 |  0.011 |
-+-------------------+--------+--------+--------+
-| **Deletion**      | Total  |  0.222 |  0.045 |
-+                   +--------+--------+--------+
-|                   | Non-HP |  0.011 |  0.005 |
-+                   +--------+--------+--------+
-|                   | HP     |  0.211 |  0.040 |
-+-------------------+--------+--------+--------+
-| **Insertion**     | Total  |  0.040 |  0.026 |
-+                   +--------+--------+--------+
-|                   | Non-HP |  0.019 |  0.004 |
-+                   +--------+--------+--------+
-|                   | HP     |  0.021 |  0.022 |
-+-------------------+--------+--------+--------+
+Error statistics were calculated using the 
+`pomoxis <https://github.com/nanoporetech/pomoxis>`_ program `stats_from_bam` after
+aligning 10kb chunks of the consensus to the reference. 
 
-Medaka reduces the total error by more than a factor of three. This is achieved
-mainly through reducing the homopolymer (three or more bases) deletion error. 
 
-This rather simple correction model does not reach the level of
-nanopolish, but does reduce the runtime of nanopolish considerably.
+Comparison of `medaka` and `nanopolish` 
+---------------------------------------
 
-Future versions of medaka will aim to improve on the above results with the
-aim to surpass the nanopolish results whilst also improving runtime. See
-:ref:`FutureDirections` for more information.
+Evaluation of the model was performed using the `medaka` E.coli
+:doc:`walkthrough` dataset. These data we not used to train the model.
+Basecalling was performed with 
+`scrappie <https://github.com/nanoporetech/scrappie>`_ using the `rgrgr_r94`
+model. The pileup had a median depth of ~80-fold.
+`nanopolish <https://github.com/jts/nanopolish>`_ was run with homopolymer
+correction but without methylation correction. `medaka` and `nanopolish` were
+run on the same hardware. 
 
++-----------------+--------+------------+
+|                 | medaka | nanopolish |
++=================+========+============+
+| Q(Accuracy)     |  30.53 |  30.80     |
++-----------------+--------+------------+
+| Q(Identity)     |  45.35 |  42.27     |
++-----------------+--------+------------+
+| Q(Deletion)     |  31.82 |  31.64     |
++-----------------+--------+------------+
+| Q(Insertion)    |  37.03 |  40.60     |
++-----------------+--------+------------+
+| runtime (hours) |  0.17  |  3.0       |
++-----------------+--------+------------+
+| CPU cores       |  4     |  32        |
++-----------------+--------+------------+
+| CPU hours       |  0.67  |  96        |
++-----------------+--------+------------+
+
+For this dataset `medaka` delivers similar results to `nanopolish` in a
+fraction of the time. 
+
+
+Evaluation across samples and depths
+------------------------------------
+
+Evaluation of the model was performed using E.coli, H.sapiens chromosome 21,
+and `K.pneumoniae <https://github.com/rrwick/Basecalling-comparison>`_. 
+The E.coli and human reads were basecalled with `Guppy` version 0.3.0,
+while the Klebsiella reads were basecalled with `scrappie
+<https://github.com/nanoporetech/scrappie>`_ using the `rgrgr_r94` model. The
+draft assemblies here were created at multiple depths using the `mini_assemble
+<https://nanoporetech.github.io/pomoxis/examples.html#fast-de-novo-assembly>`_
+pipeline in `pomoxis <https://github.com/nanoporetech/pomoxis>`_.
+
++---------------------+-----------------+------------------+
+| Data set            | Racon Error (%) | Medaka Error (%) |
++=====================+=================+==================+
+| E.coli 25X          |       0.47      |       0.19       |
++---------------------+-----------------+------------------+
+| E.coli 57X          |       0.37      |       0.10       |
++---------------------+-----------------+------------------+
+| K.pneumoniae 25X    |       0.86      |       0.63       |
++---------------------+-----------------+------------------+
+| K.pneumoniae 57X    |       0.72      |       0.45       |
++---------------------+-----------------+------------------+
+| H.sapiens chr21 31X |       1.01      |       0.48       |
++---------------------+-----------------+------------------+
+
+`medaka` reduces the total error in the `racon` consensus by roughly a factor of two. 

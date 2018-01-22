@@ -1,0 +1,115 @@
+#!/bin/bash
+set -e
+
+OUTPUT="medaka"
+THREADS=1
+POMOXIS=~/git/pomoxis/venv/bin/activate
+
+MEDAKA=$(dirname $(which medaka))/activate
+MODEL=$(dirname $(which medaka))/../../medaka/data/hp_compress_model.hdf5
+MODEL=$(readlink -f $MODEL);
+iflag=false
+aflag=false
+
+usage="$(basename "$0") [-h] -i <fastq>
+
+Polish an assembly using medaka
+
+    -h  show this help text.
+    -i  fastx input basecalls (required).
+    -d  fasta input assembly (required). 
+    -o  output folder (default: medaka).
+    -p  pomoxis path (default: ~/git/pomoxis/venv/bin/activate).
+    -m  medaka model (default: ${MODEL}) 
+    -t  number of minimap and hp_compress threads (default: 1)."
+
+while getopts ':hi:d:o:p:m:t:' option; do
+  case "$option" in
+    h  ) echo "$usage" >&2; exit;;
+    i  ) iflag=true; BASECALLS=$(readlink -f $OPTARG);;
+    d  ) aflag=true; DRAFT=$(readlink -f $OPTARG);;
+    o  ) OUTPUT=$OPTARG;;
+    p  ) POMOXIS=$OPTARG;;
+    m  ) MODEL=$(readlink -f $OPTARG);;
+    t  ) THREADS=$OPTARG;;
+    \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
+    :  ) echo "Option -$OPTARG requires an argument." >&2; exit 1;;
+  esac
+done
+shift $(($OPTIND - 1))
+
+if ! $iflag; then
+  echo "$usage" >&2;
+  echo "-i must be specified." >&2;
+  exit 1;
+fi
+
+if ! $aflag; then
+  echo "$usage" >&2;
+  echo "-a must be specified." >&2;
+  exit 1;
+fi
+
+if [[ ! -e ${OUTPUT} ]]; then
+  mkdir -p ${OUTPUT}
+else
+  echo "Warning: Output ${OUTPUT} already exists, may use old results."
+fi
+
+cd ${OUTPUT}
+
+source ${MEDAKA}
+
+DRAFTCOMPRFQ=assm_compr.fq
+if [[ ! -e ${DRAFTCOMPRFQ} ]]; then
+    echo "Compressing homopolymers in draft assembly"
+    hp_compress compress ${DRAFT} -o ${DRAFTCOMPRFQ} -t ${THREADS}
+else
+    echo "Not compressing homopolymers in draft assembly, ${DRAFTCOMPRFQ} exists."
+fi
+
+BASECALLSCOMPRFQ=basecalls_compr.fq
+if [[ ! -e ${BASECALLSCOMPRFQ} ]]; then
+    echo "Compressing homopolymers in basecalls"
+    hp_compress compress ${BASECALLS} -o ${BASECALLSCOMPRFQ} -t ${THREADS}
+else
+    echo "Not compressing homopolymers in basecalls, ${BASECALLSCOMPRFQ} exists."
+fi
+
+
+DRAFTCOMPRFA=assm_compr.fa
+CALLS2DRAFT=basecalls_compr_to_assm_compr
+source ${POMOXIS}
+if [[ ! -e ${CALLS2DRAFT}.bam ]]; then
+    echo "Aligning compressed basecalls to compressed draft"
+    fast_convert qa <${DRAFTCOMPRFQ}>${DRAFTCOMPRFA}
+    mini_align -i ${BASECALLSCOMPRFQ} -r ${DRAFTCOMPRFA} -P -m -p ${CALLS2DRAFT} -t ${THREADS}
+else
+    echo "Not aligning compressed basecalls to compressed draft, ${CALLS2DRAFT}.bam exists."
+fi
+
+source ${MEDAKA}
+FEATURES=features.hdf
+if [[ ! -e ${FEATURES} ]]; then
+    echo "Creating features"
+    hp_compress features ${CALLS2DRAFT}.bam ${DRAFTCOMPRFQ} ${FEATURES} -m ${MODEL} -t ${THREADS}
+else
+    echo "Not creating features, ${FEATURES} exists."
+fi
+
+CONSENSUSPROBS=consensus_probs.hdf
+if [[ ! -e ${CONSENSUSPROBS} ]]; then
+    echo "Running medaka consensus"
+    medaka consensus ${MODEL} --output_probs ${CONSENSUSPROBS} --features ${FEATURES}
+else 
+    echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
+fi
+
+CONSENSUS=consensus.fasta
+if [[ ! -e ${CONSENSUS} ]]; then
+    echo "Running medaka stitch"
+    medaka stitch ${CONSENSUSPROBS} ${CONSENSUS} --mode hdf 
+    echo "Polished assembly written to ${OUTPUT}/${CONSENSUS}, have a nice day."
+else
+    echo "Consensus ${OUTPUT}/${CONSENSUS} exists, remove ${OUTPUT} and try again."
+fi

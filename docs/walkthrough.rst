@@ -1,13 +1,12 @@
-.. _Walkthrough:
 
 Walkthrough
 ===========
 
-In the following we will show how to train and use a simple form of consensus
-model. We will start from sequencing data obtained from R9.4 flowcells and the
+The following shows how to train and use a simple form of consensus
+model from sequencing data obtained from R9.4 flowcells and the
 ligation sequencing kit.
 
-.. note:: The below assumes that you are using a Linux environment, some
+.. note:: The below assumes a Linux environment, some
     changes may need to be made on macOS. Windows environments are not
     supported. Environment variables set in one code block are assumed to
     persist through to other code blocks. 
@@ -15,29 +14,32 @@ ligation sequencing kit.
 The below serves to demonstrate the process at a simple level. It does not
 represent a best-practices or state-of-the-art workflow. To train models
 which generalise well to other datasets more careful preparation of a larger
-dataset is required. `Medaka` is designed for flexibility over performance.
+dataset is required. `medaka` is designed for flexibility over performance,
+though see :doc:`benchmarks` for a speed comparison with other commonly used
+tools.
 
 
-Obtaining data
---------------
+Obtaining Data and Software
+---------------------------
 
-We start by downloading training data in the form of Oxford Nanopore
+Start by downloading training data in the form of Oxford Nanopore
 Technologies `.fast5` files for a set of reads.
 
 .. code-block:: bash
 
     WALKTHROUGH=${PWD}/medaka_walkthrough
-    mkdir ${WALKTHROUGH} && cd ${WALKTHROUGH}
-    wget https://s3-eu-west-1.amazonaws.com/ont-medaka-demo/medaka_demo.tar
+    mkdir -p ${WALKTHROUGH} && cd ${WALKTHROUGH}
+    wget https://s3-eu-west-1.amazonaws.com/ont-research/medaka_walkthrough.tar.gz
     tar -xvf medaka_demo.tar
     DATA=${PWD}/data
 
+The extracted archive contains also all the intermediate output files that
+are created during the process below. Any step may be skipped by simply copying
+the requisite subfolder from the `${DATA}` directory into the `${WALKTHROUGH}`
+directory.
 
-Creating a software environment
--------------------------------
-
-We will use several open source tools from Oxford Nanopore Technologies. To
-obtain these run the following:
+The necessary software can be sourced using the same process as described in
+:ref:`creating_software_env`, namely:
 
 .. code-block:: bash
 
@@ -55,30 +57,17 @@ obtain these run the following:
     cd medaka && make install && cd ..
     cd scrappie && mkdir build && cd build && cmake .. && make && cd ../../
 
-If any of the above steps fail consult the install instructions of the
-individual packages. 
- 
-In order to train effectively consensus models it is desirable to use a system
-with a GPU. In order to use `medaka` training with a GPU, one should further
-install the `tensorflow-gpu` package from pip into the medaka virtual
-environment with:
-
-.. code-block:: bash
-
-    cd ${WALKTHROUGH}
-    . medaka/venv/bin/activate
-    pip install tensorflow-gpu
-
-Depending on your environment, specifically the versions of `CUDA` and `cuDNN`
-that one has installed, it may be necessary to use versions of this package other
-than the latest. `medaka` has been used with all release versions of `tensorflow`
-after and including version 1.0.0.
+    POMOXIS=${WALKTHROUGH}/pomoxis/venv/bin/activate
+    MEDAKA=${WALKTHROUGH}/medaka/venv/bin/activate
 
 
-Basecalling and draft assembly
+
+.. _basecalling_and_draft_assembly:
+
+Basecalling and Draft Assembly
 ------------------------------
 
-Our first step is to basecall the data downloaded above. We do this using `scrappie`:
+The downloaded data can be basecalled using `scrappie`:
 
 .. code-block:: bash
 
@@ -87,18 +76,19 @@ Our first step is to basecall the data downloaded above. We do this using `scrap
     NPROC=$(nproc)
     export OMP_NUM_THREADS=${NPROC}
     export OPENBLAS_NUM_THREADS=1
-    ${SCRAPPIE} raw ${DATA}/reads --model rgrgr_r94 > basecalls.fa
+    BASECALLS=basecalls.fa
+    ${SCRAPPIE} raw ${DATA}/reads --model rgrgr_r94 > ${BASECALLS}
 
-We can now form a draft assembly using the
-`miniasm <https://github.com/lh3/miniasm>`_ based pipeline from `pomoxis`.
+and a draft assembly can be formed using the 
+`miniasm <https://github.com/lh3/miniasm>`_ and
+`racon <https://github.com/isovic/racon>`_ based pipeline from `pomoxis`.
 Alternatively one could use `canu <https://github.com/marbl/canu>`_ at this step.
 
 .. code-block:: bash
 
     cd ${WALKTHROUGH}
-    . pomoxis/venv/bin/activate
-    cat basecalls.fa | fast_convert --mock_q 10 aq > basecalls.fq 
-    mini_assemble -i basecalls.fq -o draft_assm -p assm -t ${NPROC}
+    source ${POMOXIS}
+    mini_assemble -i ${BASECALLS} -o draft_assm -p assm -t ${NPROC}
 
 This will create a draft assembly at `draft_assm/assm_final.fa`. The
 `mini_assemble` script has two useful options not used here:
@@ -110,60 +100,153 @@ This will create a draft assembly at `draft_assm/assm_final.fa`. The
 
 Both these steps can improve the assembly quality at the expense of speed.
 
-
-Preparing training data
------------------------
-
-In order to correct a draft assembly, medaka currently uses a strategy of
-aligning reads to a draft and learning corrections to be made taking the pileup
-data as input. In order to train the network we therefore need to perform
-such an alignment and also an alignment of the ground truth data to the same
-draft. In this way we can learn the correct base(s), or gaps, to call for each
-pileup column.
-
-To align the basecalls and truth sequence to the draft assembly we use the
-`mini_align` script in `pomoxis` which conveniently wraps 
-`minimap2 <https://github.com/lh3/minimap2>`_:
+The number and length of the assembled contigs can be checked
 
 .. code-block:: bash
 
     cd ${WALKTHROUGH}
-    . pomoxis/venv/bin/activate
     DRAFT=draft_assm/assm_final.fa
-    CALLS2DRAFT=calls_to_draft
-    TRUTH2DRAFT=truth_to_draft
-    mini_align -P -r ${DRAFT} -i basecalls.fa -a -t ${NPROC} -p ${CALLS2DRAFT}
-    mini_align -P -r ${DRAFT} -i ${DATA}/truth.fa -a -t ${NPROC} -p ${TRUTH2DRAFT}
+    awk '{if(/>/){n=$1}else{print n " " length($0)}}' ${DRAFT}
 
-At the end of this process we have two `.bam` files which we use in the
-following training step effectively to learn how to predict the contents of
-one from the other.
-
-We now use `medaka prepare` to generate training examples in the form of 
-chunks of labelled pileup, and save them to HDF5.
+The expected output is a contig 4,701,891 bases long (Consensus_utg000001c) and
+a short remainder sequence just 408 bases long (Consensus_utg000002c). The
+following will use only the long contig, which is around the expected genome
+size. To create a `.fasta` file containing just the longer contig, run:  
 
 .. code-block:: bash
 
     cd ${WALKTHROUGH}
-    . medaka/venv/bin/activate
-    LABELLEDPILEUP=labelled_pileup.hdf
-    TRAINREFNAME=Consensus_utg000002l
-    EVALREFNAME=Consensus_utg000001l
-    medaka prepare ${DRAFT} ${CALLS2DRAFT}.bam ${LABELLEDPILEUP} --truth ${TRUTH2DRAFT}.bam --ref_name $TRAINREFNAME
+    source ${POMOXIS}
+    REFNAME=Consensus_utg000001c
+    samtools faidx ${DRAFT} Consensus_utg000001c > draft_assm/assm_final_filt.fa
+    DRAFT=draft_assm/assm_final_filt.fa
 
 
-Training The Consensus Network
-------------------------------
+.. _polishing_with_rle:
 
-We now have everything we need to train a consensus network using `medaka train`:
+Polishing a Consensus with Run-length Encoding
+----------------------------------------------
+
+An feature of `medaka` is to compress input basecalls and the draft
+assembly using run-length encoding and perform alignments using these
+compressed sequences. Tests with E.coli data suggests this improves consensus
+accuracy, providing similar results to nanopolish (with homopolymer corrections
+turned on), at significantly higher speed.
+
+After performing all steps up to :ref:`basecalling_and_draft_assembly`, the
+following commands can be run to yield a consensus using `medaka`'s default
+model. This model was trained using data obtained from E.coli, S.cerevisaie,
+and H.sapiens samples. The maximum homopolymer length that this model will call
+successfully is limited to 10.
 
 .. code-block:: bash
 
     cd ${WALKTHROUGH}
-    . medaka/venv/bin/activate
+    source ${MEDAKA}
+    DRAFT=draft_assm/assm_final_filt
+    CONSENSUS=consensus
+    medaka_consensus -i ${BASECALLS} -d ${DRAFT}.fa -o ${CONSENSUS} -t ${NPROC} -p ${POMOXIS}
+
+To polish an assembly using another model (see :ref:`training_with_rle`), use
+the `-m` option to specify the filepath of the model.. 
+
+Alignment statistics can be calculated using the `stats_from_bam` program from
+pomoxis: 
+
+.. code-block:: bash
+
+    cd ${WALKTHROUGH}
+    source ${POMOXIS}
+    TRUTH=${DATA}/truth 
+    DRAFT2TRUTH=draft_to_truth
+    CONSENSUS2TRUTH=${CONSENSUS}_to_truth
+    CHUNK=10000
+    mini_align -P -c ${CHUNK} -r ${TRUTH}.fasta -i ${DRAFT}.fa -p $DRAFT2TRUTH -t ${NPROC} 
+    echo "Draft assembly"
+    stats_from_bam --bam ${DRAFT2TRUTH}.bam > ${DRAFT2TRUTH}.stats.txt
+    mini_align -P -c ${CHUNK} -r ${TRUTH}.fasta -i ${CONSENSUS}/consensus.fasta -p $CONSENSUS2TRUTH -t ${NPROC} 
+    echo "Medaka RLE consensus"
+    stats_from_bam --bam ${CONSENSUS2TRUTH}.bam > ${CONSENSUS2TRUTH}.stats.txt
+    source ${MEDAKA}
+    python -c "import sys; import pandas as pd; d=pd.read_table(sys.argv[-2]); m=pd.read_table(sys.argv[-1]); d['n']='draft'; m['n']='medaka'; c=pd.concat([d,m]); print(c.groupby('n')['acc','iden'].mean().T)" ${DRAFT2TRUTH}.stats.txt ${CONSENSUS2TRUTH}.stats.txt
+
+
+
+.. _training_with_rle:
+
+Training a Consensus Network
+----------------------------
+
+In order to train a bespoke network first perform all the steps up to and
+including :ref:`basecalling_and_draft_assembly` above. Following this the first
+task is to perform the run length encoding of the three inputs: the truth
+sequence, the draft assembly, and the basecalls:
+
+.. code-block:: bash
+
+    cd ${WALKTHROUGH}
+    source ${MEDAKA}
+    DRAFT=draft_assm/assm_final_filt
+    TRUTH=${DATA}/truth 
+    DRAFTCOMPRFQ=${DRAFT}_compr.fq 
+    TRUTHCOMPRFQ=${TRUTH}_compr.fq 
+    BASECALLSCOMPRFQ=basecalls_compr.fq
+    hp_compress compress ${DRAFT}.fa -t ${NPROC} > ${DRAFTCOMPRFQ}
+    hp_compress compress ${TRUTH}.fasta -t ${NPROC} > ${TRUTHCOMPRFQ}
+    hp_compress compress ${BASECALLS} -t ${NPROC} > ${BASECALLSCOMPRFQ}
+
+
+The ultimate aim of the consensus network is to predict the truth sequence from
+the alignment of basecalls to the draft. This requires understanding how the
+basecalls may align to the draft and how the draft much be edited to obtain the
+truth. The draft acts as a common frame-of-reference between the basecalls
+and the truth.
+
+The compressed basecalls and truth sequence are aligned to the compressed
+draft. For the latter, this is performed in chunks.
+
+.. code-block:: bash
+
+    cd ${WALKTHROUGH}
+    source ${POMOXIS}
+    DRAFTCOMPRFA=${DRAFT}_compr.fa 
+    fast_convert qa < ${DRAFTCOMPRFQ} > ${DRAFTCOMPRFA}
+    COMPRCALLS2COMPRDRAFT=compr_calls_to_compr_draft
+    COMPRTRUTH2COMPRDRAFT=compr_truth_to_compr_draft
+    CHUNKSIZE=100000
+
+    mini_align -P -m -r ${DRAFTCOMPRFA} -i ${BASECALLSCOMPRFQ} -t ${NPROC} -p ${COMPRCALLS2COMPRDRAFT}
+    mini_align -c ${CHUNKSIZE} -P -m -r ${DRAFTCOMPRFA} -i ${TRUTHCOMPRFQ} -t ${NPROC} -p ${COMPRTRUTH2COMPRDRAFT}
+
+These raw alignments must now be converted into features for input into a neural
+network. To reduce any IO bottlenecks during training, the training data can be
+written to the `HDF5` file in batches using the `-\\-batch_size` option. The option
+`-\\-read_fraction` is used to randomly subsample reads which has the effect of
+making the resultant model more robust to variations in pileup depth when the
+model is used to make predictions.
+
+.. code-block:: bash
+
+    cd ${WALKTHROUGH}
+    source ${MEDAKA}
+    REFNAME=Consensus_utg000001c
+    TRAINEND=3761512
+    TRAINFEATURES=rle_train_features.hdf
+    FRACTION="0.1 1"
+    BATCHSIZE=200
+    hp_compress features ${COMPRCALLS2COMPRDRAFT}.bam ${DRAFTCOMPRFQ} ${TRAINFEATURES} -T ${COMPRTRUTH2COMPRDRAFT}.bam -t ${NPROC} -r ${REFNAME}:-${TRAINEND} --batch_size ${BATCHSIZE} --read_fraction ${FRACTION} --chunk_len 1000 --chunk_ovlp 0
+
+Now everything is in place to train a consensus network with the run-length
+encoded features with `medaka train`:
+
+.. code-block:: bash
+
+    cd ${WALKTHROUGH}
+    source ${MEDAKA}
     TRAINNAME=training
-    medaka train ${LABELLEDPILEUP} --train_name ${TRAINNAME}
+    medaka train ${TRAINFEATURES} --train_name ${TRAINNAME}
 
+Depending on the compute resources available, this step may take some time.
 During training, models are regularly checkpointed so that training may be
 easily resumed if interrupted. At the end of training, we have a number of
 output models including in particular:
@@ -171,54 +254,24 @@ output models including in particular:
     * `model.best.hdf5`: model with the best accuracy over the training set  
     * `model.best.val.hdf5`: model with the best accuracy over the validation set
 
-which can be used to calculate a consensus. Other ancilliary output are
-also produced.
-
-
-Polishing a Consensus 
----------------------
-
-Having trained a model we can run `medaka consensus` to calculate consensus
-using our trained model:
+Other ancilliary output are also produced. The final model can be combined with
+its meta information in order to make it ready for use:
 
 .. code-block:: bash
 
     cd ${WALKTHROUGH}
-    . medaka/venv/bin/activate
-    medaka consensus ${TRAINNAME}/model.best.val.hdf5 --alignments ${CALLS2DRAFT}.bam ${DRAFT} ${EVALREFNAME} 
+    source ${MEDAKA}
+    medaka fix ${TRAINNAME}/model.best.val.hdf5 ${TRAINFEATURES}.yml
 
-The program outputs a single .fasta file containing consensus sequences for
-overlapping chunks of the input. This stage may be parallelised trivially
-by running the program on distinct sections of a draft assembly.
-
-It is possible also to save probabilities obtained from the neural network
-using the `--output_probs` option. This may be of use in assessing consensus
-quality and in variant calling; future releases of `medaka` may implement the
-writing of VCF files.
-
-Next we can recombine the consensus chunks using `medaka stitch`.
+To use the model run `medaka_consensus` for the default model (specifying
+the model using the `-m` option):
 
 .. code-block:: bash
 
     cd ${WALKTHROUGH}
-    . medaka/venv/bin/activate
-    medaka stitch consensus_chunks.fa medaka_consensus.fasta
+    source ${MEDAKA}
+    DRAFT=draft_assm/assm_final_filt
+    CONSENSUS=consensus
+    MODEL=${TRAINNAME}/model.best.val.hdf5
+    medaka_consensus -m ${MODEL} -i ${BASECALLS} -d ${DRAFT}.fa -o consensus -t ${NPROC} -p ${POMOXIS}
 
-The output file `medaka_consensus.fasta` now contains our neural network consensus.
-
-Finally, we can run `stats_from_bam` to assess to what extent `medaka` has improved accuracy. 
-
-.. code-block:: bash
-
-    cd ${WALKTHROUGH}
-    . pomoxis/venv/bin/activate
-    EVALREGION=$(awk -F '[>:-]' '{if(NR==1){printf("%s:%i-%i\n",$2, $3, $4)}}' medaka_consensus.fasta)
-    samtools faidx ${DRAFT} ${EVALREGION} > ${EVALREGION}_draft_assm.fa
-    mini_align -P -r ${DATA}/truth.fa -i ${EVALREGION}_draft_assm.fa -a -t ${NPROC} -p draft_to_truth
-    echo "Draft assembly"
-    stats_from_bam --bam draft_to_truth.bam > draft_to_truth.stats.txt
-    mini_align -P -r ${DATA}/truth.fa -i medaka_consensus.fasta -a -t ${NPROC} -p consensus_to_truth
-    echo "Medaka consensus"
-    stats_from_bam --bam consensus_to_truth.bam > consensus_to_truth.stats.txt
-
-An increase in accuracy should be observed. 

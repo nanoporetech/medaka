@@ -1,11 +1,16 @@
 import errno
+import functools
 import h5py
 import itertools
 import os
 import numpy as np
 import re
+import threading
+import yaml
 from Bio import SeqIO
-from collections import OrderedDict, namedtuple, defaultdict
+from collections import OrderedDict, namedtuple, defaultdict, Counter
+from keras.utils.np_utils import to_categorical
+from timeit import default_timer as now
 
 import logging
 logger = logging.getLogger(__name__)
@@ -14,7 +19,9 @@ logger = logging.getLogger(__name__)
 _gap_ = '*'
 _ref_gap_ = '#'
 _read_sep_ = ' '
-decoding = _gap_ + 'acgtACGT' + _read_sep_
+_alphabet_ = 'ACGT'
+_extra_bases_ = 'N'
+decoding = _gap_ + _alphabet_.lower() + _alphabet_.upper() + _read_sep_ + _extra_bases_
 # store encoding in ordered dict as the order will always be the same
 # (we need order to be the same for training and inference)
 encoding = OrderedDict(((a, i) for i, a in enumerate(decoding)))
@@ -29,11 +36,91 @@ Sample = namedtuple('Sample', ['ref_name', 'features', 'labels', 'ref_seq', 'pos
 _sample_name_decoder_ = re.compile(r"(?P<ref_name>\w+):(?P<start>\d+\.\d+)-(?P<end>\d+\.\d+)")
 
 
+AlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'rpos', 'rbase'))
+ComprAlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'qlen', 'rpos', 'rbase', 'rlen'))
+
+_region_decoder_ = re.compile(r"(?P<ref_name>\w+):*(?P<start>(\d+-)*)(?P<end>\d*)")
+Region = namedtuple('Region', 'ref_name start end')
+_feature_opt_path_ = 'medaka_features_kwargs'
+_model_opt_path_ = 'medaka_model_kwargs'
+_sample_path_ = 'samples'
+_label_decod_path_ = 'medaka_label_decoding'
+_feature_decoding_path_ = 'medaka_feature_decoding'
+_label_counts_path_ = 'medaka_label_counts'
+_feature_batches_path_ = 'medaka_feature_batches'
+_label_batches_path_ = 'medaka_label_batches'
+
+def parse_regions(regions):
+    """Parse region strings into `Region` objects.
+
+    :param regions: iterable of str
+
+    >>> parse_regions(['Ecoli'])[0]
+    Region(ref_name='Ecoli', start=None, end=None)
+    >>> parse_regions(['Ecoli:1000-2000'])[0]
+    Region(ref_name='Ecoli', start=1000, end=2000)
+    >>> parse_regions(['Ecoli:1000'])[0]
+    Region(ref_name='Ecoli', start=0, end=1000)
+    >>> parse_regions(['Ecoli:500-'])[0]
+    Region(ref_name='Ecoli', start=500, end=None)
+
+    """
+    decoded = []
+    for region in regions:
+        d =  _region_decoder_.match(region).groupdict()
+        d['start'] = d['start'].replace('-', '')
+        for key in ['start', 'end']:
+            d[key] = None if d[key] == '' else int(d[key])
+        d['start'] = 0 if d['start'] is None else d['start']
+        decoded.append(Region(**d))
+    return tuple(decoded)
+
+def lengths_to_rle(lengths):
+    runs = np.empty(len(lengths), dtype=[('start', int), ('length', int)])
+    runs['length'][:] = lengths
+    runs['start'][0] = 0
+    runs['start'][1:] = np.cumsum(lengths)[:-1]
+    return runs
+
+
+def get_pairs(aln):
+    """Return generator of pairs.
+
+    :param aln: `pysam.AlignedSegment` object.
+    :returns: generator of `ComprAlignPos` objects.
+    """
+    seq = aln.query_sequence
+    pairs = (ComprAlignPos(qp, seq[qp], 1, rp, rb, 1) if qp is not None
+            else ComprAlignPos(qp, None, 1, rp, rb, 1)
+            for qp, rp, rb in aln.get_aligned_pairs(with_seq=True))
+
+    return pairs
+
+
+def yield_compressed_pairs(aln, ref_rle):
+    """Yield ComprAlignPos objects for aligned pairs of an AlignedSegment.
+
+    :param aln: pysam AlignedSegment.
+    :param ref_rle: structured array with columns 'start' and 'length' encoding ref.
+    :yields: `ComprAlignPos` objects.
+    """
+    seq = aln.query_sequence
+    qlens = aln.query_qualities
+    if qlens is None:
+        raise ValueError('Found an alignment without qscores, try filter to only primary alignments.')
+    qrle = lengths_to_rle(qlens)
+    h = lambda ar, i, alt: ar[i] if i is not None else alt
+    for qp, rp, rb in aln.get_aligned_pairs(with_seq=True):
+        a = ComprAlignPos(qpos=qp, qbase=h(seq, qp, None), qlen=h(qlens, qp, 1),
+                          rpos=rp, rbase=rb, rlen=h(ref_rle['length'], rp, 1))
+        yield a
+
+
 def encode_sample_name(sample):
     """Encode a `Sample` object into a str key.
 
     :param sample: `Sample` object.
-    :returns: str
+    :returns: str.
     """
     p = sample.positions
     key = '{}:{}.{}-{}.{}'.format(sample.ref_name,
@@ -46,7 +133,7 @@ def decode_sample_name(key):
     """Decode a the result of `encode_sample_name` into a dict.
 
     :param key: `Sample` object.
-    :returns: dict
+    :returns: dict.
     """
     d = None
     m = re.match(_sample_name_decoder_, key)
@@ -56,19 +143,92 @@ def decode_sample_name(key):
 
 
 def write_sample_to_hdf(s, hdf_fh):
+    """Write a sample to HDF5.
+
+    :param s: `Sample` object.
+    :param hdf_fh: `h5py.File` object.
+    """
     grp = encode_sample_name(s)
     for field in s._fields:
         if getattr(s, field) is not None:
             data = getattr(s, field)
             if isinstance(data, np.ndarray) and isinstance(data[0], np.unicode):
                 data = np.char.encode(data)
-            hdf_fh['{}/{}'.format(grp, field)] = data
+            hdf_fh['{}/{}/{}'.format(_sample_path_, grp, field)] = data
+
+
+def write_samples_to_hdf(fname, samples):
+    """Write samples to hdf, ensuring a sample is not written twice and maintaining
+       a count of labels seen.
+
+    :param fname: str, output filepath.
+    :param samples: iterable of `Sample` objects.
+    """
+    logging.info("Writing samples to {}".format(fname))
+    samples_seen = set()
+    labels_counter = Counter()
+    with h5py.File(fname, 'w') as hdf:
+        for s in samples:
+            s_name = encode_sample_name(s)
+            logging.debug("Written sample {}".format(s_name))
+            if s_name not in samples_seen:
+                write_sample_to_hdf(s, hdf)
+            else:
+                logging.debug('Not writing {} as it is present already'.format(s_name))
+            samples_seen.add(s_name)
+            if s.labels is not None:
+                if len(s.labels.dtype) == 2:
+                    labels_counter.update([tuple(l) for l in s.labels])
+                else:
+                    labels_counter.update(s.labels)
+        hdf[_label_counts_path_] = yaml.dump(labels_counter)
+
+    h = lambda l: (decoding[l[0]], l[1]) if type(l) == tuple else l
+    logging.info("Label counts:\n{}".format('\n'.join(
+        ['{}: {}'.format(h(label), count) for label, count in labels_counter.items()]
+    )))
+
+
+def load_yaml_data(fname, group):
+    """Load a yml str either from hdf or .yml file"""
+    data = None
+    if os.path.splitext(fname)[-1] == '.yml':
+        with open(fname) as fh:
+            yml_str = fh.read()
+        d = yaml.load(yml_str)
+        if group in d:
+            data = d[group]
+    else:
+        with h5py.File(fname) as hdf:
+            if group in hdf:
+                yml_str = hdf[group][()]
+                data = yaml.load(yml_str)
+    return data
+
+
+def write_yaml_data(fname, data):
+    """Save a data structure to a yml str either within a hdf or .yml file"""
+    if os.path.splitext(fname)[-1] == '.yml':
+        with open(fname, 'w') as fh:
+            fh.write(yaml.dump(data))
+    else:
+        with h5py.File(fname) as hdf:
+            for group, d in data.items():
+                if group in hdf:
+                    del hdf[group]
+                hdf[group] = yaml.dump(d)
 
 
 def load_sample_from_hdf(key, hdf_fh):
+    """Load `Sample` object from HDF5
+
+    :param key: str, sample name.
+    :param hdf_fh: `h5.File` object.
+    :returns: `Sample` object.
+    """
     s = {}
     for field in Sample._fields:
-        pth = '{}/{}'.format(key, field)
+        pth = '{}/{}/{}'.format(_sample_path_, key, field)
         if pth in hdf_fh:
             s[field] = hdf_fh[pth][()]
             if isinstance(s[field], np.ndarray) and isinstance(s[field][0], type(b'')):
@@ -78,7 +238,74 @@ def load_sample_from_hdf(key, hdf_fh):
     return Sample(**s)
 
 
+def yield_from_feature_files(fnames, ref_names=None, index=None, samples=None):
+    """Yield `Sample` objects from one or more feature files.
+
+    :param fnames: iterable of str of filepaths.
+    :ref_names: iterable of str, only process these references.
+    :index: result of `get_sample_index_from_files`
+    :samples: iterable of sample names to yield (in order in which they are supplied).
+    :yields: `Sample` objects.
+    """
+    handles = { fname: h5py.File(fname, 'r') for fname in fnames}
+
+    if samples is not None:
+        # yield samples in the order they are asked for
+        for sample, fname in samples:
+            yield load_sample_from_hdf(sample, handles[fname])
+    else:
+        # yield samples sorted by ref_name and start
+        if index is None:
+            index = get_sample_index_from_files(fnames, 'hdf')
+        if ref_names is None:
+            ref_names = sorted(index.keys())
+        for ref_name in ref_names:
+            for d in index[ref_name]:
+                yield load_sample_from_hdf(d['key'], handles[d['filename']])
+
+    for fh in handles.values():
+        fh.close()
+
+
+def load_from_feature_files(fnames, key_fnames):
+    """Yield `Sample` objects in order from the result of `save_feature_file`.
+
+    :param fnames: iterable of str of filepaths.
+    :key_fnames: iterable of (str sample key, fname) tuples.
+    :returns: list of `Sample` objects.
+    """
+    t0 = now()
+    handles = { fname: h5py.File(fname, 'r') for fname in fnames}
+    t1 = now()
+    logging.info('Creating h5py.File objs took {}s'.format(t1 - t0))
+
+    t0 = now()
+    samples = [ load_sample_from_hdf(key, handles[fname]) for (key, fname) in key_fnames]
+    t1 = now()
+    logging.info('Loading samples took {}s'.format(t1 - t0))
+    for fh in handles.values():
+        fh.close()
+    return samples
+
+
+def load_feature_file(fname, ref_names=None):
+    """Load `Sample` objects from HDF5.
+
+    :param fname: str, HDF5 filepath.
+    :param ref_names: iterable of str, only fetch samples for this reference.
+    :returns: tuple of `Sample` objects.
+    """
+    return tuple([s for s in yield_from_feature_files([fname], ref_names)])
+
+
 def get_sample_overlap(s1, s2):
+    """Calculate overlap (in pileup columns) between two `Sample` objects.
+
+    :param s1: First `Sample` object.
+    :param s2: Second `Sample` object.
+    :returns: (int end1, int start2) such that s1.positions[:end1] could be
+        concatenated with s2.positions[start2:] to join them without gaps or overlap.
+    """
     ovl_start_ind1 = np.searchsorted(s1.positions, s2.positions[0])
     if ovl_start_ind1 == len(s1.positions):
         # they don't overlap
@@ -102,19 +329,35 @@ def get_sample_overlap(s1, s2):
     return end_1_ind, start_2_ind
 
 
-def get_sample_index_from_files(fnames, filetype='hdf'):
+def get_sample_index_from_files(fnames, filetype='hdf', max_samples=np.inf):
+    """Create index of samples from one or more HDF5 or fasta files.
+
+    :param fnames: iterable of str of filepaths.
+    :param filetype: str, 'hdf' or 'fasta'.
+    :param max_samples: int, stop after max_samples.
+    :returns: dict of lists, indexed by reference.
+        each list contains a list of samples dicts, and is sorted by sample start.
+    """
+
+    count = 0
     ref_names = defaultdict(list)
     if filetype == 'hdf':
         fhs = (h5py.File(f) for f in fnames)
     elif filetype == 'fasta':
         fhs = (SeqIO.index(f, 'fasta') for f in fnames)
     for fname, fh in zip(fnames, fhs):
-        for key in fh:
+        if count > max_samples:
+            break
+        keys = (k for k in fh[_sample_path_]) if filetype == 'hdf' else (k for k in fh)
+        for key in keys:
             d = decode_sample_name(key)
             if d is not None:
                 d['key'] = key
                 d['filename'] = fname
                 ref_names[d['ref_name']].append(d)
+                count += 1
+            if count > max_samples:
+                break
     for fh in fhs:
         fh.close()
 
@@ -221,3 +464,165 @@ def mkdir_p(path, info=None):
         else:
             raise
 
+
+def chunk_samples(samples, chunk_len=1000, overlap=200):
+    """Return generator of chunked samples"""
+    return (c for s in samples for c in chunk_sample(s, chunk_len=chunk_len, overlap=overlap))
+
+
+def chunk_sample(sample, chunk_len=1000, overlap=200):
+    """Rechunk chunks of pileup into smaller overlapping chunks.
+
+    :param pileup_gen: generator of (pileups, labels);
+        pileups: a list of `Pileup` objects
+        labels: array of truth labels or `None`.
+    :yields: (pileups, labels)
+        pileups: a list of `Pileup` objects
+        labels: array of truth labels or `None`.
+    """
+    chunker = functools.partial(sliding_window, window=chunk_len, step=chunk_len-overlap, axis=0)
+    logger.debug("Rechunking into chunks of {} columns each overlapping by {} columns.".format(chunk_len, overlap))
+    sample = sample._asdict()
+    chunkers = { field: chunker(sample[field])
+                 if sample[field] is not None else itertools.repeat(None)
+                 for field in sample.keys()
+    }
+    for pos in chunkers['positions']:
+        fields = set(sample.keys()) - set(['positions', 'ref_name'])
+        new_sample = { 'positions': pos, 'ref_name': sample['ref_name']}
+        for field in fields:
+            new_sample[field] = next(chunkers[field])
+        yield Sample(**new_sample)
+
+
+class ThreadsafeIter:
+    """Takes an iterator and makes it thread-safe by
+    serializing call to `next` method.
+
+    `<http://anandology.com/blog/using-iterators-and-generators/>`_
+    """
+    def __init__(self, it):
+        self.it = it
+        self.lock = threading.Lock()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        with self.lock:
+            return next(self.it)
+
+
+def threadsafe_generator(f):
+    """A decorator that takes a generator function and makes it
+    thread-safe.
+
+    `<http://anandology.com/blog/using-iterators-and-generators/>`_
+    """
+    @functools.wraps(f)
+    def g(*args, **kwargs):
+        return ThreadsafeIter(f(*args, **kwargs))
+    return g
+
+
+def sample_to_x_y(s, encoding, max_label_len=np.inf):
+    """Convert a `Sample` object into an x,y tuple for training.
+
+    :param s: `Sample` object.
+    :param encoding: dict of label encodings.
+    :max_label_len: int, maximum label length, longer labels will be truncated.
+    :returns: (np.ndarray of inputs, np.ndarray of labels)
+    """
+    if s.labels is None:
+        raise ValueError("Cannot train without labels.")
+    x = s.features
+    # labels can either be unicode strings or (base, length) integer tuples
+    if isinstance(s.labels[0], np.unicode):
+        y = np.fromiter((encoding[l[:min(max_label_len, len(l))]]
+                     for l in s.labels), dtype=int, count=len(s.labels))
+    else:
+        y = np.fromiter((encoding[tuple((l['base'],
+                                     min(max_label_len, l['run_length'])))]
+                     for l in s.labels), dtype=int, count=len(s.labels))
+    y = y.reshape(y.shape + (1,))
+    return x, y
+
+
+@threadsafe_generator
+def chain_thread_safe(*gens):
+    """Threadsafe version of itertools.chain"""
+    gen = itertools.chain(*gens)
+    while True:
+        yield next(gen)
+
+
+def grouper(gen, batch_size=4):
+    """Group together elements of an iterable, yielding remainder without padding."""
+    while True:
+        batch = []
+        for i in range(batch_size):
+            try:
+                batch.append(next(gen))
+            except StopIteration:
+                yield batch
+                raise StopIteration
+        yield batch
+
+
+@threadsafe_generator
+def gen_train_batch(xy_gen, batch_size, name=''):
+    """Yield training batches.
+    """
+    count=0
+    while True:
+        batch = [next(xy_gen) for i in range(batch_size)]
+        xs, ys = zip(*batch)
+        logging.debug("Yielding {} batch {}".format(name, count))
+        count += 1
+        yield np.stack(xs), np.stack(ys)
+
+
+@threadsafe_generator
+def yield_batches_from_hdf(h5, keys):
+    """Yield training batches from HDF5.
+
+    :param h5: `h5.File` object.
+    :param keys: iterable of keys to include in the batch.
+    :yields: (np.ndarray of inputs, np.ndarray of labels).
+    """
+    for i in keys:
+        yield (h5['{}/{}'.format(_feature_batches_path_, i)][()],
+               h5['{}/{}'.format(_label_batches_path_, i)][()])
+
+
+@threadsafe_generator
+def yield_batches_from_hdfs(handles, batches=None, sparse_labels=True, n_classes=None):
+    """Yield batches of training features and labels indefinitely, shuffling between epochs.
+
+    :param handles: {str filename: `h5.File`}.
+    :param batches: iterable of (str filename, str batchname).
+    :param sparse_labels: bool, if False, labels will be one-hot encoded.
+    :param n_classes: int, number of classes for one-hot encoding.
+    :yields: (np.ndarray of inputs, np.ndarray of labels).
+    """
+    if batches is None:
+        batches = [ (fname, k) for (fname, fh) in handles.items() for k in fh[_feature_batches_path_]]
+
+    np.random.shuffle(batches)
+    epoch = 0
+    while True:
+        batch = 0
+        for (fname, i) in batches:
+            h5 = handles[fname]
+            t0 = now()
+            xs = h5['{}/{}'.format(_feature_batches_path_, i)][()]
+            ys = h5['{}/{}'.format(_label_batches_path_, i)][()]
+            if not sparse_labels:
+                ys = to_categorical(ys, num_classes=n_classes)
+            t1 = now()
+            logging.debug("Took {:5.3}s to load batch {} (epoch {})".format(t1-t0, batch, epoch))
+            yield xs, ys
+            batch += 1
+        epoch += 1
+        # shuffle between epochs
+        np.random.shuffle(batches)

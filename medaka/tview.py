@@ -489,64 +489,6 @@ def generate_training_chunks(truth_bam, bams, ref_fasta, ref_name, start=0, end=
             yield LabelledPileup(pileups=pileups, labels=labels, ref_seq=ref_seq)
 
 
-def bam_pileup_to_hdf(hdf, bams, ref_fasta, ref_name:str=None, start:int=0, end:int=None, truth_bam=None,
-                      chunk_len=50000, overlap=1000):
-    """Create an .hdf file containing chunks of a pileup.
-
-    :param hdf: output .hdf file (will be overwritten).
-    :param bams: iterable of input .bam files.
-    :param ref_fasta: input .fasta file.
-    :param ref_name: name of reference within .bam to parse.
-    :param start: start reference coordinate.
-    :param end: end reference coordinate. If `None` the full extent of
-        the reference will be parsed.
-    :param truth_bam: .bam file of truth aligned to ref to generate labels.
-    :param chunk_len: int, chunk length in reference coordinates.
-    :param overlap: int, overlap of adjacent chunks in reference coordinates.
-
-
-    ..note:: Datasets will be name as `{reference}_{start}_{end}`, indicating
-        the reference coordinates spanned.
-
-    """
-    if ref_name is None:
-        # use all references
-        refs = pysam.FastaFile(ref_fasta).references
-        assert end == None
-        assert start == 0
-    else:
-        refs = [ref_name,]
-
-    with h5py.File(hdf, 'w') as hdf:
-        for ref in refs:
-            if truth_bam is not None:
-                gen = generate_training_chunks(truth_bam, bams, ref_fasta, ref_name=ref,
-                                               start=start, end=end, chunk_len=chunk_len, overlap=overlap)
-            else:
-                gen = generate_pileup_chunks(bams, ref_fasta, ref_name=ref, start=start, end=end,
-                                             chunk_len=chunk_len, overlap=overlap)
-            logger.info("Processing reference {}.".format(ref))
-            for c in gen:
-                pos = c.pileups[0].positions
-                chunk_str = '{}_{}_{}'.format(ref, pos['major'][0], pos['major'][-1] + 1)
-                if c.labels is not None:
-                    # save labels
-                    hdf['{}/labels'.format(chunk_str)] = np.char.encode(c.labels)
-                if c.ref_seq is not None:
-                    # save ref
-                    hdf['{}/ref_seq'.format(chunk_str)] = np.char.encode(c.ref_seq)
-
-                for bam_count, p in enumerate(c.pileups):
-                    assert p.ref_name == ref
-                    grp = '{}/datatype{}'.format(chunk_str, bam_count)
-                    hdf['{}/positions'.format(grp)] = p.positions
-                    hdf[grp].attrs['rname'] = p.ref_name
-                    hdf[grp].attrs['start'] = p.positions['major'][0]
-                    hdf[grp].attrs['end'] = p.positions['major'][-1]
-                    hdf[grp].attrs['bam'] = p.bam
-                    hdf['{}/data'.format(grp)] = p.reads
-
-
 def load_pileup(pileup_hdf):
     """Load hdf pileup yielding chunks of pileup.
 
@@ -625,10 +567,3 @@ def rechunk(pileup_gen, chunk_size=1000, overlap=200):
             msg = "Chunking positions {}:{} ({} bases)"
             logger.debug(msg.format(pos['major'][0], pos['major'][-1], len(pos)))
             yield LabelledPileup(pileups=chunk_pileups, labels=chunk_labels, ref_seq=chunk_ref_seq)
-
-
-def prepare(args):
-    bam_pileup_to_hdf(
-        args.output, (args.bam,), args.ref_fasta, args.ref_name, chunk_len=args.chunk_len, start=args.start, end=args.end,
-        truth_bam=args.truth
-    )
