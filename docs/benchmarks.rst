@@ -44,12 +44,10 @@ run on the same hardware.
 +-----------------+--------+------------+
 | runtime (hours) |  0.17  |  3.0       |
 +-----------------+--------+------------+
-| cpu threads [1]_|  4     |  32        |
+| CPU cores       |  4     |  32        |
 +-----------------+--------+------------+
-| cpu hours       |  0.67  |  96.53     |
+| CPU hours       |  0.67  |  96        |
 +-----------------+--------+------------+
-
-.. [1] A CPU using SMT was used.
 
 For this dataset `medaka` delivers similar results to `nanopolish` in a
 fraction of the time. 

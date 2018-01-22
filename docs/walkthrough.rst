@@ -29,7 +29,7 @@ Technologies `.fast5` files for a set of reads.
 
     WALKTHROUGH=${PWD}/medaka_walkthrough
     mkdir -p ${WALKTHROUGH} && cd ${WALKTHROUGH}
-    wget https://s3-eu-west-1.amazonaws.com/ont-medaka-demo/medaka_demo.tar
+    wget https://s3-eu-west-1.amazonaws.com/ont-research/medaka_walkthrough.tar.gz
     tar -xvf medaka_demo.tar
     DATA=${PWD}/data
 
@@ -39,7 +39,7 @@ the requisite subfolder from the `${DATA}` directory into the `${WALKTHROUGH}`
 directory.
 
 The necessary software can be sourced using the same process as described in
-:ref:`CreatingSoftwareEnv`, namely:
+:ref:`creating_software_env`, namely:
 
 .. code-block:: bash
 
