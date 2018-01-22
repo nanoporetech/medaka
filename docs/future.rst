@@ -1,6 +1,3 @@
-
-.. _FutureDirections:
-
 History and Future Directions
 =============================
 
@@ -56,4 +53,7 @@ data; this is the focus of current research. Further it may be possible that
 such an approach need not be iterative: a single pass on the inputs could be
 performed to achieve results in quicker time.
 
-A future release on medaka will encorporate these higher-order methods.
+Development of medaka as a "base-space" consensus tool has been paused to focus
+on these higher-level methods. Nevertheless researchers may find medaka useful
+as a method to generate quickly sufficiently accurate consensus sequences in many
+use cases; see the `Benchmarks` page for more details.

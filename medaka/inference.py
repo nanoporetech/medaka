@@ -1,15 +1,17 @@
 import glob
 import h5py
-import json
+import inspect
+import itertools
 import numpy as np
 import os
-import sys
+import pysam
+from collections import Counter
+from functools import partial
 from timeit import default_timer as now
 
-
 from keras import backend as K
-from keras.models import Sequential, load_model, save_model
-from keras.layers import Dense, GRU
+from keras.models import Sequential, load_model
+from keras.layers import Dense, GRU, Dropout
 from keras.layers.wrappers import Bidirectional
 from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
 
@@ -26,16 +28,90 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-from medaka.tview import _gap_, load_pileup, generate_pileup_chunks, rechunk
+from medaka.tview import _gap_, load_pileup, generate_pileup_chunks, generate_training_chunks, rechunk
 from medaka import features
-from medaka.common import mkdir_p, Sample
+from medaka.common import (encode_sample_name, _label_counts_path_,
+                           _label_decod_path_, chain_thread_safe, decoding,
+                           get_sample_index_from_files, grouper,
+                           load_sample_from_hdf, load_yaml_data,
+                           _model_opt_path_, mkdir_p, Sample, sample_to_x_y,
+                           threadsafe_generator, write_samples_to_hdf,
+                           write_sample_to_hdf, write_yaml_data,
+                           yield_from_feature_files, load_from_feature_files,
+                           gen_train_batch, _label_batches_path_, _feature_batches_path_,
+                           yield_batches_from_hdfs)
 
-_encod_path_ = 'medaka_label_encoding'
+
+def bam_pileup_to_features_hdf(hdf, bams, ref_fasta, ref_name:str=None, start:int=0, end:int=None, truth_bam=None,
+                      chunk_len=1000, overlap=100):
+    """Create an .hdf file of features for training or inference.
+
+    :param hdf: output .hdf file (will be overwritten).
+    :param bams: iterable of input .bam files.
+    :param ref_fasta: input .fasta file.
+    :param ref_name: name of reference within .bam to parse.
+    :param start: start reference coordinate.
+    :param end: end reference coordinate. If `None` the full extent of
+        the reference will be parsed.
+    :param truth_bam: .bam file of truth aligned to ref to generate labels.
+    :param chunk_len: int, chunk length in pileup columns.
+    :param overlap: int, overlap of adjacent chunks in pileup columns.
+    """
+    if ref_name is None:
+        # use all references
+        refs = pysam.FastaFile(ref_fasta).references
+        assert end == None
+        assert start == 0
+    else:
+        refs = [ref_name,]
+
+    for ref in refs:
+        if truth_bam is not None:
+            gen = generate_training_chunks(truth_bam, bams, ref_fasta, ref_name=ref,
+                                            start=start, end=end, chunk_len=10*chunk_len, overlap=10*overlap)
+        else:
+            gen = generate_pileup_chunks(bams, ref_fasta, ref_name=ref, start=start, end=end,
+                                            chunk_len=10*chunk_len, overlap=5*overlap)
+        logger.info("Processing reference {}.".format(ref))
+        data = generate_samples(rechunk(gen, chunk_size=chunk_len, overlap=overlap))
+        write_samples_to_hdf(hdf, data)
 
 
+def weighted_categorical_crossentropy(weights):
+    """
+    A weighted version of keras.objectives.categorical_crossentropy
+    @url: https://gist.github.com/wassname/ce364fddfc8a025bfab4348cf5de852d
+    @author: wassname
+
+    Variables:
+        weights: numpy array of shape (C,) where C is the number of classes
+
+    Usage:
+        weights = np.array([0.5,2,10]) # Class one at 0.5, class 2 twice the normal weights, class 3 10x.
+        loss = weighted_categorical_crossentropy(weights)
+        model.compile(loss=loss,optimizer='adam')
+    """
+
+    weights = K.variable(weights)
+
+    def loss(y_true, y_pred):
+        # scale predictions so that the class probas of each sample sum to 1
+        y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
+        # clip to prevent NaN's and Inf's
+        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
+        # calc
+        loss = y_true * K.log(y_pred) * weights
+        loss = -K.sum(loss, -1)
+        return loss
+
+    return loss
+
+
+
+@threadsafe_generator
 def generate_samples(pileup_gen,
-                      coverage_filter=lambda x: features.alphabet_filter(features.depth_filter(x)),
-                      feature_func=features.counts):
+                     coverage_filter=lambda x: features.alphabet_filter(features.depth_filter(x)),
+                     feature_func=features.counts):
     """Generate data samples from a pileup generator
 
     :param pileup_gen: generator of (pileups, labels) tuples;
@@ -43,125 +119,51 @@ def generate_samples(pileup_gen,
         labels: np.array of labels or None.
     :param feature_func: function to generate features
 
-    :returns tuple of `Sample` named tuples.
+    :yields `Sample` objects.
     """
-
-    all_data = []
-    t0 = now()
     for c in coverage_filter(pileup_gen):
         pos = c.pileups[0].positions
         ref_name = c.pileups[0].ref_name
-        all_data.append(Sample(ref_name=ref_name,
-                               features=feature_func(c.pileups),
-                               labels=c.labels,
-                               ref_seq=c.ref_seq,
-                               positions=pos, label_probs=None
-                               )
-        )
-    t1 = now()
-    logging.info("Generating features took {:.3f}s.".format(t1 - t0))
-    return tuple(all_data)
+        sample = Sample(ref_name=ref_name,
+                        features=feature_func(c.pileups),
+                        labels=c.labels,
+                        ref_seq=c.ref_seq,
+                        positions=pos, label_probs=None)
+        yield sample
 
 
-def build_model(chunk_size, feature_len, num_classes, gru_size=128):
-    """Builds a bidirectional GRU model"""
+def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropout=0.0,
+                inter_layer_dropout=0.0, recurrent_dropout=0.0):
+    """Builds a bidirectional GRU model
+    :param chunk_size: int, number of pileup columns in a sample.
+    :param feature_len: int, number of features for each pileup column.
+    :param num_classes: int, number of output class labels.
+    :param gru_size: int, size of each GRU layer.
+    :param input_dropout: float, fraction of the input feature-units to drop.
+    :param inter_layer_dropout: float, fraction of units to drop between layers.
+    :param recurrent_dropout: float, fraction of units to drop within the recurrent state.
+    :returns: `keras.models.Sequential` object.
+    """
 
     model = Sequential()
+
+    gru1 = GRU(gru_size, activation='tanh', return_sequences=True, name='gru1',
+               dropout=input_dropout, recurrent_dropout=recurrent_dropout)
+    gru2 = GRU(gru_size, activation='tanh', return_sequences=True, name='gru2',
+               dropout=inter_layer_dropout, recurrent_dropout=recurrent_dropout)
+
     # Bidirectional wrapper takes a copy of the first argument and reverses
     #   the direction. Weights are independent between components.
-    model.add(Bidirectional(
-        GRU(gru_size, activation='tanh', return_sequences=True, name='gru1'),
-        input_shape=(chunk_size, feature_len))
-    )
-    model.add(Bidirectional(
-        GRU(gru_size, activation='tanh', return_sequences=True, name='gru2'))
-    )
+    model.add(Bidirectional(gru1, input_shape=(chunk_size, feature_len)))
+
+    model.add(Bidirectional(gru2, input_shape=(chunk_size, feature_len)))
+
+    if inter_layer_dropout > 0:
+        model.add(Dropout(inter_layer_dropout))
+
     model.add(Dense(num_classes, activation='softmax', name='classify'))
+
     return model
-
-
-def save_encoding(fname, encoding):
-    """Save label encodings to json."""
-    with open(fname, 'w') as json_file:
-        json_file.write(json.dumps({'encoding': encoding}))
-
-
-def load_encoding(fname):
-    with open(fname) as fh:
-        encoding = json.load(fh)['encoding']
-    return encoding
-
-
-def write_encoding_to_hdf(fname, encoding):
-    """Write model encoding to model with label encoding."""
-    with h5py.File(fname) as h5:
-        if _encod_path_ in h5:
-            del h5[_encod_path_]
-        h5[_encod_path_] = [s.encode() for s in encoding]
-
-
-def save_model_hdf(fname, model, encoding):
-    """Save model with label encoding."""
-    # TODO: save feature function and coverage_filter function with model ?
-    save_model(model, fname)
-    write_encoding_to_hdf(fname, encoding)
-
-
-def load_model_hdf(model_path, encoding_json=None, need_encoding=True):
-    """Load a model from a .hdf file. If label encodings are not present,
-    try to load them from enncoding_json."""
-    # try to get structure + encoding from hdf, else use the
-    # one provided (or raise an exception if it is not provided).
-    m = load_model(model_path, custom_objects={'qscore': qscore})
-    encoding = None
-    with h5py.File(model_path, 'r') as h5:
-        if _encod_path_ in h5:
-            encoding = [s.decode() for s in h5[_encod_path_][()]]
-            logging.info("Loaded encoding from {}.".format(model_path))
-
-    if encoding is None and encoding_json is not None:
-        encoding = load_encoding(encoding_json)
-        logging.info("Loaded encoding from {}.".format(encoding_json))
-
-    if encoding is None and need_encoding:
-        raise KeyError("Could not find label encodings in the model, please provide an encoding json")
-
-    return m, encoding
-
-
-def save_feature_file(fname, data):
-    with h5py.File(fname, 'w') as hdf:
-        for s in data:
-            grp = '{}:{}-{}'.format(s.ref_name, s.positions['major'][0], s.positions['major'][-1] + 1)
-            for field in s._fields:
-                if getattr(s, field) is not None:
-                    data = getattr(s, field)
-                    if isinstance(data, np.ndarray) and isinstance(data[0], np.unicode):
-                        data = np.char.encode(data)
-                    hdf['{}/{}'.format(grp, field)] = data
-
-
-def load_feature_file(fname):
-    """Load the result of `save_feature_file` back to the original
-    representation.
-    """
-    data = []
-    with h5py.File(fname, 'r') as hdf:
-        # keys are ref:start-end
-        get_start = lambda x: int(x.split(':')[1].split('-')[0])
-        sorted_keys = sorted(hdf.keys(), key=get_start)
-        for key in sorted_keys:
-            s = {}
-            for field in Sample._fields:
-                pth = '{}/{}'.format(key, field)
-                if pth in hdf:
-                    s[field] = hdf[pth][()]
-                    if isinstance(s[field], np.ndarray) and isinstance(s[field][0], type(b'')):
-                        s[field] = np.char.decode(s[field])
-                else:
-                    s[field] = None
-            data.append(Sample(**s))
-    return tuple(data)
 
 
 def qscore(y_true, y_pred):
@@ -173,29 +175,38 @@ def qscore(y_true, y_pred):
     return -10.0 * 0.434294481 * K.log(error)
 
 
-def run_training(train_name, x_train, y_train, encoding, model_data=None,
-                 epochs=5000, validation_split=0.8, batch_size=100):
+def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid, label_decoding,
+                 timesteps, feat_dim, model_fp=None, epochs=5000, batch_size=100, class_weight=None):
     """Run training."""
-    data_dim = x_train.shape[2]
-    timesteps = x_train.shape[1]
-    num_classes = len(encoding)
 
-    if model_data is None:
-        model = build_model(timesteps, data_dim, num_classes)
+    logging.info("Got {} batches for training, {} for validation.".format(n_batch_train, n_batch_valid))
+
+    num_classes = len(label_decoding)
+
+    if model_fp is None:
+        model_kwargs = { k:v.default for (k,v) in inspect.signature(build_model).parameters.items()
+                         if v.default is not inspect.Parameter.empty}
     else:
-        model, old_encoding = load_model_hdf(model_data, need_encoding=False)
-        if old_encoding is not None:
-            logging.info("Old label encoding was:\n{}".format('\n'.join(
-                '{}: {}'.format(i, x) for i, x in enumerate(old_encoding)
-            )))
-        # TODO: should check model data dimensions match data dimensions
+        model_kwargs = load_yaml_data(model_fp, _model_opt_path_)
+        assert model_kwargs is not None
 
-    logging.info("data_dim: {}, timesteps: {}, num_classes: {}".format(data_dim, timesteps, num_classes))
+    opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in model_kwargs.items()])
+    logging.info('Building model with: \n{}'.format(opt_str))
+    model = build_model(timesteps, feat_dim, num_classes, **model_kwargs)
+
+    if model_fp is not None and os.path.splitext(model_fp)[-1] != '.yml':
+        old_model = load_model(model_fp, custom_objects={'qscore': qscore})
+        old_model_feat_dim = old_model.get_input_shape_at(0)[2]
+        assert old_model_feat_dim == feat_dim
+        logging.info("Loading weights from {}".format(model_fp))
+        model.load_weights(model_fp)
+
+    logging.info("feat_dim: {}, timesteps: {}, num_classes: {}".format(feat_dim, timesteps, num_classes))
     logging.info("\n{}".format(model.summary()))
 
-    save_model_hdf(os.path.join(train_name, 'model_structure.hdf'), model, encoding)
-    encoding_name = os.path.join(train_name, '{}_label_encodings.json'.format(train_name))
-    save_encoding(encoding_name, encoding)
+    model_details = {_label_decod_path_: label_decoding,
+                     _model_opt_path_: model_kwargs}
+    write_yaml_data(os.path.join(train_name, 'training_config.yml'), model_details)
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
     callbacks = [
@@ -217,131 +228,234 @@ def run_training(train_name, x_train, y_train, encoding, model_data=None,
         CSVLogger(os.path.join(train_name, 'training.log')),
         # Allow us to run tensorboard to see how things are going. Some
         #   features require validation data, not clear why.
-        TensorBoard(log_dir=os.path.join(train_name, 'logs'),
-                    histogram_freq=5, batch_size=100, write_graph=True,
-                    write_grads=True, write_images=True)
+        #TensorBoard(log_dir=os.path.join(train_name, 'logs'),
+        #            histogram_freq=5, batch_size=100, write_graph=True,
+        #            write_grads=True, write_images=True)
     ]
 
+    if class_weight is not None:
+        loss = weighted_categorical_crossentropy(class_weight)
+        logging.info("Using weighted_categorical_crossentropy loss function")
+    else:
+        loss = 'sparse_categorical_crossentropy'
+        logging.info("Using {} loss function".format(loss))
+
     model.compile(
-       loss='sparse_categorical_crossentropy',
+       loss=loss,
        optimizer='rmsprop',
        metrics=['accuracy', qscore],
     )
-
-    # maybe possible to increase batch_size for faster processing
-    model.fit(
-        x_train, y_train,
-        batch_size=batch_size, epochs=epochs,
-        validation_split=validation_split,
+    # fit generator
+    model.fit_generator(
+        sample_gen, steps_per_epoch=n_batch_train,
+        validation_data=valid_gen, validation_steps=n_batch_valid,
+        max_queue_size=8, workers=8, use_multiprocessing=False,
+        epochs=epochs,
         callbacks=callbacks,
+        class_weight=class_weight,
     )
 
-    # append encoding to the hdf files
+    # append label_decoding and model building options to the hdf files
     for hd5_model_path in glob.glob(os.path.join(train_name, '*.hdf5')):
-        write_encoding_to_hdf(hd5_model_path, encoding)
+            write_yaml_data(hd5_model_path, model_details)
 
 
-def to_sparse_categorical(data):
-    """Create a sparse categorical matrix from a list of label vectors
-
-    :param data: list of label vectors.
-
-    :returns: tuple (sparse categorical array, encoding list)
-    """
-    all_labels = set()
-    for d in data:
-        all_labels |= set(d)
-    # sort to get reproducible ordering for identical datasets
-    encoding = sorted(list(all_labels))
-    decoding = {a: i for i, a in enumerate(encoding)}
-    matrix = np.stack([
-        [[decoding[x], ] for x in sample]
-        for sample in data
-    ])
-    return matrix, encoding
-
-
-def run_prediction(data, model, encoding, output_file='consensus_chunks.fa',
+def run_prediction(sample_gen, model, label_decoding, output_file='consensus_chunks.fa',
                    batch_size=200, predictions_file=None):
     """Run inference."""
 
-    x_data = np.stack((x.features for x in data))
-
-    t0 = now()
-    class_probs = model.predict(x_data, batch_size=batch_size, verbose=1)
-    t1 = now()
-    logging.info('Running network took {}s for data of shape {}'.format(t1 - t0, x_data.shape))
-
-    best = np.argmax(class_probs, -1)
-
-    t0 = now()
-    count = 0
-    # write out contig name and position in fasta, ref_name:start-end
-    with open(output_file, 'w') as fasta:
-        for s, seq in zip(data, (''.join(encoding[x] for x in sample) for sample in best)):
-            seq = seq.replace(_gap_, '')
-            key = '{}:{}-{}'.format(s.ref_name, s.positions['major'][0] + 1, s.positions['major'][-1] + 2)
-            fasta.write(">{}\n{}\n".format(key, seq))
-            count += 1
-        t1 = now()
-        logging.info('Decoding took {}s for {} chunks.'.format(t1 - t0, count))
-
-    # write out positions and predictions for later analysis
-    data_out = []
-    for sample, pred in zip(data, class_probs):
-        sample = sample._asdict()
-        sample['label_probs'] = pred
-        data_out.append(Sample(**sample))
+    batches = grouper(sample_gen, batch_size)
 
     if predictions_file is not None:
-        save_feature_file(predictions_file, data_out)
-    return tuple(data_out)
+        pred_h5 = h5py.File(predictions_file, 'w')
+
+    # write out contig name and position in fasta, ref_name:start-end
+    with open(output_file, 'w') as fasta:
+        for data in batches:
+            x_data = np.stack((x.features for x in data))
+            t0 = now()
+            class_probs = model.predict(x_data, batch_size=batch_size, verbose=1)
+            t1 = now()
+            logging.info('Running network took {}s for data of shape {}'.format(t1 - t0, x_data.shape))
+
+            t0 = now()
+            count = 0
+            best = np.argmax(class_probs, -1)
+            # write out contig name and position in fasta, ref_name:start-end
+            for sample, prob, pred in zip(data, class_probs, best):
+                seq = ''.join(label_decoding[x] for x in pred).replace(_gap_, '')
+                key = encode_sample_name(sample)
+                fasta.write(">{}\n{}\n".format(key, seq))
+                # write out positions and predictions for later analysis
+                if predictions_file is not None:
+                    sample_d = sample._asdict()
+                    sample_d['label_probs'] = prob
+                    sample_d['features'] = None  # to keep file sizes down
+                    write_sample_to_hdf(Sample(**sample_d), pred_h5)
+                count += 1
+            t1 = now()
+            logging.info('Decoding took {}s for {} chunks.'.format(t1 - t0, count))
+
+    if predictions_file is not None:
+        pred_h5.close()
+        write_yaml_data(predictions_file, {_label_decod_path_: label_decoding})
+
+
+def prepare(args):
+    bam_pileup_to_features_hdf(
+        args.output, (args.bam,), args.ref_fasta, args.ref_name, chunk_len=args.sample_length, overlap=args.overlap, start=args.start, end=args.end,
+        truth_bam=args.truth
+    )
+
+
+def process_labels(label_counts, max_label_len=10):
+    """
+    Create map from full labels to (encoded) truncated labels.
+    """
+
+    old_labels = [k for k in label_counts.keys()]
+    if type(old_labels[0]) == tuple:
+        new_labels = (l[1] * decoding[l[0]].upper() for l in old_labels)
+    else:
+        new_labels = [l for l in old_labels]
+
+    if max_label_len < np.inf:
+        new_labels = [l[:max_label_len] for l in new_labels]
+
+    old_to_new = dict(zip(old_labels, new_labels))
+    label_decoding = list(sorted(set(new_labels)))
+    label_encoding = { l: label_decoding.index(old_to_new[l]) for l in old_labels}
+    logging.info("Label encoding dict is:\n{}".format('\n'.join(
+        '{}: {}'.format(k, v) for k, v in label_encoding.items()
+    )))
+
+    new_counts = Counter()
+    for l in old_labels:
+        new_counts[label_encoding[l]] += label_counts[l]
+    logging.info("New label counts {}".format(new_counts))
+
+    return label_encoding, label_decoding, new_counts
 
 
 def train(args):
     """Training program."""
     train_name = args.train_name
-    mkdir_p(train_name, info='Results will be overwritten and may use pregenerated features.')
-    dataset_name = os.path.join(train_name, '{}_squiggles.hdf'.format(train_name))
-    logging.info("Using {} for feature storage/reading.".format(dataset_name))
+    mkdir_p(train_name, info='Results will be overwritten.')
 
-    if not os.path.isfile(dataset_name):
-        logging.info("Creating dataset. This may take a while.")
-        chunks = rechunk(load_pileup(args.pileupdata))
-        logging.info("Max label length: {}".format(args.max_label_len if args.max_label_len is not None else 'inf'))
-        data = generate_samples(chunks)
-        save_feature_file(dataset_name, data)
-        if args.features:
-            logging.info("Stopping as only feature generation requested.")
-            sys.exit(0)
-    else:
-        logging.info("Loading dataset from file.")
-        data = load_feature_file(dataset_name)
-    logging.info("Got {} pileup chunks for training.".format(len(data)))
+    logging.info("Loading datasets:\n{}".format('\n'.join(args.features)))
 
-    using_ref_as_label = False
-    x_data, y_labels = [], []
-    for s in data:
-        if s.labels is None:
-            raise ValueError("Cannot train without labels.")
+    # get counts of labels in training samples
+    label_counts = Counter()
+    for f in args.features:
+        label_counts.update(load_yaml_data(f, _label_counts_path_))
+
+    logging.info("Total labels {}".format(sum(label_counts.values())))
+
+
+    is_batched = True
+    handles = {fname: h5py.File(fname, 'r') for fname in args.features}
+    for f, h5 in handles.items():
+        has_batches = _label_batches_path_ in h5 and _feature_batches_path_ in h5
+        msg = 'Found batches in {}.' if has_batches else 'No batches in {}.'
+        logging.info(msg.format(f))
+        is_batched = is_batched and has_batches
+
+    if is_batched:
+
+        batches = [ (fname, k) for (fname, fh) in handles.items() for k in fh[_feature_batches_path_]]
+
+        logging.info("Got {} batches.".format(len(batches)))
+        # check batch size using first batch
+        test_f, test_batch = batches[0]
+        h5 = handles[test_f]
+        batch_shape = h5['{}/{}'.format(_feature_batches_path_, test_batch)].shape
+        label_shape = h5['{}/{}'.format(_label_batches_path_, test_batch)].shape
+        logging.info("Got {} batches with feat shape {}, label shape {}".format(len(batches), batch_shape, label_shape))
+        batch_size, timesteps, feat_dim = batch_shape
+        if not sum(label_counts.values()) != len(batches) * timesteps:
+            raise ValueError('Label counts not consistent with number of batches')
+
+        n_batch_train = int((1 - args.validation_split) * len(batches))
+        train_batches = batches[:n_batch_train]
+        valid_batches = batches[n_batch_train:]
+        n_batch_valid = len(valid_batches)
+
+        if args.balanced_weights:
+            sparse_labels = False
         else:
-            labels = s.labels.astype('U{}'.format(args.max_label_len))
-        x_data.append(s.features)
-        y_labels.append(labels)
+            sparse_labels = True
 
-    # stack the individual samples into one big tensor
-    x_data = np.stack(x_data)
-    # find unique labels and create a sparse encoding
-    y_labels, encoding = to_sparse_categorical(y_labels)
+        gen_train = yield_batches_from_hdfs(handles, train_batches, sparse_labels=sparse_labels,
+                                            n_classes=len(label_counts))
+        gen_valid = yield_batches_from_hdfs(handles, valid_batches, sparse_labels=sparse_labels,
+                                            n_classes=len(label_counts))
+        label_decoding = load_yaml_data(args.features[0], _label_decod_path_)
 
-    label_counts = np.unique(y_labels, return_counts=True)
-    label_counts = dict(zip(label_counts[0], label_counts[1]))
+    else:
+        sample_index = get_sample_index_from_files(args.features, max_samples=args.max_samples)
+        refs = [k for k in sample_index.keys()]
+        logging.info("Got the following references for training:\n{}".format('\n'.join(refs)))
+        n_samples = sum([len(sample_index[k]) for k in sample_index])
+        logging.info("Got {} pileup chunks for training.".format(n_samples))
+        # get label encoding, given max_label_len
+        logging.info("Max label length: {}".format(args.max_label_len if args.max_label_len is not None else 'inf'))
+        label_encoding, label_decoding, label_counts = process_labels(label_counts, max_label_len=args.max_label_len)
+
+        # create seperate generators of x,y for training and validation
+        # shuffle samples before making split so each ref represented in training
+        # and validation and batches are not biased to a particular ref.
+        samples = [(d['key'], d['filename']) for ref in sample_index.values() for d in ref]
+        np.random.shuffle(samples)  # shuffle in place
+        n_samples_train = int((1 - args.validation_split) * len(samples))
+        samples_train = samples[:n_samples_train]
+        samples_valid = samples[n_samples_train:]
+        # all batches need to be the same size, so pad samples_train and samples_valid
+        n_extra_train = args.batch_size - len(samples_train) % args.batch_size
+        n_extra_valid = args.batch_size - len(samples_valid) % args.batch_size
+        samples_train += [samples_train[i] for i in np.random.choice(len(samples_train), n_extra_train)]
+        samples_valid += [samples_valid[i] for i in np.random.choice(len(samples_valid), n_extra_valid)]
+
+        msg = '{} training samples padded to {}, {} validation samples padded to {}'
+        logging.info(msg.format(len(set(samples_train)), len(samples_train),
+                                len(set(samples_valid)), len(samples_valid)))
+
+        # load one sample to figure out timesteps and data dim
+        key, fname = samples_train[0]
+        with h5py.File(fname) as h5:
+            first_sample = load_sample_from_hdf(key, h5)
+        timesteps = first_sample.features.shape[0]
+        feat_dim = first_sample.features.shape[1]
+
+        if not sum(label_counts.values()) // timesteps == n_samples:
+            raise ValueError('Label counts not consistent with number of samples')
+
+        gen_train_samples = yield_from_feature_files(args.features, samples=itertools.cycle(samples_train))
+        gen_valid_samples = yield_from_feature_files(args.features, samples=itertools.cycle(samples_valid))
+        s2xy = partial(sample_to_x_y, encoding=label_encoding)
+        gen_train = gen_train_batch(map(s2xy, gen_train_samples), args.batch_size, name='training')
+        gen_valid = gen_train_batch(map(s2xy, gen_valid_samples), args.batch_size, name='validation')
+        n_batch_train = len(samples_train) // args.batch_size
+        n_batch_valid = len(samples_valid) // args.batch_size
+
+    if args.balanced_weights:
+        n_samples = sum(label_counts.values())
+        n_classes = len(label_counts)
+        class_weight = {k: float(n_samples)/(n_classes * count) for (k, count) in label_counts.items()}
+        class_weight = np.array([class_weight[c] for c in sorted(class_weight.keys())])
+    else:
+        class_weight = None
+
+    h = lambda d, i: d[i] if d is not None else 1
     logging.info("Label encoding is:\n{}".format('\n'.join(
-        '{} ({}): {}'.format(i, label_counts[i], x) for i, x in enumerate(encoding)
+        '{} ({}, {:9.6f}): {}'.format(i, label_counts[i], h(class_weight, i), l) for i, l in enumerate(label_decoding)
     )))
-    run_training(train_name, x_data, y_labels, encoding, model_data=args.model,
-                 epochs=args.epochs, validation_split=args.validation_split,
-                 batch_size=args.batch_size)
+
+    run_training(train_name, gen_train, gen_valid, n_batch_train, n_batch_valid, label_decoding,
+                 timesteps, feat_dim, model_fp=args.model, epochs=args.epochs, batch_size=args.batch_size,
+                 class_weight=class_weight)
+
+    for fh in handles.values():
+        fh.close()
 
 
 def predict(args):
@@ -352,8 +466,13 @@ def predict(args):
         chunks = rechunk(load_pileup(args.pileup), overlap=args.overlap, chunk_size=args.sample_length)
         data = generate_samples(chunks)
     elif args.features:
-        logging.info("Loading features from file.")
-        data = load_feature_file(args.features)
+        logging.info("Loading features from file for refs {}.".format(args.ref_names))
+        index = get_sample_index_from_files(args.features)
+        refs_n_samples = {r: len(l) for (r, l) in index.items()}
+        ref_names = args.ref_names if args.ref_names is not None else refs_n_samples.keys()
+        msg = "\n".join(["{}: {}".format(r, refs_n_samples[r]) for r in ref_names])
+        logging.info("Number of samples per reference:\n{}\n".format(msg))
+        data = yield_from_feature_files(args.features, ref_names=args.ref_names)
     else:
         logging.info("Generating features from bam.")
         bam, ref_fasta, ref_name = args.alignments
@@ -362,31 +481,48 @@ def predict(args):
         chunks = rechunk(tview_gen, overlap=args.overlap, chunk_size=args.sample_length)
         data = generate_samples(chunks)
 
-    if args.output_features is not None:
-        save_feature_file(args.output_features, data)
-        logging.info("Saved features to {}".format(args.output_features))
-    
+    # take a sneak peak at the first sample
+    first_sample = next(data)
+    data = chain_thread_safe([first_sample], data)
+    timesteps = first_sample.features.shape[0]
+    feat_dim = first_sample.features.shape[1]
+
     # re-build model with desired number of sequence steps per sample
-    # derived from the features so this works wherever we got features from. 
-    
-    model, encoding = load_model_hdf(args.model, args.encoding, need_encoding=True)
-    logging.info("Label encoding is:\n{}".format('\n'.join(
-        '{}: {}'.format(i, x) for i, x in enumerate(encoding)
-    )))
-    _, model_chunk_size, model_feature_dim = model.get_input_shape_at(0)
-    features_chunk_size, features_dim = data[0].features.shape
-    if not model_feature_dim == features_dim:
-        raise ValueError('Incorrect feature dimension: got {}, model expects {}'.format(features_dim, model_feature_dim))
-    model_output_dim = model.get_output_shape_at(-1)[-1] 
-    if not model_output_dim == len(encoding):
-        raise ValueError('Incorrect number of encodings: got {}, model expects {}'.format(len(encoding), model_output_dim))
-    model = build_model(features_chunk_size, model_feature_dim, model_output_dim)
+    # derived from the features so this works wherever we got features from.
+    model_data = {}
+    for path in (_model_opt_path_, _label_decod_path_):
+        opt = load_yaml_data(args.model, path)
+        if opt is None and args.model_yml is not None:
+            opt = load_yaml_data(args.model_yml, path)
+        if opt is None:
+            msg = '{} was not present in the input model, use the --model_yml to provide this data.'
+            raise KeyError(msg.format(path))
+        model_data[path] = opt
+
+    num_classes = len(model_data[_label_decod_path_])
+
+    opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in model_data[_model_opt_path_].items()])
+    logging.info('Building model with: \n{}'.format(opt_str))
+    model = build_model(timesteps, feat_dim, num_classes, **model_data[_model_opt_path_])
+    logging.info("Loading weights from {}".format(args.model))
     model.load_weights(args.model)
+    # check new model and old are consistent in size
+    old_model = load_model(args.model, custom_objects={'qscore': qscore})
+    get_feat_dim = lambda m: m.get_input_shape_at(0)[2]
+    get_label_dim = lambda m: m.get_output_shape_at(-1)[-1]
+    if not get_feat_dim(model) == get_feat_dim(old_model):
+        msg = 'Incorrect feature dimension: got {}, model expects {}'
+        raise ValueError(msg.format(feat_dim, get_feat_dim(old_model)))
+    if not get_label_dim(model) == get_label_dim(old_model):
+        msg = 'Incorrect label dimension: got {}, model expects {}'
+        raise ValueError(msg.format(num_classes, get_label_dim(old_model)))
+
+    logging.info("Label decoding is:\n{}".format('\n'.join(
+        '{}: {}'.format(i, x) for i, x in enumerate(model_data[_label_decod_path_])
+    )))
     logging.info('\n{}'.format(model.summary()))
 
-    logging.info("Got {} pileup chunks for inference.".format(len(data)))
-
-    run_prediction(data, model, encoding,
+    run_prediction(data, model, label_decoding=model_data[_label_decod_path_],
                    output_file=args.output_fasta,
                    predictions_file=args.output_probs,
                    batch_size=args.batch_size,

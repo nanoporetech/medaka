@@ -1,10 +1,12 @@
 import itertools
+import logging
 import numpy as np
 import pysam
-from collections import namedtuple
 from copy import copy
 from operator import attrgetter
 from medaka.common import _gap_, Pileup, encoding
+from medaka.common import get_pairs, yield_compressed_pairs
+
 
 class TruthAlignment(object):
     def __init__(self, alignment):
@@ -110,11 +112,13 @@ class TruthAlignment(object):
             alignments.sort(key=attrgetter('start'))
         return alignments
 
-    def get_positions_and_labels(self, start=None, end=None):
+    def get_positions_and_labels(self, start=None, end=None, ref_compr_rle=None):
         """Create labels and positions array.
 
         :param start: starting position within reference
         :param end: ending position within reference
+        :param ref_compr_rle: np.ndarray, dtype [('start', int), ('end', int)]
+            containing uncompressed start position and length for each compressed position.
         :returns: tuple(positions, encoded_label_array)
 
             - positions: numpy structured array with 'ref_major'
@@ -123,6 +127,8 @@ class TruthAlignment(object):
 
             - labels_array: 1D numpy array of labels
         """
+        is_compressed = ref_compr_rle is not None
+
         if start is None:
             start = 0
         if end is None:
@@ -131,22 +137,12 @@ class TruthAlignment(object):
         start = max(start, self.start)
         end = min(end, self.end)
 
-        AlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'rpos', 'rbase'))
-
-        def _get_pairs(aln):
-            """Return generator yielding AlignPos objects for
-            aligned pairs of an AlignedSegment.
-
-            :param aln: pysam AlignedSegment
-            """
-            seq = aln.query_sequence
-            pairs = (AlignPos(qp, seq[qp], rp, rb) if qp is not None
-                     else AlignPos(qp, None, rp, rb)
-                     for qp, rp, rb in self.aln.get_aligned_pairs(with_seq=True))
-            return pairs
-
         positions_labels = []
-        pairs = _get_pairs(self.aln)
+        if is_compressed:
+            pairs = yield_compressed_pairs(self.aln, ref_compr_rle)
+        else:
+            pairs = get_pairs(self.aln)
+
         ins_count = 0
 
         for pair in itertools.dropwhile(lambda x: (x.rpos is None)
@@ -161,9 +157,18 @@ class TruthAlignment(object):
                 current_pos = pair.rpos
             pos = (current_pos, ins_count)
             label = pair.qbase.upper() if pair.qbase else _gap_
-            positions_labels.append((pos, encoding[label]))
+            if label == 'N':
+                logging.info('Found {} at pos {}'.format(label, pos))
+            label = encoding[label]
+            if is_compressed:
+                label = (label, pair.qlen)
+            positions_labels.append((pos, label))
 
-        label_array = np.empty(shape=(1, len(positions_labels)), dtype=int)
+        if is_compressed:
+            dtype = [('base', int), ('run_length', int)]
+        else:
+            dtype = int
+        label_array = np.empty(shape=(1, len(positions_labels)), dtype=dtype)
         positions = np.empty(len(positions_labels),
                              dtype=[('major', int), ('minor', int)])
 

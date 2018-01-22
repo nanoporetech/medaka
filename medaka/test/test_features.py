@@ -1,12 +1,14 @@
 import os
 import numpy as np
 import unittest
+from keras.models import load_model
 from medaka import features
 
-from medaka.inference import load_feature_file, save_feature_file, run_prediction
-from medaka.inference import load_encoding, generate_samples, load_model_hdf
-from medaka.tview import load_pileup, rechunk, generate_pileup_chunks
-from collections import Counter, OrderedDict
+from medaka.inference import run_prediction, qscore
+from medaka.common import load_feature_file, write_samples_to_hdf, _label_decod_path_, load_yaml_data
+from medaka.inference import generate_samples
+from medaka.tview import rechunk, generate_pileup_chunks
+from collections import Counter
 
 
 __bam_fp__ = os.path.join(os.path.dirname(__file__), 'data', 'test_reads.bam')
@@ -39,7 +41,7 @@ class TviewTest(unittest.TestCase):
         self.tview_overlap = 1000
         self.rechunk_overlap = 200
 
-        self.tview_gen = generate_pileup_chunks((__bam_fp__,), __ref_fasta__, __ref_name__, start=50000, end=250000, 
+        self.tview_gen = generate_pileup_chunks((__bam_fp__,), __ref_fasta__, __ref_name__, start=50000, end=250000,
                                                 overlap=self.tview_overlap, chunk_len=25000)
 
 
@@ -47,9 +49,9 @@ class TviewTest(unittest.TestCase):
         """After rechunking a single tview chunk, check counts features in overlapping regions are identical"""
         tview_chunk = next(self.tview_gen)
         small_chunks = rechunk((tview_chunk,), chunk_size=1000, overlap=self.rechunk_overlap)
-        data = generate_samples(small_chunks, coverage_filter=iter,
-                                      feature_func=features.counts)
-        save_feature_file('rechunk_features.npy', data)
+        data = list(generate_samples(small_chunks, coverage_filter=iter,
+                                      feature_func=features.counts))
+        write_samples_to_hdf('rechunk_features.hdf', data)
         for pos1, pos2, feat1, feat2 in gen_overlaps(data):
             assert len(pos1) == len(pos2)
             assert np.all(pos1 == pos2)
@@ -60,14 +62,14 @@ class TviewTest(unittest.TestCase):
     def test_overlapping_counts_in_adjacent_tview_chunks(self):
         """Check counts features in overlapping regions are identical"""
 
-        feature_file = 'tview_chunk_features.npy'
+        feature_file = 'tview_chunk_features.hdf'
         reuse_features = False
         if reuse_features and os.path.exists(feature_file):
-            data = load_feature_file(feature_file)
+            data = list(load_feature_file(feature_file))
         else:
-            data = generate_samples(self.tview_gen, coverage_filter=iter,
-                                          feature_func=features.counts)
-            save_feature_file(feature_file, data)
+            data = list(generate_samples(self.tview_gen, coverage_filter=iter,
+                                          feature_func=features.counts))
+            write_samples_to_hdf(feature_file, data)
         counts = Counter()
         for pos1, pos2, feat1, feat2 in gen_overlaps(data):
             assert len(pos1) == len(pos2)
@@ -75,7 +77,7 @@ class TviewTest(unittest.TestCase):
             assert len(np.unique(pos2['major'])) == self.tview_overlap
             assert pos2['major'][-1] - pos2['major'][0] == self.tview_overlap - 1
             assert pos1['major'][-1] - pos1['major'][0] == self.tview_overlap - 1
-            # these two could fail if some reads are included in one tview chunk 
+            # these two could fail if some reads are included in one tview chunk
             # but not the other but that does not seem to happen (at least for our test set)
             assert np.all(pos1 == pos2)
             counts.update([np.max(np.abs(feat1 - feat2))])
@@ -84,7 +86,7 @@ class TviewTest(unittest.TestCase):
         # check 0 is most common value
         assert counts[0] == max(counts.values())
         # check we have max count diff of 1, would ideally be zero
-        assert max(counts.keys()) == 1 
+        assert max(counts.keys()) == 1
 
 
     def test_inference(self):
@@ -93,8 +95,8 @@ class TviewTest(unittest.TestCase):
         big_chunk = next(self.tview_gen)
         small_chunks = rechunk((big_chunk,), chunk_size=1000, overlap=self.rechunk_overlap)
 
-        data = generate_samples(small_chunks, coverage_filter=iter,
-                                feature_func=features.counts)
+        data = list(generate_samples(small_chunks, coverage_filter=iter,
+                                feature_func=features.counts))
 
         for pos1, pos2, feat1, feat2 in gen_overlaps(data):
             assert len(pos1) == len(pos2)
@@ -102,17 +104,19 @@ class TviewTest(unittest.TestCase):
             assert len(pos1) >= self.rechunk_overlap
             assert np.all(feat1 == feat2)
 
-        save_feature_file('inference_features.hdf', data)
+        write_samples_to_hdf('inference_features.hdf', data)
         pred_file = 'inference_predictions.hdf'
-        model, encoding = load_model_hdf(__model_fp__, encoding_json=__encoding_fp__)
-        pred_data = run_prediction(data, model, encoding, 
+        model = load_model(__model_fp__, custom_objects={'qscore': qscore})
+        decoding = load_yaml_data(__model_fp__, _label_decod_path_)
+        run_prediction((s for s in data), model, decoding,
                        output_file='rechunk_basecalls.fasta', batch_size=1500,
                        predictions_file=pred_file)
 
         # it seems that in some cases there may be differences when the most probable and second
-        # most probable have almost equal probability 
+        # most probable have almost equal probability
         counts = Counter()
         differences = []
+        pred_data = list(load_feature_file(pred_file))
         for pos1, pos2, pred1, pred2 in gen_overlaps(pred_data, field='label_probs'):
             assert len(pos1) == len(pos2)
             assert np.all(pos1 == pos2)
