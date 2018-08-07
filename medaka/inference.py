@@ -261,7 +261,7 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
 
 
 def run_prediction(sample_gen, model, label_decoding, output_file='consensus_chunks.fa',
-                   batch_size=200, predictions_file=None):
+                   batch_size=200, predictions_file=None, n_samples=None):
     """Run inference."""
 
     batches = grouper(sample_gen, batch_size)
@@ -269,16 +269,32 @@ def run_prediction(sample_gen, model, label_decoding, output_file='consensus_chu
     if predictions_file is not None:
         pred_h5 = h5py.File(predictions_file, 'w')
 
+    first_batch = True
+    n_samples_done = 0
     # write out contig name and position in fasta, ref_name:start-end
     with open(output_file, 'w') as fasta:
+        t0 = now()
+        tlast = t0
         for data in batches:
             x_data = np.stack((x.features for x in data))
-            t0 = now()
-            class_probs = model.predict(x_data, batch_size=batch_size, verbose=1)
-            t1 = now()
-            logging.info('Running network took {}s for data of shape {}'.format(t1 - t0, x_data.shape))
 
-            t0 = now()
+            if first_batch:
+                logging.info('Updating model state with first batch')
+                class_probs = model.predict(x_data, batch_size=batch_size, verbose=1)
+                first_batch = False
+
+            class_probs = model.predict(x_data, batch_size=batch_size, verbose=1)
+            n_samples_done += x_data.shape[0]
+            t1 = now()
+            if t1 - tlast > 10:
+                tlast = t1
+                if n_samples is not None:  # we know how many samples we will be processing
+                    msg = '{:.1%} Done ({}/{} samples) in {:.1f}s'
+                    logging.info(msg.format(n_samples_done / n_samples, n_samples_done, n_samples, t1 - t0))
+                else:
+                    logging.info('Done {} samples in {:.1f}s'.format(n_samples_done, t1 - t0, x_data.shape))
+
+
             count = 0
             best = np.argmax(class_probs, -1)
             # write out contig name and position in fasta, ref_name:start-end
@@ -293,12 +309,12 @@ def run_prediction(sample_gen, model, label_decoding, output_file='consensus_chu
                     sample_d['features'] = None  # to keep file sizes down
                     write_sample_to_hdf(Sample(**sample_d), pred_h5)
                 count += 1
-            t1 = now()
-            logging.info('Decoding took {}s for {} chunks.'.format(t1 - t0, count))
 
     if predictions_file is not None:
         pred_h5.close()
         write_yaml_data(predictions_file, {_label_decod_path_: label_decoding})
+
+    logging.info('All done')
 
 
 def prepare(args):
@@ -460,6 +476,7 @@ def train(args):
 
 def predict(args):
     """Inference program."""
+    n_samples = None
     if args.pileup:
         # TODO make use of start and end options when loading pileup from hdf ?
         logging.info("Loading pileup from file.")
@@ -473,6 +490,7 @@ def predict(args):
         msg = "\n".join(["{}: {}".format(r, refs_n_samples[r]) for r in ref_names])
         logging.info("Number of samples per reference:\n{}\n".format(msg))
         data = yield_from_feature_files(args.features, ref_names=args.ref_names)
+        n_samples = sum(refs_n_samples.values())
     else:
         logging.info("Generating features from bam.")
         bam, ref_fasta, ref_name = args.alignments
@@ -525,5 +543,5 @@ def predict(args):
     run_prediction(data, model, label_decoding=model_data[_label_decod_path_],
                    output_file=args.output_fasta,
                    predictions_file=args.output_probs,
-                   batch_size=args.batch_size,
+                   batch_size=args.batch_size, n_samples=n_samples,
     )

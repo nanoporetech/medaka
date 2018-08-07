@@ -5,7 +5,7 @@ import pysam
 from copy import copy
 from operator import attrgetter
 from medaka.common import _gap_, Pileup, encoding
-from medaka.common import get_pairs, yield_compressed_pairs
+from medaka.common import get_pairs, yield_compressed_pairs, get_pairs_with_hp_len
 
 
 class TruthAlignment(object):
@@ -112,13 +112,16 @@ class TruthAlignment(object):
             alignments.sort(key=attrgetter('start'))
         return alignments
 
-    def get_positions_and_labels(self, start=None, end=None, ref_compr_rle=None):
+    def get_positions_and_labels(self, start=None, end=None, ref_compr_rle=None, mock_compr=False, is_compressed=False, rle_dtype=False):
         """Create labels and positions array.
 
         :param start: starting position within reference
         :param end: ending position within reference
         :param ref_compr_rle: np.ndarray, dtype [('start', int), ('end', int)]
             containing uncompressed start position and length for each compressed position.
+        :param mock_compr: bool, labels will be encoded as for a compressed sequence, even if ref_compr_rle is None.
+        :param is_compressed: bool, whether the sequence has been run length encoded.
+        :param rle_dtype: bool, whether to force dtype of labels to be (int base , int length).
         :returns: tuple(positions, encoded_label_array)
 
             - positions: numpy structured array with 'ref_major'
@@ -127,8 +130,6 @@ class TruthAlignment(object):
 
             - labels_array: 1D numpy array of labels
         """
-        is_compressed = ref_compr_rle is not None
-
         if start is None:
             start = 0
         if end is None:
@@ -140,6 +141,8 @@ class TruthAlignment(object):
         positions_labels = []
         if is_compressed:
             pairs = yield_compressed_pairs(self.aln, ref_compr_rle)
+        elif mock_compr:
+            pairs = get_pairs_with_hp_len(self.aln, ref_compr_rle)
         else:
             pairs = get_pairs(self.aln)
 
@@ -160,11 +163,13 @@ class TruthAlignment(object):
             if label == 'N':
                 logging.info('Found {} at pos {}'.format(label, pos))
             label = encoding[label]
-            if is_compressed:
+            if is_compressed or mock_compr:
                 label = (label, pair.qlen)
+            elif rle_dtype:
+                label = (label, 1)
             positions_labels.append((pos, label))
 
-        if is_compressed:
+        if is_compressed or mock_compr or rle_dtype:
             dtype = [('base', int), ('run_length', int)]
         else:
             dtype = int

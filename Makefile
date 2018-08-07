@@ -1,7 +1,7 @@
 .PHONY: docs
 
 # Builds a cache of binaries which can just be copied for CI
-BINARIES=samtools
+BINARIES=samtools minimap2 mini_align
 BINCACHEDIR=bincache
 $(BINCACHEDIR):
 	mkdir -p $(BINCACHEDIR)
@@ -12,6 +12,7 @@ else
 SEDI=sed -i
 endif
 
+binaries: $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 
 SAMVER=1.3.1
 $(BINCACHEDIR)/samtools: | $(BINCACHEDIR)
@@ -29,6 +30,17 @@ $(BINCACHEDIR)/samtools: | $(BINCACHEDIR)
 	cd submodules/samtools-${SAMVER} && make
 	cp submodules/samtools-${SAMVER}/samtools $@
 
+$(BINCACHEDIR)/minimap2: | $(BINCACHEDIR)
+	@echo Making $(@F)
+	wget https://github.com/lh3/minimap2/releases/download/v2.11/minimap2-2.11_x64-linux.tar.bz2 
+	tar -xvf minimap2-2.11_x64-linux.tar.bz2
+	cp minimap2-2.11_x64-linux/minimap2 $@
+	rm -rf minimap2-2.11_x64-linux.tar.bz2 minimap2-2.11_x64-linux
+
+$(BINCACHEDIR)/mini_align: | $(BINCACHEDIR)
+	@echo Making $(@F)
+	curl https://raw.githubusercontent.com/nanoporetech/pomoxis/master/scripts/mini_align -o $@
+	chmod +x $@
 
 venv: venv/bin/activate
 IN_VENV=. ./venv/bin/activate
@@ -65,3 +77,9 @@ docs: venv
 	@echo
 	@echo "Build finished. The HTML pages are in $(DOCSRC)/$(BUILDDIR)/html."
 	touch $(DOCSRC)/$(BUILDDIR)/html/.nojekyll
+
+docker: binaries
+	mkdir for_docker && cp -r medaka scripts bincache setup.py requirements.txt for_docker 
+	docker build -t medaka .
+	rm -rf for_docker
+
