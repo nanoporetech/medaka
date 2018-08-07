@@ -87,7 +87,10 @@ format are required, see :ref:`basecalling_and_draft_assembly`.
 
     source ${MEDAKA}  # i.e. medaka/bin/activate as above
     NPROC=$(nproc)
-    medaka_consensus -i basecalls.fa -d draft_assembly.fa -o medaka_consensus -t ${NPROC} -p ${POMOXIS}
+    BASECALLS=basecalls.fa
+    DRAFT=draft_assm/assm_final.fa
+    OUTDIR=medaka_consensus
+    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC}
 
 When `medaka_consensus` has finished running, the consensus will be saved to
 `medaka_consensus/consensus.fasta`.

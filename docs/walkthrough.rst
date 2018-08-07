@@ -30,7 +30,7 @@ Technologies `.fast5` files for a set of reads.
     WALKTHROUGH=${PWD}/medaka_walkthrough
     mkdir -p ${WALKTHROUGH} && cd ${WALKTHROUGH}
     wget https://s3-eu-west-1.amazonaws.com/ont-research/medaka_walkthrough.tar.gz
-    tar -xvf medaka_demo.tar
+    tar -xvf medaka_walkthrough.tar.gz
     DATA=${PWD}/data
 
 The extracted archive contains also all the intermediate output files that
@@ -55,7 +55,7 @@ The necessary software can be sourced using the same process as described in
 
     cd pomoxis && make install && cd ..
     cd medaka && make install && cd ..
-    cd scrappie && mkdir build && cd build && cmake .. && make && cd ../../
+    cd scrappie && git checkout release-1.3.2 && mkdir build && cd build && cmake .. && make && cd ../../
 
     POMOXIS=${WALKTHROUGH}/pomoxis/venv/bin/activate
     MEDAKA=${WALKTHROUGH}/medaka/venv/bin/activate
@@ -67,7 +67,9 @@ The necessary software can be sourced using the same process as described in
 Basecalling and Draft Assembly
 ------------------------------
 
-The downloaded data can be basecalled using `scrappie`:
+For the purposes of this walkthrough, the downloaded data can be basecalled
+using the open-source `scrappie`, but in general it is preferable to use medaka
+with the basecaller used in its training (`Guppy`). 
 
 .. code-block:: bash
 
@@ -104,97 +106,57 @@ The number and length of the assembled contigs can be checked
 
 .. code-block:: bash
 
-    cd ${WALKTHROUGH}
     DRAFT=draft_assm/assm_final.fa
     awk '{if(/>/){n=$1}else{print n " " length($0)}}' ${DRAFT}
 
-The expected output is a contig 4,701,891 bases long (Consensus_utg000001c) and
-a short remainder sequence just 408 bases long (Consensus_utg000002c). The
-following will use only the long contig, which is around the expected genome
-size. To create a `.fasta` file containing just the longer contig, run:  
+The expected output is a contig 4,703,280 bases long (utg000001c). 
 
-.. code-block:: bash
+.. _polishing:
 
-    cd ${WALKTHROUGH}
-    source ${POMOXIS}
-    REFNAME=Consensus_utg000001c
-    samtools faidx ${DRAFT} Consensus_utg000001c > draft_assm/assm_final_filt.fa
-    DRAFT=draft_assm/assm_final_filt.fa
-
-
-.. _polishing_with_rle:
-
-Polishing a Consensus with Run-length Encoding
-----------------------------------------------
-
-An feature of `medaka` is to compress input basecalls and the draft
-assembly using run-length encoding and perform alignments using these
-compressed sequences. Tests with E.coli data suggests this improves consensus
-accuracy, providing similar results to nanopolish (with homopolymer corrections
-turned on), at significantly higher speed.
+Polishing a Consensus 
+----------------------
 
 After performing all steps up to :ref:`basecalling_and_draft_assembly`, the
 following commands can be run to yield a consensus using `medaka`'s default
 model. This model was trained using data obtained from E.coli, S.cerevisaie,
-and H.sapiens samples. The maximum homopolymer length that this model will call
-successfully is limited to 10.
+and H.sapiens samples. 
 
 .. code-block:: bash
 
     cd ${WALKTHROUGH}
     source ${MEDAKA}
-    DRAFT=draft_assm/assm_final_filt
     CONSENSUS=consensus
-    medaka_consensus -i ${BASECALLS} -d ${DRAFT}.fa -o ${CONSENSUS} -t ${NPROC} -p ${POMOXIS}
+    BASECALLS=basecalls.fa
+    DRAFT=draft_assm/assm_final.fa
+    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${CONSENSUS} -t ${NPROC}
 
-To polish an assembly using another model (see :ref:`training_with_rle`), use
-the `-m` option to specify the filepath of the model.. 
+To polish an assembly using another model, use
+the `-m` option to specify the filepath of the model. 
 
-Alignment statistics can be calculated using the `stats_from_bam` program from
+Alignment statistics can be calculated using the `assess_assembly` program from
 pomoxis: 
 
 .. code-block:: bash
 
     cd ${WALKTHROUGH}
     source ${POMOXIS}
-    TRUTH=${DATA}/truth 
+    TRUTH=${DATA}/truth.fasta
     DRAFT2TRUTH=draft_to_truth
     CONSENSUS2TRUTH=${CONSENSUS}_to_truth
-    CHUNK=10000
-    mini_align -P -c ${CHUNK} -r ${TRUTH}.fasta -i ${DRAFT}.fa -p $DRAFT2TRUTH -t ${NPROC} 
     echo "Draft assembly"
-    stats_from_bam --bam ${DRAFT2TRUTH}.bam > ${DRAFT2TRUTH}.stats.txt
-    mini_align -P -c ${CHUNK} -r ${TRUTH}.fasta -i ${CONSENSUS}/consensus.fasta -p $CONSENSUS2TRUTH -t ${NPROC} 
-    echo "Medaka RLE consensus"
-    stats_from_bam --bam ${CONSENSUS2TRUTH}.bam > ${CONSENSUS2TRUTH}.stats.txt
-    source ${MEDAKA}
-    python -c "import sys; import pandas as pd; d=pd.read_table(sys.argv[-2]); m=pd.read_table(sys.argv[-1]); d['n']='draft'; m['n']='medaka'; c=pd.concat([d,m]); print(c.groupby('n')['acc','iden'].mean().T)" ${DRAFT2TRUTH}.stats.txt ${CONSENSUS2TRUTH}.stats.txt
+    assess_assembly -i ${DRAFT} -r ${TRUTH} -p ${DRAFT2TRUTH} -t ${NPROC}
+    echo "Medaka consensus"
+    assess_assembly -i ${CONSENSUS}/consensus.fasta -r ${TRUTH} -p ${CONSENSUS2TRUTH} -t ${NPROC}
 
+An decrease in error rate from 0.367 % to 0.070% should be observed.
 
-
-.. _training_with_rle:
+.. _training:
 
 Training a Consensus Network
 ----------------------------
 
 In order to train a bespoke network first perform all the steps up to and
-including :ref:`basecalling_and_draft_assembly` above. Following this the first
-task is to perform the run length encoding of the three inputs: the truth
-sequence, the draft assembly, and the basecalls:
-
-.. code-block:: bash
-
-    cd ${WALKTHROUGH}
-    source ${MEDAKA}
-    DRAFT=draft_assm/assm_final_filt
-    TRUTH=${DATA}/truth 
-    DRAFTCOMPRFQ=${DRAFT}_compr.fq 
-    TRUTHCOMPRFQ=${TRUTH}_compr.fq 
-    BASECALLSCOMPRFQ=basecalls_compr.fq
-    hp_compress compress ${DRAFT}.fa -t ${NPROC} > ${DRAFTCOMPRFQ}
-    hp_compress compress ${TRUTH}.fasta -t ${NPROC} > ${TRUTHCOMPRFQ}
-    hp_compress compress ${BASECALLS} -t ${NPROC} > ${BASECALLSCOMPRFQ}
-
+including :ref:`basecalling_and_draft_assembly` above. 
 
 The ultimate aim of the consensus network is to predict the truth sequence from
 the alignment of basecalls to the draft. This requires understanding how the
@@ -202,21 +164,20 @@ basecalls may align to the draft and how the draft much be edited to obtain the
 truth. The draft acts as a common frame-of-reference between the basecalls
 and the truth.
 
-The compressed basecalls and truth sequence are aligned to the compressed
-draft. For the latter, this is performed in chunks.
+The basecalls and truth sequence are aligned to the draft. For the latter, this is performed in chunks.
 
 .. code-block:: bash
 
     cd ${WALKTHROUGH}
+    DRAFT=draft_assm/assm_final.fa
+    TRUTH=${DATA}/truth.fasta
     source ${POMOXIS}
-    DRAFTCOMPRFA=${DRAFT}_compr.fa 
-    fast_convert qa < ${DRAFTCOMPRFQ} > ${DRAFTCOMPRFA}
-    COMPRCALLS2COMPRDRAFT=compr_calls_to_compr_draft
-    COMPRTRUTH2COMPRDRAFT=compr_truth_to_compr_draft
     CHUNKSIZE=100000
+    CALLS2DRAFT=calls2draft
+    TRUTH2DRAFT=truth2draft
 
-    mini_align -P -m -r ${DRAFTCOMPRFA} -i ${BASECALLSCOMPRFQ} -t ${NPROC} -p ${COMPRCALLS2COMPRDRAFT}
-    mini_align -c ${CHUNKSIZE} -P -m -r ${DRAFTCOMPRFA} -i ${TRUTHCOMPRFQ} -t ${NPROC} -p ${COMPRTRUTH2COMPRDRAFT}
+    mini_align -P -m -r ${DRAFT} -i ${BASECALLS} -t ${NPROC} -p ${CALLS2DRAFT}
+    mini_align -c ${CHUNKSIZE} -P -m -r ${DRAFT} -i ${TRUTH} -t ${NPROC} -p ${TRUTH2DRAFT}
 
 These raw alignments must now be converted into features for input into a neural
 network. To reduce any IO bottlenecks during training, the training data can be
@@ -229,22 +190,22 @@ model is used to make predictions.
 
     cd ${WALKTHROUGH}
     source ${MEDAKA}
-    REFNAME=Consensus_utg000001c
-    TRAINEND=3761512
-    TRAINFEATURES=rle_train_features.hdf
+    REFNAME=utg000001c
+    TRAINEND=3762624
+    TRAINFEATURES=train_features.hdf
     FRACTION="0.1 1"
     BATCHSIZE=200
-    hp_compress features ${COMPRCALLS2COMPRDRAFT}.bam ${DRAFTCOMPRFQ} ${TRAINFEATURES} -T ${COMPRTRUTH2COMPRDRAFT}.bam -t ${NPROC} -r ${REFNAME}:-${TRAINEND} --batch_size ${BATCHSIZE} --read_fraction ${FRACTION} --chunk_len 1000 --chunk_ovlp 0
+    MODEL_FEAT_OPT=medaka/medaka/data/medaka_model.hdf5
+    hp_compress features ${CALLS2DRAFT}.bam ${TRAINFEATURES} -T ${TRUTH2DRAFT}.bam -t ${NPROC} -r ${REFNAME}:-${TRAINEND} --batch_size ${BATCHSIZE} --read_fraction ${FRACTION} --chunk_len 1000 --chunk_ovlp 0 -m ${MODEL_FEAT_OPT} --max_label_len 1
 
-Now everything is in place to train a consensus network with the run-length
-encoded features with `medaka train`:
+Now everything is in place to train a consensus network with `medaka train`:
 
 .. code-block:: bash
 
     cd ${WALKTHROUGH}
     source ${MEDAKA}
     TRAINNAME=training
-    medaka train ${TRAINFEATURES} --train_name ${TRAINNAME}
+    medaka train ${TRAINFEATURES} --train_name ${TRAINNAME} --epochs 10
 
 Depending on the compute resources available, this step may take some time.
 During training, models are regularly checkpointed so that training may be
@@ -270,8 +231,6 @@ the model using the `-m` option):
 
     cd ${WALKTHROUGH}
     source ${MEDAKA}
-    DRAFT=draft_assm/assm_final_filt
-    CONSENSUS=consensus
+    CONSENSUS=consensus_trained
     MODEL=${TRAINNAME}/model.best.val.hdf5
-    medaka_consensus -m ${MODEL} -i ${BASECALLS} -d ${DRAFT}.fa -o consensus -t ${NPROC} -p ${POMOXIS}
-
+    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${CONSENSUS} -t ${NPROC} -m ${MODEL}
