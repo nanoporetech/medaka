@@ -18,7 +18,7 @@ as for instance performed by `nanopolish <https://github.com/jts/nanopolish>`_.
 Future projects will implement correction schemes working directly from signal
 data of multiple reads. For more details see :doc:`future`.
 
-For a complete examples starting from signal data, calculating basecalls,
+For a complete example starting from signal data, calculating basecalls,
 through forming a draft assembly, to training and using a consensus network
 see the :doc:`walkthrough`.
 
@@ -70,5 +70,3 @@ Depending on your environment, specifically the versions of `CUDA` and `cuDNN`
 that one has installed, it may be necessary to use versions of this package other
 than the latest. `medaka` has been used with all release versions of `tensorflow`
 after and including version 1.0.0.
-
-

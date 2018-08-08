@@ -22,7 +22,7 @@ Comparison of `medaka` and `nanopolish`
 
 Evaluation of the model was performed using the `medaka` E.coli
 :doc:`walkthrough` dataset. These data we not used to train the model.
-Basecalling was performed with `scrappie
+Basecalling was performed with `scrappie v1.3.2
 <https://github.com/nanoporetech/scrappie>`_ using the `rgrgr_r94` model. The
 pileup had a median depth of ~80-fold. `nanopolish v0.10.1
 <https://github.com/jts/nanopolish>`_ was run with homopolymer correction but
@@ -57,7 +57,7 @@ Evaluation across samples and depths
 Evaluation of the model was performed using E.coli, H.sapiens chromosome 21, and
 `K.pneumoniae <https://github.com/rrwick/Basecalling-comparison>`_.  The E.coli
 and human reads were basecalled with `Guppy` version 0.3.0, while the Klebsiella
-reads were basecalled with `scrappie
+reads were basecalled with `scrappie v1.3.2
 <https://github.com/nanoporetech/scrappie>`_ using the `rgrgr_r94` model. The
 draft assemblies here were created at multiple depths using the `mini_assemble
 <https://nanoporetech.github.io/pomoxis/examples.html#fast-de-novo-assembly>`_

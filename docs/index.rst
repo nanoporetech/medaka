@@ -7,7 +7,7 @@ sequencing reads against a draft assembly. It outperforms graph-based methods
 operating on basecalled data, and can be competitive with state-of-the-art
 signal-based methods whilst being much faster.
 
-As input `medaka` accepts reads in either a `.fastq` or a `.fastq` file. It
+As input `medaka` accepts reads in either a `.fasta` or a `.fastq` file. It
 requires a draft assembly as a `.fasta`.
 
 Features
