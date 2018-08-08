@@ -1,59 +1,44 @@
-Welcome to Medaka's documentation!
-==================================
+Medaka
+======
 
-Medaka demonstrates a framework for rapid error correction of sequencing data,
-particularly aimed at nanopore sequencing. Tools are provided for both training
-and inference. The code exploits the `keras <https://keras.io>`_ deep learning
-library.
+`medaka` is a tool to create a consensus sequence of nanopore sequencing data.
+This task is performed using neural networks applied a pileup of individual
+sequencing reads against a draft assembly. It outperforms graph-based methods
+operating on basecalled data, and can be competitive with state-of-the-art
+signal-based methods whilst being much faster.
 
-The framework provided has had limited testing and benchmarking, but it is
-being released in an effort to allow researchers to experiment without having
-to write much of the tedious data preparation code. Researchers can extend the
-tools provided to achieve better results that those obtained currently.
+As input `medaka` accepts reads in either a `.fasta` or a `.fastq` file. It
+requires a draft assembly as a `.fasta`.
 
-See :doc:`examples` for standard usage in correcting a draft assembly,
-:doc:`walkthrough` for a complete overview of training a model and its use,
-and :doc:`future` for inspirational ideas and some background into nanopore
-sequence correction.
+Features
+--------
 
-Development of medaka as a "base-space" consensus tool has been paused to focus
-on methods which exploit the nanopore signal data. Nevertheless researchers may
-find medaka useful as a method to generate quickly sufficiently accurate
-consensus sequences in many use cases; see the :doc:`benchmarks` page for further
-details.
+  * Requires only basecalled data.
+  * Improved accurary over graph-based methods (e.g. Racon).
+  * 50X faster than Nanopolish.
+  * Includes extras for implementing and training bespoke correction
+    networks.
+  * Works on Linux (MacOS and Windows support is untested).
+  * Open source (Mozilla Public License 2.0).
+
 
 Tools to enable the creation of draft assembies can be found in a sister
 project `pomoxis <https://github.com/nanoporetech/pomoxis>`_.
 
 
-Installation
-------------
 
-Medaka should be installed inside a virtual environment. A Makefile is
-provided to fetch, compile and install all direct dependencies into an
-environment.
-
-To setup the environment run:
-
-.. code-block:: bash
-
-    git clone https://github.com/nanoporetech/medaka.git
-    cd medaka
-    make install
-    . ./venv/bin/activate
-
-See :doc:`examples` for common workflows.
-
-Contents
---------
+Table of contents
+-----------------
 
 .. toctree::
    :maxdepth: 2
 
-   examples
-   walkthrough
+   installation
    benchmarks
+   walkthrough
+   development
    future
+
 
 Full API reference
 ------------------

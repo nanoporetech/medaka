@@ -36,7 +36,12 @@ Technologies `.fast5` files for a set of reads.
 The extracted archive contains also all the intermediate output files that
 are created during the process below. Any step may be skipped by simply copying
 the requisite subfolder from the `${DATA}` directory into the `${WALKTHROUGH}`
-directory.
+directory. If you want to skip basecalling and thus avoid downloading the 5.8
+GB of `.fast5` files, you can download an archive without `.fast5` (122MB):
+
+.. code-block:: bash
+
+    wget https://s3-eu-west-1.amazonaws.com/ont-research/medaka_walkthrough_no_reads.tar.gz
 
 The necessary software can be sourced using the same process as described in
 :ref:`creating_software_env`, namely:
@@ -148,7 +153,7 @@ pomoxis:
     echo "Medaka consensus"
     assess_assembly -i ${CONSENSUS}/consensus.fasta -r ${TRUTH} -p ${CONSENSUS2TRUTH} -t ${NPROC}
 
-An decrease in error rate from 0.367 % to 0.070% should be observed.
+An decrease in error rate from 0.367 % to 0.070 % should be observed.
 
 .. _training:
 
@@ -160,7 +165,7 @@ including :ref:`basecalling_and_draft_assembly` above.
 
 The ultimate aim of the consensus network is to predict the truth sequence from
 the alignment of basecalls to the draft. This requires understanding how the
-basecalls may align to the draft and how the draft much be edited to obtain the
+basecalls may align to the draft and how the draft must be edited to obtain the
 truth. The draft acts as a common frame-of-reference between the basecalls
 and the truth.
 

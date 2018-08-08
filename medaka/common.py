@@ -124,7 +124,9 @@ def get_pairs_with_hp_len(aln, ref_seq):
     6mer HP would be AAAAAA.
 
     :param aln: `pysam.AlignedSegment` object.
-    :param ref_seq: str containing reference sequence or result of `seq_to_hp_lens`(ref_seq).
+    :param ref_seq: str containing reference sequence or result of
+        `seq_to_hp_lens` (ref_seq).
+
     :yields: `ComprAlignPos` objects.
     """
     seq = aln.query_sequence
