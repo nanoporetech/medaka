@@ -3,6 +3,7 @@ import functools
 import h5py
 import itertools
 import os
+from pkg_resources import resource_filename
 import numpy as np
 import re
 import threading
@@ -33,13 +34,12 @@ LabelledPileup = namedtuple('LabelledPileup', ['pileups', 'labels', 'ref_seq'])
 # We might consider creating a Sample class with methods to encode, decode sample name
 # and perhaps to write/read Samples to/from hdf etc
 Sample = namedtuple('Sample', ['ref_name', 'features', 'labels', 'ref_seq', 'positions', 'label_probs'])
-_sample_name_decoder_ = re.compile(r"(?P<ref_name>\w+):(?P<start>\d+\.\d+)-(?P<end>\d+\.\d+)")
+_sample_name_decoder_ = re.compile(r"(?P<ref_name>.+):(?P<start>\d+\.\d+)-(?P<end>\d+\.\d+)")
 
 
 AlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'rpos', 'rbase'))
 ComprAlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'qlen', 'rpos', 'rbase', 'rlen'))
 
-_region_decoder_ = re.compile(r"(?P<ref_name>\w+):*(?P<start>(\d+-)*)(?P<end>\d*)")
 Region = namedtuple('Region', 'ref_name start end')
 _feature_opt_path_ = 'medaka_features_kwargs'
 _model_opt_path_ = 'medaka_model_kwargs'
@@ -67,12 +67,20 @@ def parse_regions(regions):
     """
     decoded = []
     for region in regions:
-        d =  _region_decoder_.match(region).groupdict()
-        d['start'] = d['start'].replace('-', '')
-        for key in ['start', 'end']:
-            d[key] = None if d[key] == '' else int(d[key])
-        d['start'] = 0 if d['start'] is None else d['start']
-        decoded.append(Region(**d))
+        if ':' not in region:
+            ref_name, start, end = region, None, None
+        else:
+            start, end = None, None
+            ref_name, bounds = region.split(':')
+            if bounds[0] == '-':
+                start = 0
+                end = int(bounds[1:])
+            elif bounds[-1] == '-':
+                start = int(bounds[:-1])
+                end = None
+            else:
+                start, end = [int(b) for b in bounds.split('-')]
+        decoded.append(Region(ref_name, start, end))
     return tuple(decoded)
 
 def lengths_to_rle(lengths):
@@ -95,6 +103,42 @@ def get_pairs(aln):
             for qp, rp, rb in aln.get_aligned_pairs(with_seq=True))
 
     return pairs
+
+
+def seq_to_hp_lens(seq):
+    """Return array of HP lengths for every position in the sequence
+
+    :param seq: str, sequence
+    :returns: `np.ndarray` containing HP lengths (the same length as seq).
+    """
+    q_rle = rle(np.fromiter(seq, dtype='U1', count=len(seq)), low_mem=True)
+    # get rle encoding for every position (so we can slice with qb instead of
+    # searching)
+    qlens = np.repeat(q_rle['length'], q_rle['length'])
+    return qlens
+
+
+def get_pairs_with_hp_len(aln, ref_seq):
+    """Return generator of pairs in which the qbase is not just the base,
+    but is decorated with extra information. E.g. an A which is part of a basecalled
+    6mer HP would be AAAAAA.
+
+    :param aln: `pysam.AlignedSegment` object.
+    :param ref_seq: str containing reference sequence or result of
+        `seq_to_hp_lens` (ref_seq).
+
+    :yields: `ComprAlignPos` objects.
+    """
+    seq = aln.query_sequence
+    qlens = seq_to_hp_lens(seq)
+
+    rlens = seq_to_hp_lens(ref_seq) if isinstance(ref_seq, str) else ref_seq
+
+    h = lambda ar, i, alt: ar[i] if i is not None else alt
+    for qp, rp, rb in aln.get_aligned_pairs(with_seq=True):
+        a = ComprAlignPos(qpos=qp, qbase=h(seq, qp, None), qlen=h(qlens, qp, 1),
+                          rpos=rp, rbase=rb, rlen=h(rlens, rp, 1))
+        yield a
 
 
 def yield_compressed_pairs(aln, ref_rle):
@@ -564,7 +608,8 @@ def grouper(gen, batch_size=4):
             try:
                 batch.append(next(gen))
             except StopIteration:
-                yield batch
+                if len(batch) > 0:
+                    yield batch
                 raise StopIteration
         yield batch
 
@@ -626,3 +671,8 @@ def yield_batches_from_hdfs(handles, batches=None, sparse_labels=True, n_classes
         epoch += 1
         # shuffle between epochs
         np.random.shuffle(batches)
+
+
+def print_data_path():
+    """Print data directory containing models"""
+    print(resource_filename(__package__, 'data'))

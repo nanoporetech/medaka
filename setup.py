@@ -37,7 +37,7 @@ with open(os.path.join(dir_path, 'requirements.txt')) as fh:
             req.split('/')[-1].split('@')[0]
     install_requires.append(req)
 
-exes = ['samtools']
+exes = ['samtools', 'minimap2', 'mini_align']
 
 setup(
     name='medaka',
@@ -48,7 +48,7 @@ setup(
     description=__description__,
     packages=find_packages(),
     package_data={
-        __pkg_name__:[os.path.join('data','*.h5')],
+        __pkg_name__:[os.path.join('data','*.hdf5')],
     },
     install_requires=install_requires,
     #place binaries as package data, below we'll copy them to standard path in dist
@@ -60,7 +60,8 @@ setup(
     entry_points = {
         'console_scripts': [
             '{0} = {0}.{0}:main'.format(__pkg_name__),
-            'hp_compress = {0}.{1}:main'.format(__pkg_name__, 'compress')
+            'hp_compress = {0}.{1}:main'.format(__pkg_name__, 'compress'),
+            'medaka_data_path = {0}.{1}:{2}'.format(__pkg_name__, 'common', 'print_data_path'),
         ]
     },
     scripts=['scripts/medaka_consensus'],
