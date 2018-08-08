@@ -4,8 +4,7 @@
 Installation
 ============
 
-Medaka has been tested on Linux and MacOS, primarily the former and
-specifically Ubuntu 14 and Ubuntu 16.
+Medaka has been tested on Linux, specifically Ubuntu 14 and Ubuntu 16.
 
 Medaka should be installed inside a `virtual environment
 <https://docs.python.org/3/tutorial/venv.html>`_. A Makefile is provided to

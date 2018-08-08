@@ -18,7 +18,7 @@ Features
   * 50X faster than Nanopolish.
   * Includes extras for implementing and training bespoke correction
     networks.
-  * Works on Linux and MacOS (Windows support is untested).
+  * Works on Linux (MacOS and Windows support is untested).
   * Open source (Mozilla Public License 2.0).
 
 
