@@ -36,7 +36,12 @@ Technologies `.fast5` files for a set of reads.
 The extracted archive contains also all the intermediate output files that
 are created during the process below. Any step may be skipped by simply copying
 the requisite subfolder from the `${DATA}` directory into the `${WALKTHROUGH}`
-directory.
+directory. If you want to skip basecalling and thus avoid downloading the 5.8
+GB of `.fast5` files, you can download an archive without `.fast5` (122MB):
+
+.. code-block:: bash
+
+    wget https://s3-eu-west-1.amazonaws.com/ont-research/medaka_walkthrough_no_reads.tar.gz
 
 The necessary software can be sourced using the same process as described in
 :ref:`creating_software_env`, namely:
