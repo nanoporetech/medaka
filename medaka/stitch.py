@@ -124,15 +124,15 @@ def stitch_from_probs(probs_hdfs, ref_names=None, model_yml=None):
 
     """
     label_decoding = load_yaml_data(probs_hdfs[0], _label_decod_path_)
-    logging.info("Label decoding is:\n{}".format('\n'.join(
-        '{}: {}'.format(i, x) for i, x in enumerate(label_decoding)
-    )))
     if label_decoding is None:
         if model_yml is not None:
             logging.info("Loading label encoding from {}".format(model_yml))
             label_decoding = load_yaml_data(model_yml, _label_decod_path_)
         else:
             raise ValueError('Cannot decode probabilities without label decoding')
+    logging.info("Label decoding is:\n{}".format('\n'.join(
+        '{}: {}'.format(i, x) for i, x in enumerate(label_decoding)
+    )))
     index = get_sample_index_from_files(probs_hdfs, 'hdf')
     if ref_names is None:
         ref_names = index.keys()
