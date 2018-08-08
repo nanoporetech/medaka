@@ -19,7 +19,7 @@ Polish an assembly using medaka
     -o  output folder (default: medaka).
     -m  medaka model (default: ${MODEL}). 
     -t  number of threads with which to create features (default: 1).
-    -b  batchsize (controls how much memory is used running network) (default: 5)."
+    -b  batchsize (controls how much memory is used running network) (default: 50)."
 
 while getopts ':hi::d:o:m:t:b:' option; do
   case "$option" in
