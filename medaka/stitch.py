@@ -150,17 +150,18 @@ def stitch_from_probs(probs_hdfs, ref_names=None, model_yml=None):
             else:
                 end_1_ind, start_2_ind = get_sample_overlap(s1, s2)
 
-            if end_1_ind is None and start_2_ind is None:
-                msg = 'There is no overlap betwen {} and {}'
-                logging.info(msg.format(encode_sample_name(s1),
-                                        encode_sample_name(s2)))
-
             best = np.argmax(s1.label_probs[start_1_ind:end_1_ind], -1)
             seq += ''.join([label_decoding[x] for x in best]).replace(_gap_, '')
             if end_1_ind is None:
                 key = '{}:{}-{}'.format(s1.ref_name, start, get_pos(s1, -1))
                 ref_assemblies.append((key, seq))
                 seq = ''
+                if start_2_ind is None:
+                    msg = 'There is no overlap betwen {} and {}'
+                    logging.info(msg.format(encode_sample_name(s1),
+                                            encode_sample_name(s2)))
+                    start = get_pos(s2, 0)
+
             s1 = s2
             start_1_ind = start_2_ind
     return ref_assemblies
