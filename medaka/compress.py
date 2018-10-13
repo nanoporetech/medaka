@@ -37,7 +37,7 @@ class FeatureEncoder(object):
 
     def __init__(self, ref_mode:str=None, max_hp_len:int=10,
                  log_min:int=None, normalise:str='total', with_depth:bool=False,
-                 consensus_as_ref:bool=False, is_compressed:bool=True):
+                 consensus_as_ref:bool=False, is_compressed:bool=True, dtypes=('',)):
         """Class to support multiple feature encodings
 
         :param ref_mode: str, how to represent the reference.
@@ -47,6 +47,7 @@ class FeatureEncoder(object):
         :param with_depth: bool, whether to include a feature describing the total depth.
         :param consensus_as_ref: bool, whether to use a naive max-count consensus instead of the reference.
         :param is_compressed: bool, whether to use HP compression. If false, treat as uncompressed.
+        :param dtypes: iterable of str, read id prefixes of distinct data types that should be counted separately.
 
         :returns: `Sample` object
         """
@@ -58,18 +59,22 @@ class FeatureEncoder(object):
         self.feature_dtype = float if (self.normalise is not None or self.log_min is not None) else int
         self.with_depth = with_depth
         self.is_compressed = is_compressed
+        self.dtypes = dtypes
 
         if self.ref_mode not in self._ref_modes_:
             raise ValueError('ref_mode={} is not one of {}'.format(self.ref_mode, self._ref_modes_))
         if self.normalise not in self._norm_modes_:
             raise ValueError('normalise={} is not one of {}'.format(self.normalise, self._norm_modes_))
 
-        # set up one-hot encoding of read run lengths
-        read_decoding = [ k for k in itertools.product((True, False),
-                                                            _alphabet_,
-                                                            range(1, max_hp_len + 1))]
-        # forward and reverse gaps
-        read_decoding += [(True, None, 1), (False, None, 1)]
+        read_decoding = []
+        for dtype in self.dtypes:
+            # set up one-hot encoding of read run lengths for each dtype
+            read_decoding += [ (dtype,) + k for k in itertools.product((True, False),
+                                                                       _alphabet_,
+                                                                       range(1, max_hp_len + 1))]
+
+            # forward and reverse gaps
+            read_decoding += [(dtype, True, None, 1), (dtype, False, None, 1)]
 
         if self.ref_mode == 'onehot':
             ref_decoding = [ ('ref', b, l) for b, l in itertools.product(alphabet, range(1, max_hp_len + 1))]
@@ -154,6 +159,14 @@ class FeatureEncoder(object):
                 end = float('Inf')
 
             for aln in aln_reads:
+                # get the dtype from the prefix of the query name
+                try:
+                    dtype = self.dtypes[np.where([aln.query_name.startswith(dt) for dt in self.dtypes])[0][0]]
+                except:
+                    msg = "Skipping read {} as dtype not in {}"
+                    logging.info(msg.format(aln.query_name, self.dtypes))
+                    continue
+
                 reverse = aln.is_reverse
                 pairs = aln_to_pairs(aln)
                 ins_count = 0
@@ -169,13 +182,15 @@ class FeatureEncoder(object):
                         current_pos = pair.rpos
 
                     (aln_counters[(current_pos, ins_count)]
-                    [self.encoding[reverse, pair.qbase, min(pair.qlen, self.max_hp_len)]]) += 1
+                    [self.encoding[dtype, reverse, pair.qbase, min(pair.qlen, self.max_hp_len)]]) += 1
 
                     ref_base = pair.rbase.upper() if pair.rbase is not None else '*'
                     ref_bases[(current_pos, ins_count)] = (ref_base, pair.rlen)
 
             # create feature array
             aln_cols = len(aln_counters)
+            if aln_cols == 0:
+                raise ValueError('All reads were excluded, check you dtypes')
             feature_len = len(self.encoding)
             feature_array = np.zeros(shape=(aln_cols, feature_len), dtype=self.feature_dtype)
             if self.log_min is not None:
@@ -185,9 +200,11 @@ class FeatureEncoder(object):
                                                 ('minor', int)])
             depth_array = np.empty(shape=(aln_cols), dtype=int)
 
-            # keep track of which features are for fwd/rev reads
-            fwd_feat_inds = [self.encoding[k] for k in self.encoding.keys() if not k[0]]
-            rev_feat_inds = [self.encoding[k] for k in self.encoding.keys() if k[0]]
+            # keep track of which features are for fwd/rev reads of each dtype
+            inds_by_type = {
+                (dt, strand): [self.encoding[k] for k in self.encoding.keys() if k[0] == dt and strand == k[1]]
+                               for dt, strand in itertools.product(self.dtypes, (True, False))
+            }
 
             for i, ((pos, counts), (_, (ref_base, ref_len))) in \
                     enumerate(zip(sorted(aln_counters.items()),
@@ -206,17 +223,17 @@ class FeatureEncoder(object):
 
                 if positions[i]['minor'] == 0:
                     major_depth = sum(counts.values())
-                    major_depth_fwd = sum((counts[i] for i in fwd_feat_inds))
-                    major_depth_rev = sum((counts[i] for i in rev_feat_inds))
-                    assert major_depth_fwd + major_depth_rev == major_depth
+                    # get the depth of each fwd and rev dtype
+                    major_depths_by_type = {t: sum((counts[i] for i in inds_by_type[t])) for t in inds_by_type}
+                    assert sum(major_depths_by_type.values()) == major_depth
 
                 if self.normalise is not None:
                     if self.normalise == 'total':
                         feature_array[i, :] /= max(major_depth, 1)
                     elif self.normalise == 'fwd_rev':
-                        # normalize fwd and reverse seperately
-                        feature_array[i, fwd_feat_inds] /= max(major_depth_fwd, 1)
-                        feature_array[i, rev_feat_inds] /= max(major_depth_rev, 1)
+                        # normalize fwd and reverse seperately for each dtype
+                        for dt, inds in inds_by_type.items():
+                            feature_array[i, inds] /= max(major_depths_by_type[dt], 1)
 
                 depth_array[i] = major_depth
 
@@ -618,7 +635,7 @@ def choose_feature_func(args):
 
 
 def main():
-    logging.basicConfig(format='[%(asctime)s - %(name)s] %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
+    logging.basicConfig(format='[%(asctime)s - %(name)s] %(message)s', datefmt='%H:%M:%S', level=logging.DEBUG)
     parser = argparse.ArgumentParser('homopolymer')
     subparsers = parser.add_subparsers(title='subcommands', description='valid commands', help='additional help', dest='command')
     subparsers.required = True
