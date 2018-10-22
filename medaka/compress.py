@@ -635,7 +635,7 @@ def choose_feature_func(args):
 
 
 def main():
-    logging.basicConfig(format='[%(asctime)s - %(name)s] %(message)s', datefmt='%H:%M:%S', level=logging.DEBUG)
+    logging.basicConfig(format='[%(asctime)s - %(name)s] %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
     parser = argparse.ArgumentParser('homopolymer')
     subparsers = parser.add_subparsers(title='subcommands', description='valid commands', help='additional help', dest='command')
     subparsers.required = True
