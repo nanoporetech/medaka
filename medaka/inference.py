@@ -4,7 +4,6 @@ import inspect
 import itertools
 import numpy as np
 import os
-import pysam
 from collections import Counter
 from functools import partial
 from timeit import default_timer as now
@@ -28,16 +27,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-from medaka import features
 from medaka.common import (encode_sample_name, _label_counts_path_,
                            _label_decod_path_, chain_thread_safe, decoding,
                            get_sample_index_from_files, grouper,
                            load_sample_from_hdf, load_yaml_data,
                            _model_opt_path_, mkdir_p, Sample, sample_to_x_y,
-                           threadsafe_generator, write_samples_to_hdf,
                            write_sample_to_hdf, write_yaml_data,
-                           yield_from_feature_files, load_from_feature_files,
-                           gen_train_batch, _label_batches_path_, _feature_batches_path_,
+                           yield_from_feature_files, gen_train_batch,
+                           _label_batches_path_, _feature_batches_path_,
                            yield_batches_from_hdfs)
 
 
@@ -161,8 +158,10 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
         ModelCheckpoint(os.path.join(train_name, 'model.best.val.qscore.hdf5'),
                         monitor='val_qscore', **opts),
         # Checkpoints when training set accuracy improves
-        ModelCheckpoint(os.path.join(train_name, 'model-improvement-{epoch:02d}-{acc:.2f}.hdf5'),
+        ModelCheckpoint(os.path.join(train_name, 'model-acc-improvement-{epoch:02d}-{acc:.2f}.hdf5'),
                         monitor='acc', **opts),
+        ModelCheckpoint(os.path.join(train_name, 'model-val_acc-improvement-{epoch:02d}-{val_acc:.2f}.hdf5'),
+                        monitor='val_acc', **opts),
         # Stop when no improvement, patience is number of epochs to allow no improvement
         EarlyStopping(monitor='val_loss', patience=20),
         # Log of epoch stats
