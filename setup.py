@@ -50,6 +50,7 @@ setup(
     package_data={
         __pkg_name__:[os.path.join('data','*.hdf5')],
     },
+    cffi_modules=["build.py:ffibuilder"],
     install_requires=install_requires,
     #place binaries as package data, below we'll copy them to standard path in dist
     data_files=[
