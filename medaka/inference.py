@@ -201,10 +201,9 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
             write_yaml_data(hd5_model_path, model_details)
 
 
-def run_prediction(sample_gen, model, label_decoding, output_file='consensus_chunks.fa',
+def run_prediction(sample_gen, model, label_decoding, reference_fasta, output_prefix='consensus_chunks',
                    batch_size=200, predictions_file=None, n_samples=None):
     """Run inference."""
-
     batches = grouper(sample_gen, batch_size)
 
     if predictions_file is not None:
@@ -212,8 +211,10 @@ def run_prediction(sample_gen, model, label_decoding, output_file='consensus_chu
 
     first_batch = True
     n_samples_done = 0
-    # write out contig name and position in fasta, ref_name:start-end
-    with open(output_file, 'w') as fasta:
+    with open('{}.fa'.format(output_prefix), 'w') as fasta_out, \
+        vcf.VCFWriter('{}.vcf'.format(output_prefix)) as vcf_out \
+        pysam.FastaFile(reference_fasta) as ref_fasta:
+        
         t0 = now()
         tlast = t0
         for data in batches:
@@ -234,23 +235,34 @@ def run_prediction(sample_gen, model, label_decoding, output_file='consensus_chu
                     logging.info(msg.format(n_samples_done / n_samples, n_samples_done, n_samples, t1 - t0))
                 else:
                     logging.info('Done {} samples in {:.1f}s'.format(n_samples_done, t1 - t0, x_data.shape))
+             best = np.argmax(class_probs, -1)
+ 
+             count = 0
+             best = np.argmax(class_probs, -1)
+             for sample, prob, pred in zip(data, class_probs, best):
+                 # write consensus to fasta TODO: remove
+                 seq = ''.join(label_decoding[x] for x in pred).replace(_gap_, '')
+                 key = encode_sample_name(sample)
+                 fasta_out.write(">{}\n{}\n".format(key, seq))
 
+                 # write out positions and predictions for later analysis
+                 if predictions_file is not None:
+                     sample_d = sample._asdict()
+                     sample_d['label_probs'] = prob
+                     sample_d['features'] = None  # to keep file sizes down
+                     write_sample_to_hdf(Sample(**sample_d), pred_h5)
+                 count += 1
 
-            count = 0
-            best = np.argmax(class_probs, -1)
-            # write out contig name and position in fasta, ref_name:start-end
-            for sample, prob, pred in zip(data, class_probs, best):
-                seq = ''.join(label_decoding[x] for x in pred).replace(_gap_, '')
-                key = encode_sample_name(sample)
-                fasta.write(">{}\n{}\n".format(key, seq))
-                # write out positions and predictions for later analysis
-                if predictions_file is not None:
-                    sample_d = sample._asdict()
-                    sample_d['label_probs'] = prob
-                    sample_d['features'] = None  # to keep file sizes down
-                    write_sample_to_hdf(Sample(**sample_d), pred_h5)
-                count += 1
-
+                 # Write consensus alts to vcf
+                 ref_seq = ref_fasta.fetch(sample.ref_name)
+                 cursor = 0
+                 for pos, grp in groupby(sample.positions['major']):
+                     end = cursor + len(grp)
+                     alt = ''.join(label_decoding[x] for x in pred[cursor:end]).replace(_gap_, '')
+                     ref = ref_seq[pos]
+                     vcf_out.write(vcf.Variant(sample.ref_name), pos, ref, alt)
+                     cursor = end
+ 
     if predictions_file is not None:
         pred_h5.close()
         write_yaml_data(predictions_file, {_label_decod_path_: label_decoding})
@@ -465,8 +477,9 @@ def predict(args):
     )))
     logging.info('\n{}'.format(model.summary()))
 
-    run_prediction(data, model, label_decoding=model_data[_label_decod_path_],
-                   output_file=args.output_fasta,
-                   predictions_file=args.output_probs,
-                   batch_size=args.batch_size, n_samples=n_samples,
+    run_prediction(
+        data, model, label_decoding=model_data[_label_decod_path_], args.reference
+        output_file=args.output_fasta,
+        predictions_file=args.output_probs,
+        batch_size=args.batch_size, n_samples=n_samples,
     )
