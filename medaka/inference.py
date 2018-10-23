@@ -28,7 +28,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-from medaka.tview import _gap_, load_pileup, generate_pileup_chunks, generate_training_chunks, rechunk
 from medaka import features
 from medaka.common import (encode_sample_name, _label_counts_path_,
                            _label_decod_path_, chain_thread_safe, decoding,
@@ -42,39 +41,6 @@ from medaka.common import (encode_sample_name, _label_counts_path_,
                            yield_batches_from_hdfs)
 
 
-def bam_pileup_to_features_hdf(hdf, bams, ref_fasta, ref_name:str=None, start:int=0, end:int=None, truth_bam=None,
-                      chunk_len=1000, overlap=100):
-    """Create an .hdf file of features for training or inference.
-
-    :param hdf: output .hdf file (will be overwritten).
-    :param bams: iterable of input .bam files.
-    :param ref_fasta: input .fasta file.
-    :param ref_name: name of reference within .bam to parse.
-    :param start: start reference coordinate.
-    :param end: end reference coordinate. If `None` the full extent of
-        the reference will be parsed.
-    :param truth_bam: .bam file of truth aligned to ref to generate labels.
-    :param chunk_len: int, chunk length in pileup columns.
-    :param overlap: int, overlap of adjacent chunks in pileup columns.
-    """
-    if ref_name is None:
-        # use all references
-        refs = pysam.FastaFile(ref_fasta).references
-        assert end == None
-        assert start == 0
-    else:
-        refs = [ref_name,]
-
-    for ref in refs:
-        if truth_bam is not None:
-            gen = generate_training_chunks(truth_bam, bams, ref_fasta, ref_name=ref,
-                                            start=start, end=end, chunk_len=10*chunk_len, overlap=10*overlap)
-        else:
-            gen = generate_pileup_chunks(bams, ref_fasta, ref_name=ref, start=start, end=end,
-                                            chunk_len=10*chunk_len, overlap=5*overlap)
-        logger.info("Processing reference {}.".format(ref))
-        data = generate_samples(rechunk(gen, chunk_size=chunk_len, overlap=overlap))
-        write_samples_to_hdf(hdf, data)
 
 
 def weighted_categorical_crossentropy(weights):
@@ -105,31 +71,6 @@ def weighted_categorical_crossentropy(weights):
         return loss
 
     return loss
-
-
-
-@threadsafe_generator
-def generate_samples(pileup_gen,
-                     coverage_filter=lambda x: features.alphabet_filter(features.depth_filter(x)),
-                     feature_func=features.counts):
-    """Generate data samples from a pileup generator
-
-    :param pileup_gen: generator of (pileups, labels) tuples;
-        pileups: list of `Pileup` objects
-        labels: np.array of labels or None.
-    :param feature_func: function to generate features
-
-    :yields `Sample` objects.
-    """
-    for c in coverage_filter(pileup_gen):
-        pos = c.pileups[0].positions
-        ref_name = c.pileups[0].ref_name
-        sample = Sample(ref_name=ref_name,
-                        features=feature_func(c.pileups),
-                        labels=c.labels,
-                        ref_seq=c.ref_seq,
-                        positions=pos, label_probs=None)
-        yield sample
 
 
 def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropout=0.0,
@@ -317,13 +258,6 @@ def run_prediction(sample_gen, model, label_decoding, output_file='consensus_chu
     logging.info('All done')
 
 
-def prepare(args):
-    bam_pileup_to_features_hdf(
-        args.output, (args.bam,), args.ref_fasta, args.ref_name, chunk_len=args.sample_length, overlap=args.overlap, start=args.start, end=args.end,
-        truth_bam=args.truth
-    )
-
-
 def process_labels(label_counts, max_label_len=10):
     """
     Create map from full labels to (encoded) truncated labels.
@@ -477,12 +411,7 @@ def train(args):
 def predict(args):
     """Inference program."""
     n_samples = None
-    if args.pileup:
-        # TODO make use of start and end options when loading pileup from hdf ?
-        logging.info("Loading pileup from file.")
-        chunks = rechunk(load_pileup(args.pileup), overlap=args.overlap, chunk_size=args.sample_length)
-        data = generate_samples(chunks)
-    elif args.features:
+    if args.features:
         logging.info("Loading features from file for refs {}.".format(args.ref_names))
         index = get_sample_index_from_files(args.features)
         refs_n_samples = {r: len(l) for (r, l) in index.items()}
@@ -493,11 +422,7 @@ def predict(args):
         n_samples = sum(refs_n_samples.values())
     else:
         logging.info("Generating features from bam.")
-        bam, ref_fasta, ref_name = args.alignments
-        tview_gen = generate_pileup_chunks((bam,), ref_fasta, ref_name=ref_name, start=args.start, end=args.end,
-                                           chunk_len=5*args.sample_length, overlap=args.overlap)
-        chunks = rechunk(tview_gen, overlap=args.overlap, chunk_size=args.sample_length)
-        data = generate_samples(chunks)
+        raise ValueError("Unsupported args.features value.")
 
     # take a sneak peak at the first sample
     first_sample = next(data)

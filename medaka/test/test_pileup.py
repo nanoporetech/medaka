@@ -3,9 +3,7 @@ import os
 import unittest
 from collections import namedtuple
 from medaka.common import decoding, encoding 
-from medaka.tview import TView
 from medaka.labels import TruthAlignment
-from medaka.tview import TView
 
 __truth_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'truth_to_ref.bam')
 __ref_fasta__ = os.path.join(os.path.dirname(__file__), 'data', 'draft_ref.fasta')
@@ -112,36 +110,6 @@ class TruthAlignmentTest(unittest.TestCase):
         expected = [(0, 10000)]
         if filtered != expected:
             raise AssertionError('got {}, expected {}'.format(filtered, expected))
-
-
-    def test_positions_labels_part_of_alignment(self):
-        # check our pysam positions and labels give the same as our tview labels and positions
-        truth_bam = os.path.join('data', 'reverse_genome_assm_aln.bam')
-        ref_fasta = os.path.join('data', 'test_ref.fasta')
-        ref_name = 'Consensus_Consensus_Consensus_Consensus_utg000001l'
-        start = 5002  # previously buggy if start % 10 != 0
-        end = 60000
-
-        alignments = TruthAlignment.bam_to_alignments(__truth_bam__, __ref_name__, start=start, end=end)
-        truth = alignments[0].get_positions_and_labels(start=start, end=end)
-
-        tview_truth = TView(__truth_bam__, __ref_fasta__).pileup(__ref_name__, start, end)[0]
-
-        #import pdb; pdb.set_trace()
-        assert np.all(truth.positions == tview_truth.positions)
-        assert truth.positions[0]['major'] == start
-        assert truth.positions[-1]['major'] == end - 1
-        assert len(np.where(truth.positions['minor'] > 0)[0]) > 0
-        assert truth.reads.shape == tview_truth.reads.shape
-        assert len(tview_truth.reads) == 1
-        reads_same = np.all(truth.reads == tview_truth.reads)
-        flipped_same = False
-        if not reads_same:
-            int_upper = { v: encoding[k.upper()] for k, v in encoding.items() }
-            flipped_reads = np.empty_like(tview_truth.reads[0])
-            flipped_reads[:] = [int_upper[v] for v in tview_truth.reads[0]]
-            flipped_same = np.all(truth.reads[0] == flipped_reads)
-        assert (reads_same or flipped_same)
 
 
     def test_labels_trimmed_back(self):

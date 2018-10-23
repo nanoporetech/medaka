@@ -1,22 +1,25 @@
+from collections import OrderedDict, namedtuple, defaultdict, Counter
 import errno
 import functools
-import h5py
 import itertools
 import os
 from pkg_resources import resource_filename
-import numpy as np
 import re
 import threading
-import yaml
-from Bio import SeqIO
-from collections import OrderedDict, namedtuple, defaultdict, Counter
-from keras.utils.np_utils import to_categorical
 from timeit import default_timer as now
+import yaml
+
+from Bio import SeqIO
+import h5py
+from keras.utils.np_utils import to_categorical
+import numpy as np
+
 
 import logging
 logger = logging.getLogger(__name__)
 
 # Codec for converting tview output to ints.
+#TODO: this can likely be renomved
 _gap_ = '*'
 _ref_gap_ = '#'
 _read_sep_ = ' '
@@ -27,15 +30,10 @@ decoding = _gap_ + _alphabet_.lower() + _alphabet_.upper() + _read_sep_ + _extra
 # (we need order to be the same for training and inference)
 encoding = OrderedDict(((a, i) for i, a in enumerate(decoding)))
 
-# Encoded (and possibly reindexed) pileup
-Pileup = namedtuple('Pileup', ['bam', 'ref_name', 'reads', 'positions'])
-LabelledPileup = namedtuple('LabelledPileup', ['pileups', 'labels', 'ref_seq'])
-
 # We might consider creating a Sample class with methods to encode, decode sample name
 # and perhaps to write/read Samples to/from hdf etc
 Sample = namedtuple('Sample', ['ref_name', 'features', 'labels', 'ref_seq', 'positions', 'label_probs'])
 _sample_name_decoder_ = re.compile(r"(?P<ref_name>.+):(?P<start>\d+\.\d+)-(?P<end>\d+\.\d+)")
-
 
 AlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'rpos', 'rbase'))
 ComprAlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'qlen', 'rpos', 'rbase', 'rlen'))
@@ -49,6 +47,7 @@ _feature_decoding_path_ = 'medaka_feature_decoding'
 _label_counts_path_ = 'medaka_label_counts'
 _feature_batches_path_ = 'medaka_feature_batches'
 _label_batches_path_ = 'medaka_label_batches'
+
 
 def parse_regions(regions):
     """Parse region strings into `Region` objects.
@@ -82,6 +81,7 @@ def parse_regions(regions):
                 start, end = [int(b) for b in bounds.split('-')]
         decoded.append(Region(ref_name, start, end))
     return tuple(decoded)
+
 
 def lengths_to_rle(lengths):
     runs = np.empty(len(lengths), dtype=[('start', int), ('length', int)])
@@ -481,20 +481,6 @@ def sliding_window(a, window=3, step=1, axis=0):
         yield a[slicee]
 
 
-def get_common_index(arrays):
-    """Create a common index for a list of arrays.
-
-    :param arrays: input arrays of an indentical type.
-
-    :returns: array of index.
-    """
-    dtype = arrays[0].dtype
-    for arr in arrays:
-        if arr.dtype != dtype:
-            raise TypeError("Arrays do not have a matching type.")
-    return np.sort(np.unique(np.concatenate(arrays)))
-
-
 def mkdir_p(path, info=None):
     """Make a directory if it doesn't exist."""
     try:
@@ -510,19 +496,17 @@ def mkdir_p(path, info=None):
 
 
 def chunk_samples(samples, chunk_len=1000, overlap=200):
-    """Return generator of chunked samples"""
+    """Return generator of chunked `Sample` objs"""
     return (c for s in samples for c in chunk_sample(s, chunk_len=chunk_len, overlap=overlap))
 
 
 def chunk_sample(sample, chunk_len=1000, overlap=200):
-    """Rechunk chunks of pileup into smaller overlapping chunks.
+    """Chunk `Sample` objects into smaller overlapping chunks.
 
-    :param pileup_gen: generator of (pileups, labels);
-        pileups: a list of `Pileup` objects
-        labels: array of truth labels or `None`.
-    :yields: (pileups, labels)
-        pileups: a list of `Pileup` objects
-        labels: array of truth labels or `None`.
+    :param sample: `Sample` obj
+    :param chunk_len: chunk length (number of columns)
+    :param overlap: overlap length.
+    :yields: `Sample` objs.
     """
     chunker = functools.partial(sliding_window, window=chunk_len, step=chunk_len-overlap, axis=0)
     logger.debug("Rechunking into chunks of {} columns each overlapping by {} columns.".format(chunk_len, overlap))
