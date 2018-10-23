@@ -62,9 +62,7 @@ def main():
     sparser.set_defaults(func=stitch)
     sparser.add_argument('inputs', nargs='+', help='Consensus sequence (.fasta) or probabilities (.hdf) files.')
     sparser.add_argument('output', help='Output .fasta.', default='consensus.fasta')
-    sparser.add_argument('--mode', help='Input file format.', choices=['fasta', 'hdf'], default='fasta')
     sparser.add_argument('--ref_names', nargs='+', help='Limit stitching to these reference names', default=None)
-    sparser.add_argument('--min_overlap', help='Minimum overlap required by stitching.', default=50, type=int)
     sparser.add_argument('--model_yml', help='Model yml containing label encoding, required only if consensus ended prematurely.')
 
     fparser = subparsers.add_parser('fix', help='Add data to a hdf file.')

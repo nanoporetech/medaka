@@ -4,7 +4,7 @@ import numpy as np
 import pysam
 from copy import copy
 from operator import attrgetter
-from medaka.common import _gap_, Pileup, encoding
+from medaka.common import _gap_, encoding
 from medaka.common import get_pairs, yield_compressed_pairs, get_pairs_with_hp_len
 
 
@@ -128,7 +128,7 @@ class TruthAlignment(object):
               (reference position index) and 'ref_minor'
               (trailing insertion index) fields.
 
-            - labels_array: 1D numpy array of labels
+            - label_array: 1D numpy array of labels
         """
         if start is None:
             start = 0
@@ -181,6 +181,4 @@ class TruthAlignment(object):
             positions[i] = pos
             label_array[0, i] = label
 
-        pileup = Pileup(bam='', ref_name='', reads=label_array, positions=positions)
-
-        return pileup
+        return positions, label_array
