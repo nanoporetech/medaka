@@ -1,7 +1,7 @@
 .PHONY: docs
 
 # Builds a cache of binaries which can just be copied for CI
-BINARIES=samtools minimap2 mini_align
+BINARIES=samtools minimap2 mini_align vcf2fasta
 BINCACHEDIR=bincache
 $(BINCACHEDIR):
 	mkdir -p $(BINCACHEDIR)
@@ -42,11 +42,22 @@ $(BINCACHEDIR)/mini_align: | $(BINCACHEDIR)
 	curl https://raw.githubusercontent.com/nanoporetech/pomoxis/master/scripts/mini_align -o $@
 	chmod +x $@
 
+
+$(BINCACHEDIR)/vcf2fasta: | $(BINCACHEDIR)
+	cd src/vcf2fasta && g++ -std=c++11 \
+		-I./../../submodules/samtools-${SAMVER}/htslib-${SAMVER}/ vcf2fasta.cpp \
+		./../../submodules/samtools-${SAMVER}/htslib-${SAMVER}/libhts.a \
+		-lz -llzma -lbz2 -lpthread \
+		-o $(@F)
+	cp src/vcf2fasta/$(@F) $@
+
+
 libhts.a: $(BINCACHEDIR)/samtools
 	# this is required only to add in -fpic so we can build python module
 	@echo Compiling $(@F)
 	cd submodules/samtools-${SAMVER}/htslib-${SAMVER}/ && CFLAGS=-fpic ./configure && make
 	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$@ $@
+
 
 venv: venv/bin/activate
 IN_VENV=. ./venv/bin/activate
