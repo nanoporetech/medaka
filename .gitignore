@@ -1,8 +1,9 @@
 bincache/
 libhts.a
-venv
+src/vcf2fasta/vcf2fasta
 submodules/samtools-1.3.1/
 submodules/samtools-1.3.1.tar.bz2
+venv
 *.pyd
 *.pyc
 *.so
