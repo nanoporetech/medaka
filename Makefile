@@ -42,20 +42,35 @@ $(BINCACHEDIR)/mini_align: | $(BINCACHEDIR)
 	curl https://raw.githubusercontent.com/nanoporetech/pomoxis/master/scripts/mini_align -o $@
 	chmod +x $@
 
+libhts.a: $(BINCACHEDIR)/samtools
+	# this is required only to add in -fpic so we can build python module
+	@echo Compiling $(@F)
+	cd submodules/samtools-${SAMVER}/htslib-${SAMVER}/ && CFLAGS=-fpic ./configure && make
+	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$@ $@
+
 venv: venv/bin/activate
 IN_VENV=. ./venv/bin/activate
 
 venv/bin/activate:
-	test -d venv || virtualenv venv --python=python3
+	test -d venv || virtualenv venv --python=python3 --prompt "(medaka) "
 	${IN_VENV} && pip install pip --upgrade
-	${IN_VENV} && pip install numpy # needs to get done before other things
 	${IN_VENV} && pip install -r requirements.txt
 
-install: venv | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
+install: venv libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 	${IN_VENV} && python setup.py install
 
 test: install
 	${IN_VENV} && python -m unittest discover
+
+clean:
+	. ${VENV} && python setup.py clean || echo "Failed to run setup.py clean"
+	rm -rf libhts.a venv build dist/ medaka.egg-info/ __pycache__ medaka.egg-info
+	find . -name '*.pyc' -delete
+
+docker: binaries libhts.a
+	mkdir for_docker && cp -r medaka scripts bincache setup.py build.py requirements.txt for_docker 
+	docker build -t medaka .
+	rm -rf for_docker
 
 # You can set these variables from the command line.
 SPHINXOPTS    =
@@ -78,8 +93,4 @@ docs: venv
 	@echo "Build finished. The HTML pages are in $(DOCSRC)/$(BUILDDIR)/html."
 	touch $(DOCSRC)/$(BUILDDIR)/html/.nojekyll
 
-docker: binaries
-	mkdir for_docker && cp -r medaka scripts bincache setup.py requirements.txt for_docker 
-	docker build -t medaka .
-	rm -rf for_docker
 

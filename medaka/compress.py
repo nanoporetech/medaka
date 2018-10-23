@@ -25,7 +25,39 @@ from medaka.labels import TruthAlignment
 logger = logging.getLogger(__name__)
 
 
-# feature encoding
+import libmedaka
+
+def pileup_counts(region, bam):
+    """Create pileup counts feature array for region.
+
+    :param region: `chr:start-stop` region string (0-based,
+        end-exclusive)
+    :param bam: .bam file with alignments.
+
+    :returns: pileup counts array, reference positions, insertion postions
+    """
+    ffi, lib = libmedaka.ffi, libmedaka.lib
+    counts = lib.calculate_pileup(
+        region.encode(), bam.encode()
+    )
+
+    size_sizet = np.dtype(np.uintp).itemsize
+    np_counts = np.frombuffer(ffi.buffer(
+        counts.counts, size_sizet * counts.n_cols * 11),
+        dtype=np.uintp
+    ).reshape(counts.n_cols, 11).copy()
+    np_major = np.frombuffer(ffi.buffer(
+        counts.major, size_sizet * counts.n_cols),
+        dtype=np.uintp
+    ).copy()
+    np_minor = np.frombuffer(ffi.buffer(
+        counts.minor, size_sizet * counts.n_cols),
+        dtype=np.uintp
+    ).copy()
+
+    lib.destroy_plp_data(counts)
+    return np_counts, np_major, np_minor
+
 
 class FeatureEncoder(object):
     """Class to support multiple feature encodings.
