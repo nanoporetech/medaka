@@ -35,7 +35,7 @@ from medaka.common import (encode_sample_name, _label_counts_path_,
                            write_sample_to_hdf, write_yaml_data,
                            yield_from_feature_files, gen_train_batch,
                            _label_batches_path_, _feature_batches_path_,
-                           yield_batches_from_hdfs)
+                           yield_batches_from_hdfs, _gap_)
 
 
 

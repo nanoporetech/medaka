@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import yaml
 
-from medaka.inference import train, predict, prepare
+from medaka.inference import train, predict
 from medaka.stitch import stitch
 from medaka.common import write_yaml_data
 
@@ -13,20 +13,6 @@ def main():
     parser = argparse.ArgumentParser('medaka')
     subparsers = parser.add_subparsers(title='subcommands', description='valid commands', help='additional help', dest='command')
     subparsers.required = True
-
-    pparser = subparsers.add_parser('prepare', help='Create pileup feature datasets and write to hdf.')
-    pparser.set_defaults(func=prepare)
-    pparser.add_argument('ref_fasta', help='.fasta reference corresponding to bams.')
-    # pparser.add_argument('bams', nargs='+', help='Input alignments (all aligned to same ref).')
-    pparser.add_argument('bam', help='Input alignments (aligned to ref).')
-    pparser.add_argument('output', help='Output .hdf.')
-    pparser.add_argument('--ref_name', default=None, type=str, help='Name of reference within ref_fasta.')
-    pparser.add_argument('--start', default=0, type=int, help='Start reference coordinate.')
-    pparser.add_argument('--end', type=int, help='End reference coordinate.')
-    pparser.add_argument('--sample_length', type=int, default=1000, help='Number of pileup columns in each feature sample.')
-    pparser.add_argument('--overlap', default=100, type=int, help='Overlap of neighbouring samples in pileup columns.')
-    pparser.add_argument('--truth', default=None, help='Input bam of truth aligned to ref to label data.')
-
 
     tparser = subparsers.add_parser('train', help='Train a model from features.')
     tparser.set_defaults(func=train)
