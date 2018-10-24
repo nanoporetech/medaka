@@ -66,7 +66,7 @@ fi
 FEATURES=features.hdf
 if [[ ! -e ${FEATURES} ]]; then
     echo "Creating features"
-    hp_compress features ${CALLS2DRAFT}.bam ${FEATURES} -m ${MODEL} -t ${THREADS}
+    hp_compress features ${CALLS2DRAFT}.bam ${FEATURES} -m ${MODEL} -t ${THREADS} --chunk_len 76277
 else
     echo "Not creating features, ${FEATURES} exists."
 fi
@@ -74,7 +74,7 @@ fi
 CONSENSUSPROBS=consensus_probs.hdf
 if [[ ! -e ${CONSENSUSPROBS} ]]; then
     echo "Running medaka consensus"
-    medaka consensus ${MODEL} --output_probs ${CONSENSUSPROBS} --features ${FEATURES} --batch_size ${BATCH_SIZE}
+    medaka consensus ${MODEL} ${DRAFT} --output_probs ${CONSENSUSPROBS} --features ${FEATURES} --batch_size ${BATCH_SIZE}
 else 
     echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
 fi

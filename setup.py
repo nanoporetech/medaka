@@ -37,7 +37,7 @@ with open(os.path.join(dir_path, 'requirements.txt')) as fh:
             req.split('/')[-1].split('@')[0]
     install_requires.append(req)
 
-exes = ['samtools', 'minimap2', 'mini_align']
+exes = ['samtools', 'minimap2', 'mini_align', 'vcf2fasta']
 
 setup(
     name='medaka',

@@ -1,18 +1,21 @@
-import glob
-import h5py
-import inspect
-import itertools
-import numpy as np
-import os
 from collections import Counter
 from functools import partial
+import glob
+import inspect
+import itertools
+import os
 from timeit import default_timer as now
+
+import h5py
+import numpy as np
+import pysam
 
 from keras import backend as K
 from keras.models import Sequential, load_model
 from keras.layers import Dense, GRU, Dropout
 from keras.layers.wrappers import Bidirectional
 from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
+
 
 # set some Tensorflow session options
 """
@@ -26,7 +29,7 @@ set_session(tf.Session(config=config))
 import logging
 logger = logging.getLogger(__name__)
 
-
+from medaka import vcf
 from medaka.common import (encode_sample_name, _label_counts_path_,
                            _label_decod_path_, chain_thread_safe, decoding,
                            get_sample_index_from_files, grouper,
@@ -200,10 +203,65 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
             write_yaml_data(hd5_model_path, model_details)
 
 
-def run_prediction(sample_gen, model, label_decoding, reference_fasta, output_prefix='consensus_chunks',
+
+class VarQueue(list):
+    """Merging of variants produced by considering major.{minor} positions
+    These are of the form:
+      X -> Y          - subs
+      prev.X - >prev  - deletion
+      X -> Xyy..      - insertion
+    In the second case we may need to merge variants from consecutive
+    major positions.
+    """
+
+    @property
+    def pos(self):
+        if len(self) == 0:
+            return None
+        else:
+            return self[-1][1]
+
+    def add(self, name, pos, ref, alt):
+        """Add a variant to the queue."""
+        self.append((name, pos, ref, alt))
+
+    def write(self, vcf_fh):
+        if len(self) > 1:
+            are_dels = all(len(x[2]) == 2 for x in self)
+            are_same_ref = len(set(x[0] for x in self)) == 1
+            if are_dels and are_same_ref:
+                name, pos = self[0][0:2]
+                ref = ''.join((x[2][0] for x in self)) # the first bases of all refs
+                ref += self[-1][2][-1] # the last base of the last ref
+                alt = ref[0]
+                vcf_fh.write_variant(vcf.Variant(name, pos, ref, alt))
+            else:
+                raise ValueError('Cannot merge variants: {}.'.format(self))
+        elif len(self) == 1:
+            name, pos, ref, alt = self[0]
+            vcf_fh.write_variant(vcf.Variant(name, pos, ref, alt))
+        del self[:]
+
+
+def run_prediction(sample_gen, model, reference_fasta, label_decoding, output_prefix='consensus_chunks',
                    batch_size=200, predictions_file=None, n_samples=None):
     """Run inference."""
-    batches = grouper(sample_gen, batch_size)
+    #TODO: this needs a big refactor
+
+
+    batches = list(grouper(sample_gen, batch_size))
+    chroms = []
+    start, end = float('inf'), 0
+    for batch in batches:
+        for sample in batch:
+            chroms.append(sample.ref_name)
+            start = min(start, sample.positions['major'][0])
+            end = max(end, sample.positions['major'][-1])
+    chroms = set(chroms)
+    if len(chroms) != 1:
+        raise ValueError('Sample generator contained more than one contig.')
+    region_str = '{}:{}-{}'.format(chroms.pop(), start, end + 1) #is this correct?
+
 
     if predictions_file is not None:
         pred_h5 = h5py.File(predictions_file, 'w')
@@ -211,7 +269,7 @@ def run_prediction(sample_gen, model, label_decoding, reference_fasta, output_pr
     first_batch = True
     n_samples_done = 0
     with open('{}.fa'.format(output_prefix), 'w') as fasta_out, \
-        vcf.VCFWriter('{}.vcf'.format(output_prefix)) as vcf_out \
+        vcf.VCFWriter('{}.vcf'.format(output_prefix), meta_info=['nanopolish_window={}'.format(region_str)]) as vcf_out, \
         pysam.FastaFile(reference_fasta) as ref_fasta:
         
         t0 = now()
@@ -234,33 +292,63 @@ def run_prediction(sample_gen, model, label_decoding, reference_fasta, output_pr
                     logging.info(msg.format(n_samples_done / n_samples, n_samples_done, n_samples, t1 - t0))
                 else:
                     logging.info('Done {} samples in {:.1f}s'.format(n_samples_done, t1 - t0, x_data.shape))
-             best = np.argmax(class_probs, -1)
+            best = np.argmax(class_probs, -1)
  
-             count = 0
-             best = np.argmax(class_probs, -1)
-             for sample, prob, pred in zip(data, class_probs, best):
-                 # write consensus to fasta TODO: remove
-                 seq = ''.join(label_decoding[x] for x in pred).replace(_gap_, '')
-                 key = encode_sample_name(sample)
-                 fasta_out.write(">{}\n{}\n".format(key, seq))
+            count = 0
+            best = np.argmax(class_probs, -1)
+            for sample, prob, pred in zip(data, class_probs, best):
+                # write consensus to fasta TODO: remove
+                seq = ''.join(label_decoding[x] for x in pred).replace(_gap_, '')
+                key = encode_sample_name(sample)
+                fasta_out.write(">{}\n{}\n".format(key, seq))
 
-                 # write out positions and predictions for later analysis
-                 if predictions_file is not None:
-                     sample_d = sample._asdict()
-                     sample_d['label_probs'] = prob
-                     sample_d['features'] = None  # to keep file sizes down
-                     write_sample_to_hdf(Sample(**sample_d), pred_h5)
-                 count += 1
+                # write out positions and predictions for later analysis
+                if predictions_file is not None:
+                    sample_d = sample._asdict()
+                    sample_d['label_probs'] = prob
+                    sample_d['features'] = None  # to keep file sizes down
+                    write_sample_to_hdf(Sample(**sample_d), pred_h5)
+                count += 1
 
-                 # Write consensus alts to vcf
-                 ref_seq = ref_fasta.fetch(sample.ref_name)
-                 cursor = 0
-                 for pos, grp in groupby(sample.positions['major']):
-                     end = cursor + len(grp)
-                     alt = ''.join(label_decoding[x] for x in pred[cursor:end]).replace(_gap_, '')
-                     ref = ref_seq[pos]
-                     vcf_out.write(vcf.Variant(sample.ref_name), pos, ref, alt)
-                     cursor = end
+                # Write consensus alts to vcf
+
+                cursor = 0
+                var_queue = VarQueue()
+
+                ref_seq = ref_fasta.fetch(sample.ref_name)
+                for pos, grp in itertools.groupby(sample.positions['major']):
+                    end = cursor + len(list(grp))
+                    alt = ''.join(label_decoding[x] for x in pred[cursor:end]).replace(_gap_, '')
+                    # For simple insertions and deletions in which either
+                    #   the REF or one of the ALT alleles would otherwise be
+                    #   null/empty, the REF and ALT Strings must include the
+                    #   base before the event (which must be reflected in
+                    #   the POS field), unless the event occurs at position
+                    #   1 on the contig in which case it must include the
+                    #   base after the event
+                    if alt == '':
+                        # deletion
+                        if pos == 0:
+                            # the "unless case"
+                            ref = ref_seq[1]
+                            alt = ref_seq[1]
+                        else:
+                            # the usual case
+                            pos = pos - 1
+                            ref = ref_seq[pos:pos+2]
+                            alt = ref_seq[pos]
+                    else:
+                        ref = ref_seq[pos]
+
+                    if alt == ref:
+                        var_queue.write(vcf_out)
+                    elif var_queue.pos is None or pos - var_queue.pos == 1:
+                        var_queue.add(sample.ref_name, pos, ref, alt)
+                    else:
+                        var_queue.write(vcf_out)
+                        var_queue.add(sample.ref_name, pos, ref, alt)
+                    cursor = end
+                var_queue.write(vcf_out)
  
     if predictions_file is not None:
         pred_h5.close()
@@ -477,8 +565,8 @@ def predict(args):
     logging.info('\n{}'.format(model.summary()))
 
     run_prediction(
-        data, model, label_decoding=model_data[_label_decod_path_], args.reference
-        output_file=args.output_fasta,
+        data, model, args.reference, label_decoding=model_data[_label_decod_path_],
+        output_prefix=args.output_prefix,
         predictions_file=args.output_probs,
         batch_size=args.batch_size, n_samples=n_samples,
     )

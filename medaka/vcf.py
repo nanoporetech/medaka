@@ -133,13 +133,13 @@ class Variant(object):
 class VCFWriter(object):
     def __init__(self, filename, mode='w',
                  header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO'),
-                 meta_info=('fileformat=VCFv4.3',)
+                 meta_info=[]
                  ):
 
         self.filename = filename
         self.mode = mode
         self.header = header
-        self.meta = meta_info
+        self.meta = ['fileformat=VCFv4.3'] + meta_info
 
 
     def __enter__(self):
@@ -165,7 +165,7 @@ class VCFWriter(object):
 
         elements = [getattr(variant, field.lower()) for field in self.header]
         # VCF POS field is 1-based
-        elements[self.header('POS')] += 1
+        elements[self.header.index('POS')] += 1
         line = '\t'.join([str(x) for x in elements])
         self.handle.write('{}\n'.format(line))
 

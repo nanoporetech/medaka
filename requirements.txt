@@ -3,6 +3,7 @@
 biopython
 cffi
 h5py
+intervaltree
 keras
 tensorflow
 numpy
