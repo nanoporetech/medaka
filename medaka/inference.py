@@ -30,7 +30,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from medaka import vcf
-from medaka.common import (encode_sample_name, _label_counts_path_,
+from medaka.common import (_label_counts_path_,
                            _label_decod_path_, chain_thread_safe, decoding,
                            get_sample_index_from_files, grouper,
                            load_sample_from_hdf, load_yaml_data,
@@ -231,8 +231,13 @@ class VarQueue(list):
                 ref = ''.join((x.ref[0] for x in self))
                 ref += self[-1].ref[-1]
                 alt = ref[0]
-                merged_var = vcf.Variant(name, pos, ref, alt)
-                vcf_fh.write_variant(vcf.Variant(name, pos, ref, alt))
+
+
+                fmaj, fmin = self[0].get_tag('SC')[0:2]
+                lmaj, lmin = self[0].get_tag('SC')[2:4]
+                info = {'SC':[fmaj, fmin, lmaj, lmin]}
+                merged_var = vcf.Variant(name, pos, ref, alt, info=info)
+                vcf_fh.write_variant(merged_var)
             else:
                 raise ValueError('Cannot merge variants: {}.'.format(self))
         elif len(self) == 1:
@@ -243,22 +248,30 @@ class VarQueue(list):
 def run_prediction(sample_gen, model, reference_fasta, label_decoding, output_prefix='consensus_chunks',
                    batch_size=200, predictions_file=None, n_samples=None):
     """Run inference."""
-    #TODO: this needs a big refactor
+    #TODO: this needs a big refactor/simplifying after we have a generator
+    #      with precomputed boundaries and break points
 
 
     batches = list(grouper(sample_gen, batch_size))
     chroms = []
     start, end = float('inf'), 0
+    sample_coordinates = []
     for batch in batches:
         for sample in batch:
             chroms.append(sample.ref_name)
-            start = min(start, sample.positions['major'][0])
-            end = max(end, sample.positions['major'][-1])
+            sample_coordinates.append(sample.first_pos + sample.last_pos)
+            start = min(start, sample.first_pos[0])
+            end = max(end, sample.last_pos[0])
+
     chroms = set(chroms)
     if len(chroms) != 1:
         raise ValueError('Sample generator contained more than one contig.')
-    region_str = '{}:{}-{}'.format(chroms.pop(), start, end + 1) #is this correct?
+    vcf_region_str = '{}:{}-{}'.format(chroms.pop(), start, end + 1) #is this correct?
+    logging.info("Producing variants for {}".format(vcf_region_str))
 
+    vcf_meta = ['nanopolish_window={}'.format(vcf_region_str)]
+    vcf_meta.append('sample_coordinates={}'.format(sample_coordinates))
+    vcf_meta.append('INFO=<ID=SC,Number=4,Type=Integer,Description="Pileup chunk columns from which variant came: major/minor, first/last">')
 
     if predictions_file is not None:
         pred_h5 = h5py.File(predictions_file, 'w')
@@ -266,7 +279,7 @@ def run_prediction(sample_gen, model, reference_fasta, label_decoding, output_pr
     first_batch = True
     n_samples_done = 0
     with open('{}.fa'.format(output_prefix), 'w') as fasta_out, \
-        vcf.VCFWriter('{}.vcf'.format(output_prefix), meta_info=['nanopolish_window={}'.format(region_str)]) as vcf_out, \
+        vcf.VCFWriter('{}.vcf'.format(output_prefix), meta_info=vcf_meta) as vcf_out, \
         pysam.FastaFile(reference_fasta) as ref_fasta:
         
         t0 = now()
@@ -296,7 +309,7 @@ def run_prediction(sample_gen, model, reference_fasta, label_decoding, output_pr
             for sample, prob, pred in zip(data, class_probs, best):
                 # write consensus to fasta TODO: remove
                 seq = ''.join(label_decoding[x] for x in pred).replace(_gap_, '')
-                key = encode_sample_name(sample)
+                key = sample.name
                 fasta_out.write(">{}\n{}\n".format(key, seq))
 
                 # write out positions and predictions for later analysis
@@ -337,13 +350,19 @@ def run_prediction(sample_gen, model, reference_fasta, label_decoding, output_pr
                     else:
                         ref = ref_seq[pos]
 
+                    #TODO: filter out variants past the break point of chunk overlaps
                     if alt == ref:
                         var_queue.write(vcf_out)
-                    elif var_queue.last_pos is None or pos - var_queue.last_pos == 1:
-                        var_queue.append(vcf.Variant(sample.ref_name, pos, ref, alt))
                     else:
-                        var_queue.write(vcf_out)
-                        var_queue.append(vcf.Variant(sample.ref_name, pos, ref, alt))
+                        fmaj, fmin = sample.first_pos
+                        lmaj, lmin = sample.last_pos
+                        info = {'SC':[fmaj, fmin, lmaj, lmin]}
+                        var = vcf.Variant(sample.ref_name, pos, ref, alt, info=info)
+                        if var_queue.last_pos is None or pos - var_queue.last_pos == 1:
+                            var_queue.append(var)
+                        else:
+                            var_queue.write(vcf_out)
+                            var_queue.append(var)
                     cursor = end
                 var_queue.write(vcf_out)
  

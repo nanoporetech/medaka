@@ -15,7 +15,7 @@ import pysam
 
 from medaka.common import (yield_compressed_pairs, Sample, lengths_to_rle, rle,
                            Region, parse_regions, chunk_samples, write_samples_to_hdf,
-                           segment_limits, encode_sample_name, decoding, encoding,
+                           segment_limits, decoding, encoding,
                            _gap_, _alphabet_, _feature_opt_path_, _feature_decoding_path_,
                            get_pairs, get_pairs_with_hp_len, seq_to_hp_lens,
                            write_yaml_data, load_yaml_data, sample_to_x_y, gen_train_batch,
@@ -279,7 +279,7 @@ class FeatureEncoder(object):
             sample = Sample(ref_name=region.ref_name, features=feature_array,
                             labels=None, ref_seq=ref_array,
                             positions=positions, label_probs=None)
-            logging.info('Processed {} (median depth {})'.format(encode_sample_name(sample), np.median(depth_array)))
+            logging.info('Processed {} (median depth {})'.format(sample.name, np.median(depth_array)))
 
             return sample
 
@@ -353,7 +353,7 @@ def alphabet_filter(sample_gen, alphabet=None, filter_labels=True, filter_ref_se
     def _find_bad_bases(s, field, alphabet):
         seq_rle = getattr(s, field)
         bases = set(np.unique(seq_rle['base']))
-        #logging.info("{}: {} bases {} alpha {}".format(encode_sample_name(s), field, bases, alphabet))
+        #logging.info("{}: {} bases {} alpha {}".format(s.name, field, bases, alphabet))
         if not bases.issubset(alphabet):
             diff = [decoding[i] for i in bases - alphabet]
             msg = "Skipping {}:{}-{} ({} bases) due to {} {}"
@@ -380,7 +380,7 @@ def min_positions_filter(sample_gen, min_positions):
     for s in sample_gen:
         if len(s.positions) < min_positions:
             msg = 'Skipping sample {} which has {} columns < min {}.'
-            logger.info(msg.format(encode_sample_name(s), len(s.positions), min_positions))
+            logger.info(msg.format(s.name, len(s.positions), min_positions))
         else:
             yield s
 

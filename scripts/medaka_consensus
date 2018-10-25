@@ -66,7 +66,7 @@ fi
 FEATURES=features.hdf
 if [[ ! -e ${FEATURES} ]]; then
     echo "Creating features"
-    hp_compress features ${CALLS2DRAFT}.bam ${FEATURES} -m ${MODEL} -t ${THREADS} --chunk_len 76277
+    hp_compress features ${CALLS2DRAFT}.bam ${FEATURES} -m ${MODEL} -t ${THREADS}
 else
     echo "Not creating features, ${FEATURES} exists."
 fi

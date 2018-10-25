@@ -61,7 +61,7 @@ setup(
     entry_points = {
         'console_scripts': [
             '{0} = {0}.{0}:main'.format(__pkg_name__),
-            'hp_compress = {0}.{1}:main'.format(__pkg_name__, 'compress'),
+            'hp_compress = {0}.{1}:main'.format(__pkg_name__, 'features'),
             'medaka_data_path = {0}.{1}:{2}'.format(__pkg_name__, 'common', 'print_data_path'),
         ]
     },

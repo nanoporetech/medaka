@@ -1,7 +1,7 @@
 import logging
 import numpy as np
 from itertools import chain
-from medaka.common import (_gap_, encode_sample_name, get_sample_overlap, get_sample_index_from_files,
+from medaka.common import (_gap_, get_sample_overlap, get_sample_index_from_files,
                            load_yaml_data, yield_from_feature_files, _label_decod_path_)
 
 
@@ -54,8 +54,7 @@ def stitch_from_probs(probs_hdfs, ref_names=None, model_yml=None):
                 seq = ''
                 if start_2_ind is None:
                     msg = 'There is no overlap betwen {} and {}'
-                    logging.info(msg.format(encode_sample_name(s1),
-                                            encode_sample_name(s2)))
+                    logging.info(msg.format(s1.name, s2.name))
                     start = get_pos(s2, 0)
 
             s1 = s2

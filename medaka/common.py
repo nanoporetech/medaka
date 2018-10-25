@@ -30,11 +30,6 @@ decoding = _gap_ + _alphabet_.lower() + _alphabet_.upper() + _read_sep_ + _extra
 # (we need order to be the same for training and inference)
 encoding = OrderedDict(((a, i) for i, a in enumerate(decoding)))
 
-# We might consider creating a Sample class with methods to encode, decode sample name
-# and perhaps to write/read Samples to/from hdf etc
-Sample = namedtuple('Sample', ['ref_name', 'features', 'labels', 'ref_seq', 'positions', 'label_probs'])
-_sample_name_decoder_ = re.compile(r"(?P<ref_name>.+):(?P<start>\d+\.\d+)-(?P<end>\d+\.\d+)")
-
 AlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'rpos', 'rbase'))
 ComprAlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'qlen', 'rpos', 'rbase', 'rlen'))
 
@@ -47,6 +42,96 @@ _feature_decoding_path_ = 'medaka_feature_decoding'
 _label_counts_path_ = 'medaka_label_counts'
 _feature_batches_path_ = 'medaka_feature_batches'
 _label_batches_path_ = 'medaka_label_batches'
+
+
+#TODO: refactor all this..
+# We might consider creating a Sample class with methods to encode, decode sample name
+# and perhaps to write/read Samples to/from hdf etc
+_Sample = namedtuple('Sample', ['ref_name', 'features', 'labels', 'ref_seq', 'positions', 'label_probs'])
+_sample_name_decoder_ = re.compile(r"(?P<ref_name>.+):(?P<start>\d+\.\d+)-(?P<end>\d+\.\d+)")
+class Sample(_Sample):
+
+    def _get_pos(self, index):
+        p = self.positions
+        return p['major'][index], p['minor'][index]
+
+    @property
+    def first_pos(self):
+        """Zero-based first reference co-ordinate."""
+        return self._get_pos(0)
+
+    @property
+    def last_pos(self):
+        """Zero-based (end inclusive) last reference co-ordinate."""
+        return self._get_pos(-1)
+
+    @property
+    def name(self):
+        """Create one-based (end inclusive) samtools-style region str."""
+        fmaj, fmin = self.first_pos
+        lmaj, lmin = self.last_pos
+        return '{}:{}.{}-{}.{}'.format(
+            self.ref_name, fmaj + 1, fmin, lmaj + 1, lmin)
+
+
+def decode_sample_name(key):
+    """Decode a the result of Sample.name into a dict.
+
+    :param key: `Sample` object.
+    :returns: dict.
+    """
+    d = None
+    m = re.match(_sample_name_decoder_, key)
+    if m is not None:
+        d = m.groupdict()
+    return d
+
+
+def write_sample_to_hdf(s, hdf_fh):
+    """Write a sample to HDF5.
+
+    :param s: `Sample` object.
+    :param hdf_fh: `h5py.File` object.
+    """
+    grp = s.name
+    for field in s._fields:
+        if getattr(s, field) is not None:
+            data = getattr(s, field)
+            if isinstance(data, np.ndarray) and isinstance(data[0], np.unicode):
+                data = np.char.encode(data)
+            hdf_fh['{}/{}/{}'.format(_sample_path_, grp, field)] = data
+
+
+def write_samples_to_hdf(fname, samples):
+    """Write samples to hdf, ensuring a sample is not written twice and maintaining
+       a count of labels seen.
+
+    :param fname: str, output filepath.
+    :param samples: iterable of `Sample` objects.
+    """
+    logging.info("Writing samples to {}".format(fname))
+    samples_seen = set()
+    labels_counter = Counter()
+    with h5py.File(fname, 'w') as hdf:
+        for s in samples:
+            s_name = s.name
+            logging.debug("Written sample {}".format(s_name))
+            if s_name not in samples_seen:
+                write_sample_to_hdf(s, hdf)
+            else:
+                logging.debug('Not writing {} as it is present already'.format(s_name))
+            samples_seen.add(s_name)
+            if s.labels is not None:
+                if len(s.labels.dtype) == 2:
+                    labels_counter.update([tuple(l) for l in s.labels])
+                else:
+                    labels_counter.update(s.labels)
+        hdf[_label_counts_path_] = yaml.dump(labels_counter)
+
+    h = lambda l: (decoding[l[0]], l[1]) if type(l) == tuple else l
+    logging.info("Label counts:\n{}".format('\n'.join(
+        ['{}: {}'.format(h(label), count) for label, count in labels_counter.items()]
+    )))
 
 
 def parse_regions(regions):
@@ -160,77 +245,6 @@ def yield_compressed_pairs(aln, ref_rle):
         yield a
 
 
-def encode_sample_name(sample):
-    """Encode a `Sample` object into a str key.
-
-    :param sample: `Sample` object.
-    :returns: str.
-    """
-    p = sample.positions
-    key = '{}:{}.{}-{}.{}'.format(sample.ref_name,
-                                  p['major'][0] + 1, p['minor'][0],
-                                  p['major'][-1] + 1, p['minor'][-1])
-    return key
-
-
-def decode_sample_name(key):
-    """Decode a the result of `encode_sample_name` into a dict.
-
-    :param key: `Sample` object.
-    :returns: dict.
-    """
-    d = None
-    m = re.match(_sample_name_decoder_, key)
-    if m is not None:
-        d = m.groupdict()
-    return d
-
-
-def write_sample_to_hdf(s, hdf_fh):
-    """Write a sample to HDF5.
-
-    :param s: `Sample` object.
-    :param hdf_fh: `h5py.File` object.
-    """
-    grp = encode_sample_name(s)
-    for field in s._fields:
-        if getattr(s, field) is not None:
-            data = getattr(s, field)
-            if isinstance(data, np.ndarray) and isinstance(data[0], np.unicode):
-                data = np.char.encode(data)
-            hdf_fh['{}/{}/{}'.format(_sample_path_, grp, field)] = data
-
-
-def write_samples_to_hdf(fname, samples):
-    """Write samples to hdf, ensuring a sample is not written twice and maintaining
-       a count of labels seen.
-
-    :param fname: str, output filepath.
-    :param samples: iterable of `Sample` objects.
-    """
-    logging.info("Writing samples to {}".format(fname))
-    samples_seen = set()
-    labels_counter = Counter()
-    with h5py.File(fname, 'w') as hdf:
-        for s in samples:
-            s_name = encode_sample_name(s)
-            logging.debug("Written sample {}".format(s_name))
-            if s_name not in samples_seen:
-                write_sample_to_hdf(s, hdf)
-            else:
-                logging.debug('Not writing {} as it is present already'.format(s_name))
-            samples_seen.add(s_name)
-            if s.labels is not None:
-                if len(s.labels.dtype) == 2:
-                    labels_counter.update([tuple(l) for l in s.labels])
-                else:
-                    labels_counter.update(s.labels)
-        hdf[_label_counts_path_] = yaml.dump(labels_counter)
-
-    h = lambda l: (decoding[l[0]], l[1]) if type(l) == tuple else l
-    logging.info("Label counts:\n{}".format('\n'.join(
-        ['{}: {}'.format(h(label), count) for label, count in labels_counter.items()]
-    )))
 
 
 def load_yaml_data(fname, group):
@@ -353,7 +367,7 @@ def get_sample_overlap(s1, s2):
     ovl_start_ind1 = np.searchsorted(s1.positions, s2.positions[0])
     if ovl_start_ind1 == len(s1.positions):
         # they don't overlap
-        print('{} and {} do not overlap'.format(encode_sample_name(s1), encode_sample_name(s2)))
+        print('{} and {} do not overlap'.format(s1.name, s2.name))
         return None, None
 
     ovl_end_ind2 = np.searchsorted(s2.positions, s1.positions[-1], side='right')
