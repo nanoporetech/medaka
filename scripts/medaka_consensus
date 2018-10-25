@@ -63,18 +63,10 @@ else
     echo "Not aligning basecalls to draft, ${CALLS2DRAFT}.bam exists."
 fi
 
-FEATURES=features.hdf
-if [[ ! -e ${FEATURES} ]]; then
-    echo "Creating features"
-    hp_compress features ${CALLS2DRAFT}.bam ${FEATURES} -m ${MODEL} -t ${THREADS}
-else
-    echo "Not creating features, ${FEATURES} exists."
-fi
-
 CONSENSUSPROBS=consensus_probs.hdf
 if [[ ! -e ${CONSENSUSPROBS} ]]; then
     echo "Running medaka consensus"
-    medaka consensus ${MODEL} --output_probs ${CONSENSUSPROBS} --features ${FEATURES} --batch_size ${BATCH_SIZE}
+    medaka consensus ${CALLS2DRAFT}.bam ${MODEL} --batch_size ${BATCH_SIZE} --output_probs ${CONSENSUSPROBS}
 else 
     echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
 fi

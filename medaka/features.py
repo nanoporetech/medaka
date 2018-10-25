@@ -49,17 +49,21 @@ def pileup_counts(region, bam):
         counts.counts, size_sizet * counts.n_cols * 11),
         dtype=np.uintp
     ).reshape(counts.n_cols, 11).copy()
-    np_major = np.frombuffer(ffi.buffer(
+
+    positions = np.empty(counts.n_cols, dtype=[('major', int), ('minor', int)])
+    np.copyto(positions['major'],
+        np.frombuffer(ffi.buffer(
         counts.major, size_sizet * counts.n_cols),
         dtype=np.uintp
-    ).copy()
-    np_minor = np.frombuffer(ffi.buffer(
+    ))
+    np.copyto(positions['minor'],
+        np.frombuffer(ffi.buffer(
         counts.minor, size_sizet * counts.n_cols),
         dtype=np.uintp
-    ).copy()
+    ))
 
     lib.destroy_plp_data(counts)
-    return np_counts, np_major, np_minor
+    return np_counts, positions
 
 
 class FeatureEncoder(object):
@@ -90,7 +94,9 @@ class FeatureEncoder(object):
         self.max_hp_len = max_hp_len
         self.log_min = log_min
         self.normalise = normalise
-        self.feature_dtype = float if (self.normalise is not None or self.log_min is not None) else int
+        # No point in using default np.float64 when most GPUs want max np.float32
+        # TODO: any benefits going to np.float16 or smaller?
+        self.feature_dtype = np.float32 if (self.normalise is not None or self.log_min is not None) else np.uint64
         self.with_depth = with_depth
         self.is_compressed = is_compressed
 
@@ -144,6 +150,54 @@ class FeatureEncoder(object):
             return None
 
 
+    def bam_to_sample_c(self, reads_bam, region):
+        """Converts a section of an alignment pileup (as shown
+        by e.g. samtools tview) to a base frequency feature array
+
+        :param reads_bam: (sorted indexed) bam with read alignment to reference
+        :param region: `Region` object with ref_name, start and end attributes.
+        :param start: starting position within reference
+        :param end: ending position within reference
+        :returns: `Sample` object
+        """
+        assert self.ref_mode is None
+        assert not self.consensus_as_ref
+        assert self.max_hp_len == 1
+        assert self.log_min is None
+        assert self.normalise == 'total' or self.normalise is None
+        assert not self.with_depth
+        assert not self.is_compressed
+
+        reg_str = '{}:{}-{}'.format(region.ref_name, region.start, region.end)
+        counts, positions = pileup_counts(reg_str, reads_bam)
+        # get rid of first counts row (counts of alternative bases)
+        counts = counts[:, 1:]
+
+        depth = np.sum(counts, axis=1)
+
+        # we don't have counts for reads which don't have an insertion
+        # so we have to take the depth at major positions
+        minor_inds = np.where(positions['minor'] > 0)
+        major_pos_at_minor_inds = positions['major'][minor_inds]
+        major_ind_at_minor_inds = np.searchsorted(positions['major'], major_pos_at_minor_inds, side='left')
+        depth[minor_inds] = depth[major_ind_at_minor_inds]
+
+        if self.normalise == 'total':
+            # normalise counts by total depth
+            feature_array = counts / depth.reshape((-1, 1))
+        else:
+            feature_array = counts
+
+        feature_array = feature_array.astype(self.feature_dtype)
+
+        sample = Sample(ref_name=region.ref_name, features=feature_array,
+                        labels=None, ref_seq=None,
+                        positions=positions, label_probs=None)
+
+        logging.info('Processed {} (median depth {})'.format(encode_sample_name(sample), np.median(depth)))
+        return sample
+
+
     def bam_to_sample(self, reads_bam, region, ref_rle_fq, read_fraction=None):
         """Converts a section of an alignment pileup (as shown
         by e.g. samtools tview) to a base frequency feature array
@@ -151,10 +205,16 @@ class FeatureEncoder(object):
         :param reads_bam: (sorted indexed) bam with read alignment to reference
         :param region: `Region` object with ref_name, start and end attributes.
         :param ref_rle_fq: result of `process_ref_seq`
-        :param start: starting position within reference
-        :param end: ending position within reference
         :returns: `Sample` object
         """
+        # Try to use fast c function if we can, else fall back on this function
+        if ref_rle_fq is None and read_fraction is None:
+            try:
+                return self.bam_to_sample_c(reads_bam, region)
+            except Exception as e:
+                logging.debug('Could not process sample with bam_to_sample_c, using python code instead.\n({}).'.format(e))
+                pass
+
         if self.is_compressed:
             aln_to_pairs = partial(yield_compressed_pairs, ref_rle=ref_rle_fq)
         elif self.max_hp_len == 1:
@@ -279,7 +339,7 @@ class FeatureEncoder(object):
             sample = Sample(ref_name=region.ref_name, features=feature_array,
                             labels=None, ref_seq=ref_array,
                             positions=positions, label_probs=None)
-            logging.info('Processed {} (median depth {})'.format(encode_sample_name(sample), np.median(depth_array)))
+            logging.info('Processed {} (median depth {}) (in python)'.format(encode_sample_name(sample), np.median(depth_array)))
 
             return sample
 
@@ -305,6 +365,7 @@ class FeatureEncoder(object):
             regions with multiple mappings were encountered.
 
         """
+        raise NotImplementedError('This needs fixing')
 
         # filter truth alignments to restrict ourselves to regions of the ref where the truth
         # in unambiguous
@@ -385,24 +446,29 @@ def min_positions_filter(sample_gen, min_positions):
             yield s
 
 
-def features(args):
+def _get_fe_kwargs(model=None):
+    if model is not None:
+        fe_kwargs = load_yaml_data(model, _feature_opt_path_)
+    else:
+        fe_kwargs = { k:v.default for (k,v) in inspect.signature(FeatureEncoder.__init__).parameters.items()
+                      if v.default is not inspect.Parameter.empty}
+    return fe_kwargs
 
+
+def get_feature_gen(args):
     mapper = Pool(args.threads).imap if args.threads > 1 else map
 
     regions = _get_regions(args.bam, args.regions)
 
-    if args.model is not None:
-        fe_kwargs = load_yaml_data(args.model, _feature_opt_path_)
-        print(fe_kwargs)
-    else:
-        fe_kwargs = { k:v.default for (k,v) in inspect.signature(FeatureEncoder.__init__).parameters.items()
-                      if v.default is not inspect.Parameter.empty}
+    fe_kwargs = _get_fe_kwargs(args.model)
     opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in fe_kwargs.items()])
     logging.info('FeatureEncoder options: \n{}'.format(opt_str))
 
     fe = FeatureEncoder(**fe_kwargs)
 
-    if args.truth is not None:
+    truth = hasattr(args, 'truth') and args.truth is not None
+
+    if truth:
         logging.info('Creating training features.')
     else:
         logging.info('Creating consensus features.')
@@ -414,7 +480,7 @@ def features(args):
     sample_gens = []
     for region in regions:
         ref_rle = fe.process_ref_seq(region.ref_name, args.ref_fastq)
-        if args.truth is not None:
+        if truth:
             f = partial(fe.bams_to_training_samples, args.truth, args.bam, ref_rle_fq=ref_rle, read_fraction=args.read_fraction)
         else:
             f = partial(fe.bam_to_sample, args.bam, ref_rle_fq=ref_rle, read_fraction=args.read_fraction)
@@ -425,22 +491,26 @@ def features(args):
         logging.debug("Created sample gen for region {}".format(region))
 
     logging.debug("Created list of sample generators")
-    if args.truth is not None:
+    if truth:
         # generators yield tuples of samples
         samples = (s for g in sample_gens for t in g for s in t)
     else:
         # generatores yield samples
         samples = (s for g in sample_gens for s in g)
+
     logging.debug("Created chained sample generators")
 
-    write_samples_to_hdf(args.output,
-                         alphabet_filter(chunk_samples(min_positions_filter(samples, args.chunk_len),
-                                                       chunk_len=args.chunk_len,
-                                                       overlap=args.chunk_ovlp)
-                                         )
-                         )
+    return alphabet_filter(chunk_samples(min_positions_filter(samples, args.chunk_len),
+                           chunk_len=args.chunk_len, overlap=args.chunk_ovlp))
+
+
+def features(args):
+
+    write_samples_to_hdf(args.output, get_feature_gen(args))
     # write feature options to file, so we can later check model and features
     # are compatible.
+    fe_kwargs = _get_fe_kwargs(args.model)
+    fe = FeatureEncoder(**fe_kwargs)
     to_save = {_feature_opt_path_: fe_kwargs,
                _feature_decoding_path_: fe.decoding}
     for fname in (args.output, args.output + '.yml'):
@@ -496,7 +566,6 @@ def training_batches(args):
 
     if args.model is not None:
         fe_kwargs = load_yaml_data(args.model, _feature_opt_path_)
-        print(fe_kwargs)
     else:
         fe_kwargs = { k:v.default for (k,v) in inspect.signature(FeatureEncoder.__init__).parameters.items()
                       if v.default is not inspect.Parameter.empty}
@@ -650,40 +719,3 @@ def choose_feature_func(args):
         training_batches(args)
     else:
         features(args)
-
-
-def main():
-    logging.basicConfig(format='[%(asctime)s - %(name)s] %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
-    parser = argparse.ArgumentParser('homopolymer')
-    subparsers = parser.add_subparsers(title='subcommands', description='valid commands', help='additional help', dest='command')
-    subparsers.required = True
-
-    pparser = subparsers.add_parser('compress', help='Compress basecalls / draft assemblies.')
-    pparser.set_defaults(func=compress)
-    pparser.add_argument('input', help='.fasta/fastq file.')
-    pparser.add_argument('-o', '--output', default=None, help='Output file, default it stdout.')
-    pparser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads for parallel execution.')
-
-
-    fparser = subparsers.add_parser('features', help='Create features for inference.')
-    fparser.set_defaults(func=choose_feature_func)
-    fparser.add_argument('bam', help='Input alignments (compressed reads aligned to compressed ref).')
-    fparser.add_argument('output', help='Output features file.')
-    fparser.add_argument('--ref_fastq', help='Input compressed reference fastq.', default=None)
-    fparser.add_argument('-r', '--regions', nargs='+', default=None, type=str, help='Regions in samtools format.')
-    fparser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads for parallel execution.')
-    fparser.add_argument('-T', '--truth', help='Bam of compressed truth aligned to compressed ref to create features for training.')
-    fparser.add_argument('-m', '--model', help='Create features expected by this model (.yml or .hdf)')
-    fparser.add_argument('--chunk_len', type=int, default=10000, help='Chunk length of samples.')
-    fparser.add_argument('--chunk_ovlp', type=int, default=1000, help='Overlap of chunks.')
-    fparser.add_argument('--batch_size', type=int, default=None, help='Write training batches rather than samples')
-    fparser.add_argument('--max_label_len', type=int, default=10, help='Max label length (only used if writing batches).')
-    fparser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
-                         nargs=2, metavar=('lower', 'upper'))
-
-    args = parser.parse_args()
-    args.func(args)
-
-
-if __name__  == '__main__':
-    main()
