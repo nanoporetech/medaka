@@ -22,7 +22,8 @@ void *xalloc(size_t num, size_t size, char* msg){
 // medaka-style base encoding
 const char plp_bases[] = "XacgtACGTdD";
 const size_t featlen = 11;
-
+const size_t fwd_del = 10;
+const size_t rev_del = 9;
 
 // convert 16bit IUPAC (+16 for strand) to plp_base index
 size_t num2countbase[32] = {
@@ -91,7 +92,8 @@ static int read_bam(void *data, bam1_t *b) {
 // Generate medaka-style feature data in a region of a bam
 plp_data calculate_pileup(const char *region, const char *bam_file) { 
 
-    // extract `chr`:`start`-`end` from `region`,
+    // extract `chr`:`start`-`end` from `region`
+    //   (start is zero-based and end-exclusive), 
     //   hts_parse_reg below sets return value to point
     //   at ":", copy the input then set ":" to null terminator
     //   to get `chr`.
@@ -104,9 +106,6 @@ plp_data calculate_pileup(const char *region, const char *bam_file) {
     } else {
         fprintf(stderr, "Failed to parse region: '%s'.\n", region);
     }
-    // htslib treats chr:start-end as 1-based end inclusive, 
-    //   medaka as 0-based end-exclusive
-    start += 1;
     //fprintf(stderr, "%s  %d  %d\n", region, start, end); 
    
     // open bam etc. 
@@ -175,7 +174,7 @@ plp_data calculate_pileup(const char *region, const char *bam_file) {
             }
             int base_i;
             if (p->is_del) {
-                base_i = bam_is_rev(p->b) ? 9 : 10;
+                base_i = bam_is_rev(p->b) ? rev_del : fwd_del;
                 //base = plp_bases[base_i]; 
                 pileup->counts[major_col + base_i] += 1;
             } else { // handle pos and any following ins

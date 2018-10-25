@@ -39,6 +39,7 @@ from medaka.common import (_label_counts_path_,
                            yield_from_feature_files, gen_train_batch,
                            _label_batches_path_, _feature_batches_path_,
                            yield_batches_from_hdfs, _gap_)
+from medaka.features import get_feature_gen
 
 
 
@@ -526,7 +527,7 @@ def train(args):
 def predict(args):
     """Inference program."""
     n_samples = None
-    if args.features:
+    if hasattr(args, 'features'):
         logging.info("Loading features from file for refs {}.".format(args.ref_names))
         index = get_sample_index_from_files(args.features)
         refs_n_samples = {r: len(l) for (r, l) in index.items()}
@@ -536,8 +537,8 @@ def predict(args):
         data = yield_from_feature_files(args.features, ref_names=args.ref_names)
         n_samples = sum(refs_n_samples.values())
     else:
+        data = get_feature_gen(args)
         logging.info("Generating features from bam.")
-        raise ValueError("Unsupported args.features value.")
 
     # take a sneak peak at the first sample
     first_sample = next(data)
