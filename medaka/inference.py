@@ -215,31 +215,28 @@ class VarQueue(list):
     """
 
     @property
-    def pos(self):
+    def last_pos(self):
         if len(self) == 0:
             return None
         else:
-            return self[-1][1]
-
-    def add(self, name, pos, ref, alt):
-        """Add a variant to the queue."""
-        self.append((name, pos, ref, alt))
+            return self[-1].pos
 
     def write(self, vcf_fh):
         if len(self) > 1:
-            are_dels = all(len(x[2]) == 2 for x in self)
-            are_same_ref = len(set(x[0] for x in self)) == 1
+            are_dels = all(len(x.ref) == 2 for x in self)
+            are_same_ref = len(set(x.chrom for x in self)) == 1
             if are_dels and are_same_ref:
-                name, pos = self[0][0:2]
-                ref = ''.join((x[2][0] for x in self)) # the first bases of all refs
-                ref += self[-1][2][-1] # the last base of the last ref
+                name = self[0].chrom
+                pos = self[0].pos
+                ref = ''.join((x.ref[0] for x in self))
+                ref += self[-1].ref[-1]
                 alt = ref[0]
+                merged_var = vcf.Variant(name, pos, ref, alt)
                 vcf_fh.write_variant(vcf.Variant(name, pos, ref, alt))
             else:
                 raise ValueError('Cannot merge variants: {}.'.format(self))
         elif len(self) == 1:
-            name, pos, ref, alt = self[0]
-            vcf_fh.write_variant(vcf.Variant(name, pos, ref, alt))
+            vcf_fh.write_variant(self[0])
         del self[:]
 
 
@@ -342,11 +339,11 @@ def run_prediction(sample_gen, model, reference_fasta, label_decoding, output_pr
 
                     if alt == ref:
                         var_queue.write(vcf_out)
-                    elif var_queue.pos is None or pos - var_queue.pos == 1:
-                        var_queue.add(sample.ref_name, pos, ref, alt)
+                    elif var_queue.last_pos is None or pos - var_queue.last_pos == 1:
+                        var_queue.append(vcf.Variant(sample.ref_name, pos, ref, alt))
                     else:
                         var_queue.write(vcf_out)
-                        var_queue.add(sample.ref_name, pos, ref, alt)
+                        var_queue.append(vcf.Variant(sample.ref_name, pos, ref, alt))
                     cursor = end
                 var_queue.write(vcf_out)
  
