@@ -473,12 +473,12 @@ def sliding_window(a, window=3, step=1, axis=0):
     for start in range(0, a.shape[axis] - window + 1, step):
         end = start + window
         slicee[axis] = slice(start, end)
-        yield a[slicee]
+        yield a[tuple(slicee)]
     # yield the remainder with the same window size
     if a.shape[axis] > end:
         start = a.shape[axis] - window
         slicee[axis] = slice(start, a.shape[axis])
-        yield a[slicee]
+        yield a[tuple(slicee)]
 
 
 def mkdir_p(path, info=None):
