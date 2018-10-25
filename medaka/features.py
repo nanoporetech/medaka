@@ -479,7 +479,7 @@ def get_feature_gen(args):
 
     sample_gens = []
     for region in regions:
-        ref_rle = fe.process_ref_seq(region.ref_name, args.ref_fastq)
+        ref_rle = fe.process_ref_seq(region.ref_name, args.reference)
         if truth:
             f = partial(fe.bams_to_training_samples, args.truth, args.bam, ref_rle_fq=ref_rle, read_fraction=args.read_fraction)
         else:
@@ -584,7 +584,7 @@ def training_batches(args):
                                                         overlap_len=5*args.chunk_ovlp)]
 
     unique_refs = set((region.ref_name for region in regions))
-    ref_rles = {r: fe.process_ref_seq(r, args.ref_fastq) for r in unique_refs}
+    ref_rles = {r: fe.process_ref_seq(r, args.reference) for r in unique_refs}
 
     rg = partial(fe.bams_to_training_samples, args.truth, args.bam, read_fraction=args.read_fraction)
     chunker = partial(chunk_samples, chunk_len=args.chunk_len, overlap=args.chunk_ovlp)

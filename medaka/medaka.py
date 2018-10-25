@@ -19,13 +19,13 @@ def _consensus_feat():
 
     parser.set_defaults(func=choose_feature_func)
     parser.add_argument('bam', help='Input alignments.')
-    parser.add_argument('--ref_fastq', help='Input reference fastq (optional, if in doubt, do not provide).', default=None)
+    parser.add_argument('reference', help='Input reference .fasta corresponding to `bam`.')
     parser.add_argument('-r', '--regions', nargs='+', default=None, type=str, help='Regions in samtools format.')
     parser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads for parallel execution.')
     parser.add_argument('--chunk_len', type=int, default=10000, help='Chunk length of samples.')
     parser.add_argument('--chunk_ovlp', type=int, default=1000, help='Overlap of chunks.')
     parser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
-                         nargs=2, metavar=('lower', 'upper'))
+        nargs=2, metavar=('lower', 'upper'))
     return parser
 
 
@@ -56,7 +56,7 @@ def _predict():
     parser.set_defaults(func=predict)
     parser.add_argument('model', help='Model .hdf file from training.')
     parser.add_argument('--model_yml', help='Model yml containing label encoding and model options, required only if training ended prematurely.')
-    parser.add_argument('--output_fasta', default='consensus_chunks.fa', help='Consensus sequence output fasta file.')
+    parser.add_argument('--output_prefix', default='consensus_chunks', help='Consensus sequence output fasta file.')
     parser.add_argument('--output_probs', default=None, help='Consensus probabilities output hdf file.')
     parser.add_argument('--batch_size', type=int, default=5, help='Prediction batch size.')
 
