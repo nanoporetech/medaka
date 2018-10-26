@@ -6,22 +6,18 @@ import yaml
 from medaka.inference import train, predict
 from medaka.stitch import stitch
 from medaka.common import write_yaml_data
-from medaka.features import choose_feature_func, compress
+from medaka.features import compress
 
 
-def _consensus_feat():
-    """Parser with arguments common to generating consensus features from alignments."""
-
+def _generic_opts():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        description='Consensus features arguments.',
         add_help=False)
 
-    parser.set_defaults(func=choose_feature_func)
     parser.add_argument('bam', help='Input alignments.')
     parser.add_argument('reference', help='Input reference .fasta corresponding to `bam`.')
-    parser.add_argument('-r', '--regions', nargs='+', default=None, type=str, help='Regions in samtools format.')
-    parser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads for parallel execution.')
+    parser.add_argument('--regions', nargs='+', type=str, help='Region in zero-based (samtools-like) format.')
+    parser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
     parser.add_argument('--chunk_len', type=int, default=10000, help='Chunk length of samples.')
     parser.add_argument('--chunk_ovlp', type=int, default=1000, help='Overlap of chunks.')
     parser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
@@ -29,12 +25,11 @@ def _consensus_feat():
     return parser
 
 
-def _train_feat():
+def _feature_file_opts():
     """Parser with arguments for generating training features from alignments."""
 
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        description='Consensus features arguments.',
         add_help=False)
 
     parser.add_argument('output', help='Output features file.')
@@ -78,7 +73,7 @@ def main():
     pparser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads for parallel execution.')
 
     fparser = subparsers.add_parser('features', help='Create features for inference.',
-                                    parents=[_consensus_feat(), _train_feat()],
+                                    parents=[_generic_opts(), _feature_file_opts()],
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     tparser = subparsers.add_parser('train', help='Train a model from features.',
@@ -95,13 +90,13 @@ def main():
     tparser.add_argument('--balanced_weights', action='store_true', help='Balance label weights.')
 
     cparser = subparsers.add_parser('consensus', help='Run inference from a trained model and alignments.',
-                                    parents=[_consensus_feat(), _predict()],
+                                    parents=[_generic_opts(), _predict()],
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     cfparser = subparsers.add_parser('consensus_from_features', help='Run inference from a trained model on existing features.',
                                     parents=[_predict()],
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    cfparser.add_argument('--features', nargs='+', help='Pregenerated features (saved with --output_features option).')
+    cfparser.add_argument('features', nargs='+', help='Pregenerated features (saved with --output_features option).')
     cfparser.add_argument('--ref_names', nargs='+', help='Only load these references from pregenerated features.', default=None)
 
 

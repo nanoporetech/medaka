@@ -13,6 +13,7 @@ from Bio import SeqIO
 import h5py
 from keras.utils.np_utils import to_categorical
 import numpy as np
+import pysam
 
 
 import logging
@@ -33,7 +34,6 @@ encoding = OrderedDict(((a, i) for i, a in enumerate(decoding)))
 AlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'rpos', 'rbase'))
 ComprAlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'qlen', 'rpos', 'rbase', 'rlen'))
 
-Region = namedtuple('Region', 'ref_name start end')
 _feature_opt_path_ = 'medaka_features_kwargs'
 _model_opt_path_ = 'medaka_model_kwargs'
 _sample_path_ = 'samples'
@@ -67,11 +67,45 @@ class Sample(_Sample):
 
     @property
     def name(self):
-        """Create one-based (end inclusive) samtools-style region str."""
+        """Create zero-based (end inclusive) samtools-style region str."""
         fmaj, fmin = self.first_pos
         lmaj, lmin = self.last_pos
         return '{}:{}.{}-{}.{}'.format(
-            self.ref_name, fmaj + 1, fmin, lmaj + 1, lmin)
+            self.ref_name, fmaj, fmin, lmaj + 1, lmin)
+
+    def chunks(self, chunk_len=1000, overlap=200):
+        """Create overlapping chunks of
+        
+        :param chunk_len: chunk length (number of columns)
+        :param overlap: overlap length.
+
+        :yields: chunked `Sample`s.
+        """
+        chunker = functools.partial(sliding_window,
+            window=chunk_len, step=chunk_len - overlap, axis=0)
+        sample = self._asdict()
+        chunkers = {
+            field: chunker(sample[field])
+            if sample[field] is not None else itertools.repeat(None)
+            for field in sample.keys()
+        }
+
+        for i, pos in enumerate(chunkers['positions']):
+            fields = set(sample.keys()) - set(['positions', 'ref_name'])
+            new_sample = {
+                'positions':pos, 'ref_name':sample['ref_name']
+            }
+            for field in fields:
+                new_sample[field] = next(chunkers[field])
+            yield Sample(**new_sample) 
+
+
+#TODO: refactor this
+_Region = namedtuple('Region', 'ref_name start end')
+class Region(_Region):
+    def __str__(self):
+        # This will be zero-based, end exclusive
+        return '{}:{}-{}'.format(self.ref_name, self.start, self.end)
 
 
 def decode_sample_name(key):
@@ -166,6 +200,34 @@ def parse_regions(regions):
                 start, end = [int(b) for b in bounds.split('-')]
         decoded.append(Region(ref_name, start, end))
     return tuple(decoded)
+
+
+def get_regions(bam, region_strs=None):
+    """Create `Region` objects from a bam and region strings.
+
+    :param bam: `.bam` file.
+    :param region_strs: iterable of str in zero-based (samtools-like)
+        region format e.g. ref:start-end or filepath containing a
+        region string per line.
+
+    :returns: list of `Region` objects.
+    """
+    with pysam.AlignmentFile(bam) as bam_fh:
+        ref_lengths = dict(zip(bam_fh.references, bam_fh.lengths))
+    if region_strs is not None:
+        if os.path.isfile(region_strs[0]):
+            with open(region_strs[0]) as fh:
+                region_strs = [l.strip() for l in fh.readlines()]
+
+        regions = []
+        for r in parse_regions(region_strs):
+            start = r.start if r.start is not None else 0
+            end = r.end if r.end is not None else ref_lengths[r.ref_name]
+            regions.append(Region(r.ref_name, start, end))
+    else:
+        regions = [Region(ref_name, 0, end) for ref_name, end in ref_lengths.items()]
+
+    return regions
 
 
 def lengths_to_rle(lengths):
@@ -520,21 +582,10 @@ def chunk_sample(sample, chunk_len=1000, overlap=200):
     :param sample: `Sample` obj
     :param chunk_len: chunk length (number of columns)
     :param overlap: overlap length.
+
     :yields: `Sample` objs.
     """
-    chunker = functools.partial(sliding_window, window=chunk_len, step=chunk_len-overlap, axis=0)
-    logger.debug("Rechunking into chunks of {} columns each overlapping by {} columns.".format(chunk_len, overlap))
-    sample = sample._asdict()
-    chunkers = { field: chunker(sample[field])
-                 if sample[field] is not None else itertools.repeat(None)
-                 for field in sample.keys()
-    }
-    for pos in chunkers['positions']:
-        fields = set(sample.keys()) - set(['positions', 'ref_name'])
-        new_sample = { 'positions': pos, 'ref_name': sample['ref_name']}
-        for field in fields:
-            new_sample[field] = next(chunkers[field])
-        yield Sample(**new_sample)
+    yield from sample.chunk(chunk_len, overlap)
 
 
 class ThreadsafeIter:
