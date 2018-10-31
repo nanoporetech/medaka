@@ -365,7 +365,6 @@ class FeatureEncoder(object):
             regions with multiple mappings were encountered.
 
         """
-        raise NotImplementedError('This needs fixing')
 
         # filter truth alignments to restrict ourselves to regions of the ref where the truth
         # in unambiguous
