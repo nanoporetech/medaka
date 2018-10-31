@@ -173,12 +173,12 @@ class TruthAlignment(object):
             dtype = [('base', int), ('run_length', int)]
         else:
             dtype = int
-        label_array = np.empty(shape=(1, len(positions_labels)), dtype=dtype)
+        label_array = np.empty(shape=len(positions_labels), dtype=dtype)
         positions = np.empty(len(positions_labels),
                              dtype=[('major', int), ('minor', int)])
 
         for i, (pos, label) in enumerate(positions_labels):
             positions[i] = pos
-            label_array[0, i] = label
+            label_array[i] = label
 
         return positions, label_array
