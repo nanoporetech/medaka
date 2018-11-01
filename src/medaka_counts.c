@@ -93,14 +93,15 @@ static int read_bam(void *data, bam1_t *b) {
 plp_data calculate_pileup(const char *region, const char *bam_file) { 
 
     // extract `chr`:`start`-`end` from `region`
-    //   (start is zero-based and end-exclusive), 
+    //   (start is one-based and end-inclusive), 
     //   hts_parse_reg below sets return value to point
     //   at ":", copy the input then set ":" to null terminator
     //   to get `chr`.
     int start, end;
-    char *chr = xalloc(strlen(region), sizeof(char), "chr");
+    char *chr = xalloc(strlen(region) + 1, sizeof(char), "chr");
     strcpy(chr, region);
     char *reg_chr = (char *) hts_parse_reg(chr, &start, &end);
+    // start and end now zero-based end exclusive
     if (reg_chr) {
         *reg_chr = '\0';
     } else {
@@ -144,7 +145,9 @@ plp_data calculate_pileup(const char *region, const char *bam_file) {
     plp_data pileup = create_plp_data(n_cols);
 
     // reset and iterate to get counts
+    bam_itr_destroy(data->iter);
     data->iter = bam_itr_querys(idx, hdr, region);
+    bam_mplp_destroy(mplp);
     mplp = bam_mplp_init(1, read_bam, (void **)& data);
     size_t major_col = 0; // col of `pileup` corresponding to pos
     while ((ret=bam_mplp_auto(mplp, &tid, &pos, &n_plp, plp) > 0)) {
@@ -193,6 +196,7 @@ plp_data calculate_pileup(const char *region, const char *bam_file) {
         major_col += (featlen * (max_ins+1));
     }
 
+    bam_itr_destroy(data->iter);
     bam_mplp_destroy(mplp);
     free(data);
     free(plp);
