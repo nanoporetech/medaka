@@ -17,19 +17,6 @@ from keras.layers.wrappers import Bidirectional
 from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
 
 
-# set some Tensorflow session options
-"""
-from keras.backend.tensorflow_backend import set_session
-import tensorflow as tf
-config = tf.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = 0.3
-set_session(tf.Session(config=config))
-"""
-
-from keras import backend as K
-K.set_session(K.tf.Session(config=K.tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)))
-
-
 import logging
 logger = logging.getLogger(__name__)
 
@@ -227,9 +214,6 @@ class VarQueue(list):
                 ref += self[-1].ref[-1]
                 alt = ref[0]
 
-                fmaj, fmin = self[0].get_tag('SC')[0:2]
-                lmaj, lmin = self[0].get_tag('SC')[2:4]
-                info = {'SC':[fmaj, fmin, lmaj, lmin]}
                 merged_var = vcf.Variant(name, pos, ref, alt, info=info)
                 vcf_fh.write_variant(merged_var)
             else:
@@ -257,6 +241,7 @@ class VCFChunkWriter(object):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.writer.__exit__(exc_type, exc_val, exc_tb)
+        self.ref_fasta.__exit__(exc_type, exc_val, exc_tb)
 
     def add_chunk(self, sample, pred):
         # Write consensus alts to vcf
@@ -286,7 +271,6 @@ class VCFChunkWriter(object):
                     alt = ref_seq[pos]
             else:
                 ref = ref_seq[pos]
-
 
             # Merging of variants produced by considering major.{minor} positions
             # These are of the form:
@@ -328,51 +312,46 @@ class VCFChunkWriter(object):
             self.writer.write_variant(var_queue[0])
         
 
-def run_prediction(sample_gen, model, reference_fasta, label_decoding, output_prefix='consensus_chunks',
-                   batch_size=200, predictions_file=None, n_samples=None):
+def run_prediction(sample_gen, model, output,
+                   batch_size=200, n_samples=None):
     """Run inference."""
-    #TODO: reference_fasta isn't now necessary: remove 
     batches = grouper(sample_gen.samples, batch_size)
 
-    if predictions_file is not None:
-        pred_h5 = h5py.File(predictions_file, 'w')
+    with h5py.File(output, 'w') as pred_h5:
 
-    first_batch = True
-    n_samples_done = 0
-        
-    t0 = now()
-    tlast = t0
-    for data in batches:
-        x_data = np.stack((x.features for x in data))
+        first_batch = True
+        n_samples_done = 0
+            
+        t0 = now()
+        tlast = t0
+        for data in batches:
+            x_data = np.stack((x.features for x in data))
 
-        if first_batch:
-            logging.info('Updating model state with first batch')
+            if first_batch:
+                logging.info('Updating model state with first batch')
+                class_probs = model.predict(x_data, batch_size=batch_size, verbose=1)
+                first_batch = False
+
             class_probs = model.predict(x_data, batch_size=batch_size, verbose=1)
-            first_batch = False
-
-        class_probs = model.predict(x_data, batch_size=batch_size, verbose=1)
-        n_samples_done += x_data.shape[0]
-        t1 = now()
-        if t1 - tlast > 10:
-            tlast = t1
-            if n_samples is not None:  # we know how many samples we will be processing
-                msg = '{:.1%} Done ({}/{} samples) in {:.1f}s'
-                logging.info(msg.format(n_samples_done / n_samples, n_samples_done, n_samples, t1 - t0))
-            else:
-                logging.info('Done {} samples in {:.1f}s'.format(n_samples_done, t1 - t0, x_data.shape))
+            n_samples_done += x_data.shape[0]
+            t1 = now()
+            if t1 - tlast > 10:
+                tlast = t1
+                if n_samples is not None:  # we know how many samples we will be processing
+                    msg = '{:.1%} Done ({}/{} samples) in {:.1f}s'
+                    logging.info(msg.format(n_samples_done / n_samples, n_samples_done, n_samples, t1 - t0))
+                else:
+                    logging.info('Done {} samples in {:.1f}s'.format(n_samples_done, t1 - t0, x_data.shape))
  
-        best = np.argmax(class_probs, -1)
-        for sample, prob, pred in zip(data, class_probs, best):
-            # write out positions and predictions for later analysis
-            if predictions_file is not None:
-                sample_d = sample._asdict()
-                sample_d['label_probs'] = prob
-                sample_d['features'] = None  # to keep file sizes down
-                write_sample_to_hdf(Sample(**sample_d), pred_h5)
+            best = np.argmax(class_probs, -1)
+            for sample, prob, pred in zip(data, class_probs, best):
+                # write out positions and predictions for later analysis
+                if pred_h5 is not None:
+                    sample_d = sample._asdict()
+                    sample_d['label_probs'] = prob
+                    sample_d['features'] = None  # to keep file sizes down
+                    write_sample_to_hdf(Sample(**sample_d), pred_h5)
  
-    if predictions_file is not None:
-        pred_h5.close()
-        write_yaml_data(predictions_file, {_label_decod_path_: label_decoding})
 
     logging.info('All done')
 
@@ -529,10 +508,13 @@ def train(args):
 
 def predict(args):
     """Inference program."""
+    from keras import backend as K
+    K.set_session(K.tf.Session(config=K.tf.ConfigProto(
+        intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)))
+    
     logger = logging.getLogger('Master')
     args.regions = get_regions(args.bam, region_strs=args.regions)
     logger.info('Processing region(s): {}'.format(' '.join(str(r) for r in args.regions)))
-
 
     n_samples = None
     if hasattr(args, 'features'):
@@ -547,7 +529,7 @@ def predict(args):
         n_samples = sum(refs_n_samples.values())
     else:
         data_gen = SampleGenerator(
-            args.bam, args.reference, args.regions[0], args.model, args.read_fraction,
+            args.bam, args.regions[0], args.model, args.rle_ref, args.read_fraction,
             chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
         logging.info("Generating features from bam.")
 
@@ -592,15 +574,16 @@ def predict(args):
     )))
     logging.info('\n{}'.format(model.summary()))
 
+
     #TODO: provide parallelism
     for i, region in enumerate(args.regions):
         if i > 0:
             data_gen = SampleGenerator(
-                args.bam, args.reference, region, args.model, args.read_fraction,
+                args.bam, region, args.model, args.rle_ref, args.read_fraction,
                 chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
         run_prediction(
-            data_gen, model, args.reference, label_decoding=model_data[_label_decod_path_],
-            output_prefix=args.output_prefix,
-            predictions_file=args.output_probs,
+            data_gen, model,
+            output=args.output,
             batch_size=args.batch_size, n_samples=n_samples,
         )
+    write_yaml_data(args.output, {_label_decod_path_: model_data[_label_decod_path_]})

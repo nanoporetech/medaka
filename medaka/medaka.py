@@ -1,7 +1,10 @@
 import argparse
 import logging
-import numpy as np
+import os
+from pkg_resources import resource_filename
 import yaml
+
+import numpy as np
 
 from medaka.inference import train, predict
 from medaka.stitch import stitch
@@ -9,52 +12,14 @@ from medaka.common import write_yaml_data
 from medaka.features import compress
 
 
-def _generic_opts():
+def _chunking_feature_args():
     parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        add_help=False)
-
-    parser.add_argument('bam', help='Input alignments.')
-    parser.add_argument('reference', help='Input reference .fasta corresponding to `bam`.')
-    parser.add_argument('--regions', nargs='+', type=str, help='Region in zero-based (samtools-like) format.')
-    parser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
+    parser.add_argument('--regions', default=None, nargs='+', help='Genomic regions to analyse.')
     parser.add_argument('--chunk_len', type=int, default=10000, help='Chunk length of samples.')
     parser.add_argument('--chunk_ovlp', type=int, default=1000, help='Overlap of chunks.')
     parser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
         nargs=2, metavar=('lower', 'upper'))
-    return parser
-
-
-def _feature_file_opts():
-    """Parser with arguments for generating training features from alignments."""
-
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        add_help=False)
-
-    parser.add_argument('output', help='Output features file.')
-    parser.add_argument('-T', '--truth', help='Bam of truth aligned to ref to create features for training.')
-    parser.add_argument('--batch_size', type=int, default=None, help='Write training batches rather than samples')
-    parser.add_argument('--max_label_len', type=int, default=10, help='Max label length (only used if writing batches).')
-    parser.add_argument('-m', '--model', help='Create features expected by this model (.yml or .hdf)')
-    return parser
-
-
-def _predict():
-    """Parser with arguments for running consensus."""
-
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        description='Consensus.',
-        add_help=False)
-
-    parser.set_defaults(func=predict)
-    parser.add_argument('model', help='Model .hdf file from training.')
-    parser.add_argument('--model_yml', help='Model yml containing label encoding and model options, required only if training ended prematurely.')
-    parser.add_argument('--output_prefix', default='consensus_chunks', help='Consensus sequence output fasta file.')
-    parser.add_argument('--output_probs', default=None, help='Consensus probabilities output hdf file.')
-    parser.add_argument('--batch_size', type=int, default=5, help='Prediction batch size.')
-
     return parser
 
 
@@ -64,20 +29,33 @@ def main():
     subparsers = parser.add_subparsers(title='subcommands', description='valid commands', help='additional help', dest='command')
     subparsers.required = True
 
+    default_model = os.path.join(resource_filename(__package__, 'data'), 'medaka_model.hdf5') 
 
-    pparser = subparsers.add_parser('compress', help='Compress basecalls / draft assemblies.',
-                                    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    # Transformation of sequence data
+    #TODO: is this needed?
+    pparser = subparsers.add_parser('compress',
+        help='Transform basecalls and draft assemblies.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     pparser.set_defaults(func=compress)
     pparser.add_argument('input', help='.fasta/fastq file.')
-    pparser.add_argument('-o', '--output', default=None, help='Output file, default it stdout.')
-    pparser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads for parallel execution.')
+    pparser.add_argument('--output', default=None, help='Output file, default it stdout.')
+    pparser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
 
-    fparser = subparsers.add_parser('features', help='Create features for inference.',
-                                    parents=[_generic_opts(), _feature_file_opts()],
-                                    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    # Creation of feature files
+    fparser = subparsers.add_parser('features',
+        help='Create features for inference.',
+        parents=[_chunking_feature_args()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    fparser.add_argument('output', help='Output features file.')
+    fparser.add_argument('--model', default=default_model, help='Create features expected by this model (.yml or .hdf)')
+    fparser.add_argument('--truth', help='Bam of truth aligned to ref to create features for training.')
+    fparser.add_argument('--batch_size', type=int, default=None, help='Write training batches rather than samples')
+    fparser.add_argument('--max_label_len', type=int, default=10, help='Max label length (only used if writing batches).')
 
-    tparser = subparsers.add_parser('train', help='Train a model from features.',
-                                    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    # Training program
+    tparser = subparsers.add_parser('train',
+        help='Train a model from features.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     tparser.set_defaults(func=train)
     tparser.add_argument('features', nargs='+', help='Path for training data.')
     tparser.add_argument('--train_name', type=str, default='keras_train', help='Name for training run.')
@@ -89,34 +67,47 @@ def main():
     tparser.add_argument('--max_samples', type=int, default=np.inf, help='Only train on max_samples.')
     tparser.add_argument('--balanced_weights', action='store_true', help='Balance label weights.')
 
-    cparser = subparsers.add_parser('consensus', help='Run inference from a trained model and alignments.',
-                                    parents=[_generic_opts(), _predict()],
-                                    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    # Consensus from bam input
+    cparser = subparsers.add_parser('consensus',
+        help='Run inference from a trained model and alignments.',
+        parents=[_chunking_feature_args()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    cparser.set_defaults(func=predict)
+    cparser.add_argument('bam', help='Input alignments.')
+    cparser.add_argument('output', help='Output file.')
+    cparser.add_argument('--batch_size', type=int, default=5, help='Prediction batch size.')
+    cparser.add_argument('--model', default=default_model, help='Model definition.')
+    cparser.add_argument('--rle_ref', default=None, help='Encoded reference file (required only for some model types.')
 
-    cfparser = subparsers.add_parser('consensus_from_features', help='Run inference from a trained model on existing features.',
-                                    parents=[_predict()],
-                                    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    cfparser.add_argument('features', nargs='+', help='Pregenerated features (saved with --output_features option).')
-    cfparser.add_argument('--ref_names', nargs='+', help='Only load these references from pregenerated features.', default=None)
+    # Consensus from features input
+    cfparser = subparsers.add_parser('consensus_from_features',
+        help='Run inference from a trained model on existing features.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    cfparser.add_argument('features', nargs='+', help='Pregenerated features (from medaka features).')
+    cfparser.add_argument('--model', default=default_model, help='Model definition.')
+    cfparser.add_argument('--ref_rle', default=None, help='Encoded reference file (required only for some model types.')
 
-
-    sparser = subparsers.add_parser('stitch', help='Stitch basecalled chunks together.',
-                                    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    # Post-processing of consensus outputs
+    sparser = subparsers.add_parser('stitch',
+        help='Stitch together output from medaka consensus into final output.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     sparser.set_defaults(func=stitch)
-    sparser.add_argument('inputs', nargs='+', help='Consensus sequence (.fasta) or probabilities (.hdf) files.')
+    sparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
     sparser.add_argument('output', help='Output .fasta.', default='consensus.fasta')
-    sparser.add_argument('--ref_names', nargs='+', help='Limit stitching to these reference names', default=None)
+    sparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
     sparser.add_argument('--model_yml', help='Model yml containing label encoding, required only if consensus ended prematurely.')
 
+    # Patch up a model after training
     fparser = subparsers.add_parser('fix', help='Add data to a hdf file.')
-    fparser.set_defaults(func=fix)
+    fparser.set_defaults(func=fix_model_hdf)
     fparser.add_argument('hdfs', nargs='+', help='hdf files to add data to.')
     fparser.add_argument('yml', help='yml file containing data to add.')
 
     args = parser.parse_args()
     args.func(args)
 
-def fix(args):
+
+def fix_model_hdf(args):
     with open(args.yml) as fh:
         yml_str = fh.read()
     d = yaml.load(yml_str)

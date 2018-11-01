@@ -1,7 +1,9 @@
 import logging
-import numpy as np
 from itertools import chain
-from medaka.common import (_gap_, get_sample_overlap, get_sample_index_from_files,
+
+import numpy as np
+
+from medaka.common import (_gap_, Region, get_sample_overlap, get_sample_index_from_files,
                            load_yaml_data, yield_from_feature_files, _label_decod_path_)
 
 
@@ -11,7 +13,7 @@ def write_fasta(filename, contigs):
             fasta.write('>{}\n{}\n'.format(name, seq))
 
 
-def stitch_from_probs(probs_hdfs, ref_names=None, model_yml=None):
+def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
     """Decode and join overlapping label probabilities from hdf to assemble complete sequence
 
     :param probs_hdfs: iterable of hdf filepaths.
@@ -30,8 +32,16 @@ def stitch_from_probs(probs_hdfs, ref_names=None, model_yml=None):
         '{}: {}'.format(i, x) for i, x in enumerate(label_decoding)
     )))
     index = get_sample_index_from_files(probs_hdfs, 'hdf')
-    if ref_names is None:
+    if regions is None:
         ref_names = index.keys()
+    else:
+        #TODO: respect entire region specification
+        ref_names = list()
+        for region in (Region.from_string(r) for r in regions):
+            if region.start is None or region.end is None:
+                logger.warning("Ignoring start:end for '{}'.".format(r))
+            ref_names.append(r.name)
+
     get_pos = lambda s, i: '{}.{}'.format(s.positions[i]['major'] + 1, s.positions[i]['minor'])
     ref_assemblies = []
     for ref_name in ref_names:
@@ -63,6 +73,5 @@ def stitch_from_probs(probs_hdfs, ref_names=None, model_yml=None):
 
 
 def stitch(args):
-
-    joined = stitch_from_probs(args.inputs, ref_names=args.ref_names, model_yml=args.model_yml)
+    joined = stitch_from_probs(args.inputs, regions=args.regions, model_yml=args.model_yml)
     write_fasta(args.output, joined)

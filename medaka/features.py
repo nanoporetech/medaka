@@ -14,7 +14,7 @@ import numpy as np
 import pysam
 
 from medaka.common import (yield_compressed_pairs, Sample, lengths_to_rle, rle,
-                           Region, parse_regions, chunk_samples, write_samples_to_hdf,
+                           Region, chunk_samples, write_samples_to_hdf,
                            segment_limits, decoding, encoding,
                            _gap_, _alphabet_, _feature_opt_path_, _feature_decoding_path_,
                            get_pairs, get_pairs_with_hp_len, seq_to_hp_lens,
@@ -67,9 +67,6 @@ def pileup_counts(region, bam):
 
 
 class FeatureEncoder(object):
-    """Class to support multiple feature encodings.
-
-    """
     _ref_modes_ = ['onehot', 'base_length', 'index', None]
     _norm_modes_ = ['total', 'fwd_rev', None]
 
@@ -79,23 +76,20 @@ class FeatureEncoder(object):
                  consensus_as_ref:bool=False, is_compressed:bool=True):
         """Class to support multiple feature encodings
 
-        :param ref_mode: str, how to represent the reference.
-        :param max_hp_len: int, longest homopolymer run which can be represented, longer runs will be truncated.
-        :param log_min: int, take log10 of counts/fractions and set zeros to 10**log_min.
-        :param normalise: str, how to normalise the data.
-        :param with_depth: bool, whether to include a feature describing the total depth.
-        :param consensus_as_ref: bool, whether to use a naive max-count consensus instead of the reference.
-        :param is_compressed: bool, whether to use HP compression. If false, treat as uncompressed.
+        :param ref_mode: how to represent the reference.
+        :param max_hp_len: longest homopolymer run which can be represented, longer runs will be truncated.
+        :param log_min: take log10 of counts/fractions and set zeros to 10**log_min.
+        :param normalise: how to normalise the data.
+        :param with_depth: whether to include a feature describing the total depth.
+        :param consensus_as_ref: whether to use a naive max-count consensus instead of the reference.
+        :param is_compressed: whether to use HP compression. If false, treat as uncompressed.
 
-        :returns: `Sample` object
         """
         self.ref_mode = ref_mode
         self.consensus_as_ref = consensus_as_ref
         self.max_hp_len = max_hp_len
         self.log_min = log_min
         self.normalise = normalise
-        # No point in using default np.float64 when most GPUs want max np.float32
-        # TODO: any benefits going to np.float16 or smaller?
         self.feature_dtype = np.float32 if (self.normalise is not None or self.log_min is not None) else np.uint64
         self.with_depth = with_depth
         self.is_compressed = is_compressed
@@ -135,7 +129,7 @@ class FeatureEncoder(object):
 
 
     def process_ref_seq(self, ref_name, ref_fq):
-        """Get encoded reference
+        """Translate a sequence to RLE or truncated homopolymer form if required.
 
         :param ref_name: str, name of contig within `ref_fq`.
         :param ref_fq: path to reference fastq, or `SeqIO.index` obj.
@@ -173,8 +167,7 @@ class FeatureEncoder(object):
         assert not self.with_depth
         assert not self.is_compressed
 
-        reg_str = '{}:{}-{}'.format(region.ref_name, region.start, region.end)
-        counts, positions = pileup_counts(reg_str, reads_bam)
+        counts, positions = pileup_counts(region.name, reads_bam)
         # get rid of first counts row (counts of alternative bases)
         counts = counts[:, 1:]
 
@@ -203,13 +196,14 @@ class FeatureEncoder(object):
         return sample
 
 
-    def bam_to_sample(self, reads_bam, reference, region, read_fraction=None):
+    def bam_to_sample(self, reads_bam, region, reference=None, read_fraction=None):
         """Converts a section of an alignment pileup (as shown
         by e.g. samtools tview) to a base frequency feature array
 
         :param reads_bam: (sorted indexed) bam with read alignment to reference
-        :param reference: reference `.fasta`, should correspond to `bam`.
         :param region: `Region` object with ref_name, start and end attributes.
+        :param reference: reference `.fasta`, should correspond to `bam`.
+        :param read_fraction: fraction of reads to use, if `None` use all.
         :returns: `Sample` object
         """
 
@@ -220,7 +214,7 @@ class FeatureEncoder(object):
             try:
                 return self.bam_to_sample_c(reads_bam, region)
             except Exception as e:
-                self.logger.debug('Could not process sample with bam_to_sample_c, using python code instead.\n({}).'.format(e))
+                self.logger.info('Could not process sample with bam_to_sample_c, using python code instead.\n({}).'.format(e))
                 pass
 
         if self.is_compressed:
@@ -352,7 +346,7 @@ class FeatureEncoder(object):
             return sample
 
 
-    def bams_to_training_samples(self, truth_bam, bam, region, reference, read_fraction=None):
+    def bams_to_training_samples(self, truth_bam, bam, region, reference=None, read_fraction=None):
         """Prepare training data chunks.
 
         :param truth_bam: .bam file of truth aligned to ref to generate labels.
@@ -438,46 +432,47 @@ def alphabet_filter(sample_gen, alphabet=None, filter_labels=True, filter_ref_se
 
 class SampleGenerator(object):
 
-    def __init__(self, bam, reference, region, model, truth_bam=None, read_fraction=None, chunk_len=1000, chunk_overlap=200):
+    def __init__(self, bam, region, model, rle_ref=None, truth_bam=None, read_fraction=None, chunk_len=1000, chunk_overlap=200):
         """Generate chunked inference (or training) samples.
 
         :param bam: `.bam` containing alignments from which to generate samples.
-        :param reference: reference `.fasta`, should correspond to `bam`.
         :param region: a `Region` for which to generate samples. 
         :param model: a medaka model.
         :param truth_bam: a `.bam` containing alignment of truth sequence to
             `reference` sequence. Required only for creating training chunks.
+        :param reference: reference `.fasta`, should correspond to `bam`.
 
         """
-        self.logger = logging.getLogger("Sampling")
+        self.logger = logging.getLogger("Sampler")
         self.sample_type = "training" if truth_bam is not None else "consensus"
-        self.logger.info("Initializing sampling for {} or region {}.".format(self.sample_type, region))
+        self.logger.info("Initializing sampler for {} or region {}.".format(self.sample_type, region))
         self.fencoder = FeatureEncoder(**load_yaml_data(model, _feature_opt_path_))
 
         self.bam = bam
-        self.reference = reference
         self.region = region
         self.model = model
+        self.rle_ref = rle_ref
         self.truth_bam = truth_bam
         self.read_fraction = read_fraction
         self.chunk_len = chunk_len
         self.chunk_overlap = chunk_overlap
         self._source = None # the base data to be chunked
 
+        #TODO: check reference has been given if model/feature encoder requires it
+
 
     def _fill_features(self):
-        from timeit import default_timer as now
-        t0=now()
         if self._source is None:
+            t0 = now()
             if self.truth_bam is not None:
                 self._source = self.fencoder(bams_to_training_samples(
-                    self.truth_bam, self.bam, self.region, self.reference,
+                    self.truth_bam, self.bam, self.region, self.rle_ref,
                     self.read_fraction))
             else:
                 self._source = self.fencoder.bam_to_sample(
-                    self.bam, self.reference, self.region, self.read_fraction)
-        t1=now()
-        self.logger.info("Took {}s to make/check features.".format(t1-t0))
+                    self.bam, self.region, self.rle_ref, self.read_fraction)
+            t1 = now()
+            self.logger.info("Took {}s to make/check features.".format(t1-t0))
 
 
     @property

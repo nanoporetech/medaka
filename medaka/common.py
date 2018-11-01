@@ -48,7 +48,6 @@ _label_batches_path_ = 'medaka_label_batches'
 # We might consider creating a Sample class with methods to encode, decode sample name
 # and perhaps to write/read Samples to/from hdf etc
 _Sample = namedtuple('Sample', ['ref_name', 'features', 'labels', 'ref_seq', 'positions', 'label_probs'])
-_sample_name_decoder_ = re.compile(r"(?P<ref_name>.+):(?P<start>\d+\.\d+)-(?P<end>\d+\.\d+)")
 class Sample(_Sample):
 
     def _get_pos(self, index):
@@ -67,11 +66,25 @@ class Sample(_Sample):
 
     @property
     def name(self):
-        """Create zero-based (end inclusive) samtools-style region str."""
+        """Create zero-based (end inclusive) samtools-style region string."""
         fmaj, fmin = self.first_pos
         lmaj, lmin = self.last_pos
         return '{}:{}.{}-{}.{}'.format(
             self.ref_name, fmaj, fmin, lmaj + 1, lmin)
+
+    @staticmethod
+    def decode_sample_name(name):
+        """Decode a the result of Sample.name into a dict.
+    
+        :param key: `Sample` object.
+        :returns: dict.
+        """
+        d = None
+        name_decoder = re.compile(r"(?P<ref_name>.+):(?P<start>\d+\.\d+)-(?P<end>\d+\.\d+)")
+        m = re.match(name_decoder, name)
+        if m is not None:
+            d = m.groupdict()
+        return d
 
     def chunks(self, chunk_len=1000, overlap=200):
         """Create overlapping chunks of
@@ -97,30 +110,83 @@ class Sample(_Sample):
             }
             for field in fields:
                 new_sample[field] = next(chunkers[field])
-            yield Sample(**new_sample) 
+            yield Sample(**new_sample)
 
 
 #TODO: refactor this
 _Region = namedtuple('Region', 'ref_name start end')
 class Region(_Region):
+
+    @property
+    def name(self):
+        """Samtools-style region string, zero-base end exclusive."""
+        return self.__str__()
+
     def __str__(self):
         # This will be zero-based, end exclusive
         return '{}:{}-{}'.format(self.ref_name, self.start, self.end)
 
+    @classmethod
+    def from_string(cls, region):
+        """Parse region strings into `Region` objects.
+    
+        :param regions: iterable of str
+    
+        >>> parse_regions(['Ecoli'])[0]
+        Region(ref_name='Ecoli', start=None, end=None)
+        >>> parse_regions(['Ecoli:1000-2000'])[0]
+        Region(ref_name='Ecoli', start=1000, end=2000)
+        >>> parse_regions(['Ecoli:1000'])[0]
+        Region(ref_name='Ecoli', start=0, end=1000)
+        >>> parse_regions(['Ecoli:500-'])[0]
+        Region(ref_name='Ecoli', start=500, end=None)
+    
+        """
+        if ':' not in region:
+            ref_name, start, end = region, None, None
+        else:
+            start, end = None, None
+            ref_name, bounds = region.split(':')
+            if bounds[0] == '-':
+                start = 0
+                end = int(bounds[1:])
+            elif bounds[-1] == '-':
+                start = int(bounds[:-1])
+                end = None
+            else:
+                start, end = [int(b) for b in bounds.split('-')]
+        return cls(ref_name, start, end)
 
-def decode_sample_name(key):
-    """Decode a the result of Sample.name into a dict.
 
-    :param key: `Sample` object.
-    :returns: dict.
+def get_regions(bam, region_strs=None):
+    """Create `Region` objects from a bam and region strings.
+
+    :param bam: `.bam` file.
+    :param region_strs: iterable of str in zero-based (samtools-like)
+        region format e.g. ref:start-end or filepath containing a
+        region string per line.
+
+    :returns: list of `Region` objects.
     """
-    d = None
-    m = re.match(_sample_name_decoder_, key)
-    if m is not None:
-        d = m.groupdict()
-    return d
+    with pysam.AlignmentFile(bam) as bam_fh:
+        ref_lengths = dict(zip(bam_fh.references, bam_fh.lengths))
+    if region_strs is not None:
+        if os.path.isfile(region_strs[0]):
+            with open(region_strs[0]) as fh:
+                region_strs = [l.strip() for l in fh.readlines()]
+
+        regions = []
+        for r in (Region.from_string(x) for x in region_strs):
+            start = r.start if r.start is not None else 0
+            end = r.end if r.end is not None else ref_lengths[r.ref_name]
+            regions.append(Region(r.ref_name, start, end))
+    else:
+        regions = [Region(ref_name, 0, end) for ref_name, end in ref_lengths.items()]
+
+    return regions
 
 
+#TODO refactor the below two function into single interface
 def write_sample_to_hdf(s, hdf_fh):
     """Write a sample to HDF5.
 
@@ -138,7 +204,7 @@ def write_sample_to_hdf(s, hdf_fh):
 
 def write_samples_to_hdf(fname, samples):
     """Write samples to hdf, ensuring a sample is not written twice and maintaining
-       a count of labels seen.
+    a count of labels seen.
 
     :param fname: str, output filepath.
     :param samples: iterable of `Sample` objects.
@@ -166,68 +232,6 @@ def write_samples_to_hdf(fname, samples):
     logging.info("Label counts:\n{}".format('\n'.join(
         ['{}: {}'.format(h(label), count) for label, count in labels_counter.items()]
     )))
-
-
-def parse_regions(regions):
-    """Parse region strings into `Region` objects.
-
-    :param regions: iterable of str
-
-    >>> parse_regions(['Ecoli'])[0]
-    Region(ref_name='Ecoli', start=None, end=None)
-    >>> parse_regions(['Ecoli:1000-2000'])[0]
-    Region(ref_name='Ecoli', start=1000, end=2000)
-    >>> parse_regions(['Ecoli:1000'])[0]
-    Region(ref_name='Ecoli', start=0, end=1000)
-    >>> parse_regions(['Ecoli:500-'])[0]
-    Region(ref_name='Ecoli', start=500, end=None)
-
-    """
-    decoded = []
-    for region in regions:
-        if ':' not in region:
-            ref_name, start, end = region, None, None
-        else:
-            start, end = None, None
-            ref_name, bounds = region.split(':')
-            if bounds[0] == '-':
-                start = 0
-                end = int(bounds[1:])
-            elif bounds[-1] == '-':
-                start = int(bounds[:-1])
-                end = None
-            else:
-                start, end = [int(b) for b in bounds.split('-')]
-        decoded.append(Region(ref_name, start, end))
-    return tuple(decoded)
-
-
-def get_regions(bam, region_strs=None):
-    """Create `Region` objects from a bam and region strings.
-
-    :param bam: `.bam` file.
-    :param region_strs: iterable of str in zero-based (samtools-like)
-        region format e.g. ref:start-end or filepath containing a
-        region string per line.
-
-    :returns: list of `Region` objects.
-    """
-    with pysam.AlignmentFile(bam) as bam_fh:
-        ref_lengths = dict(zip(bam_fh.references, bam_fh.lengths))
-    if region_strs is not None:
-        if os.path.isfile(region_strs[0]):
-            with open(region_strs[0]) as fh:
-                region_strs = [l.strip() for l in fh.readlines()]
-
-        regions = []
-        for r in parse_regions(region_strs):
-            start = r.start if r.start is not None else 0
-            end = r.end if r.end is not None else ref_lengths[r.ref_name]
-            regions.append(Region(r.ref_name, start, end))
-    else:
-        regions = [Region(ref_name, 0, end) for ref_name, end in ref_lengths.items()]
-
-    return regions
 
 
 def lengths_to_rle(lengths):
@@ -305,8 +309,6 @@ def yield_compressed_pairs(aln, ref_rle):
         a = ComprAlignPos(qpos=qp, qbase=h(seq, qp, None), qlen=h(qlens, qp, 1),
                           rpos=rp, rbase=rb, rlen=h(ref_rle['length'], rp, 1))
         yield a
-
-
 
 
 def load_yaml_data(fname, group):
@@ -470,7 +472,7 @@ def get_sample_index_from_files(fnames, filetype='hdf', max_samples=np.inf):
             break
         keys = (k for k in fh[_sample_path_]) if filetype == 'hdf' else (k for k in fh)
         for key in keys:
-            d = decode_sample_name(key)
+            d = Sample.decode_sample_name(key)
             if d is not None:
                 d['key'] = key
                 d['filename'] = fname
@@ -700,7 +702,7 @@ def yield_batches_from_hdfs(handles, batches=None, sparse_labels=True, n_classes
     :yields: (np.ndarray of inputs, np.ndarray of labels).
     """
     if batches is None:
-        batches = [ (fname, k) for (fname, fh) in handles.items() for k in fh[_feature_batches_path_]]
+        batches = [(fname, k) for (fname, fh) in handles.items() for k in fh[_feature_batches_path_]]
 
     np.random.shuffle(batches)
     epoch = 0
