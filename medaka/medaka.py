@@ -92,6 +92,7 @@ def main():
     tparser.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
     tparser.add_argument('--batch_size', type=int, default=200, help='Training batch size.')
     tparser.add_argument('--max_samples', type=int, default=np.inf, help='Only train on max_samples.')
+    tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
     tparser.add_argument('--balanced_weights', action='store_true', help='Balance label weights.')
 
     cparser = subparsers.add_parser('consensus', help='Run inference from a trained model and alignments.',
