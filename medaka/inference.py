@@ -12,12 +12,14 @@ import h5py
 import numpy as np
 import pysam
 
-from keras import backend as K
-from keras.models import Sequential, load_model
-from keras.layers import Dense, GRU, Dropout
-from keras.layers.wrappers import Bidirectional
-from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
+# Don't import keras here as it will then import Tensorflow (takes a few
+# seconds), which seems a long time if all you want to do is run the help.
 
+#from keras import backend as K
+#from keras.models import Sequential, load_model
+#from keras.layers import Dense, GRU, Dropout
+#from keras.layers.wrappers import Bidirectional
+#from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
 
 from medaka import vcf
 from medaka.common import (_label_counts_path_, Region, get_regions,
@@ -47,6 +49,7 @@ def weighted_categorical_crossentropy(weights):
         model.compile(loss=loss,optimizer='adam')
     """
 
+    from keras import backend as K
     weights = K.variable(weights)
 
     def loss(y_true, y_pred):
@@ -75,6 +78,10 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropou
     :returns: `keras.models.Sequential` object.
     """
 
+    from keras.models import Sequential
+    from keras.layers import Dense, GRU, Dropout
+    from keras.layers.wrappers import Bidirectional
+
     model = Sequential()
 
     gru1 = GRU(gru_size, activation='tanh', return_sequences=True, name='gru1',
@@ -97,6 +104,7 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropou
 
 
 def qscore(y_true, y_pred):
+    from keras import backend as K
     error = K.cast(K.not_equal(
         K.max(y_true, axis=-1), K.cast(K.argmax(y_pred, axis=-1), K.floatx())),
         K.floatx()
@@ -106,7 +114,7 @@ def qscore(y_true, y_pred):
 
 
 def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid, label_decoding,
-                 timesteps, feat_dim, model_fp=None, epochs=5000, batch_size=100, class_weight=None):
+                 timesteps, feat_dim, model_fp=None, epochs=5000, batch_size=100, class_weight=None, n_mini_epochs=1):
     """Run training."""
 
     logger = logging.getLogger('Training')
@@ -126,6 +134,7 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
     model = build_model(timesteps, feat_dim, num_classes, **model_kwargs)
 
     if model_fp is not None and os.path.splitext(model_fp)[-1] != '.yml':
+        from keras.models import load_model
         old_model = load_model(model_fp, custom_objects={'qscore': qscore})
         old_model_feat_dim = old_model.get_input_shape_at(0)[2]
         assert old_model_feat_dim == feat_dim
@@ -140,6 +149,8 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
     write_yaml_data(os.path.join(train_name, 'training_config.yml'), model_details)
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
+
+    from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
     callbacks = [
         # Best model according to training set accuracy
         ModelCheckpoint(os.path.join(train_name, 'model.best.hdf5'),
@@ -178,9 +189,15 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
        optimizer='rmsprop',
        metrics=['accuracy', qscore],
     )
+
+    if n_mini_epochs == 1:
+        logging.info("Not using mini_epochs, an epoch is a full traversal of the training data")
+    else:
+        logging.info("Using mini_epochs, an epoch is a traversal of 1/{} of the training data".format(n_mini_epochs))
+
     # fit generator
     model.fit_generator(
-        sample_gen, steps_per_epoch=n_batch_train,
+        sample_gen, steps_per_epoch=n_batch_train//n_mini_epochs,
         validation_data=valid_gen, validation_steps=n_batch_valid,
         max_queue_size=8, workers=8, use_multiprocessing=False,
         epochs=epochs,
@@ -498,7 +515,7 @@ def train(args):
 
     run_training(train_name, gen_train, gen_valid, n_batch_train, n_batch_valid, label_decoding,
                  timesteps, feat_dim, model_fp=args.model, epochs=args.epochs, batch_size=args.batch_size,
-                 class_weight=class_weight)
+                 class_weight=class_weight, n_mini_epochs=args.mini_epochs)
 
     for fh in handles.values():
         fh.close()

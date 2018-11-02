@@ -1,21 +1,26 @@
 from collections import OrderedDict, namedtuple, defaultdict, Counter
+from concurrent.futures import ProcessPoolExecutor
 import errno
 import functools
 import itertools
 import logging
 import os
+import logging
 from pkg_resources import resource_filename
+import queue
 import re
 import threading
+import time
 from timeit import default_timer as now
 import yaml
 
 from Bio import SeqIO
 import h5py
-from keras.utils.np_utils import to_categorical
 import numpy as np
 import pysam
 
+# don't import keras here, as it means a slow import of tensorflow
+#from keras.utils.np_utils import to_categorical
 
 
 # Codec for converting tview output to ints.
@@ -680,6 +685,42 @@ def yield_batches_from_hdf(h5, keys):
                h5['{}/{}'.format(_label_batches_path_, i)][()])
 
 
+class BatchQueue(object):
+    def  __init__(self, batches, sparse_labels, n_classes):
+        self.batches = batches
+        self.sparse_labels = sparse_labels
+        self.n_classes = n_classes
+
+        self._queue = queue.Queue(maxsize=100)
+        self.qthread = threading.Thread(target=self._fill_queue)
+        self.qthread.start()
+        time.sleep(3)
+
+
+    def _fill_queue(self):
+        with ProcessPoolExecutor() as executor:
+            epoch = 0
+            while True:
+                np.random.shuffle(self.batches)
+                for (fname, i) in self.batches:
+                    res = executor.submit(BatchQueue._generate_batch, fname, i, self.sparse_labels, self.n_classes)
+                    res = res.result()
+                    self._queue.put(res)
+                    #logging.debug("Took {:5.3}s to load batch {} (epoch {})".format(t1-t0, batch, epoch))
+                    #batch += 1
+                epoch += 1
+
+
+    @staticmethod
+    def _generate_batch(filename, index, sparse_labels, n_classes):
+        with h5py.File(filename, 'r') as h5:
+            xs = h5['{}/{}'.format(_feature_batches_path_, index)][()]
+            ys = h5['{}/{}'.format(_label_batches_path_, index)][()]
+        if not sparse_labels:
+            ys = to_categorical(ys, num_classes=n_classes)
+        return xs, ys
+
+
 @threadsafe_generator
 def yield_batches_from_hdfs(handles, batches=None, sparse_labels=True, n_classes=None):
     """Yield batches of training features and labels indefinitely, shuffling between epochs.
@@ -690,27 +731,9 @@ def yield_batches_from_hdfs(handles, batches=None, sparse_labels=True, n_classes
     :param n_classes: int, number of classes for one-hot encoding.
     :yields: (np.ndarray of inputs, np.ndarray of labels).
     """
-    if batches is None:
-        batches = [(fname, k) for (fname, fh) in handles.items() for k in fh[_feature_batches_path_]]
-
-    np.random.shuffle(batches)
-    epoch = 0
+    queue = BatchQueue(batches, sparse_labels, n_classes)
     while True:
-        batch = 0
-        for (fname, i) in batches:
-            h5 = handles[fname]
-            t0 = now()
-            xs = h5['{}/{}'.format(_feature_batches_path_, i)][()]
-            ys = h5['{}/{}'.format(_label_batches_path_, i)][()]
-            if not sparse_labels:
-                ys = to_categorical(ys, num_classes=n_classes)
-            t1 = now()
-            logging.debug("Took {:5.3}s to load batch {} (epoch {})".format(t1-t0, batch, epoch))
-            yield xs, ys
-            batch += 1
-        epoch += 1
-        # shuffle between epochs
-        np.random.shuffle(batches)
+        yield queue._queue.get()
 
 
 def print_data_path():
