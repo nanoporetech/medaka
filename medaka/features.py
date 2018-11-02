@@ -169,6 +169,13 @@ class FeatureEncoder(object):
         assert not self.is_compressed
 
         counts, positions = pileup_counts(region, reads_bam)
+        if len(counts) == 0:
+            msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
+            self.logger.warning(msg)
+            return Sample(ref_name=region.ref_name, features=None,
+                          labels=None, ref_seq=None,
+                          positions=positions, label_probs=None)
+
         # get rid of first counts row (counts of alternative bases)
         counts = counts[:, 1:]
 
@@ -275,6 +282,13 @@ class FeatureEncoder(object):
 
             # create feature array
             aln_cols = len(aln_counters)
+            if aln_cols == 0:
+                msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
+                self.logger.warning(msg)
+                return Sample(ref_name=region.ref_name, features=None,
+                              labels=None, ref_seq=None,
+                              positions=positions, label_probs=None)
+
             feature_len = len(self.encoding)
             feature_array = np.zeros(shape=(aln_cols, feature_len), dtype=self.feature_dtype)
             if self.log_min is not None:
@@ -301,7 +315,6 @@ class FeatureEncoder(object):
                     cons_is_reverse, cons_base, cons_length = self.decoding[cons_i]
                     ref_base = cons_base if cons_base is not None else _gap_
                     ref_len = cons_length
-
 
                 if positions[i]['minor'] == 0:
                     major_depth = sum(counts.values())
@@ -482,11 +495,13 @@ class SampleGenerator(object):
         """Iterator over chunked samples."""
         self._fill_features()
         for source in self._source:
-            if len(source.positions) < self.chunk_len:
-                msg = "Region {} is smaller than inference chunk len.".format(
-                    self.region)
-                self.logger.critical(msg)
-                raise ValueError(msg)
+            if source.is_empty:
+                continue
+            if source.size < self.chunk_len:
+                msg = "Region {} ({} positions) is smaller than inference chunk length {}.".format(
+                    source.name, source.size, self.chunk_len)
+                self.logger.warning(msg)
+                continue
 
             self.logger.debug(
                 "Chunking pileup data into {} columns with overlap of {}.".format(
@@ -497,12 +512,10 @@ class SampleGenerator(object):
 
     def training_samples(self, max_label_len):
         """Iterator of (feature, label) pairs for training."""
+        self.logger.info("Maxlabellen: {}".format(max_label_len))
         if self.truth_bam is None:
             raise ValueError("Cannot iterate over training pairs when truth bam has not been given.""")
-        self.logger.info("In training_samples.")
-        self.logger.info("getting label encoding")
         label_encoding, label_decoding = get_label_encoding(max_label_len)
-        self.logger.info("got decoding")
         for s in self.samples:
             if s.labels is None: # this shouldn't happen
                 raise ValueError("Cannot train without labels.")
@@ -565,6 +578,7 @@ def create_samples(args):
 
 
 def create_labelled_samples(args):
+    logger = logging.getLogger('Prepare')
     regions = get_regions(args.bam, args.regions)
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))

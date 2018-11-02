@@ -65,12 +65,21 @@ class Sample(_Sample):
         return self._get_pos(-1)
 
     @property
+    def is_empty(self):
+        return self.size == 0
+
+    @property
+    def size(self):
+        return len(self.positions)
+
+    @property
     def name(self):
         """Create zero-based (end inclusive) samtools-style region string."""
         fmaj, fmin = self.first_pos
         lmaj, lmin = self.last_pos
         return '{}:{}.{}-{}.{}'.format(
             self.ref_name, fmaj, fmin, lmaj + 1, lmin)
+
 
     @staticmethod
     def decode_sample_name(name):

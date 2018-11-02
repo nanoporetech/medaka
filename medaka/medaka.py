@@ -44,7 +44,7 @@ def _chunking_feature_args():
     parser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
         nargs=2, metavar=('lower', 'upper'))
     parser.add_argument('--rle_ref', default=None, help='Encoded reference file (required only for some model types.')
-    parser.add_argument('--max_label_len', type=int, default=20, help='Maximum label length.')
+    parser.add_argument('--max_label_len', type=int, default=1, help='Maximum label length.')
     return parser
 
 
@@ -91,7 +91,7 @@ def main():
     tparser.add_argument('features', nargs='+', help='Path for training data.')
     tparser.add_argument('--train_name', type=str, default='keras_train', help='Name for training run.')
     tparser.add_argument('--model', help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
-    tparser.add_argument('--max_label_len', type=int, default=20, help='Maximum label length.')
+    tparser.add_argument('--max_label_len', type=int, default=1, help='Maximum label length.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
     tparser.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
     tparser.add_argument('--batch_size', type=int, default=200, help='Training batch size.')

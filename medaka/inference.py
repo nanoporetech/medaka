@@ -5,6 +5,7 @@ import inspect
 import itertools
 import logging
 import os
+import sys
 from timeit import default_timer as now
 
 import h5py
@@ -16,7 +17,6 @@ from keras.models import Sequential, load_model
 from keras.layers import Dense, GRU, Dropout
 from keras.layers.wrappers import Bidirectional
 from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
-
 
 
 from medaka import vcf
@@ -133,7 +133,7 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
         model.load_weights(model_fp)
 
     logger.info("feat_dim: {}, timesteps: {}, num_classes: {}".format(feat_dim, timesteps, num_classes))
-    logger.info("\n{}".format(model.summary()))
+    model.summary()
 
     model_details = {_label_decod_path_: label_decoding,
                      _model_opt_path_: model_kwargs}
@@ -491,8 +491,9 @@ def train(args):
         class_weight = None
 
     h = lambda d, i: d[i] if d is not None else 1
-    logger.info("Label encoding is:\n{}".format('\n'.join(
-        '{} ({}, {:9.6f}): {}'.format(i, label_counts[i], h(class_weight, i), l) for i, l in enumerate(label_decoding)
+
+    logger.info("Label statistics are:\n{}".format('\n'.join(
+        '{}: {} ({}, {:9.6f})'.format(i, l, label_counts[i], h(class_weight, i)) for i, l in enumerate(label_decoding)
     )))
 
     run_training(train_name, gen_train, gen_valid, n_batch_train, n_batch_valid, label_decoding,
@@ -532,7 +533,12 @@ def predict(args):
         logger.info("Generating features from bam.")
 
     # take a sneak peak at the first sample
-    first_sample = next(data_gen.samples)
+    try:
+        first_sample = next(data_gen.samples)
+    except StopIteration:
+        msg = 'Could not inspect pileup data. Check coverage of {}.'.format(args.regions[0])
+        logger.critical(msg)
+        sys.exit(1)
     logger.info("Loaded feature data.")
     timesteps = first_sample.features.shape[0]
     feat_dim = first_sample.features.shape[1]
