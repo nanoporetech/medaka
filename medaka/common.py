@@ -2,6 +2,7 @@ from collections import OrderedDict, namedtuple, defaultdict, Counter
 import errno
 import functools
 import itertools
+import logging
 import os
 from pkg_resources import resource_filename
 import re
@@ -16,8 +17,6 @@ import numpy as np
 import pysam
 
 
-import logging
-logger = logging.getLogger(__name__)
 
 # Codec for converting tview output to ints.
 #TODO: this can likely be renomved
@@ -26,6 +25,7 @@ _ref_gap_ = '#'
 _read_sep_ = ' '
 _alphabet_ = 'ACGT'
 _extra_bases_ = 'N'
+#TODO: change name of these
 decoding = _gap_ + _alphabet_.lower() + _alphabet_.upper() + _read_sep_ + _extra_bases_
 # store encoding in ordered dict as the order will always be the same
 # (we need order to be the same for training and inference)
@@ -620,29 +620,6 @@ def threadsafe_generator(f):
     return g
 
 
-def sample_to_x_y(s, encoding, max_label_len=np.inf):
-    """Convert a `Sample` object into an x,y tuple for training.
-
-    :param s: `Sample` object.
-    :param encoding: dict of label encodings.
-    :max_label_len: int, maximum label length, longer labels will be truncated.
-    :returns: (np.ndarray of inputs, np.ndarray of labels)
-    """
-    if s.labels is None:
-        raise ValueError("Cannot train without labels.")
-    x = s.features
-    # labels can either be unicode strings or (base, length) integer tuples
-    if isinstance(s.labels[0], np.unicode):
-        y = np.fromiter((encoding[l[:min(max_label_len, len(l))]]
-                     for l in s.labels), dtype=int, count=len(s.labels))
-    else:
-        y = np.fromiter((encoding[tuple((l['base'],
-                                     min(max_label_len, l['run_length'])))]
-                     for l in s.labels), dtype=int, count=len(s.labels))
-    y = y.reshape(y.shape + (1,))
-    return x, y
-
-
 @threadsafe_generator
 def chain_thread_safe(*gens):
     """Threadsafe version of itertools.chain"""
@@ -665,10 +642,8 @@ def grouper(gen, batch_size=4):
         yield batch
 
 
-@threadsafe_generator
-def gen_train_batch(xy_gen, batch_size, name=''):
-    """Yield training batches.
-    """
+def serial_gen_train_batch(xy_gen, batch_size, name=''):
+    """Yield training batches."""
     count=0
     while True:
         batch = [next(xy_gen) for i in range(batch_size)]
@@ -676,6 +651,11 @@ def gen_train_batch(xy_gen, batch_size, name=''):
         logging.debug("Yielding {} batch {}".format(name, count))
         count += 1
         yield np.stack(xs), np.stack(ys)
+
+
+@threadsafe_generator
+def gen_train_batch(xy_gen, batch_size, name=''):
+    yield from serial_gen_train_batch(xy_gen, batch_size, name='')
 
 
 @threadsafe_generator

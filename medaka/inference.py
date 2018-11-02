@@ -3,6 +3,7 @@ from functools import partial
 import glob
 import inspect
 import itertools
+import logging
 import os
 from timeit import default_timer as now
 
@@ -17,15 +18,13 @@ from keras.layers.wrappers import Bidirectional
 from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
 
 
-import logging
-logger = logging.getLogger(__name__)
 
 from medaka import vcf
 from medaka.common import (_label_counts_path_, Region, get_regions,
                            _label_decod_path_, chain_thread_safe, decoding,
                            get_sample_index_from_files, grouper,
                            load_sample_from_hdf, load_yaml_data,
-                           _model_opt_path_, mkdir_p, Sample, sample_to_x_y,
+                           _model_opt_path_, mkdir_p, Sample,
                            write_sample_to_hdf, write_yaml_data,
                            yield_from_feature_files, gen_train_batch,
                            _label_batches_path_, _feature_batches_path_,
@@ -110,7 +109,8 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
                  timesteps, feat_dim, model_fp=None, epochs=5000, batch_size=100, class_weight=None):
     """Run training."""
 
-    logging.info("Got {} batches for training, {} for validation.".format(n_batch_train, n_batch_valid))
+    logger = logging.getLogger('Training')
+    logger.info("Got {} batches for training, {} for validation.".format(n_batch_train, n_batch_valid))
 
     num_classes = len(label_decoding)
 
@@ -122,18 +122,18 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
         assert model_kwargs is not None
 
     opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in model_kwargs.items()])
-    logging.info('Building model with: \n{}'.format(opt_str))
+    logger.info('Building model with: \n{}'.format(opt_str))
     model = build_model(timesteps, feat_dim, num_classes, **model_kwargs)
 
     if model_fp is not None and os.path.splitext(model_fp)[-1] != '.yml':
         old_model = load_model(model_fp, custom_objects={'qscore': qscore})
         old_model_feat_dim = old_model.get_input_shape_at(0)[2]
         assert old_model_feat_dim == feat_dim
-        logging.info("Loading weights from {}".format(model_fp))
+        logger.info("Loading weights from {}".format(model_fp))
         model.load_weights(model_fp)
 
-    logging.info("feat_dim: {}, timesteps: {}, num_classes: {}".format(feat_dim, timesteps, num_classes))
-    logging.info("\n{}".format(model.summary()))
+    logger.info("feat_dim: {}, timesteps: {}, num_classes: {}".format(feat_dim, timesteps, num_classes))
+    logger.info("\n{}".format(model.summary()))
 
     model_details = {_label_decod_path_: label_decoding,
                      _model_opt_path_: model_kwargs}
@@ -168,10 +168,10 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
 
     if class_weight is not None:
         loss = weighted_categorical_crossentropy(class_weight)
-        logging.info("Using weighted_categorical_crossentropy loss function")
+        logger.info("Using weighted_categorical_crossentropy loss function")
     else:
         loss = 'sparse_categorical_crossentropy'
-        logging.info("Using {} loss function".format(loss))
+        logger.info("Using {} loss function".format(loss))
 
     model.compile(
        loss=loss,
@@ -315,10 +315,10 @@ class VCFChunkWriter(object):
 def run_prediction(sample_gen, model, output,
                    batch_size=200, n_samples=None):
     """Run inference."""
+    logger = logging.getLogger('PWorker')
     batches = grouper(sample_gen.samples, batch_size)
 
     with h5py.File(output, 'w') as pred_h5:
-
         first_batch = True
         n_samples_done = 0
             
@@ -328,20 +328,20 @@ def run_prediction(sample_gen, model, output,
             x_data = np.stack((x.features for x in data))
 
             if first_batch:
-                logging.info('Updating model state with first batch')
-                class_probs = model.predict(x_data, batch_size=batch_size, verbose=1)
+                logger.info('Updating model state with first batch')
+                class_probs = model.predict(x_data, batch_size=batch_size, verbose=0)
                 first_batch = False
 
-            class_probs = model.predict(x_data, batch_size=batch_size, verbose=1)
+            class_probs = model.predict(x_data, batch_size=batch_size, verbose=0)
             n_samples_done += x_data.shape[0]
             t1 = now()
             if t1 - tlast > 10:
                 tlast = t1
                 if n_samples is not None:  # we know how many samples we will be processing
                     msg = '{:.1%} Done ({}/{} samples) in {:.1f}s'
-                    logging.info(msg.format(n_samples_done / n_samples, n_samples_done, n_samples, t1 - t0))
+                    logger.info(msg.format(n_samples_done / n_samples, n_samples_done, n_samples, t1 - t0))
                 else:
-                    logging.info('Done {} samples in {:.1f}s'.format(n_samples_done, t1 - t0, x_data.shape))
+                    logger.info('Done {} samples in {:.1f}s'.format(n_samples_done, t1 - t0, x_data.shape))
  
             best = np.argmax(class_probs, -1)
             for sample, prob, pred in zip(data, class_probs, best):
@@ -351,15 +351,13 @@ def run_prediction(sample_gen, model, output,
                     sample_d['label_probs'] = prob
                     sample_d['features'] = None  # to keep file sizes down
                     write_sample_to_hdf(Sample(**sample_d), pred_h5)
- 
 
-    logging.info('All done')
+    logger.info('All done')
 
 
 def process_labels(label_counts, max_label_len=10):
-    """
-    Create map from full labels to (encoded) truncated labels.
-    """
+    """Create map from full labels to (encoded) truncated labels."""
+    logger = logging.getLogger('Labelling')
 
     old_labels = [k for k in label_counts.keys()]
     if type(old_labels[0]) == tuple:
@@ -373,14 +371,14 @@ def process_labels(label_counts, max_label_len=10):
     old_to_new = dict(zip(old_labels, new_labels))
     label_decoding = list(sorted(set(new_labels)))
     label_encoding = { l: label_decoding.index(old_to_new[l]) for l in old_labels}
-    logging.info("Label encoding dict is:\n{}".format('\n'.join(
+    logger.info("Label encoding dict is:\n{}".format('\n'.join(
         '{}: {}'.format(k, v) for k, v in label_encoding.items()
     )))
 
     new_counts = Counter()
     for l in old_labels:
         new_counts[label_encoding[l]] += label_counts[l]
-    logging.info("New label counts {}".format(new_counts))
+    logger.info("New label counts {}".format(new_counts))
 
     return label_encoding, label_decoding, new_counts
 
@@ -390,14 +388,15 @@ def train(args):
     train_name = args.train_name
     mkdir_p(train_name, info='Results will be overwritten.')
 
-    logging.info("Loading datasets:\n{}".format('\n'.join(args.features)))
+    logger = logging.getLogger('Training')
+    logger.info("Loading datasets:\n{}".format('\n'.join(args.features)))
 
     # get counts of labels in training samples
     label_counts = Counter()
     for f in args.features:
         label_counts.update(load_yaml_data(f, _label_counts_path_))
 
-    logging.info("Total labels {}".format(sum(label_counts.values())))
+    logger.info("Total labels {}".format(sum(label_counts.values())))
 
 
     is_batched = True
@@ -405,20 +404,18 @@ def train(args):
     for f, h5 in handles.items():
         has_batches = _label_batches_path_ in h5 and _feature_batches_path_ in h5
         msg = 'Found batches in {}.' if has_batches else 'No batches in {}.'
-        logging.info(msg.format(f))
+        logger.info(msg.format(f))
         is_batched = is_batched and has_batches
 
     if is_batched:
-
         batches = [ (fname, k) for (fname, fh) in handles.items() for k in fh[_feature_batches_path_]]
-
-        logging.info("Got {} batches.".format(len(batches)))
+        logger.info("Got {} batches.".format(len(batches)))
         # check batch size using first batch
         test_f, test_batch = batches[0]
         h5 = handles[test_f]
         batch_shape = h5['{}/{}'.format(_feature_batches_path_, test_batch)].shape
         label_shape = h5['{}/{}'.format(_label_batches_path_, test_batch)].shape
-        logging.info("Got {} batches with feat shape {}, label shape {}".format(len(batches), batch_shape, label_shape))
+        logger.info("Got {} batches with feat shape {}, label shape {}".format(len(batches), batch_shape, label_shape))
         batch_size, timesteps, feat_dim = batch_shape
         if not sum(label_counts.values()) != len(batches) * timesteps:
             raise ValueError('Label counts not consistent with number of batches')
@@ -442,11 +439,11 @@ def train(args):
     else:
         sample_index = get_sample_index_from_files(args.features, max_samples=args.max_samples)
         refs = [k for k in sample_index.keys()]
-        logging.info("Got the following references for training:\n{}".format('\n'.join(refs)))
+        logger.info("Got the following references for training:\n{}".format('\n'.join(refs)))
         n_samples = sum([len(sample_index[k]) for k in sample_index])
-        logging.info("Got {} pileup chunks for training.".format(n_samples))
+        logger.info("Got {} pileup chunks for training.".format(n_samples))
         # get label encoding, given max_label_len
-        logging.info("Max label length: {}".format(args.max_label_len if args.max_label_len is not None else 'inf'))
+        logger.info("Max label length: {}".format(args.max_label_len if args.max_label_len is not None else 'inf'))
         label_encoding, label_decoding, label_counts = process_labels(label_counts, max_label_len=args.max_label_len)
 
         # create seperate generators of x,y for training and validation
@@ -464,7 +461,7 @@ def train(args):
         samples_valid += [samples_valid[i] for i in np.random.choice(len(samples_valid), n_extra_valid)]
 
         msg = '{} training samples padded to {}, {} validation samples padded to {}'
-        logging.info(msg.format(len(set(samples_train)), len(samples_train),
+        logger.info(msg.format(len(set(samples_train)), len(samples_train),
                                 len(set(samples_valid)), len(samples_valid)))
 
         # load one sample to figure out timesteps and data dim
@@ -494,7 +491,7 @@ def train(args):
         class_weight = None
 
     h = lambda d, i: d[i] if d is not None else 1
-    logging.info("Label encoding is:\n{}".format('\n'.join(
+    logger.info("Label encoding is:\n{}".format('\n'.join(
         '{} ({}, {:9.6f}): {}'.format(i, label_counts[i], h(class_weight, i), l) for i, l in enumerate(label_decoding)
     )))
 
@@ -512,30 +509,31 @@ def predict(args):
     K.set_session(K.tf.Session(config=K.tf.ConfigProto(
         intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)))
     
-    logger = logging.getLogger('Master')
     args.regions = get_regions(args.bam, region_strs=args.regions)
+    logger = logging.getLogger(__package__)
+    logger.name = 'Predict'
     logger.info('Processing region(s): {}'.format(' '.join(str(r) for r in args.regions)))
 
     n_samples = None
     if hasattr(args, 'features'):
         raise NotImplementedError('Prediction from features is currently broken')
-        logging.info("Loading features from file for refs {}.".format(args.ref_names))
+        logger.info("Loading features from file for refs {}.".format(args.ref_names))
         index = get_sample_index_from_files(args.features)
         refs_n_samples = {r: len(l) for (r, l) in index.items()}
         ref_names = args.ref_names if args.ref_names is not None else refs_n_samples.keys()
         msg = "\n".join(["{}: {}".format(r, refs_n_samples[r]) for r in ref_names])
-        logging.info("Number of samples per reference:\n{}\n".format(msg))
+        logger.info("Number of samples per reference:\n{}\n".format(msg))
         data = yield_from_feature_files(args.features, ref_names=args.ref_names)
         n_samples = sum(refs_n_samples.values())
     else:
         data_gen = SampleGenerator(
             args.bam, args.regions[0], args.model, args.rle_ref, args.read_fraction,
             chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
-        logging.info("Generating features from bam.")
+        logger.info("Generating features from bam.")
 
     # take a sneak peak at the first sample
     first_sample = next(data_gen.samples)
-    logging.info("Loaded feature data.")
+    logger.info("Loaded feature data.")
     timesteps = first_sample.features.shape[0]
     feat_dim = first_sample.features.shape[1]
 
@@ -554,9 +552,9 @@ def predict(args):
     num_classes = len(model_data[_label_decod_path_])
 
     opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in model_data[_model_opt_path_].items()])
-    logging.info('Building model with: \n{}'.format(opt_str))
+    logger.info('Building model with: {}'.format(opt_str))
     model = build_model(timesteps, feat_dim, num_classes, **model_data[_model_opt_path_])
-    logging.info("Loading weights from {}".format(args.model))
+    logger.info("Loading weights from {}".format(args.model))
     model.load_weights(args.model)
     # check new model and old are consistent in size
     old_model = load_model(args.model, custom_objects={'qscore': qscore})
@@ -569,11 +567,12 @@ def predict(args):
         msg = 'Incorrect label dimension: got {}, model expects {}'
         raise ValueError(msg.format(num_classes, get_label_dim(old_model)))
 
-    logging.info("Label decoding is:\n{}".format('\n'.join(
+    logger.debug("Label decoding is:\n{}".format('\n'.join(
         '{}: {}'.format(i, x) for i, x in enumerate(model_data[_label_decod_path_])
     )))
-    logging.info('\n{}'.format(model.summary()))
-
+    if logger.level == logging.DEBUG:
+        model.summary()
+    logger.debug("HELLLLLOOOOOO")
 
     #TODO: provide parallelism
     for i, region in enumerate(args.regions):

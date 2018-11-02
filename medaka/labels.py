@@ -19,6 +19,7 @@ class TruthAlignment(object):
         self.start = self.aln.reference_start  # zero-based
         self.end = self.aln.reference_end
         self.is_kept = True
+        self.logger = logging.getLogger('TruthAlign')
 
     def get_overlap_with(self, other):
         first, second = sorted((self, other), key=attrgetter('aln.reference_start'))
@@ -161,7 +162,7 @@ class TruthAlignment(object):
             pos = (current_pos, ins_count)
             label = pair.qbase.upper() if pair.qbase else _gap_
             if label == 'N':
-                logging.info('Found {} at pos {}'.format(label, pos))
+                self.logger.info('Found {} at pos {}'.format(label, pos))
             label = encoding[label]
             if is_compressed or mock_compr:
                 label = (label, pair.qlen)
