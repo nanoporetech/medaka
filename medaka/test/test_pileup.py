@@ -2,7 +2,7 @@ import numpy as np
 import os
 import unittest
 from collections import namedtuple
-from medaka.common import decoding, encoding 
+from medaka.common import decoding, encoding
 from medaka.labels import TruthAlignment
 
 __truth_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'truth_to_ref.bam')
@@ -48,7 +48,7 @@ class TruthAlignmentTest(unittest.TestCase):
 
     def test_case3(self):
         # case 3: longer >= 2 x len shorter and < 50% shorter overlaps longer, remove shorter
-        starts_ends = [(7000, 8000), (7501, 8000)] 
+        starts_ends = [(7000, 8000), (7501, 8000)]
         expected = [(7000, 8000)]
 
         alignments = [TruthAlignment(MockAlignment(start, end, end-start)) for start, end in starts_ends]
@@ -129,12 +129,12 @@ class TruthAlignmentTest(unittest.TestCase):
         assert filtered_alignments[1].start == 417741
         assert filtered_alignments[1].end == 422799
 
-        p1 = filtered_alignments[0].get_positions_and_labels()
-        p2 = filtered_alignments[1].get_positions_and_labels()
-        assert p1.positions[0]['major'] == filtered_alignments[0].start
-        assert p1.positions[-1]['major'] == filtered_alignments[0].end - 1
-        assert p2.positions[0]['major'] == filtered_alignments[1].start
-        assert p2.positions[-1]['major'] == filtered_alignments[1].end - 1
+        p1_positions, p1_labels = filtered_alignments[0].get_positions_and_labels()
+        p2_positions, p2_labels = filtered_alignments[1].get_positions_and_labels()
+        assert p1_positions[0]['major'] == filtered_alignments[0].start
+        assert p1_positions[-1]['major'] == filtered_alignments[0].end - 1
+        assert p2_positions[0]['major'] == filtered_alignments[1].start
+        assert p2_positions[-1]['major'] == filtered_alignments[1].end - 1
 
 
 if __name__ == '__main__':

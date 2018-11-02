@@ -1,4 +1,3 @@
-import argparse
 from collections import defaultdict, Counter, OrderedDict
 import inspect
 import itertools
@@ -33,15 +32,17 @@ logger = logging.getLogger(__name__)
 def pileup_counts(region, bam):
     """Create pileup counts feature array for region.
 
-    :param region: `chr:start-stop` region string (0-based,
-        end-exclusive)
+    :param region: `Region` object
     :param bam: .bam file with alignments.
 
     :returns: pileup counts array, reference positions, insertion postions
     """
+    # htslib start is 1-based, Region object is 0-based
+    region_str = '{}:{}-{}'.format(region.ref_name, region.start + 1, region.end)
+
     ffi, lib = libmedaka.ffi, libmedaka.lib
     counts = lib.calculate_pileup(
-        region.encode(), bam.encode()
+        region_str.encode(), bam.encode()
     )
 
     size_sizet = np.dtype(np.uintp).itemsize
@@ -167,7 +168,7 @@ class FeatureEncoder(object):
         assert not self.with_depth
         assert not self.is_compressed
 
-        counts, positions = pileup_counts(region.name, reads_bam)
+        counts, positions = pileup_counts(region, reads_bam)
         # get rid of first counts row (counts of alternative bases)
         counts = counts[:, 1:]
 
@@ -196,7 +197,7 @@ class FeatureEncoder(object):
         return sample
 
 
-    def bam_to_sample(self, reads_bam, region, reference=None, read_fraction=None):
+    def bam_to_sample(self, reads_bam, region, reference=None, read_fraction=None, force_py=False):
         """Converts a section of an alignment pileup (as shown
         by e.g. samtools tview) to a base frequency feature array
 
@@ -204,13 +205,14 @@ class FeatureEncoder(object):
         :param region: `Region` object with ref_name, start and end attributes.
         :param reference: reference `.fasta`, should correspond to `bam`.
         :param read_fraction: fraction of reads to use, if `None` use all.
+        :param force_py: bool, if True, force use of python code (rather than c library).
         :returns: `Sample` object
         """
 
         ref_rle = self.process_ref_seq(region.ref_name, reference)
 
         # Try to use fast c function if we can, else fall back on this function
-        if ref_rle is None and read_fraction is None:
+        if not force_py and (ref_rle is None and read_fraction is None):
             try:
                 return self.bam_to_sample_c(reads_bam, region)
             except Exception as e:
@@ -362,7 +364,6 @@ class FeatureEncoder(object):
             regions with multiple mappings were encountered.
 
         """
-        raise NotImplementedError('This needs fixing')
 
 
         ref_rle = self.process_ref_seq(region.ref_name, reference)
