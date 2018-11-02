@@ -532,17 +532,6 @@ def predict(args):
             chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
         logger.info("Generating features from bam.")
 
-    # take a sneak peak at the first sample
-    try:
-        first_sample = next(data_gen.samples)
-    except StopIteration:
-        msg = 'Could not inspect pileup data. Check coverage of {}.'.format(args.regions[0])
-        logger.critical(msg)
-        sys.exit(1)
-    logger.info("Loaded feature data.")
-    timesteps = first_sample.features.shape[0]
-    feat_dim = first_sample.features.shape[1]
-
     # re-build model with desired number of sequence steps per sample
     # derived from the features so this works wherever we got features from.
     model_data = {}
@@ -554,14 +543,26 @@ def predict(args):
             msg = '{} was not present in the input model, use the --model_yml to provide this data.'
             raise KeyError(msg.format(path))
         model_data[path] = opt
-
+    
+    # take a sneak peak at the first sample
+    try:
+        first_sample = next(data_gen.samples)
+    except StopIteration:
+        msg = 'Could not inspect pileup data. Check coverage of {}.'.format(args.regions[0])
+        logger.critical(msg)
+        sys.exit(1)
+    logger.info("Loaded feature data.")
+    timesteps = first_sample.features.shape[0]
+    feat_dim = first_sample.features.shape[1]
     num_classes = len(model_data[_label_decod_path_])
-
     opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in model_data[_model_opt_path_].items()])
+    
     logger.info('Building model with: {}'.format(opt_str))
     model = build_model(timesteps, feat_dim, num_classes, **model_data[_model_opt_path_])
+    
     logger.info("Loading weights from {}".format(args.model))
     model.load_weights(args.model)
+    
     # check new model and old are consistent in size
     old_model = load_model(args.model, custom_objects={'qscore': qscore})
     get_feat_dim = lambda m: m.get_input_shape_at(0)[2]
@@ -578,7 +579,6 @@ def predict(args):
     )))
     if logger.level == logging.DEBUG:
         model.summary()
-    logger.debug("HELLLLLOOOOOO")
 
     #TODO: provide parallelism
     for i, region in enumerate(args.regions):
