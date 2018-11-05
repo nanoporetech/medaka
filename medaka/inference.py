@@ -4,16 +4,18 @@ import inspect
 import itertools
 import numpy as np
 import os
-import pysam
 from collections import Counter
 from functools import partial
 from timeit import default_timer as now
 
-from keras import backend as K
-from keras.models import Sequential, load_model
-from keras.layers import Dense, GRU, Dropout
-from keras.layers.wrappers import Bidirectional
-from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
+# Don't import keras here as it will then import Tensorflow (takes a few
+# seconds), which seems a long time if all you want to do is run the help.
+
+#from keras import backend as K
+#from keras.models import Sequential, load_model
+#from keras.layers import Dense, GRU, Dropout
+#from keras.layers.wrappers import Bidirectional
+#from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
 
 # set some Tensorflow session options
 """
@@ -27,18 +29,16 @@ set_session(tf.Session(config=config))
 import logging
 logger = logging.getLogger(__name__)
 
-
-from medaka import features
 from medaka.common import (encode_sample_name, _label_counts_path_,
                            _label_decod_path_, chain_thread_safe, decoding,
                            get_sample_index_from_files, grouper,
                            load_sample_from_hdf, load_yaml_data,
                            _model_opt_path_, mkdir_p, Sample, sample_to_x_y,
-                           threadsafe_generator, write_samples_to_hdf,
                            write_sample_to_hdf, write_yaml_data,
-                           yield_from_feature_files, load_from_feature_files,
-                           gen_train_batch, _label_batches_path_, _feature_batches_path_,
-                           yield_batches_from_hdfs)
+                           yield_from_feature_files, gen_train_batch,
+                           _label_batches_path_, _feature_batches_path_,
+                           yield_batches_from_hdfs, _gap_)
+from medaka.features import get_feature_gen
 
 
 
@@ -58,6 +58,7 @@ def weighted_categorical_crossentropy(weights):
         model.compile(loss=loss,optimizer='adam')
     """
 
+    from keras import backend as K
     weights = K.variable(weights)
 
     def loss(y_true, y_pred):
@@ -86,6 +87,10 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropou
     :returns: `keras.models.Sequential` object.
     """
 
+    from keras.models import Sequential
+    from keras.layers import Dense, GRU, Dropout
+    from keras.layers.wrappers import Bidirectional
+
     model = Sequential()
 
     gru1 = GRU(gru_size, activation='tanh', return_sequences=True, name='gru1',
@@ -108,6 +113,7 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropou
 
 
 def qscore(y_true, y_pred):
+    from keras import backend as K
     error = K.cast(K.not_equal(
         K.max(y_true, axis=-1), K.cast(K.argmax(y_pred, axis=-1), K.floatx())),
         K.floatx()
@@ -117,7 +123,7 @@ def qscore(y_true, y_pred):
 
 
 def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid, label_decoding,
-                 timesteps, feat_dim, model_fp=None, epochs=5000, batch_size=100, class_weight=None):
+                 timesteps, feat_dim, model_fp=None, epochs=5000, batch_size=100, class_weight=None, n_mini_epochs=1):
     """Run training."""
 
     logging.info("Got {} batches for training, {} for validation.".format(n_batch_train, n_batch_valid))
@@ -136,6 +142,7 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
     model = build_model(timesteps, feat_dim, num_classes, **model_kwargs)
 
     if model_fp is not None and os.path.splitext(model_fp)[-1] != '.yml':
+        from keras.models import load_model
         old_model = load_model(model_fp, custom_objects={'qscore': qscore})
         old_model_feat_dim = old_model.get_input_shape_at(0)[2]
         assert old_model_feat_dim == feat_dim
@@ -150,6 +157,8 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
     write_yaml_data(os.path.join(train_name, 'training_config.yml'), model_details)
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
+
+    from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
     callbacks = [
         # Best model according to training set accuracy
         ModelCheckpoint(os.path.join(train_name, 'model.best.hdf5'),
@@ -161,8 +170,10 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
         ModelCheckpoint(os.path.join(train_name, 'model.best.val.qscore.hdf5'),
                         monitor='val_qscore', **opts),
         # Checkpoints when training set accuracy improves
-        ModelCheckpoint(os.path.join(train_name, 'model-improvement-{epoch:02d}-{acc:.2f}.hdf5'),
+        ModelCheckpoint(os.path.join(train_name, 'model-acc-improvement-{epoch:02d}-{acc:.2f}.hdf5'),
                         monitor='acc', **opts),
+        ModelCheckpoint(os.path.join(train_name, 'model-val_acc-improvement-{epoch:02d}-{val_acc:.2f}.hdf5'),
+                        monitor='val_acc', **opts),
         # Stop when no improvement, patience is number of epochs to allow no improvement
         EarlyStopping(monitor='val_loss', patience=20),
         # Log of epoch stats
@@ -186,9 +197,15 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
        optimizer='rmsprop',
        metrics=['accuracy', qscore],
     )
+
+    if n_mini_epochs == 1:
+        logging.info("Not using mini_epochs, an epoch is a full traversal of the training data")
+    else:
+        logging.info("Using mini_epochs, an epoch is a traversal of 1/{} of the training data".format(n_mini_epochs))
+
     # fit generator
     model.fit_generator(
-        sample_gen, steps_per_epoch=n_batch_train,
+        sample_gen, steps_per_epoch=n_batch_train//n_mini_epochs,
         validation_data=valid_gen, validation_steps=n_batch_valid,
         max_queue_size=8, workers=8, use_multiprocessing=False,
         epochs=epochs,
@@ -402,7 +419,7 @@ def train(args):
 
     run_training(train_name, gen_train, gen_valid, n_batch_train, n_batch_valid, label_decoding,
                  timesteps, feat_dim, model_fp=args.model, epochs=args.epochs, batch_size=args.batch_size,
-                 class_weight=class_weight)
+                 class_weight=class_weight, n_mini_epochs=args.mini_epochs)
 
     for fh in handles.values():
         fh.close()
@@ -411,7 +428,7 @@ def train(args):
 def predict(args):
     """Inference program."""
     n_samples = None
-    if args.features:
+    if hasattr(args, 'features'):
         logging.info("Loading features from file for refs {}.".format(args.ref_names))
         index = get_sample_index_from_files(args.features)
         refs_n_samples = {r: len(l) for (r, l) in index.items()}
@@ -421,8 +438,8 @@ def predict(args):
         data = yield_from_feature_files(args.features, ref_names=args.ref_names)
         n_samples = sum(refs_n_samples.values())
     else:
+        data = get_feature_gen(args)
         logging.info("Generating features from bam.")
-        raise ValueError("Unsupported args.features value.")
 
     # take a sneak peak at the first sample
     first_sample = next(data)

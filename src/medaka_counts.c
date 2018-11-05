@@ -22,7 +22,8 @@ void *xalloc(size_t num, size_t size, char* msg){
 // medaka-style base encoding
 const char plp_bases[] = "XacgtACGTdD";
 const size_t featlen = 11;
-
+const size_t fwd_del = 10;
+const size_t rev_del = 9;
 
 // convert 16bit IUPAC (+16 for strand) to plp_base index
 size_t num2countbase[32] = {
@@ -91,22 +92,21 @@ static int read_bam(void *data, bam1_t *b) {
 // Generate medaka-style feature data in a region of a bam
 plp_data calculate_pileup(const char *region, const char *bam_file) { 
 
-    // extract `chr`:`start`-`end` from `region`,
+    // extract `chr`:`start`-`end` from `region`
+    //   (start is one-based and end-inclusive), 
     //   hts_parse_reg below sets return value to point
     //   at ":", copy the input then set ":" to null terminator
     //   to get `chr`.
     int start, end;
-    char *chr = xalloc(strlen(region), sizeof(char), "chr");
+    char *chr = xalloc(strlen(region) + 1, sizeof(char), "chr");
     strcpy(chr, region);
     char *reg_chr = (char *) hts_parse_reg(chr, &start, &end);
+    // start and end now zero-based end exclusive
     if (reg_chr) {
         *reg_chr = '\0';
     } else {
         fprintf(stderr, "Failed to parse region: '%s'.\n", region);
     }
-    // htslib treats chr:start-end as 1-based end inclusive, 
-    //   medaka as 0-based end-exclusive
-    start += 1;
     //fprintf(stderr, "%s  %d  %d\n", region, start, end); 
    
     // open bam etc. 
@@ -145,7 +145,9 @@ plp_data calculate_pileup(const char *region, const char *bam_file) {
     plp_data pileup = create_plp_data(n_cols);
 
     // reset and iterate to get counts
+    bam_itr_destroy(data->iter);
     data->iter = bam_itr_querys(idx, hdr, region);
+    bam_mplp_destroy(mplp);
     mplp = bam_mplp_init(1, read_bam, (void **)& data);
     size_t major_col = 0; // col of `pileup` corresponding to pos
     while ((ret=bam_mplp_auto(mplp, &tid, &pos, &n_plp, plp) > 0)) {
@@ -175,7 +177,7 @@ plp_data calculate_pileup(const char *region, const char *bam_file) {
             }
             int base_i;
             if (p->is_del) {
-                base_i = bam_is_rev(p->b) ? 9 : 10;
+                base_i = bam_is_rev(p->b) ? rev_del : fwd_del;
                 //base = plp_bases[base_i]; 
                 pileup->counts[major_col + base_i] += 1;
             } else { // handle pos and any following ins
@@ -194,6 +196,7 @@ plp_data calculate_pileup(const char *region, const char *bam_file) {
         major_col += (featlen * (max_ins+1));
     }
 
+    bam_itr_destroy(data->iter);
     bam_mplp_destroy(mplp);
     free(data);
     free(plp);
