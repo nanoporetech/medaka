@@ -125,6 +125,8 @@ def qscore(y_true, y_pred):
 def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid, label_decoding,
                  timesteps, feat_dim, model_fp=None, epochs=5000, batch_size=100, class_weight=None, n_mini_epochs=1):
     """Run training."""
+    from keras.models import load_model
+    from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
 
     logging.info("Got {} batches for training, {} for validation.".format(n_batch_train, n_batch_valid))
 
@@ -142,7 +144,6 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
     model = build_model(timesteps, feat_dim, num_classes, **model_kwargs)
 
     if model_fp is not None and os.path.splitext(model_fp)[-1] != '.yml':
-        from keras.models import load_model
         old_model = load_model(model_fp, custom_objects={'qscore': qscore})
         old_model_feat_dim = old_model.get_input_shape_at(0)[2]
         assert old_model_feat_dim == feat_dim
@@ -158,7 +159,6 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
 
-    from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
     callbacks = [
         # Best model according to training set accuracy
         ModelCheckpoint(os.path.join(train_name, 'model.best.hdf5'),
@@ -427,6 +427,8 @@ def train(args):
 
 def predict(args):
     """Inference program."""
+    from keras.models import load_model
+
     n_samples = None
     if hasattr(args, 'features'):
         logging.info("Loading features from file for refs {}.".format(args.ref_names))
