@@ -520,6 +520,7 @@ def train(args):
 
 def predict(args):
     """Inference program."""
+    from keras.models import load_model
     from keras import backend as K
     K.set_session(K.tf.Session(config=K.tf.ConfigProto(
         intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)))
