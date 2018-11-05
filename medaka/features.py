@@ -16,8 +16,8 @@ import pysam
 
 #TODO: from medaka import common
 from medaka.common import (yield_compressed_pairs, Sample, lengths_to_rle, rle,
-                           Region, chunk_samples, write_samples_to_hdf,
-                           segment_limits, decoding, encoding, get_regions,
+                           Region, 
+                           decoding, encoding, get_regions,
                            _gap_, _alphabet_, _feature_opt_path_, _feature_decoding_path_,
                            get_pairs, get_pairs_with_hp_len, seq_to_hp_lens,
                            write_yaml_data, load_yaml_data, gen_train_batch, serial_gen_train_batch,
@@ -247,8 +247,6 @@ class FeatureEncoder(object):
         aln_counters = defaultdict(Counter)
         ref_bases = dict()
         with pysam.AlignmentFile(reads_bam, 'rb') as bamfile:
-            n_aln = bamfile.count(region.ref_name, region.start, region.end)
-            #print('{} reads aligned to ref segment.'.format(n_aln))
             aln_reads = bamfile.fetch(region.ref_name, region.start, region.end)
             if read_fraction is not None:
                 low, high = read_fraction
@@ -552,12 +550,6 @@ class SampleGenerator(object):
                     dtype=int, count=len(s.labels))
             y = y.reshape(y.shape + (1,))
             yield x, y
-
-
-def _process_region(region_getter, filter, chunker, s2xy, region_getter_kwargs):
-    region = region_getter(**region_getter_kwargs)
-    gen = filter(chunker(region))
-    return [s2xy(s) for s in gen]
 
 
 def get_label_encoding(max_label_len):

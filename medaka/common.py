@@ -587,23 +587,6 @@ def mkdir_p(path, info=None):
             raise
 
 
-def chunk_samples(samples, chunk_len=1000, overlap=200):
-    """Return generator of chunked `Sample` objs"""
-    return (c for s in samples for c in chunk_sample(s, chunk_len=chunk_len, overlap=overlap))
-
-
-def chunk_sample(sample, chunk_len=1000, overlap=200):
-    """Chunk `Sample` objects into smaller overlapping chunks.
-
-    :param sample: `Sample` obj
-    :param chunk_len: chunk length (number of columns)
-    :param overlap: overlap length.
-
-    :yields: `Sample` objs.
-    """
-    yield from sample.chunk(chunk_len, overlap)
-
-
 class ThreadsafeIter:
     """Takes an iterator and makes it thread-safe by
     serializing call to `next` method.
@@ -686,29 +669,59 @@ def yield_batches_from_hdf(h5, keys):
 
 
 class BatchQueue(object):
-    def  __init__(self, batches, sparse_labels, n_classes):
+    def  __init__(self, batches, sparse_labels, n_classes=None, stack=3):
+        """Load and queue training samples/batches from `.hdf` files.
+
+        :param batches: tuples of (filename, hdf batch index).
+        :param sparse_labels: create sparse labels.
+        :param n_classes: number of classes, required if `sparse_label is False`.
+        :param stack: group samples/batches by this number.
+
+        Once initialized batches can be retrieved using batch_q._queue.get().
+
+        """
         self.batches = batches
         self.sparse_labels = sparse_labels
         self.n_classes = n_classes
+        self.stack = stack
 
+        self.logger = logging.getLogger(__package__)
+        self.logger.name = 'Batcher'
         self._queue = queue.Queue(maxsize=100)
+        self.stopped = threading.Event()
         self.qthread = threading.Thread(target=self._fill_queue)
         self.qthread.start()
-        time.sleep(3)
+        time.sleep(2)
+        self.logger.info("Started reading batches from files.")
+
+
+    def stop(self):
+        self.stopped.set()
+        self.logger.info("Waiting for read thread.")
+        self.qthread.join(2)
+        if self.qthread.is_alive:
+            self.logger.critical("Read thread did not terminate.")
 
 
     def _fill_queue(self):
-        with ProcessPoolExecutor() as executor:
+        with ProcessPoolExecutor(1) as executor:
             epoch = 0
-            while True:
+            while not self.stopped.is_set():
+                batch = 0
                 np.random.shuffle(self.batches)
                 for (fname, i) in self.batches:
-                    res = executor.submit(BatchQueue._generate_batch, fname, i, self.sparse_labels, self.n_classes)
-                    res = res.result()
+                    t0 = now()
+                    items = []
+                    for _ in range(0, self.stack):
+                        res = executor.submit(BatchQueue._generate_batch, fname, i, self.sparse_labels, self.n_classes)
+                        items.append(res.result())
+                    res = [np.concatenate([x[i] for x in items]) for i in range(0, 2)]
+                    t1 = now()
                     self._queue.put(res)
-                    #logging.debug("Took {:5.3}s to load batch {} (epoch {})".format(t1-t0, batch, epoch))
-                    #batch += 1
+                    self.logger.debug("Took {:5.3}s to load batch {} (epoch {})".format(t1-t0, batch, epoch))
+                    batch += 1
                 epoch += 1
+            self.logger.info("Ended batching.")
 
 
     @staticmethod
@@ -722,18 +735,26 @@ class BatchQueue(object):
 
 
 @threadsafe_generator
-def yield_batches_from_hdfs(handles, batches=None, sparse_labels=True, n_classes=None):
+def yield_batches_from_hdfs(batches, sparse_labels=True, n_classes=None):
     """Yield batches of training features and labels indefinitely, shuffling between epochs.
 
-    :param handles: {str filename: `h5.File`}.
-    :param batches: iterable of (str filename, str batchname).
-    :param sparse_labels: bool, if False, labels will be one-hot encoded.
-    :param n_classes: int, number of classes for one-hot encoding.
+    :param batches: iterable of (filename, batchname).
+    :param sparse_labels: if False, labels will be one-hot encoded.
+    :param n_classes: number of classes for one-hot encoding.
+
     :yields: (np.ndarray of inputs, np.ndarray of labels).
+    
     """
+    logger = logging.getLogger(__package__)
+    logger.name = 'BatchYd'
     queue = BatchQueue(batches, sparse_labels, n_classes)
-    while True:
-        yield queue._queue.get()
+    try:
+        while True:
+            yield queue._queue.get()
+    except Exception as e:
+        logger.critical("Exception caught why yielding batches: {}".format(e))
+        queue.stop()
+        raise e
 
 
 def print_data_path():
