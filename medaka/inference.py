@@ -327,7 +327,7 @@ class VCFChunkWriter(object):
                 raise ValueError('Cannot merge variants: {}.'.format(var_queue))
         elif len(var_queue) == 1:
             self.writer.write_variant(var_queue[0])
-        
+
 
 def run_prediction(sample_gen, model, output,
                    batch_size=200, n_samples=None):
@@ -335,10 +335,10 @@ def run_prediction(sample_gen, model, output,
     logger = logging.getLogger('PWorker')
     batches = grouper(sample_gen.samples, batch_size)
 
-    with h5py.File(output, 'w') as pred_h5:
+    with h5py.File(output, 'a') as pred_h5:
         first_batch = True
         n_samples_done = 0
-            
+
         t0 = now()
         tlast = t0
         for data in batches:
@@ -359,7 +359,7 @@ def run_prediction(sample_gen, model, output,
                     logger.info(msg.format(n_samples_done / n_samples, n_samples_done, n_samples, t1 - t0))
                 else:
                     logger.info('Done {} samples in {:.1f}s'.format(n_samples_done, t1 - t0, x_data.shape))
- 
+
             best = np.argmax(class_probs, -1)
             for sample, prob, pred in zip(data, class_probs, best):
                 # write out positions and predictions for later analysis
@@ -524,7 +524,7 @@ def predict(args):
     from keras import backend as K
     K.set_session(K.tf.Session(config=K.tf.ConfigProto(
         intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)))
-    
+
     args.regions = get_regions(args.bam, region_strs=args.regions)
     logger = logging.getLogger(__package__)
     logger.name = 'Predict'
@@ -558,7 +558,7 @@ def predict(args):
             msg = '{} was not present in the input model, use the --model_yml to provide this data.'
             raise KeyError(msg.format(path))
         model_data[path] = opt
-    
+
     # take a sneak peak at the first sample
     try:
         first_sample = next(data_gen.samples)
@@ -571,13 +571,13 @@ def predict(args):
     feat_dim = first_sample.features.shape[1]
     num_classes = len(model_data[_label_decod_path_])
     opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in model_data[_model_opt_path_].items()])
-    
+
     logger.info('Building model with: {}'.format(opt_str))
     model = build_model(timesteps, feat_dim, num_classes, **model_data[_model_opt_path_])
-    
+
     logger.info("Loading weights from {}".format(args.model))
     model.load_weights(args.model)
-    
+
     # check new model and old are consistent in size
     old_model = load_model(args.model, custom_objects={'qscore': qscore})
     get_feat_dim = lambda m: m.get_input_shape_at(0)[2]
