@@ -102,13 +102,13 @@ class CountsTest(unittest.TestCase):
         np.testing.assert_array_almost_equal(d_c[:10], expected_norm_depth)
         np.testing.assert_array_almost_equal(d_p[:10], expected_norm_depth)
 
-        rev_inds = [i for i, (is_rev, base, run_len) in enumerate(encoder.encoding) if is_rev]
+        rev_inds = [i for i, (dtype, is_rev, base, run_len) in enumerate(encoder.encoding) if is_rev]
         expected_rev_norm_depth = np.array([0.6111111,  0.6111111, 0.02777778, 0.61111116, 0.6111111 ,
                                             0.02777778, 0.,        0.6111111 , 0.61111116, 0.02777778])
         np.testing.assert_almost_equal(sample_c.features[:10, (rev_inds)].sum(axis=1), expected_rev_norm_depth)
         np.testing.assert_almost_equal(sample_py.features[:10, (rev_inds)].sum(axis=1), expected_rev_norm_depth)
 
-        fwd_inds = [i for i, (is_rev, base, run_len) in enumerate(encoder.encoding) if not is_rev]
+        fwd_inds = [i for i, (dtype, is_rev, base, run_len) in enumerate(encoder.encoding) if not is_rev]
         expected_fwd_norm_depth = np.array([0.3888889 , 0.3888889 , 0.        , 0.3888889 , 0.3888889 ,
                                             0.02777778, 0.02777778, 0.38888893, 0.3888889 , 0.        ])
         np.testing.assert_almost_equal(sample_c.features[:10, (fwd_inds)].sum(axis=1), expected_fwd_norm_depth)
@@ -129,12 +129,12 @@ class CountsTest(unittest.TestCase):
                                         0.11688312, 0.07142857, 2.        , 2.        , 0.04545455])
         np.testing.assert_array_almost_equal(d_p[:10], expected_norm_depth)
 
-        rev_inds = [i for i, (is_rev, base, run_len) in enumerate(encoder.encoding) if is_rev]
+        rev_inds = [i for i, (dtype, is_rev, base, run_len) in enumerate(encoder.encoding) if is_rev]
         expected_rev_norm_depth = np.array([1.        , 1.        , 0.04545455, 1.        , 1.        ,
                                             0.04545455, 0.        , 1.        , 1.        , 0.04545455])
         np.testing.assert_almost_equal(sample_py.features[:10, (rev_inds)].sum(axis=1), expected_rev_norm_depth)
 
-        fwd_inds = [i for i, (is_rev, base, run_len) in enumerate(encoder.encoding) if not is_rev]
+        fwd_inds = [i for i, (dtype, is_rev, base, run_len) in enumerate(encoder.encoding) if not is_rev]
         expected_fwd_norm_depth = np.array([1.        , 1.        , 0.        , 1.        , 1.        ,
                                             0.07142857, 0.07142857, 1.        , 1.        , 0.        ])
         np.testing.assert_almost_equal(sample_py.features[:10, (fwd_inds)].sum(axis=1), expected_fwd_norm_depth)
