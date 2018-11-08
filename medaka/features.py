@@ -95,7 +95,8 @@ class FeatureEncoder(object):
         self.feature_dtype = np.float32 if (self.normalise is not None or self.log_min is not None) else np.uint64
         self.with_depth = with_depth
         self.is_compressed = is_compressed
-        self.logger = logging.getLogger('Feature')
+        self.logger = logging.getLogger(__package__)
+        self.logger.name = 'Feature'
         self.dtypes = dtypes
 
         if self.ref_mode not in self._ref_modes_:
@@ -136,6 +137,10 @@ class FeatureEncoder(object):
             self.decoding = self.decoding + ('depth',)
         self.encoding = OrderedDict(((a, i) for i, a in enumerate(self.decoding)))
         self.logger.info("Creating features with: {}".format(opts))
+
+        self.logger.debug("Label decoding is:\n{}".format('\n'.join(
+            '{}: {}'.format(i, x) for i, x in enumerate(self.decoding)
+        )))
 
 
     def process_ref_seq(self, ref_name, ref_fq):
@@ -507,6 +512,12 @@ class SampleGenerator(object):
                 self._source = (self._source,) # wrap to be the same as above
             t1 = now()
             self.logger.info("Took {:.2f}s to make features.".format(t1-t0))
+
+    @property
+    def n_samples(self):
+        """The approximate number of samples that will be yielded by `.samples`."""
+        self._fill_features()
+        return 1 + sum(s.size // (self.chunk_len - self.chunk_overlap) for s in self._source)
 
 
     @property

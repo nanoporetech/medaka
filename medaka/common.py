@@ -136,9 +136,16 @@ class Region(_Region):
         """Samtools-style region string, zero-base end exclusive."""
         return self.__str__()
 
+
     def __str__(self):
         # This will be zero-based, end exclusive
         return '{}:{}-{}'.format(self.ref_name, self.start, self.end)
+
+
+    @property
+    def size(self):
+        return self.end - self.start
+
 
     @classmethod
     def from_string(cls, region):
