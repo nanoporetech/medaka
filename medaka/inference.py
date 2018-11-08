@@ -1,5 +1,5 @@
 from collections import Counter
-from functools import partial
+import functools
 import glob
 import inspect
 import itertools
@@ -11,15 +11,6 @@ from timeit import default_timer as now
 import h5py
 import numpy as np
 import pysam
-
-# Don't import keras here as it will then import Tensorflow (takes a few
-# seconds), which seems a long time if all you want to do is run the help.
-
-#from keras import backend as K
-#from keras.models import Sequential, load_model
-#from keras.layers import Dense, GRU, Dropout
-#from keras.layers.wrappers import Bidirectional
-#from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
 
 from medaka import vcf
 from medaka.common import (_label_counts_path_, Region, get_regions,
@@ -329,36 +320,46 @@ class VCFChunkWriter(object):
             self.writer.write_variant(var_queue[0])
 
 
-def run_prediction(sample_gen, model, output,
-                   batch_size=200, n_samples=None):
-    """Run inference."""
-    logger = logging.getLogger('PWorker')
+def run_prediction(sample_gen, output, batch_size=200):
+    """Inference worker."""
+    from keras.models import load_model
+    logger = logging.getLogger(__package__)
+    logger.name = 'PWorker'
+
+    model = load_model(sample_gen.model, custom_objects={'qscore': qscore})
+    time_steps = model.get_input_shape_at(0)[1]
+    if time_steps != sample_gen.chunk_len:
+        logger.info("Rebuilding model according to chunk_size: {}->{}".format(time_steps, sample_gen.chunk_len))
+        feat_dim = model.get_input_shape_at(0)[2]
+        num_classes = model.get_output_shape_at(-1)[-1]
+        model = build_model(sample_gen.chunk_len, feat_dim, num_classes)
+
+    logger.info("Loading weights from {}".format(sample_gen.model))
+    model.load_weights(sample_gen.model)
+
+    if logger.level == logging.DEBUG:
+        model.summary()
+
+    logger.info("Initialising pileup.")
+    n_samples = sample_gen.n_samples
+    logger.info("Running inference for {} chunks.".format(n_samples))
     batches = grouper(sample_gen.samples, batch_size)
 
     with h5py.File(output, 'a') as pred_h5:
-        first_batch = True
         n_samples_done = 0
 
         t0 = now()
         tlast = t0
         for data in batches:
             x_data = np.stack((x.features for x in data))
-
-            if first_batch:
-                logger.info('Updating model state with first batch')
-                class_probs = model.predict(x_data, batch_size=batch_size, verbose=0)
-                first_batch = False
-
             class_probs = model.predict(x_data, batch_size=batch_size, verbose=0)
+            
             n_samples_done += x_data.shape[0]
             t1 = now()
             if t1 - tlast > 10:
                 tlast = t1
-                if n_samples is not None:  # we know how many samples we will be processing
-                    msg = '{:.1%} Done ({}/{} samples) in {:.1f}s'
-                    logger.info(msg.format(n_samples_done / n_samples, n_samples_done, n_samples, t1 - t0))
-                else:
-                    logger.info('Done {} samples in {:.1f}s'.format(n_samples_done, t1 - t0, x_data.shape))
+                msg = '{:.1%} Done ({}/{} samples) in {:.1f}s'
+                logger.info(msg.format(n_samples_done / n_samples, n_samples_done, n_samples, t1 - t0))
 
             best = np.argmax(class_probs, -1)
             for sample, prob, pred in zip(data, class_probs, best):
@@ -370,6 +371,31 @@ def run_prediction(sample_gen, model, output,
                     write_sample_to_hdf(Sample(**sample_d), pred_h5)
 
     logger.info('All done')
+    return sample_gen.region
+
+
+def predict(args):
+    """Inference program."""
+    args.regions = get_regions(args.bam, region_strs=args.regions)
+    logger = logging.getLogger(__package__)
+    logger.name = 'Predict'
+    logger.info('Processing region(s): {}'.format(' '.join(str(r) for r in args.regions)))
+
+    # write class names to output
+    label_decoding = load_yaml_data(args.model, _label_decod_path_)
+    write_yaml_data(args.output, {_label_decod_path_: label_decoding})
+
+    for region in args.regions:
+        chunk_len, chunk_ovlp = args.chunk_len, args.chunk_ovlp
+        if region.size < args.chunk_len:
+            chunk_len = region.size // 2
+            chunk_ovlp = chunk_len // 10 # still need overlap as features will be longer
+        data_gen = SampleGenerator(
+            args.bam, region, args.model, args.rle_ref, args.read_fraction,
+            chunk_len=chunk_len, chunk_overlap=chunk_ovlp)
+        run_prediction(
+            data_gen, args.output, batch_size=args.batch_size
+        )
 
 
 def process_labels(label_counts, max_label_len=10):
@@ -494,7 +520,7 @@ def train(args):
 
         gen_train_samples = yield_from_feature_files(args.features, samples=itertools.cycle(samples_train))
         gen_valid_samples = yield_from_feature_files(args.features, samples=itertools.cycle(samples_valid))
-        s2xy = partial(sample_to_x_y, encoding=label_encoding)
+        s2xy = functools.partial(sample_to_x_y, encoding=label_encoding)
         gen_train = gen_train_batch(map(s2xy, gen_train_samples), args.batch_size, name='training')
         gen_valid = gen_train_batch(map(s2xy, gen_valid_samples), args.batch_size, name='validation')
         n_batch_train = len(samples_train) // args.batch_size
@@ -518,92 +544,3 @@ def train(args):
                  class_weight=class_weight, n_mini_epochs=args.mini_epochs)
 
 
-def predict(args):
-    """Inference program."""
-    from keras.models import load_model
-    from keras import backend as K
-    K.set_session(K.tf.Session(config=K.tf.ConfigProto(
-        intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)))
-
-    args.regions = get_regions(args.bam, region_strs=args.regions)
-    logger = logging.getLogger(__package__)
-    logger.name = 'Predict'
-    logger.info('Processing region(s): {}'.format(' '.join(str(r) for r in args.regions)))
-
-    n_samples = None
-    if hasattr(args, 'features'):
-        raise NotImplementedError('Prediction from features is currently broken')
-        #logger.info("Loading features from file for refs {}.".format(args.ref_names))
-        #index = get_sample_index_from_files(args.features)
-        #refs_n_samples = {r: len(l) for (r, l) in index.items()}
-        #ref_names = args.ref_names if args.ref_names is not None else refs_n_samples.keys()
-        #msg = "\n".join(["{}: {}".format(r, refs_n_samples[r]) for r in ref_names])
-        #logger.info("Number of samples per reference:\n{}\n".format(msg))
-        #data = yield_from_feature_files(args.features, ref_names=args.ref_names)
-        #n_samples = sum(refs_n_samples.values())
-    else:
-        data_gen = SampleGenerator(
-            args.bam, args.regions[0], args.model, args.rle_ref, args.read_fraction,
-            chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
-        logger.info("Generating features from bam.")
-
-    # re-build model with desired number of sequence steps per sample
-    # derived from the features so this works wherever we got features from.
-    model_data = {}
-    for path in (_model_opt_path_, _label_decod_path_):
-        opt = load_yaml_data(args.model, path)
-        if opt is None and args.model_yml is not None:
-            opt = load_yaml_data(args.model_yml, path)
-        if opt is None:
-            msg = '{} was not present in the input model, use the --model_yml to provide this data.'
-            raise KeyError(msg.format(path))
-        model_data[path] = opt
-
-    # take a sneak peak at the first sample
-    try:
-        first_sample = next(data_gen.samples)
-    except StopIteration:
-        msg = 'Could not inspect pileup data. Check coverage of {}.'.format(args.regions[0])
-        logger.critical(msg)
-        sys.exit(1)
-    logger.info("Loaded feature data.")
-    timesteps = first_sample.features.shape[0]
-    feat_dim = first_sample.features.shape[1]
-    num_classes = len(model_data[_label_decod_path_])
-    opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in model_data[_model_opt_path_].items()])
-
-    logger.info('Building model with: {}'.format(opt_str))
-    model = build_model(timesteps, feat_dim, num_classes, **model_data[_model_opt_path_])
-
-    logger.info("Loading weights from {}".format(args.model))
-    model.load_weights(args.model)
-
-    # check new model and old are consistent in size
-    old_model = load_model(args.model, custom_objects={'qscore': qscore})
-    get_feat_dim = lambda m: m.get_input_shape_at(0)[2]
-    get_label_dim = lambda m: m.get_output_shape_at(-1)[-1]
-    if not get_feat_dim(model) == get_feat_dim(old_model):
-        msg = 'Incorrect feature dimension: got {}, model expects {}'
-        raise ValueError(msg.format(feat_dim, get_feat_dim(old_model)))
-    if not get_label_dim(model) == get_label_dim(old_model):
-        msg = 'Incorrect label dimension: got {}, model expects {}'
-        raise ValueError(msg.format(num_classes, get_label_dim(old_model)))
-
-    logger.debug("Label decoding is:\n{}".format('\n'.join(
-        '{}: {}'.format(i, x) for i, x in enumerate(model_data[_label_decod_path_])
-    )))
-    if logger.level == logging.DEBUG:
-        model.summary()
-
-    #TODO: provide parallelism
-    for i, region in enumerate(args.regions):
-        if i > 0:
-            data_gen = SampleGenerator(
-                args.bam, region, args.model, args.rle_ref, args.read_fraction,
-                chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
-        run_prediction(
-            data_gen, model,
-            output=args.output,
-            batch_size=args.batch_size, n_samples=n_samples,
-        )
-    write_yaml_data(args.output, {_label_decod_path_: model_data[_label_decod_path_]})
