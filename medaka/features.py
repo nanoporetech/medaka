@@ -1,7 +1,9 @@
 from collections import defaultdict, Counter, OrderedDict
+from copy import deepcopy
 import inspect
 import itertools
 from functools import partial
+import logging
 from multiprocessing import Pool
 import os
 import sys
@@ -12,21 +14,19 @@ import h5py
 import numpy as np
 import pysam
 
+#TODO: from medaka import common
 from medaka.common import (yield_compressed_pairs, Sample, lengths_to_rle, rle,
-                           Region, parse_regions, chunk_samples, write_samples_to_hdf,
-                           segment_limits, encode_sample_name, decoding, encoding,
+                           Region, 
+                           decoding, encoding, get_regions,
                            _gap_, _alphabet_, _feature_opt_path_, _feature_decoding_path_,
                            get_pairs, get_pairs_with_hp_len, seq_to_hp_lens,
-                           write_yaml_data, load_yaml_data, sample_to_x_y, gen_train_batch,
+                           write_yaml_data, load_yaml_data, gen_train_batch, serial_gen_train_batch,
                            _feature_batches_path_, _label_batches_path_, _label_counts_path_,
                            _label_decod_path_,)
 
 from medaka.labels import TruthAlignment
 import libmedaka
 
-
-import logging
-logger = logging.getLogger(__name__)
 
 
 def pileup_counts(region, bam):
@@ -68,9 +68,6 @@ def pileup_counts(region, bam):
 
 
 class FeatureEncoder(object):
-    """Class to support multiple feature encodings.
-
-    """
     _ref_modes_ = ['onehot', 'base_length', 'index', None]
     _norm_modes_ = ['total', 'fwd_rev', None]
 
@@ -89,18 +86,16 @@ class FeatureEncoder(object):
         :param is_compressed: bool, whether to use HP compression. If false, treat as uncompressed.
         :param dtypes: iterable of str, read id prefixes of distinct data types that should be counted separately.
 
-        :returns: `Sample` object
         """
         self.ref_mode = ref_mode
         self.consensus_as_ref = consensus_as_ref
         self.max_hp_len = max_hp_len
         self.log_min = log_min
         self.normalise = normalise
-        # No point in using default np.float64 when most GPUs want max np.float32
-        # TODO: any benefits going to np.float16 or smaller?
         self.feature_dtype = np.float32 if (self.normalise is not None or self.log_min is not None) else np.uint64
         self.with_depth = with_depth
         self.is_compressed = is_compressed
+        self.logger = logging.getLogger('Feature')
         self.dtypes = dtypes
 
         if self.ref_mode not in self._ref_modes_:
@@ -108,22 +103,29 @@ class FeatureEncoder(object):
         if self.normalise not in self._norm_modes_:
             raise ValueError('normalise={} is not one of {}'.format(self.normalise, self._norm_modes_))
 
+        opts = inspect.signature(FeatureEncoder.__init__).parameters.keys()
+        opts = {k:getattr(self, k) for k in opts if k != 'self'}
+
         read_decoding = []
         for dtype in self.dtypes:
             # set up one-hot encoding of read run lengths for each dtype
-            read_decoding += [ (dtype,) + k for k in itertools.product((True, False),
-                                                                       _alphabet_,
-                                                                       range(1, max_hp_len + 1))]
+            read_decoding += [
+                (dtype,) + k
+                for k in itertools.product(
+                    (True, False), _alphabet_, range(1, max_hp_len + 1)
+                )
+            ]
 
             # forward and reverse gaps
             read_decoding += [(dtype, True, None, 1), (dtype, False, None, 1)]
 
         if self.ref_mode == 'onehot':
-            ref_decoding = [ ('ref', b, l) for b, l in itertools.product(alphabet, range(1, max_hp_len + 1))]
+            ref_decoding = [('ref', b, l) for b, l in itertools.product(
+                alphabet, range(1, max_hp_len + 1))]
             ref_decoding.append(('ref', _gap_, 1))  # gaps
         elif self.ref_mode == 'base_length':
             ref_decoding = ['ref_base', 'ref_length']
-            self.ref_base_encoding = { b:i for i, b in enumerate(_alphabet_ + _gap_)}
+            self.ref_base_encoding = {b:i for i, b in enumerate(_alphabet_ + _gap_)}
         elif self.ref_mode == 'index':
             ref_decoding = ['ref_index']
         else:
@@ -133,21 +135,22 @@ class FeatureEncoder(object):
         if self.with_depth:
             self.decoding = self.decoding + ('depth',)
         self.encoding = OrderedDict(((a, i) for i, a in enumerate(self.decoding)))
+        self.logger.info("Creating features with: {}".format(opts))
 
 
     def process_ref_seq(self, ref_name, ref_fq):
-        """Get encoded reference
+        """Translate a sequence to RLE or truncated homopolymer form if required.
 
         :param ref_name: str, name of contig within `ref_fq`.
         :param ref_fq: path to reference fastq, or `SeqIO.index` obj.
         """
         if self.is_compressed:  # get (compressed) rle_encoded HP len from fq
             if ref_fq is None:
-                raise ValueError('If homopolymers have been compressed, ref_rle_fq must be provided')
+                raise ValueError('If homopolymers have been compressed, ref_fq must be provided')
             return get_runs_from_fastq(ref_fq, ref_name)
         elif self.max_hp_len > 1:  # get (uncompressed) hp_lens from fq
             if ref_fq is None:
-                raise ValueError('If max_hp_len > 1, ref_rle_fq must be provided')
+                raise ValueError('If max_hp_len > 1, ref_fq must be provided')
             if isinstance(ref_fq, str):
                 ref_fq = SeqIO.index(ref_fq, 'fastq')
             read = ref_fq[ref_name]
@@ -176,6 +179,13 @@ class FeatureEncoder(object):
         assert self.dtypes == ('',)  # c-code does not support multiple dtypes
 
         counts, positions = pileup_counts(region, reads_bam)
+        if len(counts) == 0:
+            msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
+            self.logger.warning(msg)
+            return Sample(ref_name=region.ref_name, features=None,
+                          labels=None, ref_seq=None,
+                          positions=positions, label_probs=None)
+
         # get rid of first counts row (counts of alternative bases)
         counts = counts[:, 1:]
 
@@ -200,41 +210,44 @@ class FeatureEncoder(object):
                         labels=None, ref_seq=None,
                         positions=positions, label_probs=None)
 
-        logging.info('Processed {} (median depth {})'.format(encode_sample_name(sample), np.median(depth)))
+        self.logger.info('Processed {} (median depth {})'.format(sample.name, np.median(depth)))
         return sample
 
 
-    def bam_to_sample(self, reads_bam, region, ref_rle_fq, read_fraction=None, force_py=False):
+    def bam_to_sample(self, reads_bam, region, reference=None, read_fraction=None, force_py=False):
         """Converts a section of an alignment pileup (as shown
         by e.g. samtools tview) to a base frequency feature array
 
         :param reads_bam: (sorted indexed) bam with read alignment to reference
         :param region: `Region` object with ref_name, start and end attributes.
-        :param ref_rle_fq: result of `process_ref_seq`
+        :param reference: reference `.fasta`, should correspond to `bam`.
+            Required only for run length encoded references and reads.
+        :param read_fraction: fraction of reads to use, if `None` use all.
         :param force_py: bool, if True, force use of python code (rather than c library).
         :returns: `Sample` object
         """
+
+        ref_rle = self.process_ref_seq(region.ref_name, reference)
+
         # Try to use fast c function if we can, else fall back on this function
-        if not force_py and (ref_rle_fq is None and read_fraction is None):
+        if not force_py and (ref_rle is None and read_fraction is None):
             try:
                 return self.bam_to_sample_c(reads_bam, region)
             except Exception as e:
-                logging.debug('Could not process sample with bam_to_sample_c, using python code instead.\n({}).'.format(e))
+                self.logger.info('Could not process sample with bam_to_sample_c, using python code instead.\n({}).'.format(e))
                 pass
 
         if self.is_compressed:
-            aln_to_pairs = partial(yield_compressed_pairs, ref_rle=ref_rle_fq)
+            aln_to_pairs = partial(yield_compressed_pairs, ref_rle=ref_rle)
         elif self.max_hp_len == 1:
             aln_to_pairs = get_pairs
         else:
-            aln_to_pairs = partial(get_pairs_with_hp_len, ref_seq=ref_rle_fq)
+            aln_to_pairs = partial(get_pairs_with_hp_len, ref_seq=ref_rle)
 
         # accumulate data in dicts
         aln_counters = defaultdict(Counter)
         ref_bases = dict()
         with pysam.AlignmentFile(reads_bam, 'rb') as bamfile:
-            n_aln = bamfile.count(region.ref_name, region.start, region.end)
-            #print('{} reads aligned to ref segment.'.format(n_aln))
             aln_reads = bamfile.fetch(region.ref_name, region.start, region.end)
             if read_fraction is not None:
                 low, high = read_fraction
@@ -245,7 +258,7 @@ class FeatureEncoder(object):
                 n_reads_to_keep = max(int(fraction * n_reads), 1)
                 replace = n_reads_to_keep > n_reads
                 msg = "Resampling (replace {}) from {} to {} ({:.3f}) for {}"
-                logging.debug(msg.format(replace, n_reads, n_reads_to_keep, fraction, region))
+                self.logger.debug(msg.format(replace, n_reads, n_reads_to_keep, fraction, region))
                 aln_reads = np.random.choice(aln_reads, n_reads_to_keep, replace=replace)
 
             start = region.start
@@ -287,7 +300,12 @@ class FeatureEncoder(object):
             # create feature array
             aln_cols = len(aln_counters)
             if aln_cols == 0:
-                raise ValueError('All reads were excluded, check you dtypes')
+                msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
+                self.logger.warning(msg)
+                return Sample(ref_name=region.ref_name, features=None,
+                              labels=None, ref_seq=None,
+                              positions=positions, label_probs=None)
+
             feature_len = len(self.encoding)
             feature_array = np.zeros(shape=(aln_cols, feature_len), dtype=self.feature_dtype)
             if self.log_min is not None:
@@ -316,7 +334,6 @@ class FeatureEncoder(object):
                     cons_is_reverse, cons_base, cons_length = self.decoding[cons_i]
                     ref_base = cons_base if cons_base is not None else _gap_
                     ref_len = cons_length
-
 
                 if positions[i]['minor'] == 0:
                     major_depth = sum(counts.values())
@@ -358,24 +375,19 @@ class FeatureEncoder(object):
             sample = Sample(ref_name=region.ref_name, features=feature_array,
                             labels=None, ref_seq=ref_array,
                             positions=positions, label_probs=None)
-            logging.info('Processed {} (median depth {}) (in python)'.format(encode_sample_name(sample), np.median(depth_array)))
+            self.logger.info('Processed {} (median depth {})'.format(sample.name, np.median(depth_array)))
 
             return sample
 
 
-    def bams_to_training_samples(self, truth_bam, bam, region, ref_rle_fq,
-                                chunk_len=1000, overlap=0, read_fraction=None):
+    def bams_to_training_samples(self, truth_bam, bam, region, reference=None, read_fraction=None):
         """Prepare training data chunks.
 
         :param truth_bam: .bam file of truth aligned to ref to generate labels.
         :param bam: input .bam file.
         :param region: `Region` obj.
             the reference will be parsed.
-        :param ref_rle_fq: path to fastq rle-compressed reference, or result
-            of `get_runs_from_fastq`
-        :param chunk_len: int, chunk length in reference coordinates.
-        :param overlap: int, overlap of adjacent chunks in reference
-            coordinates.
+        :param reference: reference `.fasta`, should correspond to `bam`.
 
         :returns: tuple of `Sample` objects (one item for each input bam) for
             each chunk.
@@ -384,20 +396,21 @@ class FeatureEncoder(object):
             regions with multiple mappings were encountered.
 
         """
+        ref_rle = self.process_ref_seq(region.ref_name, reference)
 
         # filter truth alignments to restrict ourselves to regions of the ref where the truth
         # in unambiguous
         alignments = TruthAlignment.bam_to_alignments(truth_bam, region.ref_name, start=region.start, end=region.end)
         filtered_alignments = TruthAlignment.filter_alignments(alignments, start=region.start, end=region.end)
         if len(filtered_alignments) == 0:
-            logging.info("Filtering removed all alignments of truth to ref from {}.".format(region))
+            self.logger.info("Filtering removed all alignments of truth to ref from {}.".format(region))
 
         samples = []
         for aln in filtered_alignments:
             mock_compr = self.max_hp_len > 1 and not self.is_compressed
-            truth_pos, truth_labels = aln.get_positions_and_labels(ref_compr_rle=ref_rle_fq, mock_compr=mock_compr,
+            truth_pos, truth_labels = aln.get_positions_and_labels(ref_compr_rle=ref_rle, mock_compr=mock_compr,
                                                                    is_compressed=self.is_compressed, rle_dtype=True)
-            sample = self.bam_to_sample(bam, Region(region.ref_name, aln.start, aln.end), ref_rle_fq, read_fraction=read_fraction)
+            sample = self.bam_to_sample(bam, Region(region.ref_name, aln.start, aln.end), ref_rle, read_fraction=read_fraction)
             # Create labels according to positions in pileup
             pad = (encoding[_gap_], 1) if len(truth_labels.dtype) > 0 else encoding[_gap_]
             padder = itertools.repeat(pad)
@@ -425,14 +438,14 @@ def alphabet_filter(sample_gen, alphabet=None, filter_labels=True, filter_ref_se
     """
     if alphabet is None:
         alphabet = set([c for c in _alphabet_ + _gap_])
-    logging.debug("Alphabet filter: alphabet: {}".format(alphabet))
+    logger = logging.getLogger('AlphaFilter')
+    logger.debug("alphabet: {}".format(alphabet))
 
     alphabet = set([encoding[c] for c in alphabet])
 
     def _find_bad_bases(s, field, alphabet):
         seq_rle = getattr(s, field)
         bases = set(np.unique(seq_rle['base']))
-        #logging.info("{}: {} bases {} alpha {}".format(encode_sample_name(s), field, bases, alphabet))
         if not bases.issubset(alphabet):
             diff = [decoding[i] for i in bases - alphabet]
             msg = "Skipping {}:{}-{} ({} bases) due to {} {}"
@@ -449,96 +462,95 @@ def alphabet_filter(sample_gen, alphabet=None, filter_labels=True, filter_ref_se
         yield s
 
 
-def min_positions_filter(sample_gen, min_positions):
-    """Filter samples with fewer positions than a minimum
+class SampleGenerator(object):
 
-    :param sample_gen: generator of `Sample` named tuples.
-    :param min_positions: int, samples with fewer positions will be skipped.
-    :yields: `Sample` named tuples
-    """
-    for s in sample_gen:
-        if len(s.positions) < min_positions:
-            msg = 'Skipping sample {} which has {} columns < min {}.'
-            logger.info(msg.format(encode_sample_name(s), len(s.positions), min_positions))
-        else:
-            yield s
+    def __init__(self, bam, region, model, rle_ref=None, truth_bam=None, read_fraction=None, chunk_len=1000, chunk_overlap=200):
+        """Generate chunked inference (or training) samples.
 
+        :param bam: `.bam` containing alignments from which to generate samples.
+        :param region: a `Region` for which to generate samples. 
+        :param model: a medaka model.
+        :param truth_bam: a `.bam` containing alignment of truth sequence to
+            `reference` sequence. Required only for creating training chunks.
+        :param reference: reference `.fasta`, should correspond to `bam`.
 
-def _get_fe_kwargs(model=None):
-    if model is not None:
-        fe_kwargs = load_yaml_data(model, _feature_opt_path_)
-    else:
-        fe_kwargs = { k:v.default for (k,v) in inspect.signature(FeatureEncoder.__init__).parameters.items()
-                      if v.default is not inspect.Parameter.empty}
-    return fe_kwargs
+        """
+        self.logger = logging.getLogger("Sampler")
+        self.sample_type = "training" if truth_bam is not None else "consensus"
+        self.logger.info("Initializing sampler for {} or region {}.".format(self.sample_type, region))
+        self.fencoder_args = load_yaml_data(model, _feature_opt_path_)
+        self.fencoder = FeatureEncoder(**self.fencoder_args)
 
+        self.bam = bam
+        self.region = region
+        self.model = model
+        self.rle_ref = rle_ref
+        self.truth_bam = truth_bam
+        self.read_fraction = read_fraction
+        self.chunk_len = chunk_len
+        self.chunk_overlap = chunk_overlap
+        self._source = None # the base data to be chunked
 
-def get_feature_gen(args):
-    mapper = Pool(args.threads).imap if args.threads > 1 else map
-
-    regions = _get_regions(args.bam, args.regions)
-
-    fe_kwargs = _get_fe_kwargs(args.model)
-    opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in fe_kwargs.items()])
-    logging.info('FeatureEncoder options: \n{}'.format(opt_str))
-
-    fe = FeatureEncoder(**fe_kwargs)
-
-    truth = hasattr(args, 'truth') and args.truth is not None
-
-    if truth:
-        logging.info('Creating training features.')
-    else:
-        logging.info('Creating consensus features.')
-
-    reg_str = '\n'.join(['\t\t\t{ref_name}:{start}-{end}'.format(**r._asdict()) for r in regions])
-    logging.info('Got regions:\n{}'.format(reg_str))
-    logging.info('Got read fraction {}'.format(args.read_fraction))
-
-    sample_gens = []
-    for region in regions:
-        ref_rle = fe.process_ref_seq(region.ref_name, args.ref_fastq)
-        if truth:
-            f = partial(fe.bams_to_training_samples, args.truth, args.bam, ref_rle_fq=ref_rle, read_fraction=args.read_fraction)
-        else:
-            f = partial(fe.bam_to_sample, args.bam, ref_rle_fq=ref_rle, read_fraction=args.read_fraction)
-        seg_regions = [Region(region.ref_name, start, end)
-                        for start, end in segment_limits(region.start, region.end,
-                                            segment_len=10*args.chunk_len, overlap_len=5*args.chunk_ovlp)]
-        sample_gens.append(mapper(f, seg_regions))
-        logging.debug("Created sample gen for region {}".format(region))
-
-    logging.debug("Created list of sample generators")
-    if truth:
-        # generators yield tuples of samples
-        samples = (s for g in sample_gens for t in g for s in t)
-    else:
-        # generatores yield samples
-        samples = (s for g in sample_gens for s in g)
-
-    logging.debug("Created chained sample generators")
-
-    return alphabet_filter(chunk_samples(min_positions_filter(samples, args.chunk_len),
-                           chunk_len=args.chunk_len, overlap=args.chunk_ovlp))
+        #TODO: check reference has been given if model/feature encoder requires it
 
 
-def features(args):
+    def _fill_features(self):
+        if self._source is None:
+            t0 = now()
+            if self.truth_bam is not None:
+                self._source = self.fencoder.bams_to_training_samples(
+                    self.truth_bam, self.bam, self.region, self.rle_ref,
+                    self.read_fraction)
+            else:
+                self._source = self.fencoder.bam_to_sample(
+                    self.bam, self.region, self.rle_ref, self.read_fraction)
+                self._source = (self._source,) # wrap to be the same as above
+            t1 = now()
+            self.logger.info("Took {:.2f}s to make features.".format(t1-t0))
 
-    write_samples_to_hdf(args.output, get_feature_gen(args))
-    # write feature options to file, so we can later check model and features
-    # are compatible.
-    fe_kwargs = _get_fe_kwargs(args.model)
-    fe = FeatureEncoder(**fe_kwargs)
-    to_save = {_feature_opt_path_: fe_kwargs,
-               _feature_decoding_path_: fe.decoding}
-    for fname in (args.output, args.output + '.yml'):
-        write_yaml_data(fname, to_save)
+
+    @property
+    def samples(self):
+        """Iterator over chunked samples."""
+        self._fill_features()
+        for source in self._source:
+            if source.is_empty:
+                continue
+            if source.size < self.chunk_len:
+                msg = "Region {} ({} positions) is smaller than inference chunk length {}.".format(
+                    source.name, source.size, self.chunk_len)
+                self.logger.warning(msg)
+                continue
+
+            self.logger.debug(
+                "Chunking pileup data into {} columns with overlap of {}.".format(
+                self.chunk_len, self.chunk_overlap))
+            chunks = source.chunks(chunk_len=self.chunk_len, overlap=self.chunk_overlap)
+            yield from alphabet_filter(chunks)
 
 
-def _process_region(region_getter, filter, chunker, s2xy, region_getter_kwargs):
-    region = region_getter(**region_getter_kwargs)
-    gen = filter(chunker(region))
-    return [s2xy(s) for s in gen]
+    def training_samples(self, max_label_len):
+        """Iterator of (feature, label) pairs for training."""
+        self.logger.info("Maxlabellen: {}".format(max_label_len))
+        if self.truth_bam is None:
+            raise ValueError("Cannot iterate over training pairs when truth bam has not been given.""")
+        label_encoding, label_decoding = get_label_encoding(max_label_len)
+        for s in self.samples:
+            if s.labels is None: # this shouldn't happen
+                raise ValueError("Cannot train without labels.")
+            x = s.features
+            # labels can either be unicode strings or (base, length) integer tuples
+            if isinstance(s.labels[0], np.unicode):
+                y = np.fromiter(
+                    (label_encoding[l[:min(max_label_len, len(l))]] for l in s.labels),
+                    dtype=int, count=len(s.labels))
+            else:
+                y = np.fromiter(
+                    (label_encoding[tuple((l['base'], min(max_label_len, l['run_length'])))]
+                        for l in s.labels),
+                    dtype=int, count=len(s.labels))
+            y = y.reshape(y.shape + (1,))
+            yield x, y
 
 
 def get_label_encoding(max_label_len):
@@ -566,103 +578,61 @@ def get_label_encoding(max_label_len):
 
     """
     encoded_bases = [encoding[b] for b in _alphabet_]
-    label_decoding = [ (b, l) for b, l in itertools.product(encoded_bases,
-                                                      range(1, max_label_len + 1))]
+    label_decoding = [(b, l) for b, l in itertools.product(
+        encoded_bases, range(1, max_label_len + 1))]
     label_decoding.append((encoding[_gap_], 1))  # gaps
     label_encoding = {t: i for i, t in enumerate(label_decoding)}
     label_decoding_strs = [l * decoding[b] for (b,l) in label_decoding]
     return label_encoding, label_decoding_strs
 
 
-def training_batches(args):
-    if args.truth is None:
-        raise ValueError('If creating training batches, a truth bam must be provided.')
-    mapper = Pool(args.threads).imap_unordered if args.threads > 1 else map
-
-    regions = _get_regions(args.bam, args.regions)
+def create_samples(args):
+    raise NotImplementedError('Creation of unlabelled samples is currently disabled')
 
 
-    if args.model is not None:
-        fe_kwargs = load_yaml_data(args.model, _feature_opt_path_)
-    else:
-        fe_kwargs = { k:v.default for (k,v) in inspect.signature(FeatureEncoder.__init__).parameters.items()
-                      if v.default is not inspect.Parameter.empty}
-    opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in fe_kwargs.items()])
-    logging.info('FeatureEncoder options: \n{}'.format(opt_str))
+def create_labelled_samples(args):
+    logger = logging.getLogger('Prepare')
+    regions = get_regions(args.bam, args.regions)
+    reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
+    logger.info('Got regions:\n{}'.format(reg_str))
 
-    fe = FeatureEncoder(**fe_kwargs)
+    fencoder_args, fencoder_decoder = None, None
 
-    reg_str = '\n'.join(['\t\t\t{ref_name}:{start}-{end}'.format(**r._asdict()) for r in regions])
-    logging.info('Got regions:\n{}'.format(reg_str))
-
-    chunked_regions = [Region(region.ref_name, start, end)
-                       for region in regions
-                       for start, end in segment_limits(region.start, region.end,
-                                                        segment_len=10*args.chunk_len,
-                                                        overlap_len=5*args.chunk_ovlp)]
-
-    unique_refs = set((region.ref_name for region in regions))
-    ref_rles = {r: fe.process_ref_seq(r, args.ref_fastq) for r in unique_refs}
-
-    rg = partial(fe.bams_to_training_samples, args.truth, args.bam, read_fraction=args.read_fraction)
-    chunker = partial(chunk_samples, chunk_len=args.chunk_len, overlap=args.chunk_ovlp)
-
-    label_encoding, label_decoding = get_label_encoding(args.max_label_len)
-    s2xy = partial(sample_to_x_y, encoding=label_encoding, max_label_len=args.max_label_len)
-
-    f = partial(_process_region, rg, alphabet_filter, chunker, s2xy)
-
-    np.random.shuffle(chunked_regions)  # shuffle in place
-    kwargs_gen = ({'region': r, 'ref_rle_fq': ref_rles[r.ref_name]} for r in chunked_regions)
-    region_gen = mapper(f, kwargs_gen)
-    xy_tups = (xy for xy_chunk in region_gen for xy in xy_chunk)
-
+    #TODO: add paralellism
     labels_counter = Counter()
-
     with h5py.File(args.output, 'w') as hdf:
-        for i, (x_batch, y_batch) in enumerate(gen_train_batch(xy_tups, batch_size=args.batch_size)):
-            unique, counts = np.lib.arraysetops.unique(y_batch, return_counts=True)
-            labels_counter.update(dict(zip(unique, counts)))
-            hdf['{}/{}'.format(_feature_batches_path_, i)] = x_batch
-            hdf['{}/{}'.format(_label_batches_path_, i)] = y_batch
+        for region in regions:
+            logger.info("Processing region {}.".format(region))
+            data_gen = SampleGenerator(
+                args.bam, region, args.model, args.rle_ref, truth_bam = args.truth,
+                read_fraction=args.read_fraction, chunk_len=10*args.chunk_len, chunk_overlap=5*args.chunk_ovlp)
+            if fencoder_args is None:
+                fencoder_args = deepcopy(data_gen.fencoder_args)
+                fencoder_decoder = deepcopy(data_gen.fencoder.decoding)
+            batches = serial_gen_train_batch(
+                data_gen.training_samples(args.max_label_len),
+                args.batch_size)
+            #TODO: shuffle at this point
+
+            for i, (x_batch, y_batch) in enumerate(batches):
+                unique, counts = np.lib.arraysetops.unique(y_batch, return_counts=True)
+                labels_counter.update(dict(zip(unique, counts)))
+                hdf['{}/{}'.format(_feature_batches_path_, i)] = x_batch
+                hdf['{}/{}'.format(_label_batches_path_, i)] = y_batch
 
     # write feature options to file, so we can later check model and features
     # are compatible and label counts, so we can weight labels by inverse counts.
-    to_save = {_feature_opt_path_: fe_kwargs,
-               _feature_decoding_path_: fe.decoding,
+    logger.info("Writing meta data to file.")
+    label_encoding, label_decoding = get_label_encoding(args.max_label_len)
+    to_save = {_feature_opt_path_: fencoder_args,
+               _feature_decoding_path_: fencoder_decoder,
                _label_counts_path_: labels_counter,
                _label_decod_path_: label_decoding}
     for fname in (args.output, args.output + '.yml'):
         write_yaml_data(fname, to_save)
 
 
-def _get_regions(bam, region_strs=None):
-    """Create Region objects from a bam and region strings.
-    :param bam: str, path to bam file.
-    :param region_strs: iterable of str in samtools region format e.g. ref:start-end
-        or filepath containing a region str per line.
-    :returns: list of `Region` objects.
-    """
-    with pysam.AlignmentFile(bam) as bam_fh:
-        ref_lengths = dict(zip(bam_fh.references, bam_fh.lengths))
-    if region_strs is not None:
-        if os.path.isfile(region_strs[0]):
-            with open(region_strs[0]) as fh:
-                region_strs = [ l.strip() for l in fh.readlines()]
-
-        regions = []
-        for r in parse_regions(region_strs):
-            start = r.start if r.start is not None else 0
-            end = r.end if r.end is not None else ref_lengths[r.ref_name]
-            regions.append(Region(r.ref_name, start, end))
-    else:
-        regions = [Region(ref_name, 0, end) for ref_name, end in ref_lengths.items()]
-
-    return regions
-
-
 # read / reference fasta / fastq compression
-
 _scores_ = '!"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~'
 
 
@@ -696,7 +666,7 @@ def compress_seq(read):
     # (we could get to 94 if we make score zero correspond to count 1).
     is_too_long = runs['length'] >= len(_scores_)
     if np.any(is_too_long):
-        logging.warning('Some homopolymers in {} are longer than the longest supported length\n'.format(read.name))
+        logger.warning('Some homopolymers in {} are longer than the longest supported length\n'.format(read.name))
         inds = np.where(is_too_long)
         runs['length'][inds] = len(_scores_) - 1
     compressed_scores = ''.join([ _scores_[run['length']] for run in runs])
@@ -726,14 +696,8 @@ def compress(args):
         fh.write('@{}\n{}\n'.format(description, compressed_seq))
         fh.write('{}\n{}\n'.format('+', compressed_scores))
     t1 = now()
-    logging.info('Compressing {} took {:.3f}s.'.format(args.input, t1 - t0))
+    logger.info('Compressing {} took {:.3f}s.'.format(args.input, t1 - t0))
 
     if args.output is not None:
         fh.close()
 
-
-def choose_feature_func(args):
-    if args.batch_size is not None:
-        training_batches(args)
-    else:
-        features(args)

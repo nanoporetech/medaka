@@ -19,6 +19,7 @@ class TruthAlignment(object):
         self.start = self.aln.reference_start  # zero-based
         self.end = self.aln.reference_end
         self.is_kept = True
+        self.logger = logging.getLogger('TruthAlign')
 
     def get_overlap_with(self, other):
         first, second = sorted((self, other), key=attrgetter('aln.reference_start'))
@@ -48,7 +49,7 @@ class TruthAlignment(object):
         :returns: list of `TruthAlignment` objects
 
         """
-        filtered_alignments = [ copy(a) for a in alignments]  # don't want to modify original alignments
+        filtered_alignments = [copy(a) for a in alignments]  # don't want to modify original alignments
         for al_i, al_j in itertools.combinations(filtered_alignments, 2):
             first, second = sorted((al_i, al_j), key=attrgetter('aln.reference_start'))
             overlap = first.get_overlap_with(second)
@@ -110,6 +111,8 @@ class TruthAlignment(object):
             aln_reads = bamfile.fetch(reference=ref_name, start=start, end=end)
             alignments = [TruthAlignment(r) for r in aln_reads if not (r.is_unmapped or r.is_secondary)]
             alignments.sort(key=attrgetter('start'))
+        logger = logging.getLogger("TruthAlign")
+        logger.info("Retrieved {} alignments.".format(len(alignments)))
         return alignments
 
     def get_positions_and_labels(self, start=None, end=None, ref_compr_rle=None, mock_compr=False, is_compressed=False, rle_dtype=False):
@@ -161,7 +164,7 @@ class TruthAlignment(object):
             pos = (current_pos, ins_count)
             label = pair.qbase.upper() if pair.qbase else _gap_
             if label == 'N':
-                logging.info('Found {} at pos {}'.format(label, pos))
+                self.logger.info('Found {} at pos {}'.format(label, pos))
             label = encoding[label]
             if is_compressed or mock_compr:
                 label = (label, pair.qlen)

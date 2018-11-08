@@ -26,7 +26,7 @@ class CountsTest(unittest.TestCase):
         kwargs = __kwargs__.copy()
         kwargs['normalise'] = None   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
-        sample = encoder.bam_to_sample(__reads_bam__, __region__, ref_rle_fq=None, read_fraction=None, force_py=True)
+        sample = encoder.bam_to_sample(__reads_bam__, __region__, reference=None, read_fraction=None, force_py=True)
         assert tuple(sample.positions.shape) == (81730,)
         assert tuple(sample.positions[0]) == (50000, 0)
         assert tuple(sample.positions[-1]) == (99999, 1)
@@ -56,7 +56,7 @@ class CountsTest(unittest.TestCase):
         kwargs = __kwargs__.copy()
         kwargs['normalise'] = None   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
-        sample_py = encoder.bam_to_sample(__reads_bam__, __region__, ref_rle_fq=None, read_fraction=None, force_py=True)
+        sample_py = encoder.bam_to_sample(__reads_bam__, __region__, reference=None, read_fraction=None, force_py=True)
         sample_c = encoder.bam_to_sample_c(__reads_bam__, __region__)
 
         # it seems the pysam implementation does not include counts of bases
@@ -76,7 +76,7 @@ class CountsTest(unittest.TestCase):
         kwargs = __kwargs__.copy()
         kwargs['normalise'] = None   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
-        sample_py = encoder.bam_to_sample(__reads_bam__, __region_start__, ref_rle_fq=None, read_fraction=None, force_py=True)
+        sample_py = encoder.bam_to_sample(__reads_bam__, __region_start__, reference=None, read_fraction=None, force_py=True)
         sample_c = encoder.bam_to_sample_c(__reads_bam__, __region_start__)
 
         np.testing.assert_array_equal(sample_py.positions, sample_c.positions)
@@ -87,7 +87,7 @@ class CountsTest(unittest.TestCase):
         kwargs = __kwargs__.copy()
         kwargs['normalise'] = 'total'   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
-        sample_py = encoder.bam_to_sample(__reads_bam__, __region__, ref_rle_fq=None, read_fraction=None, force_py=True)
+        sample_py = encoder.bam_to_sample(__reads_bam__, __region__, reference=None, read_fraction=None, force_py=True)
         sample_c = encoder.bam_to_sample_c(__reads_bam__, __region__)
 
         # it seems the pysam implementation does not include counts of bases
@@ -119,7 +119,7 @@ class CountsTest(unittest.TestCase):
         kwargs = __kwargs__.copy()
         kwargs['normalise'] = 'fwd_rev'   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
-        sample_py = encoder.bam_to_sample(__reads_bam__, __region__, ref_rle_fq=None, read_fraction=None, force_py=True)
+        sample_py = encoder.bam_to_sample(__reads_bam__, __region__, reference=None, read_fraction=None, force_py=True)
 
         # fwd_rev not yet implemented in c, update these tests once it is.
         self.assertRaises(AssertionError, encoder.bam_to_sample_c, __reads_bam__, __region__)
