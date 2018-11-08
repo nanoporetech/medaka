@@ -221,6 +221,7 @@ class FeatureEncoder(object):
         :param reads_bam: (sorted indexed) bam with read alignment to reference
         :param region: `Region` object with ref_name, start and end attributes.
         :param reference: reference `.fasta`, should correspond to `bam`.
+            Required only for run length encoded references and reads.
         :param read_fraction: fraction of reads to use, if `None` use all.
         :param force_py: bool, if True, force use of python code (rather than c library).
         :returns: `Sample` object

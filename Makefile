@@ -71,7 +71,8 @@ install: venv libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 	${IN_VENV} && python setup.py install
 
 test: install
-	${IN_VENV} && python -m unittest discover
+	${IN_VENV} && pip install nose
+	${IN_VENV} && python setup.py nosetests
 
 clean:
 	. ${VENV} && python setup.py clean || echo "Failed to run setup.py clean"
