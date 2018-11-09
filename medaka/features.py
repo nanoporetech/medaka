@@ -5,7 +5,6 @@ import itertools
 from functools import partial
 import logging
 from multiprocessing import Pool
-import os
 import sys
 from timeit import default_timer as now
 
@@ -16,7 +15,7 @@ import pysam
 
 #TODO: from medaka import common
 from medaka.common import (yield_compressed_pairs, Sample, lengths_to_rle, rle,
-                           Region, 
+                           Region,
                            decoding, encoding, get_regions,
                            _gap_, _alphabet_, _feature_opt_path_, _feature_decoding_path_,
                            get_pairs, get_pairs_with_hp_len, seq_to_hp_lens,
@@ -473,7 +472,7 @@ class SampleGenerator(object):
         """Generate chunked inference (or training) samples.
 
         :param bam: `.bam` containing alignments from which to generate samples.
-        :param region: a `Region` for which to generate samples. 
+        :param region: a `Region` for which to generate samples.
         :param model: a medaka model.
         :param truth_bam: a `.bam` containing alignment of truth sequence to
             `reference` sequence. Required only for creating training chunks.
@@ -616,7 +615,7 @@ def create_labelled_samples(args):
             logger.info("Processing region {}.".format(region))
             data_gen = SampleGenerator(
                 args.bam, region, args.model, args.rle_ref, truth_bam = args.truth,
-                read_fraction=args.read_fraction, chunk_len=10*args.chunk_len, chunk_overlap=5*args.chunk_ovlp)
+                read_fraction=args.read_fraction, chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
             if fencoder_args is None:
                 fencoder_args = deepcopy(data_gen.fencoder_args)
                 fencoder_decoder = deepcopy(data_gen.fencoder.decoding)
@@ -628,8 +627,8 @@ def create_labelled_samples(args):
             for i, (x_batch, y_batch) in enumerate(batches):
                 unique, counts = np.lib.arraysetops.unique(y_batch, return_counts=True)
                 labels_counter.update(dict(zip(unique, counts)))
-                hdf['{}/{}'.format(_feature_batches_path_, i)] = x_batch
-                hdf['{}/{}'.format(_label_batches_path_, i)] = y_batch
+                hdf['{}/{}_{}'.format(_feature_batches_path_, region, i)] = x_batch
+                hdf['{}/{}_{}'.format(_label_batches_path_, region, i)] = y_batch
 
     # write feature options to file, so we can later check model and features
     # are compatible and label counts, so we can weight labels by inverse counts.
