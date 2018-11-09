@@ -21,6 +21,9 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
     :returns: list of (contig_name, sequence)
 
     """
+    logger = logging.getLogger(__package__)
+    logger.name = 'Stitch'
+
     label_decoding = load_yaml_data(probs_hdfs[0], _label_decod_path_)
     if label_decoding is None:
         if model_yml is not None:
@@ -28,7 +31,8 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
             label_decoding = load_yaml_data(model_yml, _label_decod_path_)
         else:
             raise ValueError('Cannot decode probabilities without label decoding')
-    logging.info("Label decoding is:\n{}".format('\n'.join(
+
+    logger.debug("Label decoding is:\n{}".format('\n'.join(
         '{}: {}'.format(i, x) for i, x in enumerate(label_decoding)
     )))
     index = get_sample_index_from_files(probs_hdfs, 'hdf')
@@ -39,12 +43,13 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
         ref_names = list()
         for region in (Region.from_string(r) for r in regions):
             if region.start is None or region.end is None:
-                logger.warning("Ignoring start:end for '{}'.".format(r))
-            ref_names.append(r.name)
+                logger.warning("Ignoring start:end for '{}'.".format(region))
+            ref_names.append(region.ref_name)
 
     get_pos = lambda s, i: '{}.{}'.format(s.positions[i]['major'] + 1, s.positions[i]['minor'])
     ref_assemblies = []
     for ref_name in ref_names:
+        logger.info("Processing {}.".format(ref_name))
         data_gen = yield_from_feature_files(probs_hdfs, ref_names=(ref_name,), index=index)
         seq=''
         s1 = next(data_gen)
