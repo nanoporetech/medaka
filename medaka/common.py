@@ -390,7 +390,7 @@ def yield_from_feature_files(fnames, ref_names=None, index=None, samples=None):
     :samples: iterable of sample names to yield (in order in which they are supplied).
     :yields: `Sample` objects.
     """
-    handles = { fname: h5py.File(fname, 'r') for fname in fnames}
+    handles = {fname: h5py.File(fname, 'r') for fname in fnames}
 
     if samples is not None:
         # yield samples in the order they are asked for
