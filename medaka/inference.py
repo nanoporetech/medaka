@@ -5,7 +5,6 @@ import inspect
 import itertools
 import logging
 import os
-import sys
 from timeit import default_timer as now
 
 import h5py
@@ -13,7 +12,7 @@ import numpy as np
 import pysam
 
 from medaka import vcf
-from medaka.common import (_label_counts_path_, Region, get_regions,
+from medaka.common import (_label_counts_path_, get_regions,
                            _label_decod_path_, decoding,
                            get_sample_index_from_files, grouper,
                            load_sample_from_hdf, load_yaml_data,
@@ -89,7 +88,11 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropou
     if inter_layer_dropout > 0:
         model.add(Dropout(inter_layer_dropout))
 
-    model.add(Dense(num_classes, activation='softmax', name='classify'))
+    # see keras #10417 for why we specify input shape
+    model.add(Dense(
+        num_classes, activation='softmax', name='classify',
+        input_shape=(chunk_size, 2 * feature_len)
+    ))
 
     return model
 
@@ -107,7 +110,6 @@ def qscore(y_true, y_pred):
 def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid, label_decoding,
                  timesteps, feat_dim, model_fp=None, epochs=5000, batch_size=100, class_weight=None, n_mini_epochs=1):
     """Run training."""
-    from keras.models import load_model
     from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
 
     logger = logging.getLogger('Training')
@@ -127,9 +129,6 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
     model = build_model(timesteps, feat_dim, num_classes, **model_kwargs)
 
     if model_fp is not None and os.path.splitext(model_fp)[-1] != '.yml':
-        old_model = load_model(model_fp, custom_objects={'qscore': qscore})
-        old_model_feat_dim = old_model.get_input_shape_at(0)[2]
-        assert old_model_feat_dim == feat_dim
         logger.info("Loading weights from {}".format(model_fp))
         model.load_weights(model_fp)
 
@@ -353,7 +352,7 @@ def run_prediction(sample_gen, output, batch_size=200):
         for data in batches:
             x_data = np.stack((x.features for x in data))
             class_probs = model.predict(x_data, batch_size=batch_size, verbose=0)
-            
+
             n_samples_done += x_data.shape[0]
             t1 = now()
             if t1 - tlast > 10:
