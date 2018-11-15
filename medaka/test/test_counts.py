@@ -5,6 +5,7 @@ from medaka.features import FeatureEncoder
 from medaka.common import Region
 
 __reads_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'test_reads.bam')
+__two_type_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'test_two_type.bam')
 __region__ = Region('Consensus_Consensus_Consensus_Consensus_utg000001l', start=50000, end=100000)
 __region_start__ = Region('Consensus_Consensus_Consensus_Consensus_utg000001l', start=0, end=200)
 
@@ -20,7 +21,7 @@ __kwargs__ = {
 
 class CountsTest(unittest.TestCase):
 
-    def test_python(self):
+    def test_001_basic_counting(self):
 
         # py-style
         kwargs = __kwargs__.copy()
@@ -37,7 +38,7 @@ class CountsTest(unittest.TestCase):
         np.testing.assert_almost_equal(np.mean(np.sum(sample.features, axis=1)), 19.83684081732534)
 
 
-    def test_c(self):
+    def test_001_basic_counting_with_c(self):
         kwargs = __kwargs__.copy()
         kwargs['normalise'] = None   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
@@ -52,7 +53,7 @@ class CountsTest(unittest.TestCase):
         np.testing.assert_almost_equal(np.mean(np.sum(sample.features, axis=1)), 19.83996084669032)
 
 
-    def test_python_c_same(self):
+    def test_003_c_same_as_python(self):
         kwargs = __kwargs__.copy()
         kwargs['normalise'] = None   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
@@ -71,8 +72,8 @@ class CountsTest(unittest.TestCase):
         assert len(np.where(np.not_equal(d_c, d_p))[0]) == 255
 
 
-    def test_python_c_same_from_start(self):
-        # check we get same when starting from 0
+    def test_004_c_same_as_python_from_start(self):
+        # check we get same when starting from 0 to make sure 0-based/1-based behaviour is same
         kwargs = __kwargs__.copy()
         kwargs['normalise'] = None   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
@@ -83,7 +84,7 @@ class CountsTest(unittest.TestCase):
         np.testing.assert_array_equal(sample_py.features, sample_c.features)
 
 
-    def test_python_c_same_norm_total(self):
+    def test_005_c_same_as_python_norm_total(self):
         kwargs = __kwargs__.copy()
         kwargs['normalise'] = 'total'   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
@@ -115,14 +116,11 @@ class CountsTest(unittest.TestCase):
         np.testing.assert_almost_equal(sample_py.features[:10, (fwd_inds)].sum(axis=1), expected_fwd_norm_depth)
 
 
-    def test_python_c_same_norm_fwd_rev(self):
+    def test_006_c_same_as_python_norm_fwd_rev(self):
         kwargs = __kwargs__.copy()
         kwargs['normalise'] = 'fwd_rev'   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
         sample_py = encoder.bam_to_sample(__reads_bam__, __region__, reference=None, read_fraction=None, force_py=True)
-
-        # fwd_rev not yet implemented in c, update these tests once it is.
-        self.assertRaises(AssertionError, encoder.bam_to_sample_c, __reads_bam__, __region__)
 
         d_p = np.sum(sample_py.features, axis=1)
         expected_norm_depth = np.array([2.        , 1.9999999 , 0.04545455, 2.        , 2.        ,

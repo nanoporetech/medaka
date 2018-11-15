@@ -7,8 +7,9 @@ typedef struct {
 } _plp_data;
 
 typedef _plp_data *plp_data; 
+const size_t featlen;
 
 plp_data create_plp_data(size_t n_cols);
 void destroy_plp_data(plp_data data);
 void print_pileup_data(plp_data pileup);
-plp_data calculate_pileup(const char *region, const char *bam_file); 
+plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[]); 

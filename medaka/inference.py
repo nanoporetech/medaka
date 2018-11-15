@@ -197,7 +197,7 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
 
     # append label_decoding and model building options to the hdf files
     for hd5_model_path in glob.glob(os.path.join(train_name, '*.hdf5')):
-            write_yaml_data(hd5_model_path, model_details)
+        write_yaml_data(hd5_model_path, model_details)
 
 
 

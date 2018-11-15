@@ -1,4 +1,5 @@
 from collections import defaultdict, Counter, OrderedDict
+import concurrent.futures
 from copy import deepcopy
 import inspect
 import itertools
@@ -27,28 +28,40 @@ from medaka.labels import TruthAlignment
 import libmedaka
 
 
-
-def pileup_counts(region, bam):
+def pileup_counts(region, bam, dtype_prefixes=None):
     """Create pileup counts feature array for region.
 
     :param region: `Region` object
     :param bam: .bam file with alignments.
+    :param dtype_prefixes: prefixes for query names which to separate counts.
+        If `None` (or of length 1), counts are not split.
 
     :returns: pileup counts array, reference positions, insertion postions
     """
+    ffi, lib = libmedaka.ffi, libmedaka.lib
+    
     # htslib start is 1-based, Region object is 0-based
     region_str = '{}:{}-{}'.format(region.ref_name, region.start + 1, region.end)
 
-    ffi, lib = libmedaka.ffi, libmedaka.lib
+    num_dtypes, dtypes = 1, ffi.NULL
+    if isinstance(dtype_prefixes, str):
+        dtype_prefixes = [dtype_prefixes]
+    if dtype_prefixes is not None and len(dtype_prefixes) > 1:
+        num_dtypes = len(dtype_prefixes)
+        _dtypes = [ffi.new("char[]", d.encode()) for d in dtype_prefixes]
+        dtypes = ffi.new("char *[]", _dtypes)
+
     counts = lib.calculate_pileup(
-        region_str.encode(), bam.encode()
+        region_str.encode(), bam.encode(), num_dtypes, dtypes
     )
+
+    featlen = lib.featlen
 
     size_sizet = np.dtype(np.uintp).itemsize
     np_counts = np.frombuffer(ffi.buffer(
-        counts.counts, size_sizet * counts.n_cols * 11),
+        counts.counts, size_sizet * counts.n_cols * featlen * num_dtypes),
         dtype=np.uintp
-    ).reshape(counts.n_cols, 11).copy()
+    ).reshape(counts.n_cols, featlen * num_dtypes).copy()
 
     positions = np.empty(counts.n_cols, dtype=[('major', int), ('minor', int)])
     np.copyto(positions['major'],
@@ -63,6 +76,12 @@ def pileup_counts(region, bam):
     ))
 
     lib.destroy_plp_data(counts)
+
+    # get rid of 'first' counts row for each datatype (counts of alternative bases)
+    mask = np.ones(np_counts.shape[1], dtype=bool)
+    mask[[x * featlen for x in range(0, num_dtypes)]] = False
+    np_counts = np_counts[:, mask]
+
     return np_counts, positions
 
 
@@ -163,6 +182,22 @@ class FeatureEncoder(object):
             return None
 
 
+    @property
+    def feature_indices(self):
+        """Location of feature vector components.
+        
+        :returns: dictionary mapping read data type and strand to feature vector
+        indices (a list over all bases)
+
+        """
+        return {
+            (dt, strand):
+                [self.encoding[k] for k in self.encoding.keys()
+                    if k[0] == dt and strand == k[1]]
+                for dt, strand in itertools.product(self.dtypes, (True, False))
+        }
+
+
     def bam_to_sample_c(self, reads_bam, region):
         """Converts a section of an alignment pileup (as shown
         by e.g. samtools tview) to a base frequency feature array
@@ -177,12 +212,11 @@ class FeatureEncoder(object):
         assert not self.consensus_as_ref
         assert self.max_hp_len == 1
         assert self.log_min is None
-        assert self.normalise == 'total' or self.normalise is None
+        assert self.normalise == 'total' or self.normalise == 'fwd_rev' or self.normalise is None
         assert not self.with_depth
         assert not self.is_compressed
-        assert self.dtypes == ('',)  # c-code does not support multiple dtypes
 
-        counts, positions = pileup_counts(region, reads_bam)
+        counts, positions = pileup_counts(region, reads_bam, dtype_prefixes=self.dtypes)
         if len(counts) == 0:
             msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
             self.logger.warning(msg)
@@ -190,23 +224,26 @@ class FeatureEncoder(object):
                           labels=None, ref_seq=None,
                           positions=positions, label_probs=None)
 
-        # get rid of first counts row (counts of alternative bases)
-        counts = counts[:, 1:]
-
-        depth = np.sum(counts, axis=1)
-
-        # we don't have counts for reads which don't have an insertion
-        # so we have to take the depth at major positions
+        # find the position index for parent major position of all minor positions
         minor_inds = np.where(positions['minor'] > 0)
         major_pos_at_minor_inds = positions['major'][minor_inds]
         major_ind_at_minor_inds = np.searchsorted(positions['major'], major_pos_at_minor_inds, side='left')
-        depth[minor_inds] = depth[major_ind_at_minor_inds]
 
+        depth = np.sum(counts, axis=1)
+        depth[minor_inds] = depth[major_ind_at_minor_inds]
         if self.normalise == 'total':
-            # normalise counts by total depth
-            feature_array = counts / depth.reshape((-1, 1))
+            # normalize counts by total depth at major position, since the
+            # counts include deletions this is a count of spanning reads
+            feature_array = counts / np.maximum(1, depth).reshape((-1, 1)) # max just to avoid div error
+        elif self.normalise == 'fwd_rev':
+            # normalize forward and reverse and by dtype
+            feature_array = np.empty_like(counts, dtype=float)
+            for (dt, is_rev), inds in self.feature_indices.items():
+                dt_depth = np.sum(counts[:, inds], axis=1)
+                dt_depth[minor_inds] = dt_depth[major_ind_at_minor_inds]
+                feature_array[: , inds] = counts[:, inds] / np.maximum(1, dt_depth).reshape((-1, 1)) # max just to avoid div error
         else:
-            feature_array = counts
+            feature_array = counts 
 
         feature_array = feature_array.astype(self.feature_dtype)
 
@@ -320,11 +357,9 @@ class FeatureEncoder(object):
             depth_array = np.empty(shape=(aln_cols), dtype=int)
 
             # keep track of which features are for fwd/rev reads of each dtype
-            inds_by_type = {
-                (dt, strand): [self.encoding[k] for k in self.encoding.keys() if k[0] == dt and strand == k[1]]
-                               for dt, strand in itertools.product(self.dtypes, (True, False))
-            }
+            inds_by_type = self.feature_indices
 
+            #TODO: refactor so common combinations of options can be handled as in C-function
             for i, ((pos, counts), (_, (ref_base, ref_len))) in \
                     enumerate(zip(sorted(aln_counters.items()),
                                 sorted(ref_bases.items()))):
@@ -359,9 +394,9 @@ class FeatureEncoder(object):
                     feature_array[i, self.encoding['depth']] = depth_array[i]
 
                 if self.log_min is not None:  # counts/proportions and depth will be normalised
-                # when we take log of probs, make it easier for network by keeping all log of
-                # probs positive. add self.log_min to any log probs so they are positive,
-                # if self.log_min is 10, we can cope with depth up to 10**9
+                    # when we take log of probs, make it easier for network by keeping all log of
+                    # probs positive. add self.log_min to any log probs so they are positive,
+                    # if self.log_min is 10, we can cope with depth up to 10**9
                     feature_array[i, :] = np.log10(feature_array[i, :],
                                                    out=feature_array[i, :])
                     feature_array[i, :] += self.log_min
@@ -600,35 +635,43 @@ def create_samples(args):
     raise NotImplementedError('Creation of unlabelled samples is currently disabled')
 
 
+def _labelled_samples_worker(args, region):
+    logger = logging.getLogger('PrepWork')
+    logger.info("Processing region {}.".format(region))
+    fencoder_args, fencoder_decoder = None, None
+    data_gen = SampleGenerator(
+        args.bam, region, args.model, args.rle_ref, truth_bam = args.truth,
+        read_fraction=args.read_fraction, chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
+    if fencoder_args is None:
+        fencoder_args = deepcopy(data_gen.fencoder_args)
+        fencoder_decoder = deepcopy(data_gen.fencoder.decoding)
+    batches = serial_gen_train_batch(
+        data_gen.training_samples(args.max_label_len),
+        args.batch_size)
+    #TODO: shuffle
+    return list(batches)
+
+
 def create_labelled_samples(args):
     logger = logging.getLogger('Prepare')
     regions = get_regions(args.bam, args.regions)
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))
 
-    fencoder_args, fencoder_decoder = None, None
 
-    #TODO: add paralellism
     labels_counter = Counter()
     with h5py.File(args.output, 'w') as hdf:
-        for region in regions:
-            logger.info("Processing region {}.".format(region))
-            data_gen = SampleGenerator(
-                args.bam, region, args.model, args.rle_ref, truth_bam = args.truth,
-                read_fraction=args.read_fraction, chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
-            if fencoder_args is None:
-                fencoder_args = deepcopy(data_gen.fencoder_args)
-                fencoder_decoder = deepcopy(data_gen.fencoder.decoding)
-            batches = serial_gen_train_batch(
-                data_gen.training_samples(args.max_label_len),
-                args.batch_size)
-            #TODO: shuffle at this point
-
-            for i, (x_batch, y_batch) in enumerate(batches):
-                unique, counts = np.lib.arraysetops.unique(y_batch, return_counts=True)
-                labels_counter.update(dict(zip(unique, counts)))
-                hdf['{}/{}_{}'.format(_feature_batches_path_, region, i)] = x_batch
-                hdf['{}/{}_{}'.format(_label_batches_path_, region, i)] = y_batch
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            worker = partial(_labelled_samples_worker, args)
+            futures = executor.map(worker, regions)
+            for fut in concurrent.futures.as_completed(futures):
+                if fut.exception is None:
+                    batches = fut.result()
+                    for i, (x_batch, y_batch) in enumerate(batches):
+                        unique, counts = np.lib.arraysetops.unique(y_batch, return_counts=True)
+                        labels_counter.update(dict(zip(unique, counts)))
+                        hdf['{}/{}_{}'.format(_feature_batches_path_, region, i)] = x_batch
+                        hdf['{}/{}_{}'.format(_label_batches_path_, region, i)] = y_batch
 
     # write feature options to file, so we can later check model and features
     # are compatible and label counts, so we can weight labels by inverse counts.

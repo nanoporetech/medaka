@@ -22,25 +22,9 @@ ffibuilder.set_source("libmedaka",
     extra_objects=['libhts.a']
 )
 
+with open(os.path.join(src_dir, 'medaka_counts.h'), 'r') as fh:
+    ffibuilder.cdef(fh.read())
 
-ffibuilder.cdef("""
-
-typedef struct {
-    size_t n_cols;
-    size_t *counts;
-    size_t *major;
-    size_t *minor;
-} _plp_data;
-
-typedef _plp_data *plp_data; 
-
-plp_data calculate_pileup(const char *region, const char *bam_file);
-void print_pileup_data(plp_data pileup);
-plp_data create_plp_data(size_t n_cols);
-void destroy_plp_data(plp_data data);
-
-"""
-)
 
 if __name__ == "__main__":
     ffibuilder.compile(verbose=True)
