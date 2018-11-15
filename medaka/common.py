@@ -342,7 +342,7 @@ def load_yaml_data(fname, group):
         if group in d:
             data = d[group]
     else:
-        with h5py.File(fname) as hdf:
+        with h5py.File(fname, 'r') as hdf:
             if group in hdf:
                 yml_str = hdf[group][()]
                 data = yaml.load(yml_str)
