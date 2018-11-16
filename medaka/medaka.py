@@ -106,6 +106,7 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cparser.set_defaults(func=predict)
     cparser.add_argument('output', help='Output file.')
+    cparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
 
     # Consensus from features input
     cfparser = subparsers.add_parser('consensus_from_features',
