@@ -179,6 +179,25 @@ class Region(_Region):
         return cls(ref_name, start, end)
 
 
+    def split(region, size, overlap=0):
+        """Split region into sub-regions.
+
+        :param size: size of sub-regions.
+        :param overlap: overlap between ends of sub-regions.
+
+        :returns: a list of sub-regions.
+
+        """
+        regions = [
+            Region(region.ref_name, start, stop) for (start, stop) in
+            segment_limits(region.start, region.end, segment_len=size, overlap_len=overlap)
+        ]
+        # correct end co-ordinate of the last
+        last = regions[-1]
+        regions[-1] = Region(last.ref_name, last.start, last.end + 1)
+        return regions
+
+
 def get_regions(bam, region_strs=None):
     """Create `Region` objects from a bam and region strings.
 
