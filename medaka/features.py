@@ -28,7 +28,7 @@ from medaka.labels import TruthAlignment
 import libmedaka
 
 
-def pileup_counts(region, bam, dtype_prefixes=None):
+def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=4):
     """Create pileup counts feature array for region.
 
     :param region: `Region` object
@@ -40,9 +40,6 @@ def pileup_counts(region, bam, dtype_prefixes=None):
     """
     ffi, lib = libmedaka.ffi, libmedaka.lib
     
-    # htslib start is 1-based, Region object is 0-based
-    region_str = '{}:{}-{}'.format(region.ref_name, region.start + 1, region.end)
-
     num_dtypes, dtypes = 1, ffi.NULL
     if isinstance(dtype_prefixes, str):
         dtype_prefixes = [dtype_prefixes]
@@ -51,31 +48,44 @@ def pileup_counts(region, bam, dtype_prefixes=None):
         _dtypes = [ffi.new("char[]", d.encode()) for d in dtype_prefixes]
         dtypes = ffi.new("char *[]", _dtypes)
 
-    counts = lib.calculate_pileup(
-        region_str.encode(), bam.encode(), num_dtypes, dtypes
-    )
-
     featlen = lib.featlen
 
-    size_sizet = np.dtype(np.uintp).itemsize
-    np_counts = np.frombuffer(ffi.buffer(
-        counts.counts, size_sizet * counts.n_cols * featlen * num_dtypes),
-        dtype=np.uintp
-    ).reshape(counts.n_cols, featlen * num_dtypes).copy()
+    def _process_region(reg):
+        # htslib start is 1-based, Region object is 0-based
+        region_str = '{}:{}-{}'.format(reg.ref_name, reg.start + 1, reg.end)
 
-    positions = np.empty(counts.n_cols, dtype=[('major', int), ('minor', int)])
-    np.copyto(positions['major'],
-        np.frombuffer(ffi.buffer(
-        counts.major, size_sizet * counts.n_cols),
-        dtype=np.uintp
-    ))
-    np.copyto(positions['minor'],
-        np.frombuffer(ffi.buffer(
-        counts.minor, size_sizet * counts.n_cols),
-        dtype=np.uintp
-    ))
+        counts = lib.calculate_pileup(
+            region_str.encode(), bam.encode(), num_dtypes, dtypes
+        )
 
-    lib.destroy_plp_data(counts)
+        size_sizet = np.dtype(np.uintp).itemsize
+        np_counts = np.frombuffer(ffi.buffer(
+            counts.counts, size_sizet * counts.n_cols * featlen * num_dtypes),
+            dtype=np.uintp
+        ).reshape(counts.n_cols, featlen * num_dtypes).copy()
+
+        positions = np.empty(counts.n_cols, dtype=[('major', int), ('minor', int)])
+        np.copyto(positions['major'],
+            np.frombuffer(ffi.buffer(
+            counts.major, size_sizet * counts.n_cols),
+            dtype=np.uintp
+        ))
+        np.copyto(positions['minor'],
+            np.frombuffer(ffi.buffer(
+            counts.minor, size_sizet * counts.n_cols),
+            dtype=np.uintp
+        ))
+
+        lib.destroy_plp_data(counts)
+        return np_counts, positions
+
+    # split large regions, the chunks are trivially stacked
+    regions = region.split(region_split)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(_process_region, regions))
+
+    np_counts = np.concatenate([x[0] for x in results])
+    positions = np.concatenate([x[1] for x in results])
 
     # get rid of 'first' counts row for each datatype (counts of alternative bases)
     mask = np.ones(np_counts.shape[1], dtype=bool)
@@ -638,13 +648,9 @@ def create_samples(args):
 def _labelled_samples_worker(args, region):
     logger = logging.getLogger('PrepWork')
     logger.info("Processing region {}.".format(region))
-    fencoder_args, fencoder_decoder = None, None
     data_gen = SampleGenerator(
         args.bam, region, args.model, args.rle_ref, truth_bam = args.truth,
         read_fraction=args.read_fraction, chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
-    if fencoder_args is None:
-        fencoder_args = deepcopy(data_gen.fencoder_args)
-        fencoder_decoder = deepcopy(data_gen.fencoder.decoding)
     batches = serial_gen_train_batch(
         data_gen.training_samples(args.max_label_len),
         args.batch_size)
@@ -658,12 +664,12 @@ def create_labelled_samples(args):
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))
 
-
     labels_counter = Counter()
     with h5py.File(args.output, 'w') as hdf:
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            worker = partial(_labelled_samples_worker, args)
-            futures = executor.map(worker, regions)
+        # TODO: this parallelism would be better in `SampleGenerator.bams_to_training_samples`
+        #       since training alignments are usually chunked.
+        with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as executor:
+            futures = [executor.submit(_labelled_samples_worker, args, reg) for reg in regions]
             for fut in concurrent.futures.as_completed(futures):
                 if fut.exception is None:
                     batches = fut.result()
@@ -676,6 +682,13 @@ def create_labelled_samples(args):
     # write feature options to file, so we can later check model and features
     # are compatible and label counts, so we can weight labels by inverse counts.
     logger.info("Writing meta data to file.")
+
+    data_gen = SampleGenerator(
+        args.bam, regions[0], args.model, args.rle_ref, truth_bam = args.truth,
+        read_fraction=args.read_fraction, chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
+    fencoder_args = deepcopy(data_gen.fencoder_args)
+    fencoder_decoder = deepcopy(data_gen.fencoder.decoding)
+
     label_encoding, label_decoding = get_label_encoding(args.max_label_len)
     to_save = {_feature_opt_path_: fencoder_args,
                _feature_decoding_path_: fencoder_decoder,
