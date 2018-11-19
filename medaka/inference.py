@@ -319,11 +319,20 @@ class VCFChunkWriter(object):
             self.writer.write_variant(var_queue[0])
 
 
-def run_prediction(sample_gen, output, batch_size=200):
+def run_prediction(sample_gen, output, batch_size=200, threads=1):
     """Inference worker."""
     from keras.models import load_model
+    from keras import backend as K
+
     logger = logging.getLogger(__package__)
     logger.name = 'PWorker'
+
+    logger.info("Setting tensorflow threads to {}.".format(threads))
+    K.set_session(K.tf.Session(
+        config=K.tf.ConfigProto(
+            intra_op_parallelism_threads=threads,
+            inter_op_parallelism_threads=threads)
+    ))
 
     model = load_model(sample_gen.model, custom_objects={'qscore': qscore})
     time_steps = model.get_input_shape_at(0)[1]
@@ -393,7 +402,7 @@ def predict(args):
             args.bam, region, args.model, args.rle_ref, args.read_fraction,
             chunk_len=chunk_len, chunk_overlap=chunk_ovlp)
         run_prediction(
-            data_gen, args.output, batch_size=args.batch_size
+            data_gen, args.output, batch_size=args.batch_size, threads=args.threads
         )
 
 

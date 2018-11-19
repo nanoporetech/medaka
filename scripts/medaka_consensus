@@ -5,7 +5,7 @@ OUTPUT="medaka"
 THREADS=1
 
 MODEL=$(medaka_data_path)/medaka_model.hdf5
-BATCH_SIZE=50
+BATCH_SIZE=200
 iflag=false
 dflag=false
 
@@ -19,7 +19,7 @@ Polish an assembly using medaka
     -o  output folder (default: medaka).
     -m  medaka model (default: ${MODEL}). 
     -t  number of threads with which to create features (default: 1).
-    -b  batchsize (controls how much memory is used running network) (default: 50)."
+    -b  batchsize (controls how much memory is used running network) (default: 200)."
 
 while getopts ':hi::d:o:m:t:b:' option; do
   case "$option" in
@@ -66,7 +66,7 @@ fi
 CONSENSUSPROBS=consensus_probs.hdf
 if [[ ! -e ${CONSENSUSPROBS} ]]; then
     echo "Running medaka consensus"
-    medaka consensus ${CALLS2DRAFT}.bam ${CONSENSUSPROBS} --model ${MODEL} --batch_size ${BATCH_SIZE}
+    medaka consensus ${CALLS2DRAFT}.bam ${CONSENSUSPROBS} --model ${MODEL} --batch_size ${BATCH_SIZE} --threads ${THREADS}
 else 
     echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
 fi
