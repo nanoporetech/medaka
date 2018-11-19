@@ -655,7 +655,7 @@ def _labelled_samples_worker(args, region):
         data_gen.training_samples(args.max_label_len),
         args.batch_size)
     #TODO: shuffle
-    return list(batches)
+    return list(batches), region, deepcopy(data_gen.fencoder_args), deepcopy(data_gen.fencoder.decoding)
 
 
 def create_labelled_samples(args):
@@ -665,15 +665,17 @@ def create_labelled_samples(args):
     logger.info('Got regions:\n{}'.format(reg_str))
 
     labels_counter = Counter()
+    fencoder_args, fencoder_decoder = None, None
     with h5py.File(args.output, 'w') as hdf:
         # TODO: this parallelism would be better in `SampleGenerator.bams_to_training_samples`
         #       since training alignments are usually chunked.
         with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as executor:
             futures = [executor.submit(_labelled_samples_worker, args, reg) for reg in regions]
             for fut in concurrent.futures.as_completed(futures):
-                if fut.exception is None:
-                    batches = fut.result()
+                if fut.exception() is None:
+                    batches, region, fencoder_args, fencoder_decoder = fut.result()
                     for i, (x_batch, y_batch) in enumerate(batches):
+                        logger.info("Writing batch {} for region {}".format(i, region))
                         unique, counts = np.lib.arraysetops.unique(y_batch, return_counts=True)
                         labels_counter.update(dict(zip(unique, counts)))
                         hdf['{}/{}_{}'.format(_feature_batches_path_, region, i)] = x_batch
@@ -682,12 +684,8 @@ def create_labelled_samples(args):
     # write feature options to file, so we can later check model and features
     # are compatible and label counts, so we can weight labels by inverse counts.
     logger.info("Writing meta data to file.")
-
-    data_gen = SampleGenerator(
-        args.bam, regions[0], args.model, args.rle_ref, truth_bam = args.truth,
-        read_fraction=args.read_fraction, chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
-    fencoder_args = deepcopy(data_gen.fencoder_args)
-    fencoder_decoder = deepcopy(data_gen.fencoder.decoding)
+    if fencoder_args is None or fencoder_decoder is None:
+        logger.critical('Feature Encoder args are (incorrectly) `None`.')
 
     label_encoding, label_decoding = get_label_encoding(args.max_label_len)
     to_save = {_feature_opt_path_: fencoder_args,
