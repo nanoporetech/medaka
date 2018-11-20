@@ -1,24 +1,30 @@
-Prototype sequence correction
-=============================
+
+![Oxford Nanopore Technologies logo](images/ONT_logo_590x106.png)
+
+
+Medaka
+======
 
 [![Build Status](https://travis-ci.org/nanoporetech/medaka.svg?branch=master)](https://travis-ci.org/nanoporetech/medaka)
 
-Medaka demonstrates a framework for error correcting sequencing data,
-particularly aimed at nanopore sequencing. Tools are provided for both training
-and inference. The code exploits the [keras]('https://keras.io') deep learning
-library.
+`medaka` is a tool to create a consensus sequence of nanopore sequencing data.
+This task is performed using neural networks applied a pileup of individual
+sequencing reads against a draft assembly. It outperforms graph-based methods
+operating on basecalled data, and can be competitive with state-of-the-art
+signal-based methods whilst being much faster.
 
-The framework provided has had limited testing and benchmarking, but it is
-being released in an effort to allow researchers to experiment without having
-to write much of the tedious data preparation code. Researchers can extend the
-tools provided to achieve better results that those obtained currently.
 
-Development of medaka as a "base-space" consensus tool has been paused to focus
-on methods which exploit the nanopore signal data. Nevertheless researchers may
-find medaka useful as a method to generate quickly sufficiently accurate
-consensus sequences in many use cases; see the
-[Benchmarks](https://nanoporetech.github.io/medaka/benchmarks.html) page for
-further details.
+Features
+--------
+
+  * Requires only basecalled data. (`.fasta` or `.fastq`)
+  * Improved accurary over graph-based methods (e.g. Racon).
+  * 50X faster than Nanopolish.
+  * [Benchmarks](https://nanoporetech.github.io/medaka/benchmarks.html)
+  * Includes extras for implementing and training bespoke correction
+    networks.
+  * Works on Linux (MacOS and Windows support is untested).
+  * Open source (Mozilla Public License 2.0).
 
 Documentation can be found at https://nanoporetech.github.io/medaka/.
 
@@ -36,3 +42,22 @@ To setup the environment run:
     cd medaka
     make install
     . ./venv/bin/activate
+
+
+Usage
+-----
+
+`medaka` can be run using its default settings through the `medaka_consensus`
+program. An assembly in `.fasta` format and basecalls in `.fasta` or `.fastq`
+format are required. 
+
+    source ${MEDAKA}  # i.e. medaka/venv/bin/activate
+    NPROC=$(nproc)
+    BASECALLS=basecalls.fa
+    DRAFT=draft_assm/assm_final.fa
+    OUTDIR=medaka_consensus
+    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC}
+
+The variables `BASECALLS`, `DRAFT`, and `OUTDIR` in the above should be set
+appropriately. When `medaka_consensus` has finished running, the consensus
+will be saved to `${OUTDIR}/consensus.fasta`.
