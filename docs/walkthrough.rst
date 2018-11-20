@@ -180,7 +180,7 @@ model is used to make predictions.
     FRACTION="0.1 1"
     BATCHSIZE=200
     MODEL_FEAT_OPT=medaka/medaka/data/medaka_model.hdf5
-    medaka features ${CALLS2DRAFT}.bam ${TRAINFEATURES} -T ${TRUTH2DRAFT}.bam -t ${NPROC} -r ${REFNAME}:-${TRAINEND} --batch_size ${BATCHSIZE} --read_fraction ${FRACTION} --chunk_len 1000 --chunk_ovlp 0 -m ${MODEL_FEAT_OPT} --max_label_len 1
+    medaka features ${CALLS2DRAFT}.bam ${TRAINFEATURES} --truth ${TRUTH2DRAFT}.bam --threads ${NPROC} --region ${REFNAME}:-${TRAINEND} --batch_size ${BATCHSIZE} --read_fraction ${FRACTION} --chunk_len 1000 --chunk_ovlp 0 --model ${MODEL_FEAT_OPT} --max_label_len 1
 
 Now everything is in place to train a consensus network with `medaka train`:
 
