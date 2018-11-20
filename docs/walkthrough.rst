@@ -1,4 +1,3 @@
-
 Walkthrough
 ===========
 
@@ -30,7 +29,7 @@ Technologies' reads:
     WALKTHROUGH=${PWD}/medaka_walkthrough
     mkdir -p ${WALKTHROUGH} && cd ${WALKTHROUGH}
     wget https://s3-eu-west-1.amazonaws.com/ont-research/medaka_walkthrough_no_reads.tar.gz
-    tar -xvf medaka_walkthrough.tar.gz
+    tar -xvf medaka_walkthrough_no_reads.tar.gz
     DATA=${PWD}/data
 
 The extracted archive contains also all the intermediate output files that
@@ -73,7 +72,7 @@ Alternatively one could use `canu <https://github.com/marbl/canu>`_ at this step
 
     cd ${WALKTHROUGH}
     NPROC=$(nproc)
-    BASECALLS=basecalls.fa
+    BASECALLS=data/basecalls.fa
     source ${POMOXIS}
     mini_assemble -i ${BASECALLS} -o draft_assm -p assm -t ${NPROC}
 
@@ -111,7 +110,6 @@ and H.sapiens samples.
     cd ${WALKTHROUGH}
     source ${MEDAKA}
     CONSENSUS=consensus
-    BASECALLS=basecalls.fa
     DRAFT=draft_assm/assm_final.fa
     medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${CONSENSUS} -t ${NPROC}
 
