@@ -87,4 +87,4 @@ pipeline in `pomoxis <https://github.com/nanoporetech/pomoxis>`_.
        option.
 
 `medaka` produces similar results to Nanopolish (on PCRd data) in a fraction of
-the time, and provides a marked benefit over Racon of native DNA.
+the time, and provides a marked benefit over Racon on native DNA.

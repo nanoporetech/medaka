@@ -1,4 +1,3 @@
-
 Walkthrough
 ===========
 
@@ -22,26 +21,21 @@ tools.
 Obtaining Data and Software
 ---------------------------
 
-Start by downloading training data in the form of Oxford Nanopore
-Technologies `.fast5` files for a set of reads.
+Start by downloading training data, containing basecalls from Oxford Nanopore
+Technologies' reads:
 
 .. code-block:: bash
 
     WALKTHROUGH=${PWD}/medaka_walkthrough
     mkdir -p ${WALKTHROUGH} && cd ${WALKTHROUGH}
-    wget https://s3-eu-west-1.amazonaws.com/ont-research/medaka_walkthrough.tar.gz
-    tar -xvf medaka_walkthrough.tar.gz
+    wget https://s3-eu-west-1.amazonaws.com/ont-research/medaka_walkthrough_no_reads.tar.gz
+    tar -xvf medaka_walkthrough_no_reads.tar.gz
     DATA=${PWD}/data
 
 The extracted archive contains also all the intermediate output files that
 are created during the process below. Any step may be skipped by simply copying
 the requisite subfolder from the `${DATA}` directory into the `${WALKTHROUGH}`
-directory. If you want to skip basecalling and thus avoid downloading the 5.8
-GB of `.fast5` files, you can download an archive without `.fast5` (122MB):
-
-.. code-block:: bash
-
-    wget https://s3-eu-west-1.amazonaws.com/ont-research/medaka_walkthrough_no_reads.tar.gz
+directory.
 
 The necessary software can be sourced using the same process as described in
 :ref:`creating_software_env`, namely:
@@ -51,7 +45,6 @@ The necessary software can be sourced using the same process as described in
     cd ${WALKTHROUGH}
     git clone https://github.com/nanoporetech/pomoxis --recursive
     git clone https://github.com/nanoporetech/medaka
-    git clone https://github.com/nanoporetech/scrappie
     
     # While it is possible to install pomoxis and medaka into the same
     #   virtual environment, we will install each package into its own
@@ -60,33 +53,17 @@ The necessary software can be sourced using the same process as described in
 
     cd pomoxis && make install && cd ..
     cd medaka && make install && cd ..
-    cd scrappie && git checkout release-1.3.2 && mkdir build && cd build && cmake .. && make && cd ../../
 
     POMOXIS=${WALKTHROUGH}/pomoxis/venv/bin/activate
     MEDAKA=${WALKTHROUGH}/medaka/venv/bin/activate
 
 
-
 .. _basecalling_and_draft_assembly:
 
-Basecalling and Draft Assembly
+Creating a  Draft Assembly
 ------------------------------
 
-For the purposes of this walkthrough, the downloaded data can be basecalled
-using the open-source `scrappie`, but in general it is preferable to use medaka
-with the basecaller used in its training (`Guppy`). 
-
-.. code-block:: bash
-
-    cd ${WALKTHROUGH}
-    SCRAPPIE=${WALKTHROUGH}/scrappie/build/scrappie
-    NPROC=$(nproc)
-    export OMP_NUM_THREADS=${NPROC}
-    export OPENBLAS_NUM_THREADS=1
-    BASECALLS=basecalls.fa
-    ${SCRAPPIE} raw ${DATA}/reads --model rgrgr_r94 > ${BASECALLS}
-
-and a draft assembly can be formed using the 
+A draft assembly can be formed from the provided basecalls using the 
 `miniasm <https://github.com/lh3/miniasm>`_ and
 `racon <https://github.com/isovic/racon>`_ based pipeline from `pomoxis`.
 Alternatively one could use `canu <https://github.com/marbl/canu>`_ at this step.
@@ -94,6 +71,8 @@ Alternatively one could use `canu <https://github.com/marbl/canu>`_ at this step
 .. code-block:: bash
 
     cd ${WALKTHROUGH}
+    NPROC=$(nproc)
+    BASECALLS=data/basecalls.fa
     source ${POMOXIS}
     mini_assemble -i ${BASECALLS} -o draft_assm -p assm -t ${NPROC}
 
@@ -131,7 +110,6 @@ and H.sapiens samples.
     cd ${WALKTHROUGH}
     source ${MEDAKA}
     CONSENSUS=consensus
-    BASECALLS=basecalls.fa
     DRAFT=draft_assm/assm_final.fa
     medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${CONSENSUS} -t ${NPROC}
 
@@ -153,7 +131,7 @@ pomoxis:
     echo "Medaka consensus"
     assess_assembly -i ${CONSENSUS}/consensus.fasta -r ${TRUTH} -p ${CONSENSUS2TRUTH} -t ${NPROC}
 
-An decrease in error rate from 0.367 % to 0.070 % should be observed.
+An decrease in error rate from 0.367% to 0.070% should be observed.
 
 .. _training:
 
@@ -169,7 +147,8 @@ basecalls may align to the draft and how the draft must be edited to obtain the
 truth. The draft acts as a common frame-of-reference between the basecalls
 and the truth.
 
-The basecalls and truth sequence are aligned to the draft. For the latter, this is performed in chunks.
+The basecalls and truth sequence are aligned to the draft. For the latter, this
+is performed in chunks.
 
 .. code-block:: bash
 
@@ -201,7 +180,7 @@ model is used to make predictions.
     FRACTION="0.1 1"
     BATCHSIZE=200
     MODEL_FEAT_OPT=medaka/medaka/data/medaka_model.hdf5
-    hp_compress features ${CALLS2DRAFT}.bam ${TRAINFEATURES} -T ${TRUTH2DRAFT}.bam -t ${NPROC} -r ${REFNAME}:-${TRAINEND} --batch_size ${BATCHSIZE} --read_fraction ${FRACTION} --chunk_len 1000 --chunk_ovlp 0 -m ${MODEL_FEAT_OPT} --max_label_len 1
+    medaka features ${CALLS2DRAFT}.bam ${TRAINFEATURES} --truth ${TRUTH2DRAFT}.bam --threads ${NPROC} --region ${REFNAME}:-${TRAINEND} --batch_size ${BATCHSIZE} --read_fraction ${FRACTION} --chunk_len 1000 --chunk_ovlp 0 --model ${MODEL_FEAT_OPT} --max_label_len 1
 
 Now everything is in place to train a consensus network with `medaka train`:
 

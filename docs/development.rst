@@ -18,9 +18,8 @@ as for instance performed by `nanopolish <https://github.com/jts/nanopolish>`_.
 Future projects will implement correction schemes working directly from signal
 data of multiple reads. For more details see :doc:`future`.
 
-For a complete example starting from signal data, calculating basecalls,
-through forming a draft assembly, to training and using a consensus network
-see the :doc:`walkthrough`.
+For a complete example starting basecalls, through forming a draft assembly,
+to training and using a consensus network see the :doc:`walkthrough`.
 
 For more details on the internals of `medaka` see :doc:`medaka`.
 
@@ -39,7 +38,6 @@ these run the following:
     MEDAKAHOME=${PWD}
     git clone https://github.com/nanoporetech/pomoxis --recursive
     git clone https://github.com/nanoporetech/medaka
-    git clone https://github.com/nanoporetech/scrappie
     
     # While it is possible to install pomoxis and medaka into the same
     #   virtual environment, we will install each package into its own
@@ -48,7 +46,6 @@ these run the following:
 
     cd pomoxis && make install && cd ..
     cd medaka && make install && cd ..
-    cd scrappie && mkdir build && cd build && cmake .. && make && cd ../../
 
     POMOXIS=${MEDAKAHOME}/pomoxis/venv/bin/activate
     MEDAKA=${MEDAKAHOME}/medaka/venv/bin/activate
@@ -64,9 +61,12 @@ environment with:
 .. code-block:: bash
 
     source ${MEDAKA}
-    pip install tensorflow-gpu
+    pip install tensorflow-gpu=={version}
+
+where `{version}` should be replaced by the version found in the
+`requirements.txt` file found within the software repository.
 
 Depending on your environment, specifically the versions of `CUDA` and `cuDNN`
-that one has installed, it may be necessary to use versions of this package other
-than the latest. `medaka` has been used with all release versions of `tensorflow`
-after and including version 1.0.0.
+that one has installed, it may be necessary to compile from source tensorflow;
+the precompiled versions are naturally linked against specific versions of
+these libraries.

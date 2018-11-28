@@ -13,19 +13,18 @@ aggressive repairing of deletions was presented by ONT at London Calling 2017.
 
 Having corrected dominant error classes it becomes progressively harder to
 achieve further improvement by manual inspection. At this point persuing
-automated methods to learn and correct for errors becomes prudent. As a first
-attempt Medaka implements an interface to prepare training data from alignment
+automated methods to learn and correct for errors becomes prudent. Medaka
+attempts this by implementing an interface to prepare training data from alignment
 of basecalls and a truth set to a common baseline. This baseline may be
 anything, perhaps a draft assembly or chosen single molecule basecalls. Once
 these data have been collated they may be used directly or prepared further to
 exploit known errors. For example one may reduce or augment the with data counts
 of orientated bases and indels as this is known to be a relavant consideration.
 
-The framework provided has had limited testing and benchmarking, but it is
-being released in an effort to allow researchers to experiment without having
-to write much of the tedious data preparation code. Researchers can extend the
-tools provided to achieve better results that those obtained currently. There
-are certainly obvious extension which can be made, including:
+Medaka allows researchers to experiment with their own consensus ideas without
+having to write much of the tedious data preparation code. Researchers can
+extend the tools provided to achieve better results that those obtained
+currently. There are certainly obvious extension which can be made, including:
 
 * use of quality scores from the basecaller,
 * relax contraints on how features are selected: there are currently some
@@ -34,7 +33,7 @@ are certainly obvious extension which can be made, including:
 * altering the size, structure, and connections between the RNN layers
 * use of convolutional layers.
 
-Using lower level data directly (not basecalls alone) will provide a more
+Using lower level data directly (not basecalls alone) can provide a more
 powerful method; this is something which is being actively researched. Early
 examples include `nanopolish <https://github.com/jts/nanopolish>`_ and
 `poreseq <https://github.com/tszalay/poreseq>`_ which take the approach of
@@ -53,7 +52,6 @@ data; this is the focus of current research. Further it may be possible that
 such an approach need not be iterative: a single pass on the inputs could be
 performed to achieve results in quicker time.
 
-Development of medaka as a "base-space" consensus tool has been paused to focus
-on these higher-level methods. Nevertheless researchers may find medaka useful
-as a method to generate quickly sufficiently accurate consensus sequences in many
-use cases; see the `Benchmarks` page for more details.
+Nevertheless researchers may find medaka useful as a method to generate
+quickly sufficiently accurate consensus sequences in many use cases; see the
+`Benchmarks` page for more details.
