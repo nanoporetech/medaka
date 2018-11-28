@@ -35,7 +35,7 @@ with open(os.path.join(dir_path, 'requirements.txt')) as fh:
     for req in reqs:
         if req.startswith('git+https'):
             req.split('/')[-1].split('@')[0]
-    install_requires.append(req)
+        install_requires.append(req)
 
 exes = ['samtools', 'minimap2', 'mini_align', 'vcf2fasta']
 
@@ -93,4 +93,3 @@ def get_setuptools_script_dir():
     return dist.install_libbase, dist.install_scripts
 
 get_setuptools_script_dir()
-
