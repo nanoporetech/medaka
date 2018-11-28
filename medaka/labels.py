@@ -4,8 +4,8 @@ import numpy as np
 import pysam
 from copy import copy
 from operator import attrgetter
-from medaka.common import _gap_, Pileup, encoding
-from medaka.common import get_pairs, yield_compressed_pairs
+from medaka.common import _gap_, encoding
+from medaka.common import get_pairs, yield_compressed_pairs, get_pairs_with_hp_len
 
 
 class TruthAlignment(object):
@@ -19,6 +19,7 @@ class TruthAlignment(object):
         self.start = self.aln.reference_start  # zero-based
         self.end = self.aln.reference_end
         self.is_kept = True
+        self.logger = logging.getLogger('TruthAlign')
 
     def get_overlap_with(self, other):
         first, second = sorted((self, other), key=attrgetter('aln.reference_start'))
@@ -48,7 +49,7 @@ class TruthAlignment(object):
         :returns: list of `TruthAlignment` objects
 
         """
-        filtered_alignments = [ copy(a) for a in alignments]  # don't want to modify original alignments
+        filtered_alignments = [copy(a) for a in alignments]  # don't want to modify original alignments
         for al_i, al_j in itertools.combinations(filtered_alignments, 2):
             first, second = sorted((al_i, al_j), key=attrgetter('aln.reference_start'))
             overlap = first.get_overlap_with(second)
@@ -110,25 +111,28 @@ class TruthAlignment(object):
             aln_reads = bamfile.fetch(reference=ref_name, start=start, end=end)
             alignments = [TruthAlignment(r) for r in aln_reads if not (r.is_unmapped or r.is_secondary)]
             alignments.sort(key=attrgetter('start'))
+        logger = logging.getLogger("TruthAlign")
+        logger.info("Retrieved {} alignments.".format(len(alignments)))
         return alignments
 
-    def get_positions_and_labels(self, start=None, end=None, ref_compr_rle=None):
+    def get_positions_and_labels(self, start=None, end=None, ref_compr_rle=None, mock_compr=False, is_compressed=False, rle_dtype=False):
         """Create labels and positions array.
 
         :param start: starting position within reference
         :param end: ending position within reference
         :param ref_compr_rle: np.ndarray, dtype [('start', int), ('end', int)]
             containing uncompressed start position and length for each compressed position.
+        :param mock_compr: bool, labels will be encoded as for a compressed sequence, even if ref_compr_rle is None.
+        :param is_compressed: bool, whether the sequence has been run length encoded.
+        :param rle_dtype: bool, whether to force dtype of labels to be (int base , int length).
         :returns: tuple(positions, encoded_label_array)
 
             - positions: numpy structured array with 'ref_major'
               (reference position index) and 'ref_minor'
               (trailing insertion index) fields.
 
-            - labels_array: 1D numpy array of labels
+            - label_array: 1D numpy array of labels
         """
-        is_compressed = ref_compr_rle is not None
-
         if start is None:
             start = 0
         if end is None:
@@ -140,6 +144,8 @@ class TruthAlignment(object):
         positions_labels = []
         if is_compressed:
             pairs = yield_compressed_pairs(self.aln, ref_compr_rle)
+        elif mock_compr:
+            pairs = get_pairs_with_hp_len(self.aln, ref_compr_rle)
         else:
             pairs = get_pairs(self.aln)
 
@@ -158,24 +164,24 @@ class TruthAlignment(object):
             pos = (current_pos, ins_count)
             label = pair.qbase.upper() if pair.qbase else _gap_
             if label == 'N':
-                logging.info('Found {} at pos {}'.format(label, pos))
+                self.logger.info('Found {} at pos {}'.format(label, pos))
             label = encoding[label]
-            if is_compressed:
+            if is_compressed or mock_compr:
                 label = (label, pair.qlen)
+            elif rle_dtype:
+                label = (label, 1)
             positions_labels.append((pos, label))
 
-        if is_compressed:
+        if is_compressed or mock_compr or rle_dtype:
             dtype = [('base', int), ('run_length', int)]
         else:
             dtype = int
-        label_array = np.empty(shape=(1, len(positions_labels)), dtype=dtype)
+        label_array = np.empty(shape=len(positions_labels), dtype=dtype)
         positions = np.empty(len(positions_labels),
                              dtype=[('major', int), ('minor', int)])
 
         for i, (pos, label) in enumerate(positions_labels):
             positions[i] = pos
-            label_array[0, i] = label
+            label_array[i] = label
 
-        pileup = Pileup(bam='', ref_name='', reads=label_array, positions=positions)
-
-        return pileup
+        return positions, label_array

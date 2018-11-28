@@ -1,9 +1,11 @@
 # medaka requirements. 
 # Add comments to keep track of why we are using particular versions
 biopython
+cffi
 h5py
-keras
-tensorflow
+intervaltree
+keras==2.1.5
+tensorflow==1.3.0
 numpy
 pandas
 pysam
