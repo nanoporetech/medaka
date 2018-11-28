@@ -3,9 +3,11 @@ from medaka.common import Region
 import sys
 
 import numpy as np
-from collections import Counter
 
 from timeit import default_timer as now
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
 np.set_printoptions(precision=4, linewidth=100)
 
 reads_bam = sys.argv[1]
@@ -14,17 +16,29 @@ do_print = sys.argv[3] == 'print'
 
 region = Region.from_string(reg)
 
-kwargs={'log_min': None, 'max_hp_len': 1, 'is_compressed': False, 'consensus_as_ref': False, 'normalise': 'fwd_rev', 'with_depth': False, 'dtypes': ['r94', 'r10'], 'ref_mode': None}
+kwargs={
+    'log_min': None,
+    'max_hp_len': 1,
+    'is_compressed': False,
+    'consensus_as_ref': False,
+    'ref_mode': None,
+    'with_depth': False,
+}
 
 def _print(samples):
    if do_print:
        for p, f in zip(samples.positions, samples.features):
            print('{}\t{}\t0\t{}\t{}'.format(p[0], p[1], '\t'.join('{:.3f}'.format(x) if x>0.0 else '-' for x in f), sum(f)))
 
+dtype_options = ([''], ['r94', 'r10'])
+norm_options = (None, 'total', 'fwd_rev')
 
-for dtypes in ([''], ['r94', 'r10']):
+#dtype_options=([''],)
+#norm_options=(None,)
+
+for dtypes in dtype_options:
     kwargs['dtypes'] = dtypes
-    for norm in None, 'total', 'fwd_rev':
+    for norm in norm_options:
         kwargs['normalise'] = norm
 
         print("###########################################################")
