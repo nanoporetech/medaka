@@ -20,7 +20,8 @@ from medaka.common import (_label_counts_path_, get_regions,
                            write_sample_to_hdf, write_yaml_data,
                            yield_from_feature_files, gen_train_batch,
                            _label_batches_path_, _feature_batches_path_,
-                           yield_batches_from_hdfs, _gap_)
+                           yield_batches_from_hdfs, _gap_,
+                           _feature_decoding_path_, _feature_opt_path_)
 from medaka.features import SampleGenerator
 
 
@@ -107,7 +108,7 @@ def qscore(y_true, y_pred):
     return -10.0 * 0.434294481 * K.log(error)
 
 
-def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid, label_decoding,
+def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid, feature_meta,
                  timesteps, feat_dim, model_fp=None, epochs=5000, batch_size=100, class_weight=None, n_mini_epochs=1):
     """Run training."""
     from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
@@ -115,7 +116,7 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
     logger = logging.getLogger('Training')
     logger.info("Got {} batches for training, {} for validation.".format(n_batch_train, n_batch_valid))
 
-    num_classes = len(label_decoding)
+    num_classes = len(feature_meta[_label_decod_path_])
 
     if model_fp is None:
         model_kwargs = { k:v.default for (k,v) in inspect.signature(build_model).parameters.items()
@@ -135,8 +136,8 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
     logger.info("feat_dim: {}, timesteps: {}, num_classes: {}".format(feat_dim, timesteps, num_classes))
     model.summary()
 
-    model_details = {_label_decod_path_: label_decoding,
-                     _model_opt_path_: model_kwargs}
+    model_details = feature_meta.copy()
+    model_details[_model_opt_path_] = model_kwargs
     write_yaml_data(os.path.join(train_name, 'training_config.yml'), model_details)
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
@@ -442,6 +443,10 @@ def train(args):
     logger = logging.getLogger('Training')
     logger.debug("Loading datasets:\n{}".format('\n'.join(args.features)))
 
+    # get feature meta data
+    feature_meta = {k: load_yaml_data(args.features[0], k)
+                    for k in (_feature_opt_path_, _feature_decoding_path_)}
+
     # get counts of labels in training samples
     label_counts = Counter()
     for f in args.features:
@@ -547,7 +552,10 @@ def train(args):
         '{}: {} ({}, {:9.6f})'.format(i, l, label_counts[i], h(class_weight, i)) for i, l in enumerate(label_decoding)
     )))
 
-    run_training(train_name, gen_train, gen_valid, n_batch_train, n_batch_valid, label_decoding,
+    feature_meta[_label_decod_path_] = label_decoding
+    feature_meta[_label_counts_path_] = label_counts
+
+    run_training(train_name, gen_train, gen_valid, n_batch_train, n_batch_valid, feature_meta,
                  timesteps, feat_dim, model_fp=args.model, epochs=args.epochs, batch_size=args.batch_size,
                  class_weight=class_weight, n_mini_epochs=args.mini_epochs)
 
