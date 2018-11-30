@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include "htslib/sam.h"
 
+#include "medaka_counts.h"
+
 #define bam1_seq(b) ((b)->data + (b)->core.n_cigar*4 + (b)->core.l_qname)
 #define bam1_seqi(s, i) (bam_seqi((s), (i)))
 #define bam_nt16_rev_table seq_nt16_str
@@ -49,31 +51,6 @@ char *substring(char *string, int position, int length) {
    *(ptr + i) = '\0';
    return ptr;
 }
-
-// medaka-style base encoding
-const char plp_bases[] = "XacgtACGTdD";
-const size_t featlen = 11; // len of the above
-const size_t fwd_del = 10; // position of D
-const size_t rev_del = 9;  // position of d
-
-// convert 16bit IUPAC (+16 for strand) to plp_bases index
-size_t num2countbase[32] = {
- 0, 5, 6, 0, 7, 0, 0, 0,
- 8, 0, 0, 0, 0, 0, 0, 0,
- 0, 1, 2, 0, 3, 0, 0, 0,
- 4, 0, 0, 0, 0, 0, 0, 0,
-}; 
-
-
-// medaka-style feature data
-typedef struct {
-    size_t n_cols;  // number of pileup cols
-    size_t *counts; // the base/del counts
-    size_t *major;  // reference position
-    size_t *minor;  // insertion index
-} _plp_data;
-
-typedef _plp_data *plp_data; 
 
 
 /** Constructs a pileup data structure.
