@@ -11,7 +11,7 @@ from medaka.stitch import stitch
 from medaka.common import write_yaml_data
 from medaka.features import create_labelled_samples, create_samples
 
-default_model = os.path.join(resource_filename(__package__, 'data'), 'medaka_model.hdf5') 
+default_model = os.path.join(resource_filename(__package__, 'data'), 'medaka_model.hdf5')
 
 def _log_level():
     """Parser to set logging level and acquire software version/commit"""
@@ -128,17 +128,8 @@ def main():
     sparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
     sparser.add_argument('--model_yml', help='Model yml containing label encoding, required only if consensus ended prematurely.')
 
-    # Patch up a model after training
-    fparser = subparsers.add_parser('fix',
-        help='Add data to a hdf file.',
-        parents=[_log_level()],
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    fparser.set_defaults(func=fix_model_hdf)
-    fparser.add_argument('hdfs', nargs='+', help='hdf files to add data to.')
-    fparser.add_argument('yml', help='yml file containing data to add.')
-
     args = parser.parse_args()
-    
+
     logging.basicConfig(format='[%(asctime)s - %(name)s] %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
     logger = logging.getLogger(__package__)
     logger.setLevel(args.log_level)
@@ -146,14 +137,6 @@ def main():
     #TODO: do common argument validation here: e.g. rle_ref being present if
     #      required by model
     args.func(args)
-
-
-def fix_model_hdf(args):
-    with open(args.yml) as fh:
-        yml_str = fh.read()
-    d = yaml.load(yml_str)
-    for hdf in args.hdfs:
-        write_yaml_data(hdf, d)
 
 
 if __name__ == '__main__':
