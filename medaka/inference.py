@@ -1,6 +1,5 @@
 from collections import Counter
 import functools
-import glob
 import inspect
 import itertools
 import logging
@@ -142,20 +141,32 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
 
+    # define class here to avoid top-level keras import
+    class ModelMetaCheckpoint(ModelCheckpoint):
+        """Custom ModelCheckpoint to add medaka-specific metadata to model files"""
+        def __init__(self, medaka_meta, *args, **kwargs):
+            super(ModelMetaCheckpoint, self).__init__(*args, **kwargs)
+            self.medaka_meta = medaka_meta
+
+        def on_epoch_end(self, epoch, logs=None):
+            super(ModelMetaCheckpoint, self).on_epoch_end(epoch, logs)
+            filepath = self.filepath.format(epoch=epoch + 1, **logs)
+            write_yaml_data(filepath, self.medaka_meta)
+
     callbacks = [
         # Best model according to training set accuracy
-        ModelCheckpoint(os.path.join(train_name, 'model.best.hdf5'),
-                        monitor='acc', **opts),
+        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model.best.hdf5'),
+                            monitor='acc', **opts),
         # Best model according to validation set accuracy
-        ModelCheckpoint(os.path.join(train_name, 'model.best.val.hdf5'),
+        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model.best.val.hdf5'),
                         monitor='val_acc', **opts),
         # Best model according to validation set qscore
-        ModelCheckpoint(os.path.join(train_name, 'model.best.val.qscore.hdf5'),
+        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model.best.val.qscore.hdf5'),
                         monitor='val_qscore', **opts),
         # Checkpoints when training set accuracy improves
-        ModelCheckpoint(os.path.join(train_name, 'model-acc-improvement-{epoch:02d}-{acc:.2f}.hdf5'),
+        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model-acc-improvement-{epoch:02d}-{acc:.2f}.hdf5'),
                         monitor='acc', **opts),
-        ModelCheckpoint(os.path.join(train_name, 'model-val_acc-improvement-{epoch:02d}-{val_acc:.2f}.hdf5'),
+        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model-val_acc-improvement-{epoch:02d}-{val_acc:.2f}.hdf5'),
                         monitor='val_acc', **opts),
         # Stop when no improvement, patience is number of epochs to allow no improvement
         EarlyStopping(monitor='val_loss', patience=20),
@@ -195,11 +206,6 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
         callbacks=callbacks,
         class_weight=class_weight,
     )
-
-    # append label_decoding and model building options to the hdf files
-    for hd5_model_path in glob.glob(os.path.join(train_name, '*.hdf5')):
-        write_yaml_data(hd5_model_path, model_details)
-
 
 
 class VarQueue(list):
