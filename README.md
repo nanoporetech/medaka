@@ -58,10 +58,12 @@ Medaka can be installed from its source quite easily on most systems.
  > Before installing pomoxis it may be required to install some
  > prerequisite libraries, best installed by a package manager. On Ubuntu
  > theses are:
+ > * gcc
  > * zlib1g-dev
  > * libbz2-dev
  > * liblzma-dev
  > * libffi-dev
+ > * libncurses5-dev
  > * make
  > * wget
  > * python3-all-dev
