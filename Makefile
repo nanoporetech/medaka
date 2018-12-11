@@ -61,6 +61,7 @@ libhts.a:
 	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$@ $@
 
 clean_htslib:
+	cd submodules/samtools-${SAMVER} && make clean || exit 0
 	cd submodules/samtools-${SAMVER}/htslib-${SAMVER} && make clean || exit 0
 
 
@@ -79,10 +80,11 @@ test: install
 	${IN_VENV} && pip install nose
 	${IN_VENV} && python setup.py nosetests
 
-clean:
-	. ${VENV} && python setup.py clean || echo "Failed to run setup.py clean"
+clean: clean_htslib
+	${IN_VENV} && python setup.py clean || echo "Failed to run setup.py clean"
 	rm -rf libhts.a venv build dist/ medaka.egg-info/ __pycache__ medaka.egg-info
 	find . -name '*.pyc' -delete
+
 
 docker: binaries libhts.a
 	mkdir for_docker && cp -r medaka scripts bincache setup.py build.py requirements.txt for_docker 
