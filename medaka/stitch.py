@@ -3,8 +3,8 @@ from itertools import chain
 
 import numpy as np
 
-from medaka.common import (_gap_, Region, get_sample_overlap, get_sample_index_from_files,
-                           load_yaml_data, yield_from_feature_files, _label_decod_path_)
+from medaka.common import (_gap_, Region, get_sample_overlap,)
+from medaka.datastore import DataIndex
 
 
 def write_fasta(filename, contigs):
@@ -24,20 +24,15 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
     logger = logging.getLogger(__package__)
     logger.name = 'Stitch'
 
-    label_decoding = load_yaml_data(probs_hdfs[0], _label_decod_path_)
-    if label_decoding is None:
-        if model_yml is not None:
-            logging.info("Loading label encoding from {}".format(model_yml))
-            label_decoding = load_yaml_data(model_yml, _label_decod_path_)
-        else:
-            raise ValueError('Cannot decode probabilities without label decoding')
+    index = DataIndex(probs_hdfs)
+
+    label_decoding = index.meta['_label_decod_path_']
 
     logger.debug("Label decoding is:\n{}".format('\n'.join(
         '{}: {}'.format(i, x) for i, x in enumerate(label_decoding)
     )))
-    index = get_sample_index_from_files(probs_hdfs, 'hdf')
     if regions is None:
-        ref_names = index.keys()
+        ref_names = index.index.keys()
     else:
         #TODO: respect entire region specification
         ref_names = list()
@@ -50,7 +45,7 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
     ref_assemblies = []
     for ref_name in ref_names:
         logger.info("Processing {}.".format(ref_name))
-        data_gen = yield_from_feature_files(probs_hdfs, ref_names=(ref_name,), index=index)
+        data_gen = index.yield_from_feature_files(ref_names=(ref_name,))
         seq=''
         s1 = next(data_gen)
         start = get_pos(s1, 0)
@@ -78,5 +73,5 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
 
 
 def stitch(args):
-    joined = stitch_from_probs(args.inputs, regions=args.regions, model_yml=args.model_yml)
+    joined = stitch_from_probs(args.inputs, regions=args.regions)
     write_fasta(args.output, joined)

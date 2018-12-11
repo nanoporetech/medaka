@@ -2,13 +2,11 @@ import argparse
 import logging
 import os
 from pkg_resources import resource_filename
-import yaml
 
-import numpy as np
+import  numpy as np
 
 from medaka.inference import train, predict
 from medaka.stitch import stitch
-from medaka.common import write_yaml_data
 from medaka.features import create_labelled_samples, create_samples
 
 default_model = os.path.join(resource_filename(__package__, 'data'), 'medaka_model.hdf5')
@@ -98,6 +96,7 @@ def main():
     tparser.add_argument('--max_samples', type=int, default=np.inf, help='Only train on max_samples.')
     tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
     tparser.add_argument('--balanced_weights', action='store_true', help='Balance label weights.')
+    tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
 
     # Consensus from bam input
     cparser = subparsers.add_parser('consensus',
@@ -126,7 +125,6 @@ def main():
     sparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
     sparser.add_argument('output', help='Output .fasta.', default='consensus.fasta')
     sparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
-    sparser.add_argument('--model_yml', help='Model yml containing label encoding, required only if consensus ended prematurely.')
 
     args = parser.parse_args()
 
@@ -137,6 +135,8 @@ def main():
     #TODO: do common argument validation here: e.g. rle_ref being present if
     #      required by model
     args.func(args)
+
+    #TODO: subcommand to print extract model / feature yaml data and print to screen / dump to txt yaml file.
 
 
 if __name__ == '__main__':
