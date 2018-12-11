@@ -37,7 +37,16 @@ with open(os.path.join(dir_path, 'requirements.txt')) as fh:
             req.split('/')[-1].split('@')[0]
         install_requires.append(req)
 
-exes = ['samtools', 'minimap2', 'mini_align', 'vcf2fasta']
+
+data_files = []
+if os.environ.get('MED_BINARIES') is not None:
+    exes = ['samtools', 'minimap2']
+    data_files.append(
+        ('exes', [
+            'bincache/{}'.format(x, x) for x in exes
+        ])
+    )
+
 
 setup(
     name='medaka',
@@ -53,24 +62,19 @@ setup(
     cffi_modules=["build.py:ffibuilder"],
     install_requires=install_requires,
     #place binaries as package data, below we'll copy them to standard path in dist
-    data_files=[
-        ('exes', [
-            'bincache/{}'.format(x, x) for x in exes
-        ])
-    ],
+    data_files=data_files,
     entry_points = {
         'console_scripts': [
             '{0} = {0}.{0}:main'.format(__pkg_name__),
             'medaka_data_path = {0}.{1}:{2}'.format(__pkg_name__, 'common', 'print_data_path'),
         ]
     },
-    scripts=['scripts/medaka_consensus'],
+    scripts=['scripts/medaka_consensus', 'scripts/mini_align'],
     zip_safe=False,
 )
 
 
 # Nasty hack to get binaries into bin path
-print("\nCopying utility binaries to your path.")
 class GetPaths(install):
     def run(self):
         self.distribution.install_scripts = self.install_scripts
@@ -92,4 +96,6 @@ def get_setuptools_script_dir():
         shutil.copy(exe, dist.install_scripts)
     return dist.install_libbase, dist.install_scripts
 
-get_setuptools_script_dir()
+if os.environ.get('MED_BINARIES') is not None:
+    print("\nCopying utility binaries to your path.")
+    get_setuptools_script_dir()

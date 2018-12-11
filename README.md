@@ -20,7 +20,7 @@ Features
   * Requires only basecalled data. (`.fasta` or `.fastq`)
   * Improved accurary over graph-based methods (e.g. Racon).
   * 50X faster than Nanopolish.
-  * [Benchmarks](https://nanoporetech.github.io/medaka/benchmarks.html)
+  * Benchmarks are provided [here](https://nanoporetech.github.io/medaka/benchmarks.html).
   * Includes extras for implementing and training bespoke correction
     networks.
   * Works on Linux (MacOS and Windows support is untested).
@@ -31,25 +31,61 @@ Documentation can be found at https://nanoporetech.github.io/medaka/.
 
 Installation
 ------------
-  
-Medaka should be installed inside a virtual environment. A Makefile is
-provided to fetch, compile and install all direct dependencies into an
-environment.
 
-To setup the environment run:
+There are currently two installation methods for medaka, detailed below.
+
+**Installation with pip**
+  
+Medaka can be installed on Linux using the python package manager, pip:
+
+    pip install medaka
+
+We recommend using medaka within a virtual environment, viz.:
+
+    virtualenv pomoxis --python=python3 --prompt "(medaka) "
+    . pomoxis/bin/activate
+    pip install medaka
+
+Using this method requires the user to provide a
+[samtools](https://github.com/samtools/samtools) and
+[minimap2](https://github.com/lh3/minimap2) binary and place these
+within the `PATH`.
+
+**Installation from source**
+
+Medaka can be installed from its source quite easily on most systems.
+
+ > Before installing pomoxis it may be required to install some
+ > prerequisite libraries, best installed by a package manager. On Ubuntu
+ > theses are:
+ > * zlib1g-dev
+ > * libbz2-dev
+ > * liblzma-dev
+ > * libffi-dev
+ > * make
+ > * wget
+ > * python3-all-dev
+ > * python-virtualenv
+
+A Makefile is provided to fetch, compile and install all direct dependencies
+into a python virtual environment. To setup the environment run:
 
     git clone https://github.com/nanoporetech/medaka.git
     cd medaka
     make install
     . ./venv/bin/activate
 
+Using this method both `samtools` and `minimap2` are built from source and need
+not be provided by the user.
 
 Usage
 -----
 
 `medaka` can be run using its default settings through the `medaka_consensus`
 program. An assembly in `.fasta` format and basecalls in `.fasta` or `.fastq`
-format are required. 
+format are required. The program uses both `samtools` and `minimap2`. If
+medaka has been installed using the from-source method these will be present
+within the medaka environment, else they will need to be provided by the user.
 
     source ${MEDAKA}  # i.e. medaka/venv/bin/activate
     NPROC=$(nproc)

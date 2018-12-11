@@ -13,9 +13,10 @@ requires a draft assembly as a `.fasta`.
 Features
 --------
 
-  * Requires only basecalled data.
+  * Requires only basecalled data (`.fasta` or `.fastq`).
   * Improved accurary over graph-based methods (e.g. Racon).
   * 50X faster than Nanopolish.
+  * Benchmarks are provided (see :doc:`benchmarks`).
   * Includes extras for implementing and training bespoke correction
     networks.
   * Works on Linux (MacOS and Windows support is untested).
