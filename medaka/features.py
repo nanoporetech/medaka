@@ -6,6 +6,7 @@ import itertools
 from functools import partial
 import logging
 from multiprocessing import Pool
+import os
 import sys
 from timeit import default_timer as now
 
@@ -659,6 +660,7 @@ def create_labelled_samples(args):
 
     labels_counter = Counter()
 
+    no_data = False
     with DataStore(args.output, 'w') as ds:
         # write feature options to file
         logger.info("Writing meta data to file.")
@@ -667,18 +669,19 @@ def create_labelled_samples(args):
         ds.update_meta(meta)
         # TODO: this parallelism would be better in `SampleGenerator.bams_to_training_samples`
         #       since training alignments are usually chunked.
-#        with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as executor:
-#            futures = [executor.submit(_labelled_samples_worker, args, reg) for reg in regions]
-#            for fut in concurrent.futures.as_completed(futures):
-#                if fut.exception() is None:
-#                    samples, region, fencoder_args, fencoder_decoder = fut.result()
-#                    logger.info("Writing {} samples for region {}".format(len(samples), region))
-#                    for sample in enumerate(samples):
-#                        ds.write_sample(sample)
-        for region in regions:
-            samples, region, fencoder_args, fencoder_decoder = _labelled_samples_worker(args, region)
-            for sample in samples:
-                ds.write_sample(sample)
+        with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as executor:
+            futures = [executor.submit(_labelled_samples_worker, args, reg) for reg in regions]
+            for fut in concurrent.futures.as_completed(futures):
+                if fut.exception() is None:
+                    samples, region, fencoder_args, fencoder_decoder = fut.result()
+                    logger.info("Writing {} samples for region {}".format(len(samples), region))
+                    for sample in samples:
+                        ds.write_sample(sample)
+        no_data = ds.n_samples == 0
+
+    if no_data:
+        logger.critical("Warning: No training data was written to file, deleting output.")
+        os.remove(args.output)
 
 
 # read / reference fasta / fastq compression
