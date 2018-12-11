@@ -26,7 +26,7 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
 
     index = DataIndex(probs_hdfs)
 
-    label_decoding = index.meta['_label_decod_path_']
+    label_decoding = index.meta['medaka_label_decoding']
 
     logger.debug("Label decoding is:\n{}".format('\n'.join(
         '{}: {}'.format(i, x) for i, x in enumerate(label_decoding)

@@ -356,7 +356,7 @@ def run_training(train_name, batcher, feature_meta, model_fp=None,
 #        # get counts of labels in training samples
 #        label_counts = Counter()
 #        for f in args.features:
-#            label_counts.update(load_yaml_data(f, _label_counts_path_))
+#            label_counts.update(load_yaml_data(f, medaka_label_counts))
 #
 #        if not sum(label_counts.values()) != len(batches) * self.timesteps:
 #            raise ValueError('Label counts not consistent with number of batches')
@@ -612,7 +612,7 @@ def train(args):
     # get feature meta data
     feature_meta = {k: load_yaml_data(args.features[0], k)
                     for k in (_feature_opt_path_, _feature_decoding_path_, _label_decod_path_)}
-    feature_meta[_label_counts_path_] = batcher.train_label_counts()
+    feature_meta['medaka_label_counts'] = batcher.train_label_counts()
 
     if args.balanced_weights:
         n_samples = sum(batcher.train_label_counts.values())

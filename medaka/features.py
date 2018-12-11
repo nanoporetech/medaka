@@ -524,7 +524,7 @@ class SampleGenerator(object):
         self.sample_type = "training" if truth_bam is not None else "consensus"
         self.logger.info("Initializing sampler for {} or region {}.".format(self.sample_type, region))
         with DataStore(model) as ds:
-            self.fencoder_args = ds.meta['_feature_opt_path_']
+            self.fencoder_args = ds.meta['medaka_features_kwargs']
         self.fencoder = FeatureEncoder(**self.fencoder_args)
 
         self.bam = bam
@@ -663,7 +663,7 @@ def create_labelled_samples(args):
         # write feature options to file
         logger.info("Writing meta data to file.")
         with DataStore(args.model) as model:
-            meta = { k: model.meta[k] for k in ('_feature_opt_path_', '_feature_decoding_path_')}
+            meta = { k: model.meta[k] for k in ('medaka_features_kwargs', 'medaka_feature_decoding')}
         ds.update_meta(meta)
         # TODO: this parallelism would be better in `SampleGenerator.bams_to_training_samples`
         #       since training alignments are usually chunked.
