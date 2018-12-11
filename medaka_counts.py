@@ -4,17 +4,22 @@ import sys
 
 import numpy as np
 
+import argparse
 from timeit import default_timer as now
 import logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(format='[%(asctime)s - %(name)s] %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 
 np.set_printoptions(precision=4, linewidth=100)
 
-reads_bam = sys.argv[1]
-reg = sys.argv[2]
-do_print = sys.argv[3] == 'print'
 
-region = Region.from_string(reg)
+parser = argparse.ArgumentParser('medaka', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument('bam', help='alignment file.')
+parser.add_argument('region', help='alignment region to sample.')
+parser.add_argument('--print', action='store_true', help='print counts.')
+parser.add_argument('--dtypes', nargs='+', help='perform a multi-datatype tests.')
+args = parser.parse_args()
+
+region = Region.from_string(args.region)
 
 kwargs={
     'log_min': None,
@@ -26,15 +31,14 @@ kwargs={
 }
 
 def _print(samples):
-   if do_print:
+   if args.print:
        for p, f in zip(samples.positions, samples.features):
            print('{}\t{}\t0\t{}\t{}'.format(p[0], p[1], '\t'.join('{:.3f}'.format(x) if x>0.0 else '-' for x in f), sum(f)))
 
-dtype_options = ([''], ['r94', 'r10'])
+dtype_options = [('',)]
+if args.dtypes is not None:
+    dtype_options.append(args.dtypes)
 norm_options = (None, 'total', 'fwd_rev')
-
-#dtype_options=([''],)
-#norm_options=(None,)
 
 for dtypes in dtype_options:
     kwargs['dtypes'] = dtypes
@@ -47,18 +51,24 @@ for dtypes in dtype_options:
     
         # py-style
         t0=now()
-        samples = encoder.bam_to_sample(reads_bam, region, force_py=True)
+        samples = encoder.bam_to_sample(args.bam, region, force_py=True)
         t1=now()
-        _print(samples)
-        print(samples.features.shape)
+        if not samples.is_empty:
+            print(samples.features.shape)
+            _print(samples)
+        else:
+            print("Samples is empty")
         print("---------------------")
     
         # C-style
         t2=now()
-        samples = encoder.bam_to_sample(reads_bam, region)
+        samples = encoder.bam_to_sample(args.bam, region)
         t3=now()
-        _print(samples)
-        print(samples.features.shape)
+        if not samples.is_empty:
+            print(samples.features.shape)
+            _print(samples)
+        else:
+            print("Samples is empty")
     
         print("pysam time:", t1 - t0)
         print("hts time:", t3 - t2)
