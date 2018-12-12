@@ -1,17 +1,26 @@
 import os
 import re
+import sys
 from glob import glob
 import shutil
 from setuptools import setup, find_packages, Extension
 from setuptools import Distribution, Command
 from setuptools.command.install import install
-
-
+from setuptools.command.build_ext import build_ext
+import subprocess
 
 #TODO: fill in these
 __pkg_name__ = 'medaka'
 __author__ = 'syoung'
 __description__ = 'Neural network sequence error correction.'
+
+# Use readme as long description and say its github-flavour markdown
+from os import path
+this_directory = path.abspath(path.dirname(__file__))
+kwargs = {'encoding':'utf-8'} if sys.version_info.major == 3 else {}
+with open(path.join(this_directory, 'README.md'), **kwargs) as f:
+    __long_description__ = f.read()
+__long_description_content_type__ = 'text/markdown'
 
 __path__ = os.path.dirname(__file__)
 __pkg_path__ = os.path.join(os.path.join(__path__, __pkg_name__))
@@ -48,6 +57,17 @@ if os.environ.get('MED_BINARIES') is not None:
     )
 
 
+class HTSBuild(build_ext):
+    # uses the Makefile to build libhts.a, this will get done before the cffi extension
+    def run(self):
+
+        def compile_hts():
+            subprocess.call(['make', 'libhts.a'])
+
+        self.execute(compile_hts, [], 'Compiling htslib using Makefile')
+        build_ext.run(self)
+
+
 setup(
     name='medaka',
     version=__version__,
@@ -55,6 +75,9 @@ setup(
     author=__author__,
     author_email='{}@nanoporetech.com'.format(__author__),
     description=__description__,
+    long_description=__long_description__,
+    long_description_content_type=__long_description_content_type__,
+    python_requires='>=3.4.*,<3.7',
     packages=find_packages(),
     package_data={
         __pkg_name__:[os.path.join('data','*.hdf5')],
@@ -71,6 +94,9 @@ setup(
     },
     scripts=['scripts/medaka_consensus', 'scripts/mini_align'],
     zip_safe=False,
+    cmdclass={
+        'build_ext': HTSBuild
+    },
 )
 
 
