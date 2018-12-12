@@ -22,10 +22,16 @@ Features
   * Works on Linux (MacOS and Windows support is untested).
   * Open source (Mozilla Public License 2.0).
 
-
 Tools to enable the creation of draft assembies can be found in a sister
 project `pomoxis <https://github.com/nanoporetech/pomoxis>`_.
 
+Acknowledgements
+----------------
+
+We thank `Joanna Pineda <https://github.com/jopineda>`_ and
+`Jared Simpson <https://github.com/jts>`_ for providing htslib code samples
+which aided greatly development of the optimised feature generation code,
+and for testing the version 0.4 release candidates.
 
 
 Table of contents
@@ -41,14 +47,7 @@ Table of contents
    future
 
 
-Full API reference
-------------------
-
-.. toctree::
-   :maxdepth: 3
-      
-   medaka
-
+   
 
 Indices and tables
 ------------------

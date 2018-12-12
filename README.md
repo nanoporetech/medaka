@@ -99,3 +99,11 @@ within the medaka environment, else they will need to be provided by the user.
 The variables `BASECALLS`, `DRAFT`, and `OUTDIR` in the above should be set
 appropriately. When `medaka_consensus` has finished running, the consensus
 will be saved to `${OUTDIR}/consensus.fasta`.
+
+Acknowledgements
+----------------
+
+We thank [Joanna Pineda](https://github.com/jopineda) and
+[Jared Simpson](https://github.com/jts) for providing htslib code samples which aided
+greatly development of the optimised feature generation code, and for testing the
+version 0.4 release candidates.
