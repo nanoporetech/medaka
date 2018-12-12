@@ -1,10 +1,9 @@
 from collections import Counter, defaultdict, OrderedDict
 import h5py
 import numpy as np
-import logging
 import yaml
 
-from medaka.common import Sample, decoding
+from medaka.common import Sample, decoding, get_named_logger
 
 
 class DataStore(object):
@@ -22,8 +21,7 @@ class DataStore(object):
         self.samples_written = set()
         self.fh = None
 
-        self.logger = logging.getLogger(__package__)
-        self.logger.name = 'DataStore'
+        self.logger = get_named_logger('DataStore')
 
         self._meta = None
 
@@ -157,8 +155,7 @@ class DataIndex(object):
 
         self._index = None
 
-        self.logger = logging.getLogger(__package__)
-        self.logger.name = 'DataIndex'
+        self.logger = get_named_logger('DataIndex')
 
 
     @property

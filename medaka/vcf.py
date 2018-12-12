@@ -2,12 +2,10 @@ from copy import deepcopy
 from collections import defaultdict
 import itertools
 from threading import Lock
-import logging
 
 from intervaltree import IntervalTree
 
-logging.basicConfig(format='[%(asctime)s - %(name)s] %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
-logger = logging.getLogger(__name__)
+from medaka.common import get_named_logger
 
 
 def self_return(x):
@@ -140,6 +138,7 @@ class VCFWriter(object):
         self.mode = mode
         self.header = header
         self.meta = ['fileformat=VCFv4.3'] + meta_info
+        self.logger = get_named_logger('VCFWriter')
 
 
     def __enter__(self):
@@ -185,6 +184,7 @@ class VCFReader(object):
         self._indexed = False
         self._tree = None
         self._parse_lock = Lock()
+        self.logger = get_named_logger('VCFReader')
 
         # Read both metadata and header
         self.meta = []

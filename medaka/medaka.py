@@ -11,6 +11,7 @@ from medaka.features import create_labelled_samples, create_samples
 
 default_model = os.path.join(resource_filename(__package__, 'data'), 'medaka_model.hdf5')
 
+
 def _log_level():
     """Parser to set logging level and acquire software version/commit"""
 
@@ -42,7 +43,6 @@ def _chunking_feature_args():
     parser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
         nargs=2, metavar=('lower', 'upper'))
     parser.add_argument('--rle_ref', default=None, help='Encoded reference file (required only for some model types.')
-    parser.add_argument('--max_label_len', type=int, default=1, help='Maximum label length.')
     return parser
 
 
@@ -86,17 +86,19 @@ def main():
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     tparser.set_defaults(func=train)
-    tparser.add_argument('features', nargs='+', help='Path for training data.')
+    tparser.add_argument('features', nargs='+', help='Paths to training data.')
     tparser.add_argument('--train_name', type=str, default='keras_train', help='Name for training run.')
     tparser.add_argument('--model', help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
     tparser.add_argument('--max_label_len', type=int, default=1, help='Maximum label length.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
-    tparser.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
     tparser.add_argument('--batch_size', type=int, default=200, help='Training batch size.')
     tparser.add_argument('--max_samples', type=int, default=np.inf, help='Only train on max_samples.')
     tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
     tparser.add_argument('--balanced_weights', action='store_true', help='Balance label weights.')
     tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
+    vgrp = tparser.add_mutually_exclusive_group()
+    vgrp.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
+    vgrp.add_argument('--validation_features', nargs='+', default=None, help='Paths to validation data')
 
     # Consensus from bam input
     cparser = subparsers.add_parser('consensus',

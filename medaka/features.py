@@ -4,7 +4,6 @@ from copy import deepcopy
 import inspect
 import itertools
 from functools import partial
-import logging
 from multiprocessing import Pool
 import os
 import sys
@@ -18,9 +17,8 @@ import pysam
 from medaka.common import (yield_compressed_pairs, Sample, lengths_to_rle, rle,
                            Region, decoding, encoding, get_regions, _gap_,
                            _alphabet_, get_pairs, get_pairs_with_hp_len,
-                           seq_to_hp_lens,)
+                           seq_to_hp_lens, get_named_logger)
 from medaka.datastore import DataStore
-
 from medaka.labels import TruthAlignment
 import libmedaka
 
@@ -120,8 +118,7 @@ class FeatureEncoder(object):
         self.feature_dtype = np.float32 if (self.normalise is not None or self.log_min is not None) else np.uint64
         self.with_depth = with_depth
         self.is_compressed = is_compressed
-        self.logger = logging.getLogger(__package__)
-        self.logger.name = 'Feature'
+        self.logger = get_named_logger('Feature')
         self.dtypes = dtypes
 
         if self.ref_mode not in self._ref_modes_:
@@ -322,7 +319,7 @@ class FeatureEncoder(object):
                     dtype = self.dtypes[np.where([aln.query_name.startswith(dt) for dt in self.dtypes])[0][0]]
                 except:
                     msg = "Skipping read {} as dtype not in {}"
-                    logging.info(msg.format(aln.query_name, self.dtypes))
+                    self.logger.info(msg.format(aln.query_name, self.dtypes))
                     continue
 
                 reverse = aln.is_reverse
@@ -484,7 +481,7 @@ def alphabet_filter(sample_gen, alphabet=None, filter_labels=True, filter_ref_se
     """
     if alphabet is None:
         alphabet = set([c for c in _alphabet_ + _gap_])
-    logger = logging.getLogger('AlphaFilter')
+    logger = get_named_logger('AlphaFilter')
     logger.debug("alphabet: {}".format(alphabet))
 
     alphabet = set([encoding[c] for c in alphabet])
@@ -521,7 +518,7 @@ class SampleGenerator(object):
         :param reference: reference `.fasta`, should correspond to `bam`.
 
         """
-        self.logger = logging.getLogger("Sampler")
+        self.logger = get_named_logger("Sampler")
         self.sample_type = "training" if truth_bam is not None else "consensus"
         self.logger.info("Initializing sampler for {} or region {}.".format(self.sample_type, region))
         with DataStore(model) as ds:
@@ -644,7 +641,7 @@ def create_samples(args):
 
 
 def _labelled_samples_worker(args, region):
-    logger = logging.getLogger('PrepWork')
+    logger = get_named_logger('PrepWork')
     logger.info("Processing region {}.".format(region))
     data_gen = SampleGenerator(
         args.bam, region, args.model, args.rle_ref, truth_bam = args.truth,
@@ -653,7 +650,7 @@ def _labelled_samples_worker(args, region):
 
 
 def create_labelled_samples(args):
-    logger = logging.getLogger('Prepare')
+    logger = get_named_logger('Prepare')
     regions = get_regions(args.bam, args.regions)
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))

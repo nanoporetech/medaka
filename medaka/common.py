@@ -1,19 +1,13 @@
-from collections import OrderedDict, namedtuple, defaultdict, Counter
-from concurrent.futures import ProcessPoolExecutor
+from collections import OrderedDict, namedtuple
 import errno
 import functools
 import itertools
 import logging
 import os
 from pkg_resources import resource_filename
-import queue
 import re
 import threading
-import time
-from timeit import default_timer as now
-import yaml
 
-from Bio import SeqIO
 import numpy as np
 import pysam
 
@@ -445,85 +439,12 @@ def grouper(gen, batch_size=4):
         yield batch
 
 
-class BatchQueue(object):
-    def  __init__(self, batches, sparse_labels, n_classes=None, stack=3):
-        """Load and queue training samples/batches from `.hdf` files.
-
-        :param batches: tuples of (filename, hdf batch index).
-        :param sparse_labels: create sparse labels.
-        :param n_classes: number of classes, required if `sparse_label is False`.
-        :param stack: group samples/batches by this number.
-
-        Once initialized batches can be retrieved using batch_q._queue.get().
-
-        """
-        self.batches = batches
-        self.sparse_labels = sparse_labels
-        self.n_classes = n_classes
-        self.stack = stack
-
-        self.logger = logging.getLogger(__package__)
-        self.logger.name = 'Batcher'
-        self._queue = queue.Queue(maxsize=100)
-        self.stopped = threading.Event()
-        self.qthread = threading.Thread(target=self._fill_queue)
-        self.qthread.start()
-        time.sleep(2)
-        self.logger.info("Started reading batches from files.")
-
-
-    def stop(self):
-        self.stopped.set()
-        self.logger.info("Waiting for read thread.")
-        self.qthread.join(2)
-        if self.qthread.is_alive:
-            self.logger.critical("Read thread did not terminate.")
-
-
-    def _fill_queue(self):
-        with ProcessPoolExecutor(1) as executor:
-            epoch = 0
-            while not self.stopped.is_set():
-                batch = 0
-                np.random.shuffle(self.batches)
-                for (fname, i) in self.batches:
-                    t0 = now()
-                    items = []
-                    for _ in range(0, self.stack):
-                        # TODO: fixme
-                        raise NotImplemented('This is broken')
-                        res = executor.submit(BatchQueue._generate_batch, fname, i, self.sparse_labels, self.n_classes)
-                        items.append(res.result())
-                    res = [np.concatenate([x[i] for x in items]) for i in range(0, 2)]
-                    t1 = now()
-                    self._queue.put(res)
-                    self.logger.debug("Took {:5.3}s to load batch {} (epoch {})".format(t1-t0, batch, epoch))
-                    batch += 1
-                epoch += 1
-            self.logger.info("Ended batching.")
-
-
-    @staticmethod
-    def _generate_batch(filename, index, sparse_labels, n_classes):
-        with h5py.File(filename, 'r') as h5:
-            xs = h5['{}/{}'.format(_feature_batches_path_, index)][()]
-            ys = h5['{}/{}'.format(_label_batches_path_, index)][()]
-        if not sparse_labels:
-            ys = to_categorical(ys, num_classes=n_classes)
-        return xs, ys
-
-
-    @threadsafe_generator
-    def yield_batches(self):
-        try:
-            while True:
-                yield self._queue.get()
-        except Exception as e:
-            self.logger.critical("Exception caught why yielding batches: {}".format(e))
-            self.stop()
-            raise e
-
-
 def print_data_path():
     """Print data directory containing models"""
     print(resource_filename(__package__, 'data'))
+
+
+def get_named_logger(name):
+    logger = logging.getLogger('{}.{}'.format(__package__, name))
+    logger.name = name
+    return logger

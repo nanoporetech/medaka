@@ -1,18 +1,23 @@
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 import functools
 import inspect
 import itertools
 import logging
+from math import ceil
 import os
+import queue
+import threading
+import time
 from timeit import default_timer as now
 
 import numpy as np
 import pysam
 
 from medaka import vcf
-from medaka.datastore import DataStore
+from medaka.datastore import DataStore, DataIndex
 from medaka.common import (get_regions, decoding, grouper, mkdir_p, Sample,
-                           _gap_,)
+                           _gap_, threadsafe_generator, get_named_logger)
 from medaka.features import SampleGenerator
 
 
@@ -99,13 +104,12 @@ def qscore(y_true, y_pred):
     return -10.0 * 0.434294481 * K.log(error)
 
 
-def run_training(train_name, batcher, feature_meta, model_fp=None,
-                 epochs=5000, batch_size=100, class_weight=None, n_mini_epochs=1):
+def run_training(train_name, batcher, model_fp=None,
+                 epochs=5000, class_weight=None, n_mini_epochs=1):
     """Run training."""
     from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
 
-    logger = logging.getLogger('Training')
-    logger.info("Got {} batches for training, {} for validation.".format(n_batch_train, n_batch_valid))
+    logger = get_named_logger('RunTraining')
 
     if model_fp is None:
         model_kwargs = { k:v.default for (k,v) in inspect.signature(build_model).parameters.items()
@@ -116,20 +120,21 @@ def run_training(train_name, batcher, feature_meta, model_fp=None,
 
     opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in model_kwargs.items()])
     logger.info('Building model with: \n{}'.format(opt_str))
-    num_classes = len(batcher.train_label_counts)
-    model = build_model(batcher.timesteps, batcher.feat_dim, num_classes, **model_kwargs)
+    num_classes = len(batcher.label_counts)
+    timesteps, feat_dim = batcher.feature_shape
+    model = build_model(timesteps, feat_dim, num_classes, **model_kwargs)
 
     if model_fp is not None and os.path.splitext(model_fp)[-1] != '.yml':
         logger.info("Loading weights from {}".format(model_fp))
         model.load_weights(model_fp)
 
     msg = "feat_dim: {}, timesteps: {}, num_classes: {}"
-    logger.info(msg.format(batcher.feat_dim, batcher.timesteps, num_classes))
+    logger.info(msg.format(feat_dim, timesteps, num_classes))
     model.summary()
 
-    model_details = feature_meta.copy()
-    model_details[_model_opt_path_] = model_kwargs
-    write_yaml_data(os.path.join(train_name, 'training_config.yml'), model_details)
+    model_details = batcher.meta.copy()
+    model_details['medaka_model_kwargs'] = model_kwargs
+    model_details['medaka_label_decoding'] = batcher.label_decoding
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
 
@@ -143,7 +148,8 @@ def run_training(train_name, batcher, feature_meta, model_fp=None,
         def on_epoch_end(self, epoch, logs=None):
             super(ModelMetaCheckpoint, self).on_epoch_end(epoch, logs)
             filepath = self.filepath.format(epoch=epoch + 1, **logs)
-            write_yaml_data(filepath, self.medaka_meta)
+            with DataStore(filepath, 'a') as ds:
+                ds.meta.update(self.medaka_meta)
 
     callbacks = [
         # Best model according to training set accuracy
@@ -191,8 +197,8 @@ def run_training(train_name, batcher, feature_meta, model_fp=None,
 
     # fit generator
     model.fit_generator(
-        batcher.gen_train(), steps_per_epoch=len(batcher.train_batches) // n_mini_epochs,
-        validation_data=batcher.gen_valid(), validation_steps=len(batcher.valid_batches),
+        batcher.gen_train(), steps_per_epoch=ceil(batcher.n_train_batches/n_mini_epochs),
+        validation_data=batcher.gen_valid(), validation_steps=batcher.n_valid_batches,
         max_queue_size=8, workers=8, use_multiprocessing=False,
         epochs=epochs,
         callbacks=callbacks,
@@ -201,167 +207,208 @@ def run_training(train_name, batcher, feature_meta, model_fp=None,
 
     # stop batching threads
     batcher.stop()
+    # TODO this is hanging - why?
 
 
-#class TrainBatcher():
-#    def __init__(self, features, validation=0.2, seed=0, sparse_labels=True, stack=1):
-#        """
-#        Class to server up batches of training / validation data.
-#
-#        :param features: iterable of str, training feature files.
-#        :param validation: float, fraction of batches to use for validation, or
-#                iterable of str, validation feature files.
-#        :param seed: int, random seed for separation of batches into training/validation.
-#        :param sparse_labels: bool, create sparse labels.
-#        """
-#        self.logger = logging.getLogger(__package__)
-#        self.logger.name = 'TrainBatcher'
-#
-#        self.features = features
-#        self.validation = validation
-#        self.seed = seed
-#        self.sparse_labels = sparse_labels
-#
-#        self._batches = self._list_batches(self.features)
-#
-#        # check batch size using first batch
-#        test_fname, test_batch = batches[0]
-#        with h5py.File(test_fname, 'r') as h5:
-#            batch_shape = h5['{}/{}'.format(_feature_batches_path_, test_batch)].shape
-#            label_shape = h5['{}/{}'.format(_label_batches_path_, test_batch)].shape
-#        self.label_decoding = load_yaml_data(test_fname, _label_decod_path_)
-#        self.batch_size, self.timesteps, self.feat_dim = batch_shape
-#        self.logger.info("Batches have feat shape {}, label shape {}".format(len(batches), batch_shape, label_shape))
-#
-#        if isinstance(self.validation, float):
-#            np.random.seed(self.seed)
-#            np.shuffle(self._batches)
-#            n_batch_train = int((1 - args.validation_split) * len(self._batches))
-#            self.train_batches = self._batches[:n_batch_train]
-#            self.valid_batches = self._batches[n_batch_train:]
-#            msg = 'Randomly selected {} ({3.2%}) of features for validation (seed {})'
-#            self.logger.info(msg.format(len(self.valid_batches), self.validation, self.seed))
-#        else:
-#            self.train_batches = self._batches
-#            self.valid_batches = self._list_batches(self.validation)
-#            msg = 'Loaded {} validation batches equivalent to {3.2%} of all the data'
-#            fraction = len(self.valid_batches) / (self.valid_batches) + len(self.train_batches)
-#            self.logger.info(msg.format(len(self.valid_batches), fraction))
-#
-#
-#        self.train_label_counts = self._get_label_counts(self.train_batches)
-#        self.valid_label_counts = self._get_label_counts(self.valid_batches)
-#        self.n_classes = len(self.train_label_counts)
-#
-#        self._valid_queue = BatchQueue(self.valid_batches, self.sparse_labels, self.n_classes, stack)
-#        self._train_queue = BatchQueue(self.train_batches, self.sparse_labels, self.n_classes, stack)
-#
-#        msg = 'Got {} labels in {} batches for training and {} labels in {} batches for validation.'
-#        self.logger.info(sum(self.train_label_counts.values()),
-#                         len(self.train_batches),
-#                         sum(self.valid_label_counts.values()),
-#                         len(self.valid_batches)
-#        )
-#
-#        # batches of samples
-#    else:
-#        sample_index = get_sample_index_from_files(args.features, max_samples=args.max_samples)
-#        refs = [k for k in sample_index.keys()]
-#        logger.info("Got the following references for training:\n{}".format('\n'.join(refs)))
-#        n_samples = sum([len(sample_index[k]) for k in sample_index])
-#        logger.info("Got {} pileup chunks for training.".format(n_samples))
-#        # get label encoding, given max_label_len
-#        logger.info("Max label length: {}".format(args.max_label_len if args.max_label_len is not None else 'inf'))
-#        label_encoding, label_decoding, label_counts = process_labels(label_counts, max_label_len=args.max_label_len)
-#
-#        # create seperate generators of x,y for training and validation
-#        # shuffle samples before making split so each ref represented in training
-#        # and validation and batches are not biased to a particular ref.
-#        samples = [(d['key'], d['filename']) for ref in sample_index.values() for d in ref]
-#        np.random.shuffle(samples)  # shuffle in place
-#        n_samples_train = int((1 - args.validation_split) * len(samples))
-#        samples_train = samples[:n_samples_train]
-#        samples_valid = samples[n_samples_train:]
-#        # all batches need to be the same size, so pad samples_train and samples_valid
-#        n_extra_train = args.batch_size - len(samples_train) % args.batch_size
-#        n_extra_valid = args.batch_size - len(samples_valid) % args.batch_size
-#        samples_train += [samples_train[i] for i in np.random.choice(len(samples_train), n_extra_train)]
-#        samples_valid += [samples_valid[i] for i in np.random.choice(len(samples_valid), n_extra_valid)]
-#
-#        msg = '{} training samples padded to {}, {} validation samples padded to {}'
-#        logger.info(msg.format(len(set(samples_train)), len(samples_train),
-#                                len(set(samples_valid)), len(samples_valid)))
-#
-#        # load one sample to figure out timesteps and data dim
-#        key, fname = samples_train[0]
-#        with h5py.File(fname) as h5:
-#            first_sample = load_sample_from_hdf(key, h5)
-#        timesteps = first_sample.features.shape[0]
-#        feat_dim = first_sample.features.shape[1]
-#
-#        if not sum(label_counts.values()) // timesteps == n_samples:
-#            raise ValueError('Label counts not consistent with number of samples')
-#
-#        gen_train_samples = yield_from_feature_files(args.features, samples=itertools.cycle(samples_train))
-#        gen_valid_samples = yield_from_feature_files(args.features, samples=itertools.cycle(samples_valid))
-#        s2xy = functools.partial(sample_to_x_y, encoding=label_encoding)
-#        gen_train = gen_train_batch(map(s2xy, gen_train_samples), args.batch_size, name='training')
-#        gen_valid = gen_train_batch(map(s2xy, gen_valid_samples), args.batch_size, name='validation')
-#        n_batch_train = len(samples_train) // args.batch_size
-#        n_batch_valid = len(samples_valid) // args.batch_size
-#
-#
-#    def stop(self):
-#        self._train_queue.stop()
-#        self._valid_queue.stop()
-#
-#
-#    @threadsafe_generator
-#    def gen_train(self):
-#        yield from self._train_queue.yield_batches()
-#
-#    @threadsafe_generator
-#    def gen_valid(self):
-#        yield from self._valid_queue.yield_batches()
-#
-#
-#    @staticmethod
-#    def _list_batches(files):
-#        """
-#        List batches in all feature files.
-#
-#        :param files: iterable of str, training feature files.
-#        :returns: iterable of (str filename, str batchname).
-#        """
-#        param seed: int, random seed for separation of batches into training/validation.
-#        batches = []
-#        for fname in files:
-#            with h5py.File(fname, 'r') as h5:
-#                has_batches = _label_batches_path_ in h5 and _feature_batches_path_ in h5
-#                if not has_batches:
-#                    raise KeyError('No training batches in {}.'.format(fname))
-#                batches.extend(((fname, batch) for batch in h5[_feature_batches_path_]))
-#
-#        return batches
-#
-#
-#    @staticmethod
-#    def _get_label_counts(batches):
-#        """
-#        Get label counts and check they are consistent with number of batches.
-#
-#        :param batches: iterable of (str filename, str batchname).
-#        :returns: `Counter` obj.
-#        """
-#        # get counts of labels in training samples
-#        label_counts = Counter()
-#        for f in args.features:
-#            label_counts.update(load_yaml_data(f, medaka_label_counts))
-#
-#        if not sum(label_counts.values()) != len(batches) * self.timesteps:
-#            raise ValueError('Label counts not consistent with number of batches')
-#
-#        return label_counts
+class TrainBatcher():
+    def __init__(self, features, max_label_len, validation=0.2, seed=0, sparse_labels=True, batch_size=500):
+        """
+        Class to server up batches of training / validation data.
+
+        :param features: iterable of str, training feature files.
+        :param max_label_len: int, maximum label length, longer labels will be truncated.
+        :param validation: float, fraction of batches to use for validation, or
+                iterable of str, validation feature files.
+        :param seed: int, random seed for separation of batches into training/validation.
+        :param sparse_labels: bool, create sparse labels.
+        """
+        self.logger = get_named_logger('TrainBatcher')
+
+        self.features = features
+        self.max_label_len = max_label_len
+        self.validation = validation
+        self.seed = seed
+        self.sparse_labels = sparse_labels
+        self.batch_size = batch_size
+
+        di = DataIndex(self.features)
+        self.samples = di.samples.copy()
+        self.meta = di.meta.copy()
+        self.label_counts = self.meta['medaka_label_counts']
+
+        # check sample size using first batch
+        test_sample, test_fname = self.samples[0]
+        with DataStore(test_fname) as ds:
+            self.feature_shape = ds.load_sample(test_sample).features.shape
+        self.logger.info("Sample features have shape {}".format(self.feature_shape))
+
+        if isinstance(self.validation, float):
+            np.random.seed(self.seed)
+            np.random.shuffle(self.samples)
+            n_sample_train = int((1 - self.validation) * len(self.samples))
+            self.train_samples = self.samples[:n_sample_train]
+            self.valid_samples = self.samples[n_sample_train:]
+            msg = 'Randomly selected {} ({:3.2%}) of features for validation (seed {})'
+            self.logger.info(msg.format(len(self.valid_samples), self.validation, self.seed))
+        else:
+            self.train_samples = self.samples
+            self.valid_samples = DataIndex(self.validation).samples.copy()
+            msg = 'Found {} validation samples equivalent to {:3.2%} of all the data'
+            fraction = len(self.valid_samples) / len(self.valid_samples) + len(self.train_samples)
+            self.logger.info(msg.format(len(self.valid_samples), fraction))
+
+        self.n_train_batches = ceil(len(self.train_samples) / batch_size)
+        self.n_valid_batches = ceil(len(self.valid_samples) / batch_size)
+
+        msg = 'Got {} samples in {} batches ({} labels) for {}'
+        self.logger.info(msg.format(len(self.train_samples),
+                                    self.n_train_batches,
+                                    len(self.train_samples) * self.feature_shape[0],
+                                    'training'))
+        self.logger.info(msg.format(len(self.valid_samples),
+                                    self.n_valid_batches,
+                                    len(self.valid_samples) * self.feature_shape[0],
+                                    'validation'))
+
+        self.n_classes = len(self.label_counts)
+
+        # get label encoding, given max_label_len
+        self.logger.info("Max label length: {}".format(self.max_label_len if self.max_label_len is not None else 'inf'))
+        self.label_encoding, self.label_decoding, self.label_counts = process_labels(self.label_counts, max_label_len=self.max_label_len)
+
+        prep_func = functools.partial(TrainBatcher.sample_to_x_y,
+                                      max_label_len=self.max_label_len,
+                                      label_encoding=self.label_encoding,
+                                      sparse_labels=self.sparse_labels,
+                                      n_classes=self.n_classes)
+
+        self._valid_queue = BatchQueue(self.valid_samples, prep_func,
+                                       self.batch_size, self.seed,
+                                       name='ValidBatcher',
+                                       maxsize=min(2 * self.n_valid_batches, 100))
+        self._train_queue = BatchQueue(self.train_samples, prep_func,
+                                       self.batch_size, self.seed,
+                                       name='TrainBatcher',
+                                       maxsize=min(2 * self.n_train_batches, 100))
+
+
+    @staticmethod
+    def sample_to_x_y(sample, max_label_len, label_encoding, sparse_labels, n_classes):
+        """Convert a `Sample` object into an x,y tuple for training.
+
+        :param sample: (filename, sample key)
+        :param max_label_len: int, maximum label length, longer labels will be truncated.
+        :param label_encoding: {label: int encoded label}.
+        :param sparse_labels: bool, create sparse labels.
+        :param n_classes: int, number of label classes.
+        :returns: (np.ndarray of inputs, np.ndarray of labels)
+        """
+        sample_key, sample_file = sample
+
+        with DataStore(sample_file) as ds:
+            s = ds.load_sample(sample_key)
+        if s.labels is None:
+            raise ValueError("Cannot train without labels.")
+        x = s.features
+        # labels can either be unicode strings or (base, length) integer tuples
+        if isinstance(s.labels[0], np.unicode):
+            # TODO: is this ever used now we have dispensed with tview code?
+            y = np.fromiter((label_encoding[l[:min(max_label_len, len(l))]]
+                               for l in s.labels), dtype=int, count=len(s.labels))
+        else:
+            y = np.fromiter((label_encoding[tuple((l['base'], min(max_label_len, l['run_length'])))]
+                             for l in s.labels), dtype=int, count=len(s.labels))
+        y = y.reshape(y.shape + (1,))
+        if not sparse_labels:
+            from keras.utils.np_utils import to_categorical
+            y = to_categorical(y, num_classes=n_classes)
+        return x, y
+
+
+    def stop(self):
+        self._train_queue.stop()
+        self._valid_queue.stop()
+
+
+    @threadsafe_generator
+    def gen_train(self):
+        yield from self._train_queue.yield_batches()
+
+    @threadsafe_generator
+    def gen_valid(self):
+        yield from self._valid_queue.yield_batches()
+
+
+class BatchQueue(object):
+    def  __init__(self, samples, prep_func, batch_size, seed=None, name='Batcher', maxsize=100):
+        """Load and queue training samples into batches from `.hdf` files.
+
+        :param samples: tuples of (filename, hdf sample key).
+        :param prep_func: function to transform a sample to x,y data.
+        :param batch_size: group samples by this number.
+        :param seed: seed for shuffling.
+        :param name: str, name for logger.
+        :param maxsize: int, maximum queue size.
+
+        Once initialized batches can be retrieved using batch_q._queue.get().
+
+        """
+        self.samples = samples
+        self.prep_func = prep_func
+        self.batch_size = batch_size
+
+        if seed is not None:
+            np.random.seed(seed)
+
+        self.logger = get_named_logger(name)
+        self._queue = queue.Queue(maxsize=maxsize)
+        self.stopped = threading.Event()
+        self.qthread = threading.Thread(target=self._fill_queue)
+        self.qthread.start()
+        time.sleep(2)
+        self.logger.info("Started reading samples from files with queue size {}".format(maxsize))
+
+
+    def stop(self):
+        self.logger.info("About to stop.")
+        self.stopped.set()
+        self.logger.info("Waiting for read thread.")
+        self.qthread.join(2)
+        if self.qthread.is_alive:
+            self.logger.critical("Read thread did not terminate.")
+
+
+    def _fill_queue(self):
+        with ProcessPoolExecutor(1) as executor:
+            epoch = 0
+            while not self.stopped.is_set():
+                batch = 0
+                np.random.shuffle(self.samples)
+                for samples in grouper(iter(self.samples), batch_size=self.batch_size):
+                    items = []
+                    t0 = now()
+                    for sample in samples:
+                        res = executor.submit(self.prep_func, sample)
+                        items.append(res.result())
+                    xs, ys = zip(*items)
+                    res = np.stack(xs), np.stack(ys)
+                    t1 = now()
+                    self._queue.put(res)
+                    self.logger.debug("Took {:5.3}s to load batch {} (epoch {})".format(t1-t0, batch, epoch))
+                    batch += 1
+                epoch += 1
+            self.logger.info("Ended batching.")
+
+
+    @threadsafe_generator
+    def yield_batches(self):
+        try:
+            while True:
+                yield self._queue.get()
+        except Exception as e:
+            self.logger.critical("Exception caught why yielding batches: {}".format(e))
+            self.stop()
+            raise e
 
 
 class VarQueue(list):
@@ -397,7 +444,7 @@ class VCFChunkWriter(object):
     def __init__(self, fname, chrom, start, end, reference_fasta, label_decoding):
         vcf_region_str = '{}:{}-{}'.format(chrom, start, end) #is this correct?
         self.label_decoding = label_decoding
-        self.logger = logging.getLogger('VCFWriter')
+        self.logger = get_named_logger('VCFWriter')
         self.logger.info("Writing variants for {}".format(vcf_region_str))
 
         vcf_meta = ['region={}'.format(vcf_region_str)]
@@ -487,8 +534,7 @@ def run_prediction(sample_gen, output, batch_size=200, threads=1):
     from keras.models import load_model
     from keras import backend as K
 
-    logger = logging.getLogger(__package__)
-    logger.name = 'PWorker'
+    logger = get_named_logger('PWorker')
 
     logger.info("Setting tensorflow threads to {}.".format(threads))
     K.set_session(K.tf.Session(
@@ -547,8 +593,7 @@ def run_prediction(sample_gen, output, batch_size=200, threads=1):
 def predict(args):
     """Inference program."""
     args.regions = get_regions(args.bam, region_strs=args.regions)
-    logger = logging.getLogger(__package__)
-    logger.name = 'Predict'
+    logger = get_named_logger('Predict')
     logger.info('Processing region(s): {}'.format(' '.join(str(r) for r in args.regions)))
 
     # write class names to output
@@ -571,8 +616,17 @@ def predict(args):
 
 
 def process_labels(label_counts, max_label_len=10):
-    """Create map from full labels to (encoded) truncated labels."""
-    logger = logging.getLogger('Labelling')
+    """Create map from full labels to (encoded) truncated labels.
+
+    :param label_counrs: `Counter` obj of label counts.
+    :param max_label_len: int, maximum label length, longer labels will be truncated.
+    :returns:
+    :param label_encoding: {label: int encoded label}.
+    :param sparse_labels: bool, create sparse labels.
+    :param n_classes: int, number of label classes.
+    :returns: ({label: int encoding}, [label decodings], `Counter` of truncated counts).
+    """
+    logger = get_named_logger('Labelling')
 
     old_labels = [k for k in label_counts.keys()]
     if type(old_labels[0]) == tuple:
@@ -603,33 +657,29 @@ def train(args):
     train_name = args.train_name
     mkdir_p(train_name, info='Results will be overwritten.')
 
-    logger = logging.getLogger('Training')
+    logger = get_named_logger('Training')
     logger.debug("Loading datasets:\n{}".format('\n'.join(args.features)))
 
     sparse_labels = not args.balanced_weights
-    batcher = TrainBatcher(args.features, args.validation, args.seed, sparse_labels)
 
-    # get feature meta data
-    feature_meta = {k: load_yaml_data(args.features[0], k)
-                    for k in (_feature_opt_path_, _feature_decoding_path_, _label_decod_path_)}
-    feature_meta['medaka_label_counts'] = batcher.train_label_counts()
+    args.validation = args.validation_features if args.validation_features is not None else args.validation_split
+
+    batcher = TrainBatcher(args.features, args.max_label_len, args.validation,
+                           args.seed, sparse_labels, args.batch_size)
 
     if args.balanced_weights:
-        n_samples = sum(batcher.train_label_counts.values())
-        n_classes = len(batcher.train_label_counts)
-        class_weight = {k: float(n_samples)/(n_classes * count) for (k, count) in batcher.train_label_counts.items()}
+        n_labels = sum(batcher.label_counts.values())
+        n_classes = len(batcher.label_counts)
+        class_weight = {k: float(n_labels)/(n_classes * count) for (k, count) in batcher.label_counts.items()}
         class_weight = np.array([class_weight[c] for c in sorted(class_weight.keys())])
     else:
         class_weight = None
 
     h = lambda d, i: d[i] if d is not None else 1
     logger.info("Label statistics are:\n{}".format('\n'.join(
-        '{} ({}) Train: {} (w. {:9.6f}) Valid: {}'.format(i, l,
-            batcher.train_label_counts[i], h(class_weight, i),
-            batcher.valid_label_counts[i]) for i, l in enumerate(feature_meta[_label_decod_path_])
+        '{} ({}) {} (w. {:9.6f})'.format(i, l, batcher.label_counts[i], h(class_weight, i))
+            for i, l in enumerate(batcher.label_decoding)
     )))
 
-    run_training(train_name, batcher, model_fp=args.model, epochs=args.epochs, batch_size=args.batch_size,
+    run_training(train_name, batcher, model_fp=args.model, epochs=args.epochs,
                  class_weight=class_weight, n_mini_epochs=args.mini_epochs)
-
-
