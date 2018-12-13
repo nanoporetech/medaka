@@ -62,7 +62,7 @@ class HTSBuild(build_ext):
     def run(self):
 
         def compile_hts():
-            subprocess.call(['make', 'libhts.a'])
+            subprocess.check_call(['make', 'libhts.a'])
 
         self.execute(compile_hts, [], 'Compiling htslib using Makefile')
         build_ext.run(self)
