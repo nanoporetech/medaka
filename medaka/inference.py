@@ -388,8 +388,12 @@ class BatchQueue(object):
                     items = []
                     t0 = now()
                     for sample in samples:
+                        if self.stopped.is_set():
+                            break
                         res = executor.submit(self.prep_func, sample)
                         items.append(res.result())
+                    if self.stopped.is_set():
+                        break
                     xs, ys = zip(*items)
                     res = np.stack(xs), np.stack(ys)
                     t1 = now()
@@ -397,6 +401,7 @@ class BatchQueue(object):
                     self.logger.debug("Took {:5.3}s to load batch {} (epoch {})".format(t1-t0, batch, epoch))
                     batch += 1
                 epoch += 1
+            executor.shutdown()
             self.logger.info("Ended batching.")
 
 
