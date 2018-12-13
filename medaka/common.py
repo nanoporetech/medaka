@@ -1,5 +1,6 @@
 from collections import OrderedDict, namedtuple, defaultdict, Counter
 from concurrent.futures import ProcessPoolExecutor
+from copy import copy
 import errno
 import functools
 import itertools
@@ -68,6 +69,11 @@ class Sample(_Sample):
     def last_pos(self):
         """Zero-based (end inclusive) last reference co-ordinate."""
         return self._get_pos(-1)
+
+    @property
+    def span(self):
+        """Size of sample in terms of reference positions."""
+        return self.last_pos[0] - self.first_pos[0]
 
     @property
     def is_empty(self):
@@ -711,7 +717,7 @@ class BatchQueue(object):
         self.n_classes = n_classes
         self.stack = stack
 
-        self.logger = logging.getLogger(__package__)
+        self.logger = copy(logging.getLogger(__package__))
         self.logger.name = 'Batcher'
         self._queue = queue.Queue(maxsize=100)
         self.stopped = threading.Event()
@@ -771,7 +777,7 @@ def yield_batches_from_hdfs(batches, sparse_labels=True, n_classes=None):
     :yields: (np.ndarray of inputs, np.ndarray of labels).
     
     """
-    logger = logging.getLogger(__package__)
+    logger = copy(logging.getLogger(__package__))
     logger.name = 'BatchYd'
     queue = BatchQueue(batches, sparse_labels, n_classes)
     try:

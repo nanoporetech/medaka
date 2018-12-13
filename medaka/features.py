@@ -1,6 +1,6 @@
 from collections import defaultdict, Counter, OrderedDict
 import concurrent.futures
-from copy import deepcopy
+from copy import copy, deepcopy
 import inspect
 import itertools
 from functools import partial
@@ -123,7 +123,7 @@ class FeatureEncoder(object):
         self.feature_dtype = np.float32 if (self.normalise is not None or self.log_min is not None) else np.uint64
         self.with_depth = with_depth
         self.is_compressed = is_compressed
-        self.logger = logging.getLogger(__package__)
+        self.logger = copy(logging.getLogger(__package__))
         self.logger.name = 'Feature'
         self.dtypes = dtypes
 
@@ -164,7 +164,7 @@ class FeatureEncoder(object):
         if self.with_depth:
             self.decoding = self.decoding + ('depth',)
         self.encoding = OrderedDict(((a, i) for i, a in enumerate(self.decoding)))
-        self.logger.info("Creating features with: {}".format(opts))
+        self.logger.debug("Creating features with: {}".format(opts))
 
         self.logger.debug("Label decoding is:\n{}".format('\n'.join(
             '{}: {}'.format(i, x) for i, x in enumerate(self.decoding)
