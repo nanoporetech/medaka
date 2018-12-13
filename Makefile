@@ -79,7 +79,7 @@ venv/bin/activate:
 
 
 install: venv  | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
-	${IN_VENV} && MED_BINARIES=1 python setup.py install
+	${IN_VENV} && MEDAKA_BINARIES=1 python setup.py install
 
 
 test: install

@@ -42,8 +42,8 @@ Medaka can be installed on Linux using the python package manager, pip:
 
 We recommend using medaka within a virtual environment, viz.:
 
-    virtualenv pomoxis --python=python3 --prompt "(medaka) "
-    . pomoxis/bin/activate
+    virtualenv medaka --python=python3 --prompt "(medaka) "
+    . medaka/bin/activate
     pip install medaka
 
 Using this method requires the user to provide a
@@ -55,7 +55,7 @@ within the `PATH`.
 
 Medaka can be installed from its source quite easily on most systems.
 
- > Before installing pomoxis it may be required to install some
+ > Before installing medaka it may be required to install some
  > prerequisite libraries, best installed by a package manager. On Ubuntu
  > theses are:
  > * gcc

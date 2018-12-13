@@ -48,7 +48,7 @@ with open(os.path.join(dir_path, 'requirements.txt')) as fh:
 
 
 data_files = []
-if os.environ.get('MED_BINARIES') is not None:
+if os.environ.get('MEDAKA_BINARIES') is not None:
     exes = ['samtools', 'minimap2']
     data_files.append(
         ('exes', [
@@ -89,6 +89,7 @@ setup(
     entry_points = {
         'console_scripts': [
             '{0} = {0}.{0}:main'.format(__pkg_name__),
+            'medaka_counts = {0}.medaka_counts:main'.format(__pkg_name__),
             'medaka_data_path = {0}.{1}:{2}'.format(__pkg_name__, 'common', 'print_data_path'),
         ]
     },
