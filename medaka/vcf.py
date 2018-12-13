@@ -265,7 +265,7 @@ class VCFReader(object):
         :param strict: if False variants overlapping the region, but not
             contained enitrely within the region are yielded also.
 
-        yields `Variant`s.
+        :yields: :py:class:`Variant` instances.
 
         """
         if start is None:
