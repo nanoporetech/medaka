@@ -414,7 +414,7 @@ def predict(args):
     # Split overly long regions to maximum size so as to not create
     #   massive feature matrices, then segregate those which cannot be
     #   batched.
-    MAX_REGION_SIZE = 1e6  # 1Mb
+    MAX_REGION_SIZE = int(1e6)  # 1Mb
     long_regions = []
     short_regions = []
     for region in args.regions:

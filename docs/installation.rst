@@ -4,16 +4,18 @@
 Installation
 ============
 
-
 There are currently two installation methods for medaka, detailed below.
 
 **Installation with pip**
   
-Medaka can be installed on Linux using the python package manager, pip:
+Medaka can be installed using the python package manager, pip:
 
 .. code-block:: bash
 
     pip install medaka
+
+On Linux platforms this will install a precompiled binary, on MacOS (and other)
+platforms this will fetch and compile a source distribution.
 
 We recommend using medaka within a virtual environment, viz.:
 
@@ -23,10 +25,12 @@ We recommend using medaka within a virtual environment, viz.:
     . medaka/bin/activate
     pip install medaka
 
-Using this method requires the user to provide a
-`samtools <https://github.com/samtools/samtools>`_ and
-`minimap2 <https://github.com/lh3/minimap2>`_ binary and place these
-within the `PATH`.
+.. note::
+
+    Using this method requires the user to provide a
+    `samtools <https://github.com/samtools/samtools>`_ and
+    `minimap2 <https://github.com/lh3/minimap2>`_ binary and place these
+    within the `PATH`.
 
 
 **Installation from source**
@@ -55,6 +59,22 @@ into a python virtual environment. To setup the environment run:
 Using this method both `samtools` and `minimap2` are built from source and need
 not be provided by the user.
 
+
+**Using a GPU**
+
+All installation methods will allow medaka to be used with CPU resource only.
+To enable the use of GPU resource it is necessary to install the
+`tensorflow-gpu` package. In outline this can be achieve with:
+
+.. code-block:: bash
+
+    pip uninstall tensorflow
+    pip install tensorflow-gpu
+
+However, note that The `tensorflow-gpu` GPU package is compiled against a
+specific version of the NVIDIA CUDA library; users are directed to the 
+`tensorflow installation <https://www.tensorflow.org/install/gpu>`_ pages
+for further information.
 
 .. _sequence_correction:
 
