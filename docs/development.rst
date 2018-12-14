@@ -70,3 +70,15 @@ Depending on your environment, specifically the versions of `CUDA` and `cuDNN`
 that one has installed, it may be necessary to compile from source tensorflow;
 the precompiled versions are naturally linked against specific versions of
 these libraries.
+
+
+API reference
+-------------
+
+The medaka library comprising feature generation, data labelling, and batching
+code is detailed below.
+
+.. toctree::
+   :maxdepth: 3
+      
+   medaka

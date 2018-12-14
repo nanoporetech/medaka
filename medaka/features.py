@@ -1,6 +1,6 @@
 from collections import defaultdict, Counter, OrderedDict
 import concurrent.futures
-from copy import deepcopy
+from copy import copy, deepcopy
 import inspect
 import itertools
 from functools import partial
@@ -123,7 +123,7 @@ class FeatureEncoder(object):
         self.feature_dtype = np.float32 if (self.normalise is not None or self.log_min is not None) else np.uint64
         self.with_depth = with_depth
         self.is_compressed = is_compressed
-        self.logger = logging.getLogger(__package__)
+        self.logger = copy(logging.getLogger(__package__))
         self.logger.name = 'Feature'
         self.dtypes = dtypes
 
@@ -164,7 +164,7 @@ class FeatureEncoder(object):
         if self.with_depth:
             self.decoding = self.decoding + ('depth',)
         self.encoding = OrderedDict(((a, i) for i, a in enumerate(self.decoding)))
-        self.logger.info("Creating features with: {}".format(opts))
+        self.logger.debug("Creating features with: {}".format(opts))
 
         self.logger.debug("Label decoding is:\n{}".format('\n'.join(
             '{}: {}'.format(i, x) for i, x in enumerate(self.decoding)
@@ -197,7 +197,7 @@ class FeatureEncoder(object):
         """Location of feature vector components.
         
         :returns: dictionary mapping read data type and strand to feature vector
-        indices (a list over all bases)
+            indices (a list over all bases)
 
         """
         return {
@@ -348,15 +348,9 @@ class FeatureEncoder(object):
                     ref_base = pair.rbase.upper() if pair.rbase is not None else '*'
                     ref_bases[(current_pos, ins_count)] = (ref_base, pair.rlen)
 
+
             # create feature array
             aln_cols = len(aln_counters)
-            if aln_cols == 0:
-                msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
-                self.logger.warning(msg)
-                return Sample(ref_name=region.ref_name, features=None,
-                              labels=None, ref_seq=None,
-                              positions=positions, label_probs=None)
-
             feature_len = len(self.encoding)
             feature_array = np.zeros(shape=(aln_cols, feature_len), dtype=self.feature_dtype)
             if self.log_min is not None:
@@ -364,6 +358,14 @@ class FeatureEncoder(object):
             ref_array = np.empty(shape=(aln_cols), dtype=[('base', int), ('run_length', int)])
             positions = np.empty(aln_cols, dtype=[('major', int),
                                                 ('minor', int)])
+
+            if aln_cols == 0:
+                msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
+                self.logger.warning(msg)
+                return Sample(ref_name=region.ref_name, features=None,
+                              labels=None, ref_seq=None,
+                              positions=positions, label_probs=None)
+
             depth_array = np.empty(shape=(aln_cols), dtype=int)
 
             # keep track of which features are for fwd/rev reads of each dtype

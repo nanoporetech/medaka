@@ -1,7 +1,7 @@
-.PHONY: docs
+.PHONY: docs clean_samtools
 
 # Builds a cache of binaries which can just be copied for CI
-BINARIES=samtools minimap2 mini_align vcf2fasta
+BINARIES=samtools minimap2
 BINCACHEDIR=bincache
 $(BINCACHEDIR):
 	mkdir -p $(BINCACHEDIR)
@@ -15,20 +15,31 @@ endif
 binaries: $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 
 SAMVER=1.3.1
-$(BINCACHEDIR)/samtools: | $(BINCACHEDIR)
-	# TODO: make this a bit nicer, we're only doing this for tview
+$(BINCACHEDIR)/samtools: submodules/samtools-1.3.1/Makefile | $(BINCACHEDIR)
 	@echo Making $(@F)
-	# tar.bz is not a dependency, since that would cause it to be fetched
-	#   even when installing from $(BINCACHEDIR)
-	if [ ! -e submodules/samtools-${SAMVER}.tar.bz2 ]; then \
-	  cd submodules; \
-	  wget https://github.com/samtools/samtools/releases/download/${SAMVER}/samtools-${SAMVER}.tar.bz2; \
-	fi
-	cd submodules && tar -xjf samtools-${SAMVER}.tar.bz2
 	# copy our hack up version of tview
 	${SEDI} 's/tv->is_dot = 1;/tv->is_dot = 0;/' submodules/samtools-${SAMVER}/bam_tview.c
 	cd submodules/samtools-${SAMVER} && make
 	cp submodules/samtools-${SAMVER}/samtools $@
+
+
+submodules/samtools-$(SAMVER)/Makefile:
+	cd submodules; \
+		wget https://github.com/samtools/samtools/releases/download/${SAMVER}/samtools-${SAMVER}.tar.bz2; \
+		tar -xjf samtools-${SAMVER}.tar.bz2; \
+		rm samtools-${SAMVER}.tar.bz2
+
+
+libhts.a: submodules/samtools-1.3.1/Makefile
+	# this is required only to add in -fpic so we can build python module
+	@echo Compiling $(@F)
+	cd submodules/samtools-${SAMVER}/htslib-${SAMVER}/ && CFLAGS=-fpic ./configure && make
+	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$@ $@
+
+clean_htslib:
+	cd submodules/samtools-${SAMVER} && make clean || exit 0
+	cd submodules/samtools-${SAMVER}/htslib-${SAMVER} && make clean || exit 0
+
 
 $(BINCACHEDIR)/minimap2: | $(BINCACHEDIR)
 	@echo Making $(@F)
@@ -37,7 +48,8 @@ $(BINCACHEDIR)/minimap2: | $(BINCACHEDIR)
 	cp minimap2-2.11_x64-linux/minimap2 $@
 	rm -rf minimap2-2.11_x64-linux.tar.bz2 minimap2-2.11_x64-linux
 
-$(BINCACHEDIR)/mini_align: | $(BINCACHEDIR)
+
+scripts/mini_align:
 	@echo Making $(@F)
 	curl https://raw.githubusercontent.com/nanoporetech/pomoxis/master/scripts/mini_align -o $@
 	chmod +x $@
@@ -52,11 +64,9 @@ $(BINCACHEDIR)/vcf2fasta: | $(BINCACHEDIR)
 	cp src/vcf2fasta/$(@F) $@
 
 
-libhts.a: $(BINCACHEDIR)/samtools
-	# this is required only to add in -fpic so we can build python module
-	@echo Compiling $(@F)
-	cd submodules/samtools-${SAMVER}/htslib-${SAMVER}/ && CFLAGS=-fpic ./configure && make
-	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$@ $@
+sdist: scripts/mini_align submodules/samtools-1.3.1/Makefile
+	python setup.py sdist
+
 
 
 venv: venv/bin/activate
@@ -67,22 +77,29 @@ venv/bin/activate:
 	${IN_VENV} && pip install pip --upgrade
 	${IN_VENV} && pip install -r requirements.txt
 
-install: venv libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
-	${IN_VENV} && python setup.py install
+
+install: venv scripts/mini_align | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
+	${IN_VENV} && MEDAKA_BINARIES=1 python setup.py install
+
 
 test: install
 	${IN_VENV} && pip install nose
 	${IN_VENV} && python setup.py nosetests
 
-clean:
-	. ${VENV} && python setup.py clean || echo "Failed to run setup.py clean"
+
+clean: clean_htslib
+	${IN_VENV} && python setup.py clean || echo "Failed to run setup.py clean"
 	rm -rf libhts.a venv build dist/ medaka.egg-info/ __pycache__ medaka.egg-info
 	find . -name '*.pyc' -delete
+
 
 docker: binaries libhts.a
 	mkdir for_docker && cp -r medaka scripts bincache setup.py build.py requirements.txt for_docker 
 	docker build -t medaka .
 	rm -rf for_docker
+
+wheels:
+	docker run -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/build-wheels.sh
 
 # You can set these variables from the command line.
 SPHINXOPTS    =

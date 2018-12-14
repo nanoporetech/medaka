@@ -1,6 +1,6 @@
 from collections import Counter
+from copy import copy
 import functools
-import glob
 import inspect
 import itertools
 import logging
@@ -20,7 +20,8 @@ from medaka.common import (_label_counts_path_, get_regions,
                            write_sample_to_hdf, write_yaml_data,
                            yield_from_feature_files, gen_train_batch,
                            _label_batches_path_, _feature_batches_path_,
-                           yield_batches_from_hdfs, _gap_)
+                           yield_batches_from_hdfs, _gap_,
+                           _feature_decoding_path_, _feature_opt_path_)
 from medaka.features import SampleGenerator
 
 
@@ -74,16 +75,12 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropou
 
     model = Sequential()
 
-    gru1 = GRU(gru_size, activation='tanh', return_sequences=True, name='gru1',
-               dropout=input_dropout, recurrent_dropout=recurrent_dropout)
-    gru2 = GRU(gru_size, activation='tanh', return_sequences=True, name='gru2',
-               dropout=inter_layer_dropout, recurrent_dropout=recurrent_dropout)
-
-    # Bidirectional wrapper takes a copy of the first argument and reverses
-    #   the direction. Weights are independent between components.
-    model.add(Bidirectional(gru1, input_shape=(chunk_size, feature_len)))
-
-    model.add(Bidirectional(gru2, input_shape=(chunk_size, feature_len)))
+    input_shape=(chunk_size, feature_len)
+    for i in [1, 2]:
+        name = 'gru{}'.format(i)
+        gru = GRU(gru_size, activation='tanh', return_sequences=True, name=name,
+                  dropout=input_dropout, recurrent_dropout=recurrent_dropout)
+        model.add(Bidirectional(gru, input_shape=input_shape))
 
     if inter_layer_dropout > 0:
         model.add(Dropout(inter_layer_dropout))
@@ -107,7 +104,7 @@ def qscore(y_true, y_pred):
     return -10.0 * 0.434294481 * K.log(error)
 
 
-def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid, label_decoding,
+def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid, feature_meta,
                  timesteps, feat_dim, model_fp=None, epochs=5000, batch_size=100, class_weight=None, n_mini_epochs=1):
     """Run training."""
     from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
@@ -115,7 +112,7 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
     logger = logging.getLogger('Training')
     logger.info("Got {} batches for training, {} for validation.".format(n_batch_train, n_batch_valid))
 
-    num_classes = len(label_decoding)
+    num_classes = len(feature_meta[_label_decod_path_])
 
     if model_fp is None:
         model_kwargs = { k:v.default for (k,v) in inspect.signature(build_model).parameters.items()
@@ -135,26 +132,38 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
     logger.info("feat_dim: {}, timesteps: {}, num_classes: {}".format(feat_dim, timesteps, num_classes))
     model.summary()
 
-    model_details = {_label_decod_path_: label_decoding,
-                     _model_opt_path_: model_kwargs}
+    model_details = feature_meta.copy()
+    model_details[_model_opt_path_] = model_kwargs
     write_yaml_data(os.path.join(train_name, 'training_config.yml'), model_details)
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
 
+    # define class here to avoid top-level keras import
+    class ModelMetaCheckpoint(ModelCheckpoint):
+        """Custom ModelCheckpoint to add medaka-specific metadata to model files"""
+        def __init__(self, medaka_meta, *args, **kwargs):
+            super(ModelMetaCheckpoint, self).__init__(*args, **kwargs)
+            self.medaka_meta = medaka_meta
+
+        def on_epoch_end(self, epoch, logs=None):
+            super(ModelMetaCheckpoint, self).on_epoch_end(epoch, logs)
+            filepath = self.filepath.format(epoch=epoch + 1, **logs)
+            write_yaml_data(filepath, self.medaka_meta)
+
     callbacks = [
         # Best model according to training set accuracy
-        ModelCheckpoint(os.path.join(train_name, 'model.best.hdf5'),
-                        monitor='acc', **opts),
+        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model.best.hdf5'),
+                            monitor='acc', **opts),
         # Best model according to validation set accuracy
-        ModelCheckpoint(os.path.join(train_name, 'model.best.val.hdf5'),
+        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model.best.val.hdf5'),
                         monitor='val_acc', **opts),
         # Best model according to validation set qscore
-        ModelCheckpoint(os.path.join(train_name, 'model.best.val.qscore.hdf5'),
+        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model.best.val.qscore.hdf5'),
                         monitor='val_qscore', **opts),
         # Checkpoints when training set accuracy improves
-        ModelCheckpoint(os.path.join(train_name, 'model-acc-improvement-{epoch:02d}-{acc:.2f}.hdf5'),
+        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model-acc-improvement-{epoch:02d}-{acc:.2f}.hdf5'),
                         monitor='acc', **opts),
-        ModelCheckpoint(os.path.join(train_name, 'model-val_acc-improvement-{epoch:02d}-{val_acc:.2f}.hdf5'),
+        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model-val_acc-improvement-{epoch:02d}-{val_acc:.2f}.hdf5'),
                         monitor='val_acc', **opts),
         # Stop when no improvement, patience is number of epochs to allow no improvement
         EarlyStopping(monitor='val_loss', patience=20),
@@ -194,11 +203,6 @@ def run_training(train_name, sample_gen, valid_gen, n_batch_train, n_batch_valid
         callbacks=callbacks,
         class_weight=class_weight,
     )
-
-    # append label_decoding and model building options to the hdf files
-    for hd5_model_path in glob.glob(os.path.join(train_name, '*.hdf5')):
-        write_yaml_data(hd5_model_path, model_details)
-
 
 
 class VarQueue(list):
@@ -319,55 +323,41 @@ class VCFChunkWriter(object):
             self.writer.write_variant(var_queue[0])
 
 
-def run_prediction(sample_gen, output, batch_size=200, threads=1):
+def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fraction, chunk_len, chunk_ovlp,
+                   batch_size=200):
     """Inference worker."""
-    from keras.models import load_model
-    from keras import backend as K
-
-    logger = logging.getLogger(__package__)
+    logger = copy(logging.getLogger(__package__))
     logger.name = 'PWorker'
 
-    logger.info("Setting tensorflow threads to {}.".format(threads))
-    K.set_session(K.tf.Session(
-        config=K.tf.ConfigProto(
-            intra_op_parallelism_threads=threads,
-            inter_op_parallelism_threads=threads)
-    ))
+    def sample_gen():
+        # chain all samples whilst dispensing with generators when done
+        #   (they hold the feature vector in memory until they die)
+        for region in regions:
+            data_gen = SampleGenerator(
+                bam, region, model_file, rle_ref, read_fraction,
+                chunk_len=chunk_len, chunk_overlap=chunk_ovlp)
+            yield from data_gen.samples
+    batches = grouper(sample_gen(), batch_size)
 
-    model = load_model(sample_gen.model, custom_objects={'qscore': qscore})
-    time_steps = model.get_input_shape_at(0)[1]
-    if time_steps != sample_gen.chunk_len:
-        logger.info("Rebuilding model according to chunk_size: {}->{}".format(time_steps, sample_gen.chunk_len))
-        feat_dim = model.get_input_shape_at(0)[2]
-        num_classes = model.get_output_shape_at(-1)[-1]
-        model = build_model(sample_gen.chunk_len, feat_dim, num_classes)
-
-    logger.info("Loading weights from {}".format(sample_gen.model))
-    model.load_weights(sample_gen.model)
-
-    if logger.level == logging.DEBUG:
-        model.summary()
-
-    logger.info("Initialising pileup.")
-    n_samples = sample_gen.n_samples
-    logger.info("Running inference for {} chunks.".format(n_samples))
-    batches = grouper(sample_gen.samples, batch_size)
+    total_region_mbases = sum(r.size for r in regions) / 1e6
+    logger.info("Running inference for {:.1f}M draft bases.".format(total_region_mbases))
 
     with h5py.File(output, 'a') as pred_h5:
-        n_samples_done = 0
+        mbases_done = 0
 
         t0 = now()
         tlast = t0
         for data in batches:
             x_data = np.stack((x.features for x in data))
+            # TODO: change to predict_on_batch?
             class_probs = model.predict(x_data, batch_size=batch_size, verbose=0)
-
-            n_samples_done += x_data.shape[0]
+            mbases_done += sum(x.span for x in data) / 1e6
+            mbases_done = min(mbases_done, total_region_mbases)  # just to avoid funny log msg
             t1 = now()
             if t1 - tlast > 10:
                 tlast = t1
-                msg = '{:.1%} Done ({}/{} samples) in {:.1f}s'
-                logger.info(msg.format(n_samples_done / n_samples, n_samples_done, n_samples, t1 - t0))
+                msg = '{:.1%} Done ({:.1f}/{:.1f} Mbases) in {:.1f}s'
+                logger.info(msg.format(mbases_done / total_region_mbases, mbases_done, total_region_mbases, t1 - t0))
 
             best = np.argmax(class_probs, -1)
             for sample, prob, pred in zip(data, class_probs, best):
@@ -379,13 +369,17 @@ def run_prediction(sample_gen, output, batch_size=200, threads=1):
                     write_sample_to_hdf(Sample(**sample_d), pred_h5)
 
     logger.info('All done')
-    return sample_gen.region
+    return None
 
 
 def predict(args):
     """Inference program."""
+    os.environ["TF_CPP_MIN_LOG_LEVEL"]="2"
+    from keras.models import load_model
+    from keras import backend as K
+
     args.regions = get_regions(args.bam, region_strs=args.regions)
-    logger = logging.getLogger(__package__)
+    logger = copy(logging.getLogger(__package__))
     logger.name = 'Predict'
     logger.info('Processing region(s): {}'.format(' '.join(str(r) for r in args.regions)))
 
@@ -393,17 +387,73 @@ def predict(args):
     label_decoding = load_yaml_data(args.model, _label_decod_path_)
     write_yaml_data(args.output, {_label_decod_path_: label_decoding})
 
+    logger.info("Setting tensorflow threads to {}.".format(args.threads))
+    K.tf.logging.set_verbosity(K.tf.logging.ERROR)
+    K.set_session(K.tf.Session(
+        config=K.tf.ConfigProto(
+            intra_op_parallelism_threads=args.threads,
+            inter_op_parallelism_threads=args.threads)
+    ))
+
+    def _rebuild_model(model, chunk_len):
+        time_steps = model.get_input_shape_at(0)[1]
+        if chunk_len is None or time_steps != chunk_len:
+            logger.info("Rebuilding model according to chunk_size: {}->{}".format(time_steps, chunk_len))
+            feat_dim = model.get_input_shape_at(0)[2]
+            num_classes = model.get_output_shape_at(-1)[-1]
+            model = build_model(chunk_len, feat_dim, num_classes)
+            logger.info("Loading weights from {}".format(args.model))
+            model.load_weights(args.model)
+
+        if logger.level == logging.DEBUG:
+            model.summary()
+        return model
+
+    model = load_model(args.model, custom_objects={'qscore': qscore})
+
+    # Split overly long regions to maximum size so as to not create
+    #   massive feature matrices, then segregate those which cannot be
+    #   batched.
+    MAX_REGION_SIZE = int(1e6)  # 1Mb
+    long_regions = []
+    short_regions = []
     for region in args.regions:
-        chunk_len, chunk_ovlp = args.chunk_len, args.chunk_ovlp
-        if region.size < args.chunk_len:
+        if region.size > MAX_REGION_SIZE:
+            regs = region.split(MAX_REGION_SIZE, args.chunk_ovlp)
+        else:
+            regs = [region]
+        for r in regs:
+            if r.size > args.chunk_len:
+                long_regions.append(r)
+            else:
+                short_regions.append(r)
+    logger.info("Found {} long and {} short regions.".format(
+        len(long_regions), len(short_regions)))
+
+    if len(long_regions) > 0:
+        logger.info("Processing long regions.")
+        model = _rebuild_model(model, args.chunk_len)
+        run_prediction(
+            args.output, args.bam, long_regions, model, args.model, args.rle_ref, args.read_fraction,
+            args.chunk_len, args.chunk_ovlp,
+            batch_size=args.batch_size
+        )
+
+    # short regions must be done individually since they have differing lengths
+    #   TODO: consider masking (it appears slow to apply wholesale), maybe 
+    #         step down args.chunk_len by a constant factor until nothing remains.
+    if len(short_regions) > 0:
+        logger.info("Processing short regions")
+        model = _rebuild_model(model, None)
+        for region in short_regions:
             chunk_len = region.size // 2
             chunk_ovlp = chunk_len // 10 # still need overlap as features will be longer
-        data_gen = SampleGenerator(
-            args.bam, region, args.model, args.rle_ref, args.read_fraction,
-            chunk_len=chunk_len, chunk_overlap=chunk_ovlp)
-        run_prediction(
-            data_gen, args.output, batch_size=args.batch_size, threads=args.threads
-        )
+            run_prediction(
+                args.output, args.bam, [region], model, args.model, args.rle_ref, args.read_fraction,
+                chunk_len, chunk_ovlp,
+                batch_size=args.batch_size
+            )
+    logger.info("Finished processing all regions.")
 
 
 def process_labels(label_counts, max_label_len=10):
@@ -441,6 +491,10 @@ def train(args):
 
     logger = logging.getLogger('Training')
     logger.debug("Loading datasets:\n{}".format('\n'.join(args.features)))
+
+    # get feature meta data
+    feature_meta = {k: load_yaml_data(args.features[0], k)
+                    for k in (_feature_opt_path_, _feature_decoding_path_)}
 
     # get counts of labels in training samples
     label_counts = Counter()
@@ -547,7 +601,10 @@ def train(args):
         '{}: {} ({}, {:9.6f})'.format(i, l, label_counts[i], h(class_weight, i)) for i, l in enumerate(label_decoding)
     )))
 
-    run_training(train_name, gen_train, gen_valid, n_batch_train, n_batch_valid, label_decoding,
+    feature_meta[_label_decod_path_] = label_decoding
+    feature_meta[_label_counts_path_] = label_counts
+
+    run_training(train_name, gen_train, gen_valid, n_batch_train, n_batch_valid, feature_meta,
                  timesteps, feat_dim, model_fp=args.model, epochs=args.epochs, batch_size=args.batch_size,
                  class_weight=class_weight, n_mini_epochs=args.mini_epochs)
 

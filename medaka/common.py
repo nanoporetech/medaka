@@ -1,5 +1,6 @@
 from collections import OrderedDict, namedtuple, defaultdict, Counter
 from concurrent.futures import ProcessPoolExecutor
+from copy import copy
 import errno
 import functools
 import itertools
@@ -70,6 +71,11 @@ class Sample(_Sample):
         return self._get_pos(-1)
 
     @property
+    def span(self):
+        """Size of sample in terms of reference positions."""
+        return self.last_pos[0] - self.first_pos[0]
+
+    @property
     def is_empty(self):
         return self.size == 0
 
@@ -101,12 +107,13 @@ class Sample(_Sample):
         return d
 
     def chunks(self, chunk_len=1000, overlap=200):
-        """Create overlapping chunks of
+        """Create overlapping chunks of self.
         
         :param chunk_len: chunk length (number of columns)
         :param overlap: overlap length.
 
-        :yields: chunked `Sample`s.
+        :yields: chunked :py:class:`Sample` instances.
+    
         """
         chunker = functools.partial(sliding_window,
             window=chunk_len, step=chunk_len - overlap, axis=0)
@@ -711,7 +718,7 @@ class BatchQueue(object):
         self.n_classes = n_classes
         self.stack = stack
 
-        self.logger = logging.getLogger(__package__)
+        self.logger = copy(logging.getLogger(__package__))
         self.logger.name = 'Batcher'
         self._queue = queue.Queue(maxsize=100)
         self.stopped = threading.Event()
@@ -771,7 +778,7 @@ def yield_batches_from_hdfs(batches, sparse_labels=True, n_classes=None):
     :yields: (np.ndarray of inputs, np.ndarray of labels).
     
     """
-    logger = logging.getLogger(__package__)
+    logger = copy(logging.getLogger(__package__))
     logger.name = 'BatchYd'
     queue = BatchQueue(batches, sparse_labels, n_classes)
     try:
