@@ -51,6 +51,11 @@ class Sample(_Sample):
         return self._get_pos(-1)
 
     @property
+    def span(self):
+        """Size of sample in terms of reference positions."""
+        return self.last_pos[0] - self.first_pos[0]
+
+    @property
     def is_empty(self):
         return self.size == 0
 
@@ -82,12 +87,12 @@ class Sample(_Sample):
         return d
 
     def chunks(self, chunk_len=1000, overlap=200):
-        """Create overlapping chunks of
+        """Create overlapping chunks of self.
 
         :param chunk_len: chunk length (number of columns)
         :param overlap: overlap length.
 
-        :yields: chunked `Sample`s.
+        :yields: chunked :py:class:`Sample` instances.
         """
         chunker = functools.partial(sliding_window,
             window=chunk_len, step=chunk_len - overlap, axis=0)
