@@ -1,5 +1,5 @@
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, Future, ThreadPoolExecutor
 import functools
 import inspect
 import itertools
@@ -325,6 +325,29 @@ class TrainBatcher():
         return x, y
 
 
+    @staticmethod
+    def samples_to_batch(samples, prep_func, name, batch, epoch):
+        t0 = now()
+        items = [prep_func(s) for s in samples]
+        xs, ys = zip(*items)
+        x, y = np.stack(xs), np.stack(ys)
+        get_named_logger(name).debug("Took {:5.3}s to load batch {} (epoch {})".format(now()-t0, batch, epoch))
+        return x, y
+
+
+#    @staticmethod
+#    def samples_to_batch_mt(samples, prep_func, name, batch, epoch, threads=4):
+#        # was wondering if this might be faster if we are waiting for filesystem
+#        # but it seems to be slower than samples_to_batch
+#        t0 = now()
+#        with ThreadPoolExecutor(threads) as executor:
+#            items = [executor.submit(prep_func, s) for s in samples]
+#            xs, ys = zip(*[i.result() for i in items])
+#        x, y = np.stack(xs), np.stack(ys)
+#        get_named_logger(name).debug("Took {:5.3}s to load batch {} (epoch {})".format(now()-t0, batch, epoch))
+#        return x, y
+
+
     def stop(self):
         self._train_queue.stop()
         self._valid_queue.stop()
@@ -361,10 +384,11 @@ class BatchQueue(object):
         if seed is not None:
             np.random.seed(seed)
 
+        self.name = name
         self.logger = get_named_logger(name)
         self._queue = queue.Queue(maxsize=maxsize)
         self.stopped = threading.Event()
-        self.qthread = threading.Thread(target=self._fill_queue)
+        self.qthread = threading.Thread(target=self._fill_queue_sample)
         self.qthread.start()
         time.sleep(2)
         self.logger.info("Started reading samples from files with queue size {}".format(maxsize))
@@ -379,7 +403,9 @@ class BatchQueue(object):
             self.logger.critical("Read thread did not terminate.")
 
 
-    def _fill_queue(self):
+    def _fill_queue_sample(self):
+       # this does not scale well with number of threads
+       # (perhaps the zipping and stacking becomes the bottleneck) ?
         with ProcessPoolExecutor(self.threads) as executor:
             epoch = 0
             while not self.stopped.is_set():
@@ -391,11 +417,10 @@ class BatchQueue(object):
                     for sample in samples:
                         if self.stopped.is_set():
                             break
-                        res = executor.submit(self.prep_func, sample)
-                        items.append(res.result())
+                        items.append(executor.submit(self.prep_func, sample))
                     if self.stopped.is_set():
                         break
-                    xs, ys = zip(*items)
+                    xs, ys = zip(*[r.result() for r in items])
                     res = np.stack(xs), np.stack(ys)
                     t1 = now()
                     self._queue.put(res)
@@ -406,11 +431,27 @@ class BatchQueue(object):
             self.logger.info("Ended batching.")
 
 
+    def _fill_queue_batch(self):
+        with ProcessPoolExecutor(self.threads) as executor:
+            epoch = 0
+            while not self.stopped.is_set():
+                batch = 0
+                np.random.shuffle(self.samples)
+                for samples in grouper(iter(self.samples), batch_size=self.batch_size):
+                    res = executor.submit(TrainBatcher.samples_to_batch, samples, self.prep_func, self.name, batch, epoch)
+                    self._queue.put(res)
+                    batch += 1
+                epoch += 1
+            executor.shutdown()
+            self.logger.info("Ended batching.")
+
+
     @threadsafe_generator
     def yield_batches(self):
         try:
             while True:
-                yield self._queue.get()
+                res = self._queue.get()
+                yield res.result() if isinstance(res, Future) else res
         except Exception as e:
             self.logger.critical("Exception caught why yielding batches: {}".format(e))
             self.stop()

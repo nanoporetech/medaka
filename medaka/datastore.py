@@ -176,7 +176,7 @@ class DataIndex(object):
                 else:
                     self.samples.extend([(s, f) for s in meta['medaka_samples']])
                     self.meta[c_grp].update(meta[c_grp])
-                    self.logger.info('Loaded samples from {}/{} ({:2%})'.format(i, len(filenames), i / len(filenames)))
+                    self.logger.info('Loaded sample-index from {}/{} ({:.2%}) of feature files.'.format(i, len(filenames), i / len(filenames)))
 
         self._index = None
 
@@ -184,7 +184,7 @@ class DataIndex(object):
     def _load_meta(f):
         with DataStore(f) as ds:
             meta = ds.meta
-            get_named_logger('Load_meta').debug('Done {}'.format(f))
+            #get_named_logger('Load_meta').debug('Done {}'.format(f))
             return meta
 
 
