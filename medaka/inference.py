@@ -388,7 +388,7 @@ class BatchQueue(object):
         self.logger = get_named_logger(name)
         self._queue = queue.Queue(maxsize=maxsize)
         self.stopped = threading.Event()
-        self.qthread = threading.Thread(target=self._fill_queue_sample)
+        self.qthread = threading.Thread(target=self._fill_queue_batch)
         self.qthread.start()
         time.sleep(2)
         self.logger.info("Started reading samples from files with queue size {}".format(maxsize))
