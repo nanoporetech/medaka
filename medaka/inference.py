@@ -111,8 +111,8 @@ def run_training(train_name, batcher, model_fp=None,
         model_kwargs = { k:v.default for (k,v) in inspect.signature(build_model).parameters.items()
                          if v.default is not inspect.Parameter.empty}
     else:
-        model_kwargs = load_yaml_data(model_fp, _model_opt_path_)
-        assert model_kwargs is not None
+        with DataStore(model_fp) as ds:
+            model_kwargs = ds.meta['medaka_model_kwargs']
 
     opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in model_kwargs.items()])
     logger.info('Building model with: \n{}'.format(opt_str))
@@ -207,7 +207,7 @@ def run_training(train_name, batcher, model_fp=None,
 
 
 class TrainBatcher():
-    def __init__(self, features, max_label_len, validation=0.2, seed=0, sparse_labels=True, batch_size=500):
+    def __init__(self, features, max_label_len, validation=0.2, seed=0, sparse_labels=True, batch_size=500, threads=1):
         """
         Class to server up batches of training / validation data.
 
@@ -227,7 +227,7 @@ class TrainBatcher():
         self.sparse_labels = sparse_labels
         self.batch_size = batch_size
 
-        di = DataIndex(self.features)
+        di = DataIndex(self.features, threads=threads)
         self.samples = di.samples.copy()
         self.meta = di.meta.copy()
         self.label_counts = self.meta['medaka_label_counts']
@@ -278,14 +278,18 @@ class TrainBatcher():
                                       sparse_labels=self.sparse_labels,
                                       n_classes=self.n_classes)
 
+        train_io_threads = ceil(threads/2)
+        valid_io_threads = threads - train_io_threads
         self._valid_queue = BatchQueue(self.valid_samples, prep_func,
                                        self.batch_size, self.seed,
                                        name='ValidBatcher',
-                                       maxsize=min(2 * self.n_valid_batches, 100))
+                                       maxsize=min(2 * self.n_valid_batches, 100),
+                                       threads=valid_io_threads)
         self._train_queue = BatchQueue(self.train_samples, prep_func,
                                        self.batch_size, self.seed,
                                        name='TrainBatcher',
-                                       maxsize=min(2 * self.n_train_batches, 100))
+                                       maxsize=min(2 * self.n_train_batches, 100),
+                                       threads=train_io_threads)
 
 
     @staticmethod
@@ -336,7 +340,7 @@ class TrainBatcher():
 
 
 class BatchQueue(object):
-    def  __init__(self, samples, prep_func, batch_size, seed=None, name='Batcher', maxsize=100):
+    def  __init__(self, samples, prep_func, batch_size, seed=None, name='Batcher', maxsize=100, threads=1):
         """Load and queue training samples into batches from `.hdf` files.
 
         :param samples: tuples of (filename, hdf sample key).
@@ -352,6 +356,7 @@ class BatchQueue(object):
         self.samples = samples
         self.prep_func = prep_func
         self.batch_size = batch_size
+        self.threads = threads
 
         if seed is not None:
             np.random.seed(seed)
@@ -375,7 +380,7 @@ class BatchQueue(object):
 
 
     def _fill_queue(self):
-        with ProcessPoolExecutor(1) as executor:
+        with ProcessPoolExecutor(self.threads) as executor:
             epoch = 0
             while not self.stopped.is_set():
                 batch = 0
@@ -713,7 +718,7 @@ def train(args):
     args.validation = args.validation_features if args.validation_features is not None else args.validation_split
 
     batcher = TrainBatcher(args.features, args.max_label_len, args.validation,
-                           args.seed, sparse_labels, args.batch_size)
+                           args.seed, sparse_labels, args.batch_size, threads=args.threads_io)
 
     if args.balanced_weights:
         n_labels = sum(batcher.label_counts.values())

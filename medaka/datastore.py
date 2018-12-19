@@ -1,4 +1,5 @@
 from collections import Counter, defaultdict, OrderedDict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import h5py
 import numpy as np
 import yaml
@@ -11,14 +12,14 @@ class DataStore(object):
     _sample_path_ = 'samples'
     _groups_ = ('medaka_features_kwargs', 'medaka_model_kwargs',
                 'medaka_label_decoding', 'medaka_feature_decoding',
-                'medaka_label_counts')
+                'medaka_label_counts', 'medaka_samples')
 
     def __init__(self, filename, mode='r'):
 
         self.filename = filename
         self.mode = mode
 
-        self.samples_written = set()
+        self._sample_keys = set()
         self.fh = None
 
         self.logger = get_named_logger('DataStore')
@@ -58,12 +59,15 @@ class DataStore(object):
 
         :param sample: `Sample` object.
         """
-        # If we are writing samples, count labels and store them in meta
+        # count labels and store them in meta
         if 'medaka_label_counts' not in self.meta:
             self.meta['medaka_label_counts'] = Counter()
+        # Store sample index in meta
+        if 'medaka_samples' not in self.meta:
+            self.meta['medaka_samples'] = set()
 
-        if sample.name not in self.samples_written:
-            self.samples_written.add(sample.name)
+        if sample.name not in self.meta['medaka_samples']:
+            self.meta['medaka_samples'].add(sample.name)
             for field in sample._fields:
                 if getattr(sample, field) is not None:
                     data = getattr(sample, field)
@@ -124,7 +128,15 @@ class DataStore(object):
     @property
     def sample_keys(self):
         """Return list of sample keys"""
-        return tuple(self.fh[self._sample_path_].keys()) if self._sample_path_ in self.fh else ()
+
+        #return tuple(self.fh[self._sample_path_].keys()) if self._sample_path_ in self.fh else ()
+        return tuple(self.meta['medaka_samples'])
+
+
+    def _find_samples(self):
+        """Find samples in a file and update meta with a list of samples."""
+        self.update_meta({'medaka_samples': set(self.fh[self._sample_path_].keys()) if self._sample_path_ in self.fh else {}})
+
 
     @property
     def n_samples(self):
@@ -135,27 +147,45 @@ class DataStore(object):
 class DataIndex(object):
     """Class to index and serve samples from one or more `DataFiles`"""
 
-    def __init__(self, filenames):
+    def __init__(self, filenames, threads=4):
+
+        self.logger = get_named_logger('DataIndex')
 
         self.filenames = filenames
 
         with DataStore(filenames[0]) as ds:
+            self.logger.debug('Loading meta from {}'.format(filenames[0]))
             self.meta = ds.meta
 
         c_grp = 'medaka_label_counts'
         if c_grp in self.meta:
             self.meta[c_grp] = Counter()
 
+        del self.meta['medaka_samples']
+
         self.samples = []
-        for f in filenames:
-            with DataStore(f) as ds:
-                self.samples.extend([(s, f) for s in ds.sample_keys])
-                if c_grp in self.meta:
-                    self.meta[c_grp].update(ds._load_metadata(groups=(c_grp,))[c_grp])
+
+        with ProcessPoolExecutor(threads) as executor:
+            future_to_f = {executor.submit(DataIndex._load_meta, f): f for f in filenames}
+            for i, future in enumerate(as_completed(future_to_f)):
+                f = future_to_f[future]
+                try:
+                    meta = future.result()
+                except Exception as exc:
+                    self.logger.info('Could not load meta from {}'.format(f))
+                else:
+                    self.samples.extend([(s, f) for s in meta['medaka_samples']])
+                    self.meta[c_grp].update(meta[c_grp])
+                    self.logger.info('Loaded samples from {}/{} ({:2%})'.format(i, len(filenames), i / len(filenames)))
 
         self._index = None
 
-        self.logger = get_named_logger('DataIndex')
+    @staticmethod
+    def _load_meta(f):
+        with DataStore(f) as ds:
+            meta = ds.meta
+            get_named_logger('Load_meta').debug('Done {}'.format(f))
+            return meta
 
 
     @property
