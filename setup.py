@@ -123,6 +123,6 @@ def get_setuptools_script_dir():
         shutil.copy(exe, dist.install_scripts)
     return dist.install_libbase, dist.install_scripts
 
-if os.environ.get('MED_BINARIES') is not None:
+if os.environ.get('MEDAKA_BINARIES') is not None:
     print("\nCopying utility binaries to your path.")
     get_setuptools_script_dir()
