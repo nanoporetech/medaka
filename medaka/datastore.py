@@ -178,6 +178,9 @@ class DataIndex(object):
                     self.meta[c_grp].update(meta[c_grp])
                     self.logger.info('Loaded sample-index from {}/{} ({:.2%}) of feature files.'.format(i, len(filenames), i / len(filenames)))
 
+        # make order of samples independent of order in which tasks complete
+        self.samples.sort()
+
         self._index = None
 
     @staticmethod
