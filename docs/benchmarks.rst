@@ -6,13 +6,9 @@ improved consensus from a pileup of reads.
 
 Results were obtained using the default model provided with `medaka`. This model
 was trained using data obtained from E.coli, S.cerevisaie and H.sapiens samples.
-Training data were basecalled using Guppy 0.3.0. Draft assemblies were created
-using the `mini_assemble
-<https://nanoporetech.github.io/pomoxis/examples.html#fast-de-novo-assembly>`_
-pipeline in `pomoxis <https://github.com/nanoporetech/pomoxis>`_. 
 
 Error statistics were calculated using the `pomoxis
-<https://github.com/nanoporetech/pomoxis>`_ program `stats_from_bam` after
+<https://github.com/nanoporetech/pomoxis>`_ program `assess_assembly` after
 aligning 100kb chunks of the consensus to the reference. Reported metrics are
 median values over all chunks. 
 
@@ -20,71 +16,41 @@ median values over all chunks.
 Comparison of `medaka` and `nanopolish` 
 ---------------------------------------
 
-Evaluation of the model was performed using the `medaka` E.coli
-:doc:`walkthrough` dataset. These data we not used to train the model.
-Basecalling was performed with `scrappie v1.3.2
-<https://github.com/nanoporetech/scrappie>`_ using the `rgrgr_r94` model. The
-pileup had a median depth of ~80-fold. `nanopolish v0.10.1
-<https://github.com/jts/nanopolish>`_ was run with homopolymer correction but
-without methylation correction. `medaka` and `nanopolish` were run on the same
-hardware.  
+In this comparison the `medaka` E.coli :doc:`walkthrough` dataset was used.
+These data were not used to train the model.  Basecalling was performed using
+`Guppy v2.2.1`; both the older transducer and the newer flip-flop algorithm
+were used for comparison. Basecalled reads were trimmed using `porechop
+<https://github.com/rrwick/Porechop>`_ to remove adapters, and assembly was
+performed using `canu v1.8 <https://github.com/marbl/canu>`_. The assembly was
+corrected using `racon v1.3.1 <https://github.com/isovic/racon>`_ before being passed
+to `medaka` or `nanopolish`.  `nanopolish v0.10.1
+<https://github.com/jts/nanopolish>`_ was run using :code:`--fix-homopolymers` option.
 
-+-----------------+--------+------------+
-|                 | medaka | nanopolish |
-+=================+========+============+
-| Q(Accuracy)     |  31.55 |  31.22     |
-+-----------------+--------+------------+
-| Q(Identity)     |  46.02 |  45.23     |
-+-----------------+--------+------------+
-| Q(Deletion)     |  32.60 |  31.81     |
-+-----------------+--------+------------+
-| Q(Insertion)    |  39.21 |  43.01     |
-+-----------------+--------+------------+
-| runtime (hours) |   0.27 |  1.05      |
-+-----------------+--------+------------+
-| CPU cores       |   4    |  48        |
-+-----------------+--------+------------+
-| CPU hours       |   1.06 |  50.4      |
-+-----------------+--------+------------+
++-----------------+----------------------------------------+----------------------------------------+
+|                 | **flipflop**                           | **transducer**                         |
++                 +--------------+----------+--------------+--------------+----------+--------------+
+|                 | *racon (x4)* | *medaka* | *nanopolish* | *racon (x4)* | *medaka* | *nanopolish* |
++-----------------+--------------+----------+--------------+--------------+----------+--------------+
+| Q(accuracy)     |         26.8 |   34.2   |         32.0 |         25.2 |     31.9 |         31.0 |
++-----------------+--------------+----------+--------------+--------------+----------+--------------+
+| Q(substitution) |         45.2 |   50.0   |         47.0 |         41.0 |     47.0 |         41.4 |
++-----------------+--------------+----------+--------------+--------------+----------+--------------+
+| Q(deletion)     |         27.1 |   34.0   |         32.6 |         25.6 |     35.0 |         30.7 |
++-----------------+--------------+----------+--------------+--------------+----------+--------------+
+| Q(insertion)    |         40.1 |   50.0   |         43.0 |         39.2 |     35.2 |         40.5 |
++-----------------+--------------+----------+--------------+--------------+----------+--------------+
+| CPU time / hrs  |        00:50 |  00:07   |        49:10 |        00:50 |    00:07 |        50:24 |
++-----------------+--------------+----------+--------------+--------------+----------+--------------+
 
-For this dataset `medaka` delivers similar results to `nanopolish` in a fraction
-of the time. 
+For this dataset the older transducer basecaller with `medaka` delivers similar
+results to `nanopolish` in a fraction of the time. The flip-flop workflow is
+seen to be superior to nanopolish.
 
 
 Evaluation across samples and depths
 ------------------------------------
 
-Evaluation of the model was performed using E.coli, H.sapiens chromosome 21, and
-`K.pneumoniae <https://github.com/rrwick/Basecalling-comparison>`_.  The E.coli
-and human reads were basecalled with `Guppy` version 0.3.0, while the Klebsiella
-reads were basecalled with `scrappie v1.3.2
-<https://github.com/nanoporetech/scrappie>`_ using the `rgrgr_r94` model. The
-draft assemblies here were created at multiple depths using the `mini_assemble
-<https://nanoporetech.github.io/pomoxis/examples.html#fast-de-novo-assembly>`_
-pipeline in `pomoxis <https://github.com/nanoporetech/pomoxis>`_.
+The comparison below illustrates results at various coverage depths for two further
+organisms. Assemblies were performed as above with canu and racon, using the flip-flop
+algorithm for basecalling.
 
-+---------------------------+-----------------+------------------+----------------------+
-| Data set                  | Racon Error (%) | Medaka Error (%) | Nanopolish Error (%) |
-+===========================+=================+==================+======================+
-| E.coli 25X                |       0.291     |       0.125      |       0.127          |
-+---------------------------+-----------------+------------------+----------------------+
-| E.coli 50X                |       0.247     |       0.079      |       0.080          |
-+---------------------------+-----------------+------------------+----------------------+
-| E.coli  75X               |       0.238     |       0.065      |       0.069          |
-+---------------------------+-----------------+------------------+----------------------+
-| E.coli 100X               |       0.228     |       0.063      |       0.060          |
-+---------------------------+-----------------+------------------+----------------------+
-| E.coli 150X               |       0.231     |       0.065      |       0.057          |
-+---------------------------+-----------------+------------------+----------------------+
-| E.coli 200X               |       0.231     |       0.061      |       0.052          |
-+---------------------------+-----------------+------------------+----------------------+
-| L.brevis 250X             |       0.293     |       0.055      |       0.047          |
-+---------------------------+-----------------+------------------+----------------------+
-| K.pneumoniae [1]_ 200X    |       0.576     |       0.318      |       0.086          |
-+---------------------------+-----------------+------------------+----------------------+
-
-.. [1] native (non-PCRed) data. Nanopolish was run with the --methylation-aware=dcm,dam
-       option.
-
-`medaka` produces similar results to Nanopolish (on PCRd data) in a fraction of
-the time, and provides a marked benefit over Racon on native DNA.

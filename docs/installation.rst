@@ -64,7 +64,7 @@ not be provided by the user.
 
 All installation methods will allow medaka to be used with CPU resource only.
 To enable the use of GPU resource it is necessary to install the
-`tensorflow-gpu` package. In outline this can be achieve with:
+`tensorflow-gpu` package. In outline this can be achieved with:
 
 .. code-block:: bash
 
