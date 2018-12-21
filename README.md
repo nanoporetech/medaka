@@ -116,11 +116,16 @@ within the medaka environment, else they will need to be provided by the user.
     BASECALLS=basecalls.fa
     DRAFT=draft_assm/assm_final.fa
     OUTDIR=medaka_consensus
-    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC}
+    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r94
 
 The variables `BASECALLS`, `DRAFT`, and `OUTDIR` in the above should be set
 appropriately. When `medaka_consensus` has finished running, the consensus
 will be saved to `${OUTDIR}/consensus.fasta`.
+
+   **It is crucially important to specify the correct model, `-m` in the
+   above, according to the basecaller used. Allowed values can be found by
+   running `medaka consensus --help`.  For example to run medaka with a
+   model suitable for the flip-flop basecaller in Guppy use `-m r94_flip`.**
 
 Acknowledgements
 ----------------

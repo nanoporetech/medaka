@@ -64,7 +64,7 @@ not be provided by the user.
 
 All installation methods will allow medaka to be used with CPU resource only.
 To enable the use of GPU resource it is necessary to install the
-`tensorflow-gpu` package. In outline this can be achieve with:
+`tensorflow-gpu` package. In outline this can be achieved with:
 
 .. code-block:: bash
 
@@ -96,8 +96,15 @@ within the medaka environment, else they will need to be provided by the user.
     BASECALLS=basecalls.fa
     DRAFT=draft_assm/assm_final.fa
     OUTDIR=medaka_consensus
-    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC}
+    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r94
 
 The variables `BASECALLS`, `DRAFT`, and `OUTDIR` in the above should be set
 appropriately. When `medaka_consensus` has finished running, the consensus
 will be saved to `${OUTDIR}/consensus.fasta`.
+
+.. warning::
+
+   It is crucially important to specify the correct model, :code:`-m` in the
+   above, according to the basecaller used. Allowed values can be found by
+   running :code:`medaka consensus --help`. For example to run medaka with a
+   model suitable for the flip-flop basecaller in Guppy use :code:`-m r94_flip`.
