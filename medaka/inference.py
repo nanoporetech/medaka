@@ -36,8 +36,9 @@ def weighted_categorical_crossentropy(weights):
         model.compile(loss=loss,optimizer='adam')
     """
 
-    from keras import backend as K
-    weights = K.variable(weights)
+    import tensorflow as tf
+    from tensorflow.keras import backend as K
+    weights = tf.variable(weights)
 
     def loss(y_true, y_pred):
         # scale predictions so that the class probas of each sample sum to 1
@@ -53,7 +54,7 @@ def weighted_categorical_crossentropy(weights):
 
 
 def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropout=0.0,
-                inter_layer_dropout=0.0, recurrent_dropout=0.0):
+                inter_layer_dropout=0.0, recurrent_dropout=0.0, cuda=False):
     """Builds a bidirectional GRU model
     :param chunk_size: int, number of pileup columns in a sample.
     :param feature_len: int, number of features for each pileup column.
@@ -65,18 +66,25 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropou
     :returns: `keras.models.Sequential` object.
     """
 
-    from keras.models import Sequential
-    from keras.layers import Dense, GRU, Dropout
-    from keras.layers.wrappers import Bidirectional
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense, GRU, Dropout, CuDNNGRU, Bidirectional, Activation
 
     model = Sequential()
 
     input_shape=(chunk_size, feature_len)
     for i in [1, 2]:
         name = 'gru{}'.format(i)
-        gru = GRU(gru_size, activation='tanh', return_sequences=True, name=name,
-                  dropout=input_dropout, recurrent_dropout=recurrent_dropout)
+        if cuda:
+            if input_dropout > 0 or recurrent_dropout > 0:
+                raise NotImplementedError()
+            gru = CuDNNGRU(gru_size, return_sequences=True, name=name)
+        else:
+            gru = GRU(gru_size, activation='tanh', return_sequences=True, name=name,
+                    dropout=input_dropout, recurrent_dropout=recurrent_dropout)
+
         model.add(Bidirectional(gru, input_shape=input_shape))
+        if cuda:
+            model.add(Activation('tanh'))
 
     if inter_layer_dropout > 0:
         model.add(Dropout(inter_layer_dropout))
@@ -91,7 +99,7 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropou
 
 
 def qscore(y_true, y_pred):
-    from keras import backend as K
+    from tensorflow.keras import backend as K
     error = K.cast(K.not_equal(
         K.max(y_true, axis=-1), K.cast(K.argmax(y_pred, axis=-1), K.floatx())),
         K.floatx()
@@ -103,7 +111,7 @@ def qscore(y_true, y_pred):
 def run_training(train_name, batcher, model_fp=None,
                  epochs=5000, class_weight=None, n_mini_epochs=1):
     """Run training."""
-    from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
+    from tensorflow.keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
 
     logger = get_named_logger('RunTraining')
 
@@ -320,7 +328,7 @@ class TrainBatcher():
                              for l in s.labels), dtype=int, count=len(s.labels))
         y = y.reshape(y.shape + (1,))
         if not sparse_labels:
-            from keras.utils.np_utils import to_categorical
+            from tensorflow.keras.utils.np_utils import to_categorical
             y = to_categorical(y, num_classes=n_classes)
         return x, y
 
@@ -627,8 +635,8 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fracti
 def predict(args):
     """Inference program."""
     os.environ["TF_CPP_MIN_LOG_LEVEL"]="2"
-    from keras.models import load_model
-    from keras import backend as K
+    from tensorflow.keras.models import load_model
+    from tensorflow.keras import backend as K
 
     args.regions = get_regions(args.bam, region_strs=args.regions)
     logger = get_named_logger('Predict')
