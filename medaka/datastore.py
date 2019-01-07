@@ -1,0 +1,244 @@
+from collections import Counter, defaultdict, OrderedDict
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import h5py
+import numpy as np
+import yaml
+
+from medaka.common import Sample, decoding, get_named_logger
+
+
+class DataStore(object):
+    """Class to read/write to a data file"""
+    _sample_path_ = 'samples'
+    _groups_ = ('medaka_features_kwargs', 'medaka_model_kwargs',
+                'medaka_label_decoding', 'medaka_feature_decoding',
+                'medaka_label_counts', 'medaka_samples')
+
+    def __init__(self, filename, mode='r'):
+
+        self.filename = filename
+        self.mode = mode
+
+        self._sample_keys = set()
+        self.fh = None
+
+        self.logger = get_named_logger('DataStore')
+
+        self._meta = None
+
+
+    def __enter__(self):
+
+        self.fh = h5py.File(self.filename, self.mode)
+
+        return self
+
+
+    def __exit__(self, *args):
+        if self.mode != 'r' and self._meta is not None:
+            self._write_metadata(self.meta)
+        self.fh.close()
+
+
+    @property
+    def meta(self):
+        if self._meta is None:
+            self._meta = self._load_metadata()
+        return self._meta
+
+
+    def update_meta(self, meta):
+        """Update metadata"""
+        self._meta = self.meta
+        self._meta.update(meta)
+
+
+    def write_sample(self, sample):
+        """Write sample to hdf, ensuring a sample is not written twice and maintaining
+        a count of labels seen.
+
+        :param sample: `Sample` object.
+        """
+        # count labels and store them in meta
+        if 'medaka_label_counts' not in self.meta:
+            self.meta['medaka_label_counts'] = Counter()
+        # Store sample index in meta
+        if 'medaka_samples' not in self.meta:
+            self.meta['medaka_samples'] = set()
+
+        if sample.name not in self.meta['medaka_samples']:
+            self.meta['medaka_samples'].add(sample.name)
+            for field in sample._fields:
+                if getattr(sample, field) is not None:
+                    data = getattr(sample, field)
+                    if isinstance(data, np.ndarray) and isinstance(data[0], np.unicode):
+                        data = np.char.encode(data)
+                    self.fh['{}/{}/{}'.format(self._sample_path_, sample.name, field)] = data
+
+            if sample.labels is not None:
+                if len(sample.labels.dtype) == 2:  # RLE-encoded
+                    self.meta['medaka_label_counts'].update([tuple(l) for l in sample.labels])
+                else:
+                    self.meta['medaka_label_counts'].update(sample.labels)
+        else:
+            self.logger.debug('Not writing {} as it is present already'.format(sample.name))
+
+
+    def load_sample(self, key):
+        """Load `Sample` object from HDF5
+
+        :param key: str, sample name.
+        :returns: `Sample` object.
+        """
+        s = {}
+        for field in Sample._fields:
+            pth = '{}/{}/{}'.format(self._sample_path_, key, field)
+            if pth in self.fh:
+                s[field] = self.fh[pth][()]
+                if isinstance(s[field], np.ndarray) and isinstance(s[field][0], type(b'')):
+                    s[field] = np.char.decode(s[field])
+            else:
+                s[field] = None
+        return Sample(**s)
+
+
+    def log_counts(self):
+        """Log label counts"""
+
+        h = lambda l: (decoding[l[0]], l[1]) if type(l) == tuple else l
+        self.logger.info("Label counts:\n{}".format('\n'.join(
+            ['{}: {}'.format(h(label), count) for label, count in self.meta['medaka_label_counts'].items()]
+        )))
+
+
+    def _write_metadata(self, data):
+        """Save a data structure to file within a yml str."""
+        for group, d in data.items():
+            if group in self.fh:
+                del self.fh[group]
+            self.fh[group] = yaml.dump(d)
+
+
+    def _load_metadata(self, groups=None):
+        """Load meta data"""
+        if groups is None:
+            groups = self._groups_
+        return {g: yaml.load(self.fh[g][()]) for g in groups if g in self.fh}
+
+    @property
+    def sample_keys(self):
+        """Return list of sample keys"""
+
+        #return tuple(self.fh[self._sample_path_].keys()) if self._sample_path_ in self.fh else ()
+        return tuple(self.meta['medaka_samples'])
+
+
+    def _find_samples(self):
+        """Find samples in a file and update meta with a list of samples."""
+        self.update_meta({'medaka_samples': set(self.fh[self._sample_path_].keys()) if self._sample_path_ in self.fh else {}})
+
+
+    @property
+    def n_samples(self):
+        """Return number of samples"""
+        return len(self.sample_keys)
+
+
+class DataIndex(object):
+    """Class to index and serve samples from one or more `DataFiles`"""
+
+    def __init__(self, filenames, threads=4):
+
+        self.logger = get_named_logger('DataIndex')
+
+        self.filenames = filenames
+
+        with DataStore(filenames[0]) as ds:
+            self.logger.debug('Loading meta from {}'.format(filenames[0]))
+            self.meta = ds.meta
+
+        c_grp = 'medaka_label_counts'
+        if c_grp in self.meta:
+            self.meta[c_grp] = Counter()
+
+        del self.meta['medaka_samples']
+
+        self.samples = []
+
+        with ProcessPoolExecutor(threads) as executor:
+            future_to_f = {executor.submit(DataIndex._load_meta, f): f for f in filenames}
+            for i, future in enumerate(as_completed(future_to_f)):
+                f = future_to_f[future]
+                try:
+                    meta = future.result()
+                except Exception as exc:
+                    self.logger.info('Could not load meta from {}'.format(f))
+                else:
+                    self.samples.extend([(s, f) for s in meta['medaka_samples']])
+                    self.meta[c_grp].update(meta[c_grp])
+                    self.logger.info('Loaded sample-index from {}/{} ({:.2%}) of feature files.'.format(i, len(filenames), i / len(filenames)))
+
+        # make order of samples independent of order in which tasks complete
+        self.samples.sort()
+
+        self._index = None
+
+    @staticmethod
+    def _load_meta(f):
+        with DataStore(f) as ds:
+            meta = ds.meta
+            #get_named_logger('Load_meta').debug('Done {}'.format(f))
+            return meta
+
+
+    @property
+    def index(self):
+        self._index = self._get_sorted_index() if self._index is None else self._index
+        return self._index
+
+
+    def _get_sorted_index(self):
+        """Get index of samples indexed by reference and ordered by start pos.
+
+        :returns: {ref_name: [sample dicts sorted by start]}
+        """
+
+        ref_names = defaultdict(list)
+
+        for key, f in self.samples:
+            d = Sample.decode_sample_name(key)
+            if d is not None:
+                d['key'] = key
+                d['filename'] = f
+                ref_names[d['ref_name']].append(d)
+
+        # sort dicts so that refs are in order and within a ref, chunks are in order
+        ref_names_ordered = OrderedDict()
+        for ref_name in sorted(ref_names.keys()):
+            sorter = lambda x: float(x['start'])
+            ref_names[ref_name].sort(key=sorter)
+            ref_names_ordered[ref_name] = ref_names[ref_name]
+
+        return ref_names_ordered
+
+
+    def yield_from_feature_files(self, ref_names=None, samples=None):
+        """Yield `Sample` objects from one or more feature files.
+
+        :ref_names: iterable of str, only process these references.
+        :samples: iterable of sample names to yield (in order in which they are supplied).
+        :yields: `Sample` objects.
+        """
+
+        if samples is not None:
+            # yield samples in the order they are asked for
+            for sample, fname in samples:
+                yield DataStore(fname).load_sample(sample)
+        else:
+            # yield samples sorted by ref_name and start
+            if ref_names is None:
+                ref_names = sorted(self.index.keys())
+            for ref_name in ref_names:
+                for d in self.index[ref_name]:
+                    with DataStore(d['filename']) as ds:
+                        yield ds.load_sample(d['key'])

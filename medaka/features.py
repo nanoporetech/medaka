@@ -4,26 +4,21 @@ from copy import copy, deepcopy
 import inspect
 import itertools
 from functools import partial
-import logging
 from multiprocessing import Pool
+import os
 import sys
 from timeit import default_timer as now
 
 from Bio import SeqIO
-import h5py
 import numpy as np
 import pysam
 
 #TODO: from medaka import common
 from medaka.common import (yield_compressed_pairs, Sample, lengths_to_rle, rle,
-                           Region,
-                           decoding, encoding, get_regions,
-                           _gap_, _alphabet_, _feature_opt_path_, _feature_decoding_path_,
-                           get_pairs, get_pairs_with_hp_len, seq_to_hp_lens,
-                           write_yaml_data, load_yaml_data, gen_train_batch, serial_gen_train_batch,
-                           _feature_batches_path_, _label_batches_path_, _label_counts_path_,
-                           _label_decod_path_,)
-
+                           Region, decoding, encoding, get_regions, _gap_,
+                           _alphabet_, get_pairs, get_pairs_with_hp_len,
+                           seq_to_hp_lens, get_named_logger)
+from medaka.datastore import DataStore
 from medaka.labels import TruthAlignment
 import libmedaka
 
@@ -39,7 +34,7 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
     :returns: pileup counts array, reference positions, insertion postions
     """
     ffi, lib = libmedaka.ffi, libmedaka.lib
-    
+
     num_dtypes, dtypes = 1, ffi.NULL
     if isinstance(dtype_prefixes, str):
         dtype_prefixes = [dtype_prefixes]
@@ -123,8 +118,7 @@ class FeatureEncoder(object):
         self.feature_dtype = np.float32 if (self.normalise is not None or self.log_min is not None) else np.uint64
         self.with_depth = with_depth
         self.is_compressed = is_compressed
-        self.logger = copy(logging.getLogger(__package__))
-        self.logger.name = 'Feature'
+        self.logger = get_named_logger('Feature')
         self.dtypes = dtypes
 
         if self.ref_mode not in self._ref_modes_:
@@ -195,7 +189,7 @@ class FeatureEncoder(object):
     @property
     def feature_indices(self):
         """Location of feature vector components.
-        
+
         :returns: dictionary mapping read data type and strand to feature vector
             indices (a list over all bases)
 
@@ -253,7 +247,7 @@ class FeatureEncoder(object):
                 dt_depth[minor_inds] = dt_depth[major_ind_at_minor_inds]
                 feature_array[: , inds] = counts[:, inds] / np.maximum(1, dt_depth).reshape((-1, 1)) # max just to avoid div error
         else:
-            feature_array = counts 
+            feature_array = counts
 
         feature_array = feature_array.astype(self.feature_dtype)
 
@@ -325,7 +319,7 @@ class FeatureEncoder(object):
                     dtype = self.dtypes[np.where([aln.query_name.startswith(dt) for dt in self.dtypes])[0][0]]
                 except:
                     msg = "Skipping read {} as dtype not in {}"
-                    logging.info(msg.format(aln.query_name, self.dtypes))
+                    self.logger.info(msg.format(aln.query_name, self.dtypes))
                     continue
 
                 reverse = aln.is_reverse
@@ -489,7 +483,7 @@ def alphabet_filter(sample_gen, alphabet=None, filter_labels=True, filter_ref_se
     """
     if alphabet is None:
         alphabet = set([c for c in _alphabet_ + _gap_])
-    logger = logging.getLogger('AlphaFilter')
+    logger = get_named_logger('AlphaFilter')
     logger.debug("alphabet: {}".format(alphabet))
 
     alphabet = set([encoding[c] for c in alphabet])
@@ -526,10 +520,11 @@ class SampleGenerator(object):
         :param reference: reference `.fasta`, should correspond to `bam`.
 
         """
-        self.logger = logging.getLogger("Sampler")
+        self.logger = get_named_logger("Sampler")
         self.sample_type = "training" if truth_bam is not None else "consensus"
         self.logger.info("Initializing sampler for {} or region {}.".format(self.sample_type, region))
-        self.fencoder_args = load_yaml_data(model, _feature_opt_path_)
+        with DataStore(model) as ds:
+            self.fencoder_args = ds.meta['medaka_features_kwargs']
         self.fencoder = FeatureEncoder(**self.fencoder_args)
 
         self.bam = bam
@@ -648,54 +643,44 @@ def create_samples(args):
 
 
 def _labelled_samples_worker(args, region):
-    logger = logging.getLogger('PrepWork')
+    logger = get_named_logger('PrepWork')
     logger.info("Processing region {}.".format(region))
     data_gen = SampleGenerator(
         args.bam, region, args.model, args.rle_ref, truth_bam = args.truth,
         read_fraction=args.read_fraction, chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
-    batches = serial_gen_train_batch(
-        data_gen.training_samples(args.max_label_len),
-        args.batch_size)
-    #TODO: shuffle
-    return list(batches), region, deepcopy(data_gen.fencoder_args), deepcopy(data_gen.fencoder.decoding)
+    return list(data_gen.samples), region, deepcopy(data_gen.fencoder_args), deepcopy(data_gen.fencoder.decoding)
 
 
 def create_labelled_samples(args):
-    logger = logging.getLogger('Prepare')
+    logger = get_named_logger('Prepare')
     regions = get_regions(args.bam, args.regions)
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))
 
     labels_counter = Counter()
-    fencoder_args, fencoder_decoder = None, None
-    with h5py.File(args.output, 'w') as hdf:
+
+    no_data = False
+    with DataStore(args.output, 'w') as ds:
+        # write feature options to file
+        logger.info("Writing meta data to file.")
+        with DataStore(args.model) as model:
+            meta = { k: model.meta[k] for k in ('medaka_features_kwargs', 'medaka_feature_decoding')}
+        ds.update_meta(meta)
         # TODO: this parallelism would be better in `SampleGenerator.bams_to_training_samples`
         #       since training alignments are usually chunked.
         with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as executor:
             futures = [executor.submit(_labelled_samples_worker, args, reg) for reg in regions]
             for fut in concurrent.futures.as_completed(futures):
                 if fut.exception() is None:
-                    batches, region, fencoder_args, fencoder_decoder = fut.result()
-                    for i, (x_batch, y_batch) in enumerate(batches):
-                        logger.info("Writing batch {} for region {}".format(i, region))
-                        unique, counts = np.lib.arraysetops.unique(y_batch, return_counts=True)
-                        labels_counter.update(dict(zip(unique, counts)))
-                        hdf['{}/{}_{}'.format(_feature_batches_path_, region, i)] = x_batch
-                        hdf['{}/{}_{}'.format(_label_batches_path_, region, i)] = y_batch
+                    samples, region, fencoder_args, fencoder_decoder = fut.result()
+                    logger.info("Writing {} samples for region {}".format(len(samples), region))
+                    for sample in samples:
+                        ds.write_sample(sample)
+        no_data = ds.n_samples == 0
 
-    # write feature options to file, so we can later check model and features
-    # are compatible and label counts, so we can weight labels by inverse counts.
-    logger.info("Writing meta data to file.")
-    if fencoder_args is None or fencoder_decoder is None:
-        logger.critical('Feature Encoder args are (incorrectly) `None`.')
-
-    label_encoding, label_decoding = get_label_encoding(args.max_label_len)
-    to_save = {_feature_opt_path_: fencoder_args,
-               _feature_decoding_path_: fencoder_decoder,
-               _label_counts_path_: labels_counter,
-               _label_decod_path_: label_decoding}
-    for fname in (args.output, args.output + '.yml'):
-        write_yaml_data(fname, to_save)
+    if no_data:
+        logger.critical("Warning: No training data was written to file, deleting output.")
+        os.remove(args.output)
 
 
 # read / reference fasta / fastq compression
