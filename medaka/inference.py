@@ -277,18 +277,18 @@ class TrainBatcher():
                                       sparse_labels=self.sparse_labels,
                                       n_classes=self.n_classes)
 
-        train_io_threads = ceil(threads/2)
-        valid_io_threads = threads - train_io_threads
+        self.threads = threads
+        self.executor = ProcessPoolExecutor(self.threads)
         self._valid_queue = BatchQueue(self.valid_samples, prep_func,
-                                       self.batch_size, self.seed,
-                                       name='ValidBatcher',
-                                       maxsize=min(2 * self.n_valid_batches, 100),
-                                       threads=valid_io_threads)
+                                       self.batch_size, self.executor,
+                                       self.seed, name='ValidBatcher',
+                                       maxsize=min(2 * self.n_valid_batches,
+                                                   100),)
         self._train_queue = BatchQueue(self.train_samples, prep_func,
-                                       self.batch_size, self.seed,
-                                       name='TrainBatcher',
-                                       maxsize=min(2 * self.n_train_batches, 100),
-                                       threads=train_io_threads)
+                                       self.batch_size, self.executor,
+                                       self.seed, name='TrainBatcher',
+                                       maxsize=min(2 * self.n_train_batches,
+                                                   100),)
 
 
     @staticmethod
@@ -330,7 +330,7 @@ class TrainBatcher():
         items = [prep_func(s) for s in samples]
         xs, ys = zip(*items)
         x, y = np.stack(xs), np.stack(ys)
-        #get_named_logger(name).debug("Took {:5.3}s to load batch {} (epoch {})".format(now()-t0, batch, epoch))
+        get_named_logger(name).debug("Took {:5.3}s to load batch {} (epoch {})".format(now()-t0, batch, epoch))
         return x, y
 
 
@@ -350,12 +350,13 @@ class TrainBatcher():
 
 
 class BatchQueue(object):
-    def  __init__(self, samples, prep_func, batch_size, seed=None, name='Batcher', maxsize=100, threads=1):
+    def  __init__(self, samples, prep_func, batch_size, executor, seed=None, name='Batcher', maxsize=100):
         """Load and queue training samples into batches from `.hdf` files.
 
         :param samples: tuples of (filename, hdf sample key).
         :param prep_func: function to transform a sample to x,y data.
         :param batch_size: group samples by this number.
+        :param executor: `ThreadPoolExecutor` instance.
         :param seed: seed for shuffling.
         :param name: str, name for logger.
         :param maxsize: int, maximum queue size.
@@ -366,7 +367,6 @@ class BatchQueue(object):
         self.samples = samples
         self.prep_func = prep_func
         self.batch_size = batch_size
-        self.threads = threads
 
         if seed is not None:
             np.random.seed(seed)
@@ -374,7 +374,7 @@ class BatchQueue(object):
         self.name = name
         self.logger = get_named_logger(name)
         self._queue = queue.Queue(maxsize=maxsize)
-        self.executor = ProcessPoolExecutor(self.threads)
+        self.executor = executor
         self.stopped = threading.Event()
         self.qthread = threading.Thread(target=self._fill_queue_batch)
         self.qthread.start()
