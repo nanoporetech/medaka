@@ -203,7 +203,6 @@ def run_training(train_name, batcher, model_fp=None,
 
     # stop batching threads
     batcher.stop()
-    # TODO this is hanging - why?
 
 
 class TrainBatcher():
@@ -331,21 +330,8 @@ class TrainBatcher():
         items = [prep_func(s) for s in samples]
         xs, ys = zip(*items)
         x, y = np.stack(xs), np.stack(ys)
-        get_named_logger(name).debug("Took {:5.3}s to load batch {} (epoch {})".format(now()-t0, batch, epoch))
+        #get_named_logger(name).debug("Took {:5.3}s to load batch {} (epoch {})".format(now()-t0, batch, epoch))
         return x, y
-
-
-#    @staticmethod
-#    def samples_to_batch_mt(samples, prep_func, name, batch, epoch, threads=4):
-#        # was wondering if this might be faster if we are waiting for filesystem
-#        # but it seems to be slower than samples_to_batch
-#        t0 = now()
-#        with ThreadPoolExecutor(threads) as executor:
-#            items = [executor.submit(prep_func, s) for s in samples]
-#            xs, ys = zip(*[i.result() for i in items])
-#        x, y = np.stack(xs), np.stack(ys)
-#        get_named_logger(name).debug("Took {:5.3}s to load batch {} (epoch {})".format(now()-t0, batch, epoch))
-#        return x, y
 
 
     def stop(self):
@@ -356,6 +342,7 @@ class TrainBatcher():
     @threadsafe_generator
     def gen_train(self):
         yield from self._train_queue.yield_batches()
+
 
     @threadsafe_generator
     def gen_valid(self):
@@ -387,6 +374,7 @@ class BatchQueue(object):
         self.name = name
         self.logger = get_named_logger(name)
         self._queue = queue.Queue(maxsize=maxsize)
+        self.executor = ProcessPoolExecutor(self.threads)
         self.stopped = threading.Event()
         self.qthread = threading.Thread(target=self._fill_queue_batch)
         self.qthread.start()
@@ -403,47 +391,27 @@ class BatchQueue(object):
             self.logger.critical("Read thread did not terminate.")
 
 
-    def _fill_queue_sample(self):
-       # this does not scale well with number of threads
-       # (perhaps the zipping and stacking becomes the bottleneck) ?
-        with ProcessPoolExecutor(self.threads) as executor:
-            epoch = 0
-            while not self.stopped.is_set():
-                batch = 0
-                np.random.shuffle(self.samples)
-                for samples in grouper(iter(self.samples), batch_size=self.batch_size):
-                    items = []
-                    t0 = now()
-                    for sample in samples:
-                        if self.stopped.is_set():
-                            break
-                        items.append(executor.submit(self.prep_func, sample))
-                    if self.stopped.is_set():
-                        break
-                    xs, ys = zip(*[r.result() for r in items])
-                    res = np.stack(xs), np.stack(ys)
-                    t1 = now()
-                    self._queue.put(res)
-                    self.logger.debug("Took {:5.3}s to load batch {} (epoch {})".format(t1-t0, batch, epoch))
-                    batch += 1
-                epoch += 1
-            executor.shutdown()
-            self.logger.info("Ended batching.")
-
-
     def _fill_queue_batch(self):
-        with ProcessPoolExecutor(self.threads) as executor:
-            epoch = 0
-            while not self.stopped.is_set():
-                batch = 0
-                np.random.shuffle(self.samples)
-                for samples in grouper(iter(self.samples), batch_size=self.batch_size):
-                    res = executor.submit(TrainBatcher.samples_to_batch, samples, self.prep_func, self.name, batch, epoch)
-                    self._queue.put(res)
-                    batch += 1
-                epoch += 1
-            executor.shutdown()
-            self.logger.info("Ended batching.")
+        epoch = 0
+        while not self.stopped.is_set():
+            batch = 0
+            np.random.shuffle(self.samples)
+            for samples in grouper(iter(self.samples), batch_size=self.batch_size):
+                if self.stopped.is_set(): # the loop is potentially long-running
+                    self.logger.info("Batching stopped.")
+                    return
+                res = self.executor.submit(TrainBatcher.samples_to_batch, samples, self.prep_func, self.name, batch, epoch)
+                while True: # keep an eye on the stopped flag
+                    try:
+                        self._queue.put(res, timeout=1)
+                    except queue.Full:
+                        if self.stopped.is_set():
+                            self.logger.info("Batching stopped.")
+                            return
+                batch += 1
+            epoch += 1
+        self.logger.info("Batching stopped.")
+        return
 
 
     @threadsafe_generator
