@@ -1,4 +1,4 @@
-from collections import Counter
+from collections import Counter, deque
 from concurrent.futures import ProcessPoolExecutor, Future, ThreadPoolExecutor
 import functools
 import inspect
@@ -74,8 +74,11 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropou
     input_shape=(chunk_size, feature_len)
     for i in [1, 2]:
         name = 'gru{}'.format(i)
-        gru = GRU(gru_size, activation='tanh', return_sequences=True, name=name,
-                  dropout=input_dropout, recurrent_dropout=recurrent_dropout)
+        gru = GRU(gru_size,
+                activation='tanh',
+                return_sequences=True, name=name,
+                dropout=input_dropout, recurrent_dropout=recurrent_dropout
+                )
         model.add(Bidirectional(gru, input_shape=input_shape))
 
     if inter_layer_dropout > 0:
@@ -197,6 +200,7 @@ def run_training(train_name, batcher, model_fp=None,
         validation_data=batcher.gen_valid(), validation_steps=batcher.n_valid_batches,
         max_queue_size=8, workers=8, use_multiprocessing=False,
         epochs=epochs,
+        #verbose=False,
         callbacks=callbacks,
         class_weight=class_weight,
     )
@@ -405,9 +409,13 @@ class BatchQueue(object):
                     try:
                         self._queue.put(res, timeout=1)
                     except queue.Full:
+                        self.logger.debug("Queue is full ({}), cannot put, trying again.".format(self._queue.qsize()))
                         if self.stopped.is_set():
                             self.logger.info("Batching stopped.")
                             return
+                    else:
+                        self.logger.debug("Successfully put sample (future).")
+                        break
                 batch += 1
             epoch += 1
         self.logger.info("Batching stopped.")
@@ -416,10 +424,20 @@ class BatchQueue(object):
 
     @threadsafe_generator
     def yield_batches(self):
+        time_between = deque(maxlen=50)
+        get_time = deque(maxlen=50)
+        t0 = now()
         try:
             while True:
+                t0, t1 = now(), t0
+                ta = now()
                 res = self._queue.get()
-                yield res.result() if isinstance(res, Future) else res
+                if isinstance(res, Future):
+                    res =  res.result()
+                get_time.append(now() - ta)
+                time_between.append(t0 - t1)
+                self.logger.debug("Time between requests: {}. Get time: {}.".format(np.median(time_between), np.median(get_time)))
+                yield res
         except Exception as e:
             self.logger.critical("Exception caught why yielding batches: {}".format(e))
             self.stop()
