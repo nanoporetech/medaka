@@ -127,6 +127,25 @@ will be saved to `${OUTDIR}/consensus.fasta`.
    running `medaka consensus --help`.  For example to run medaka with a
    model suitable for the flip-flop basecaller in Guppy use `-m r94_flip`.**
 
+### Origin of the draft sequence
+
+Medaka has been trained to correct draft sequences processed through
+[racon](https://github.com/isovic/racon), specifically `racon` run four times
+iteratively with:
+
+    racon -m 8 -x -6 -g -8 -w 500 ...
+
+Processing a draft sequence from alternative sources (e.g. the output of
+[canu](https://github.com/marbl/canu) or
+[wtdbg2](https://github.com/ruanjue/wtdbg2)) may lead to poorer results
+even when the draft is of a superior quality than that obtained from `racon`.
+
+The [walkthrough](https://nanoporetech.github.io/medaka/walkthrough.html#walkthrough)
+outlines one recommended workflow rapid construction of a draft for input into
+`medaka`. A second approach would be to run `canu` followed by `racon` applied
+twice iteratively before entry into `medaka`.
+
+
 Acknowledgements
 ----------------
 
