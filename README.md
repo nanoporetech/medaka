@@ -56,7 +56,9 @@ We recommend using medaka within a virtual environment, viz.:
 Using this method requires the user to provide a
 [samtools](https://github.com/samtools/samtools) and
 [minimap2](https://github.com/lh3/minimap2) binary and place these
-within the `PATH`.
+within the `PATH`. `samtools` version 1.3.1 and `minimap2` version
+2.11 are recommended as these are those used in development of
+medaka.
 
 **Installation from source**
 
@@ -125,7 +127,7 @@ will be saved to `${OUTDIR}/consensus.fasta`.
    **It is crucially important to specify the correct model, `-m` in the
    above, according to the basecaller used. Allowed values can be found by
    running `medaka consensus --help`.  For example to run medaka with a
-   model suitable for the flip-flop basecaller in Guppy use `-m r94_flip`.**
+   model suitable for the flip-flop basecaller in Guppy use `-m r941_flip`.**
 
 ### Origin of the draft sequence
 

@@ -60,8 +60,8 @@ The necessary software can be sourced using the same process as described in
 
 .. _basecalling_and_draft_assembly:
 
-Creating a  Draft Assembly
-------------------------------
+Creating a Draft Assembly
+-------------------------
 
 A draft assembly can be formed from the provided basecalls using the 
 `miniasm <https://github.com/lh3/miniasm>`_ and
