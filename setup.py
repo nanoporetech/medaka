@@ -89,8 +89,9 @@ setup(
     entry_points = {
         'console_scripts': [
             '{0} = {0}.{0}:main'.format(__pkg_name__),
-            'medaka_counts = {0}.medaka_counts:main'.format(__pkg_name__),
-            'medaka_data_path = {0}.{1}:{2}'.format(__pkg_name__, 'common', 'print_data_path'),
+            '{0}_counts = {0}.medaka_counts:main'.format(__pkg_name__),
+            '{0}_data_path = {0}.{1}:{2}'.format(__pkg_name__, 'common', 'print_data_path'),
+            '{0}_version_report = {0}:report_binaries'.format(__pkg_name__, )
         ]
     },
     scripts=['scripts/medaka_consensus', 'scripts/mini_align'],
@@ -123,6 +124,6 @@ def get_setuptools_script_dir():
         shutil.copy(exe, dist.install_scripts)
     return dist.install_libbase, dist.install_scripts
 
-if os.environ.get('MED_BINARIES') is not None:
+if os.environ.get('MEDAKA_BINARIES') is not None:
     print("\nCopying utility binaries to your path.")
     get_setuptools_script_dir()

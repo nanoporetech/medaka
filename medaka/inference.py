@@ -1,4 +1,4 @@
-from collections import Counter
+from collections import Counter, deque
 from concurrent.futures import ProcessPoolExecutor, Future, ThreadPoolExecutor
 import functools
 import inspect
@@ -37,7 +37,7 @@ def weighted_categorical_crossentropy(weights):
     """
 
     import tensorflow as tf
-    from tensorflow.keras import backend as K
+    from keras import backend as K
     weights = tf.variable(weights)
 
     def loss(y_true, y_pred):
@@ -53,41 +53,32 @@ def weighted_categorical_crossentropy(weights):
     return loss
 
 
-def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropout=0.0,
-                inter_layer_dropout=0.0, recurrent_dropout=0.0, cuda=False):
+def build_model(chunk_size, feature_len, num_classes, gru_size=128, cuda=False):
     """Builds a bidirectional GRU model
     :param chunk_size: int, number of pileup columns in a sample.
     :param feature_len: int, number of features for each pileup column.
     :param num_classes: int, number of output class labels.
     :param gru_size: int, size of each GRU layer.
-    :param input_dropout: float, fraction of the input feature-units to drop.
-    :param inter_layer_dropout: float, fraction of units to drop between layers.
-    :param recurrent_dropout: float, fraction of units to drop within the recurrent state.
+    :param cuda: use CuDNNGru layer 
     :returns: `keras.models.Sequential` object.
     """
 
-    from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import Dense, GRU, Dropout, CuDNNGRU, Bidirectional, Activation
+    from keras.models import Sequential
+    from keras.layers import Dense, GRU, Dropout, CuDNNGRU, Bidirectional
 
     model = Sequential()
 
     input_shape=(chunk_size, feature_len)
     for i in [1, 2]:
         name = 'gru{}'.format(i)
+        # Options here are to be mutually compatible: train with CuDNNGRU
+        # but allow inference with GRU (on cpu).
+        # https://gist.github.com/bzamecnik/bd3786a074f8cb891bc2a397343070f1
         if cuda:
-            if input_dropout > 0 or recurrent_dropout > 0:
-                raise NotImplementedError()
             gru = CuDNNGRU(gru_size, return_sequences=True, name=name)
         else:
-            gru = GRU(gru_size, activation='tanh', return_sequences=True, name=name,
-                    dropout=input_dropout, recurrent_dropout=recurrent_dropout)
-
+            gru = GRU(gru_size, reset_after=True, recurrent_activation='sigmoid')
         model.add(Bidirectional(gru, input_shape=input_shape))
-        if cuda:
-            model.add(Activation('tanh'))
-
-    if inter_layer_dropout > 0:
-        model.add(Dropout(inter_layer_dropout))
 
     # see keras #10417 for why we specify input shape
     model.add(Dense(
@@ -99,7 +90,7 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropou
 
 
 def qscore(y_true, y_pred):
-    from tensorflow.keras import backend as K
+    from keras import backend as K
     error = K.cast(K.not_equal(
         K.max(y_true, axis=-1), K.cast(K.argmax(y_pred, axis=-1), K.floatx())),
         K.floatx()
@@ -111,7 +102,7 @@ def qscore(y_true, y_pred):
 def run_training(train_name, batcher, model_fp=None,
                  epochs=5000, class_weight=None, n_mini_epochs=1):
     """Run training."""
-    from tensorflow.keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
+    from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
 
     logger = get_named_logger('RunTraining')
 
@@ -205,13 +196,13 @@ def run_training(train_name, batcher, model_fp=None,
         validation_data=batcher.gen_valid(), validation_steps=batcher.n_valid_batches,
         max_queue_size=8, workers=8, use_multiprocessing=False,
         epochs=epochs,
+        #verbose=False,
         callbacks=callbacks,
         class_weight=class_weight,
     )
 
     # stop batching threads
     batcher.stop()
-    # TODO this is hanging - why?
 
 
 class TrainBatcher():
@@ -286,18 +277,18 @@ class TrainBatcher():
                                       sparse_labels=self.sparse_labels,
                                       n_classes=self.n_classes)
 
-        train_io_threads = ceil(threads/2)
-        valid_io_threads = threads - train_io_threads
+        self.threads = threads
+        self.executor = ProcessPoolExecutor(self.threads)
         self._valid_queue = BatchQueue(self.valid_samples, prep_func,
-                                       self.batch_size, self.seed,
-                                       name='ValidBatcher',
-                                       maxsize=min(2 * self.n_valid_batches, 100),
-                                       threads=valid_io_threads)
+                                       self.batch_size, self.executor,
+                                       self.seed, name='ValidBatcher',
+                                       maxsize=min(2 * self.n_valid_batches,
+                                                   100),)
         self._train_queue = BatchQueue(self.train_samples, prep_func,
-                                       self.batch_size, self.seed,
-                                       name='TrainBatcher',
-                                       maxsize=min(2 * self.n_train_batches, 100),
-                                       threads=train_io_threads)
+                                       self.batch_size, self.executor,
+                                       self.seed, name='TrainBatcher',
+                                       maxsize=min(2 * self.n_train_batches,
+                                                   100),)
 
 
     @staticmethod
@@ -328,7 +319,7 @@ class TrainBatcher():
                              for l in s.labels), dtype=int, count=len(s.labels))
         y = y.reshape(y.shape + (1,))
         if not sparse_labels:
-            from tensorflow.keras.utils.np_utils import to_categorical
+            from keras.utils.np_utils import to_categorical
             y = to_categorical(y, num_classes=n_classes)
         return x, y
 
@@ -343,19 +334,6 @@ class TrainBatcher():
         return x, y
 
 
-#    @staticmethod
-#    def samples_to_batch_mt(samples, prep_func, name, batch, epoch, threads=4):
-#        # was wondering if this might be faster if we are waiting for filesystem
-#        # but it seems to be slower than samples_to_batch
-#        t0 = now()
-#        with ThreadPoolExecutor(threads) as executor:
-#            items = [executor.submit(prep_func, s) for s in samples]
-#            xs, ys = zip(*[i.result() for i in items])
-#        x, y = np.stack(xs), np.stack(ys)
-#        get_named_logger(name).debug("Took {:5.3}s to load batch {} (epoch {})".format(now()-t0, batch, epoch))
-#        return x, y
-
-
     def stop(self):
         self._train_queue.stop()
         self._valid_queue.stop()
@@ -365,18 +343,20 @@ class TrainBatcher():
     def gen_train(self):
         yield from self._train_queue.yield_batches()
 
+
     @threadsafe_generator
     def gen_valid(self):
         yield from self._valid_queue.yield_batches()
 
 
 class BatchQueue(object):
-    def  __init__(self, samples, prep_func, batch_size, seed=None, name='Batcher', maxsize=100, threads=1):
+    def  __init__(self, samples, prep_func, batch_size, executor, seed=None, name='Batcher', maxsize=100):
         """Load and queue training samples into batches from `.hdf` files.
 
         :param samples: tuples of (filename, hdf sample key).
         :param prep_func: function to transform a sample to x,y data.
         :param batch_size: group samples by this number.
+        :param executor: `ThreadPoolExecutor` instance.
         :param seed: seed for shuffling.
         :param name: str, name for logger.
         :param maxsize: int, maximum queue size.
@@ -387,7 +367,6 @@ class BatchQueue(object):
         self.samples = samples
         self.prep_func = prep_func
         self.batch_size = batch_size
-        self.threads = threads
 
         if seed is not None:
             np.random.seed(seed)
@@ -395,6 +374,7 @@ class BatchQueue(object):
         self.name = name
         self.logger = get_named_logger(name)
         self._queue = queue.Queue(maxsize=maxsize)
+        self.executor = executor
         self.stopped = threading.Event()
         self.qthread = threading.Thread(target=self._fill_queue_batch)
         self.qthread.start()
@@ -411,55 +391,49 @@ class BatchQueue(object):
             self.logger.critical("Read thread did not terminate.")
 
 
-    def _fill_queue_sample(self):
-       # this does not scale well with number of threads
-       # (perhaps the zipping and stacking becomes the bottleneck) ?
-        with ProcessPoolExecutor(self.threads) as executor:
-            epoch = 0
-            while not self.stopped.is_set():
-                batch = 0
-                np.random.shuffle(self.samples)
-                for samples in grouper(iter(self.samples), batch_size=self.batch_size):
-                    items = []
-                    t0 = now()
-                    for sample in samples:
-                        if self.stopped.is_set():
-                            break
-                        items.append(executor.submit(self.prep_func, sample))
-                    if self.stopped.is_set():
-                        break
-                    xs, ys = zip(*[r.result() for r in items])
-                    res = np.stack(xs), np.stack(ys)
-                    t1 = now()
-                    self._queue.put(res)
-                    self.logger.debug("Took {:5.3}s to load batch {} (epoch {})".format(t1-t0, batch, epoch))
-                    batch += 1
-                epoch += 1
-            executor.shutdown()
-            self.logger.info("Ended batching.")
-
-
     def _fill_queue_batch(self):
-        with ProcessPoolExecutor(self.threads) as executor:
-            epoch = 0
-            while not self.stopped.is_set():
-                batch = 0
-                np.random.shuffle(self.samples)
-                for samples in grouper(iter(self.samples), batch_size=self.batch_size):
-                    res = executor.submit(TrainBatcher.samples_to_batch, samples, self.prep_func, self.name, batch, epoch)
-                    self._queue.put(res)
-                    batch += 1
-                epoch += 1
-            executor.shutdown()
-            self.logger.info("Ended batching.")
+        epoch = 0
+        while not self.stopped.is_set():
+            batch = 0
+            np.random.shuffle(self.samples)
+            for samples in grouper(iter(self.samples), batch_size=self.batch_size):
+                if self.stopped.is_set(): # the loop is potentially long-running
+                    self.logger.info("Batching stopped.")
+                    return
+                res = self.executor.submit(TrainBatcher.samples_to_batch, samples, self.prep_func, self.name, batch, epoch)
+                while True: # keep an eye on the stopped flag
+                    try:
+                        self._queue.put(res, timeout=1)
+                    except queue.Full:
+                        self.logger.debug("Queue is full ({}), cannot put, trying again.".format(self._queue.qsize()))
+                        if self.stopped.is_set():
+                            self.logger.info("Batching stopped.")
+                            return
+                    else:
+                        self.logger.debug("Successfully put sample (future).")
+                        break
+                batch += 1
+            epoch += 1
+        self.logger.info("Batching stopped.")
+        return
 
 
     @threadsafe_generator
     def yield_batches(self):
+        time_between = deque(maxlen=50)
+        get_time = deque(maxlen=50)
+        t0 = now()
         try:
             while True:
+                t0, t1 = now(), t0
+                ta = now()
                 res = self._queue.get()
-                yield res.result() if isinstance(res, Future) else res
+                if isinstance(res, Future):
+                    res =  res.result()
+                get_time.append(now() - ta)
+                time_between.append(t0 - t1)
+                self.logger.debug("Time between requests: {}. Get time: {}.".format(np.median(time_between), np.median(get_time)))
+                yield res
         except Exception as e:
             self.logger.critical("Exception caught why yielding batches: {}".format(e))
             self.stop()
@@ -635,8 +609,8 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fracti
 def predict(args):
     """Inference program."""
     os.environ["TF_CPP_MIN_LOG_LEVEL"]="2"
-    from tensorflow.keras.models import load_model
-    from tensorflow.keras import backend as K
+    from keras.models import load_model
+    from keras import backend as K
 
     args.regions = get_regions(args.bam, region_strs=args.regions)
     logger = get_named_logger('Predict')
@@ -675,7 +649,7 @@ def predict(args):
     # Split overly long regions to maximum size so as to not create
     #   massive feature matrices, then segregate those which cannot be
     #   batched.
-    MAX_REGION_SIZE = 1e6  # 1Mb
+    MAX_REGION_SIZE = int(1e6)  # 1Mb
     long_regions = []
     short_regions = []
     for region in args.regions:

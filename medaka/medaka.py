@@ -9,7 +9,38 @@ from medaka.inference import train, predict
 from medaka.stitch import stitch
 from medaka.features import create_labelled_samples, create_samples
 
-default_model = os.path.join(resource_filename(__package__, 'data'), 'medaka_model.hdf5')
+model_store = resource_filename(__package__, 'data')
+
+model_dict = {
+  'r94': 'medaka_model.hdf5',
+  'r941_flip': 'r941_flip_model.hdf5' 
+}
+model_dict = {k:os.path.join(model_store, v) for k,v in model_dict.items()}
+default_model = 'r94'
+
+
+class ResolveModel(argparse.Action):
+    """Resolve model filename or ID into filename"""
+    def __init__(self, option_strings, dest, default=None, required=False, help='Model file.'):
+        super().__init__(
+            option_strings, dest, nargs=1, default=default, required=required,
+            help='{} {{{}}}'.format(help, ', '.join(model_dict.keys()))
+        )
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        val = values[0]
+        if not os.path.exists(val):
+            # try lookup
+            try:
+                val = model_dict[val]
+            except:
+                raise RuntimeError(
+                    "Filepath for '--{}' argument does not exist and is not a known model ID ({})".format(
+                        self.dest, val)
+                )
+            #TODO: verify the file is a model?
+        setattr(namespace, self.dest, val)
+
 
 
 def _log_level():
@@ -35,7 +66,7 @@ def _chunking_feature_args():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
     parser.add_argument('bam', help='Input alignments.')
-    parser.add_argument('--model', default=default_model, help='Model definition.')
+    parser.add_argument('--model', action=ResolveModel, default=default_model, help='Model definition.')
     parser.add_argument('--batch_size', type=int, default=5, help='Inference batch size.')
     parser.add_argument('--regions', default=None, nargs='+', help='Genomic regions to analyse.')
     parser.add_argument('--chunk_len', type=int, default=10000, help='Chunk length of samples.')
@@ -88,7 +119,7 @@ def main():
     tparser.set_defaults(func=train)
     tparser.add_argument('features', nargs='+', help='Paths to training data.')
     tparser.add_argument('--train_name', type=str, default='keras_train', help='Name for training run.')
-    tparser.add_argument('--model', help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
+    tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
     tparser.add_argument('--max_label_len', type=int, default=1, help='Maximum label length.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
     tparser.add_argument('--batch_size', type=int, default=200, help='Training batch size.')
@@ -117,7 +148,7 @@ def main():
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cfparser.add_argument('features', nargs='+', help='Pregenerated features (from medaka features).')
-    cfparser.add_argument('--model', default=default_model, help='Model definition.')
+    cfparser.add_argument('--model', action=ResolveModel, default=default_model, help='Model definition.')
     cfparser.add_argument('--ref_rle', default=None, help='Encoded reference file (required only for some model types.')
 
     # Post-processing of consensus outputs

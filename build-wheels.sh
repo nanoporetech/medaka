@@ -28,8 +28,8 @@ done
 # Install packages
 for minor in 4 5 6; do
     PYBIN="/opt/python/cp3${minor}-cp3${minor}m/bin"
-    "${PYBIN}/pip" install "${PACKAGE_NAME}" --no-index -f wheelhouse
-    "${PYBIN}/python" ./medaka_counts.py --print medaka/test/data/test_reads.bam Consensus_Consensus_Consensus_Consensus_utg000001l:10000-10010
+    "${PYBIN}/pip" install "${PACKAGE_NAME}" --no-index -f /io/wheelhouse
+    "${PYBIN}/medaka_counts" --print medaka/test/data/test_reads.bam Consensus_Consensus_Consensus_Consensus_utg000001l:10000-10010
 done
 
 cd wheelhouse && ls | grep -v "${PACKAGE_NAME}.*manylinux" | xargs rm

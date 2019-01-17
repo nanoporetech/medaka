@@ -78,7 +78,7 @@ venv/bin/activate:
 	${IN_VENV} && pip install -r requirements.txt
 
 
-install: venv  | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
+install: venv scripts/mini_align | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 	${IN_VENV} && MEDAKA_BINARIES=1 python setup.py install
 
 
