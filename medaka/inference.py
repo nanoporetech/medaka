@@ -53,28 +53,34 @@ def weighted_categorical_crossentropy(weights):
     return loss
 
 
-def build_model(chunk_size, feature_len, num_classes, gru_size=128, cuda=False):
-    """Builds a bidirectional GRU model
+def build_model(chunk_size, feature_len, num_classes, gru_size=128):
+    """Builds a bidirectional GRU model. Uses CuDNNGRU for additional
+    speed-up on GPU (claimed 7x).
+
     :param chunk_size: int, number of pileup columns in a sample.
     :param feature_len: int, number of features for each pileup column.
     :param num_classes: int, number of output class labels.
     :param gru_size: int, size of each GRU layer.
-    :param cuda: use CuDNNGru layer 
+    
     :returns: `keras.models.Sequential` object.
     """
 
+    from keras import backend as K
     from keras.models import Sequential
     from keras.layers import Dense, GRU, Dropout, CuDNNGRU, Bidirectional
 
-    model = Sequential()
+    # if we can see a gpu, use CuDNNGRU for speed
+    if len(K.tensorflow_backend._get_available_gpus()) > 1:
+        cudnn = True
 
+    model = Sequential()
     input_shape=(chunk_size, feature_len)
     for i in [1, 2]:
         name = 'gru{}'.format(i)
         # Options here are to be mutually compatible: train with CuDNNGRU
         # but allow inference with GRU (on cpu).
         # https://gist.github.com/bzamecnik/bd3786a074f8cb891bc2a397343070f1
-        if cuda:
+        if cudnn:
             gru = CuDNNGRU(gru_size, return_sequences=True, name=name)
         else:
             gru = GRU(gru_size, reset_after=True, recurrent_activation='sigmoid')
