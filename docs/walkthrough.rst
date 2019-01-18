@@ -199,16 +199,9 @@ output models including in particular:
     * `model.best.hdf5`: model with the best accuracy over the training set  
     * `model.best.val.hdf5`: model with the best accuracy over the validation set
 
-Other ancilliary output are also produced. The final model can be combined with
-its meta information in order to make it ready for use:
+Other ancilliary output are also produced. 
 
-.. code-block:: bash
-
-    cd ${WALKTHROUGH}
-    source ${MEDAKA}
-    medaka fix ${TRAINNAME}/model.best.val.hdf5 ${TRAINFEATURES}.yml
-
-To use the model run `medaka_consensus` for the default model (specifying
+To use a model run `medaka_consensus` for the default model (specifying
 the model using the `-m` option):
 
 .. code-block:: bash
