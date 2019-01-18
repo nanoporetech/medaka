@@ -85,11 +85,14 @@ def feature_gen_dispatch(args):
 
 
 def main():
+    from medaka import __version__
     parser = argparse.ArgumentParser('medaka',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     subparsers = parser.add_subparsers(title='subcommands', description='valid commands', help='additional help', dest='command')
     subparsers.required = True
 
+    parser.add_argument('--version', action='version',
+        version='%(prog)s {}'.format(__version__))
 
     # Transformation of sequence data
     #TODO: is this needed?

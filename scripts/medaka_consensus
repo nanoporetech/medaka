@@ -6,12 +6,18 @@ THREADS=1
 
 MODEL="r94"
 BATCH_SIZE=200
+medaka_version=$(python -c "import medaka; print(medaka.__version__)")
 iflag=false
 dflag=false
 
-usage="$(basename "$0") [-h] -i <fastx>
+usage="
+medaka ${medaka_version}
+------------
 
-Polish an assembly using medaka. Assembly should be preprocessed with racon.
+Assembly polishing via neural networks. The input assembly should be
+preprocessed with racon.
+
+$(basename "$0") [-h] -i <fastx>
 
     -h  show this help text.
     -i  fastx input basecalls (required).
@@ -39,12 +45,14 @@ shift $(($OPTIND - 1))
 
 if ! $iflag; then
   echo "$usage" >&2;
+  echo "" >&2;
   echo "-i must be specified." >&2;
   exit 1;
 fi
 
 if ! $dflag; then
   echo "$usage" >&2;
+  echo "" >&2;
   echo "-d must be specified." >&2;
   exit 1;
 fi
