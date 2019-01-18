@@ -4,22 +4,23 @@ set -eo pipefail
 OUTPUT="medaka"
 THREADS=1
 
-MODEL=$(medaka_data_path)/medaka_model.hdf5
+MODEL="r94"
 BATCH_SIZE=200
 iflag=false
 dflag=false
 
 usage="$(basename "$0") [-h] -i <fastx>
 
-Polish an assembly using medaka
+Polish an assembly using medaka. Assembly should be preprocessed with racon.
 
     -h  show this help text.
     -i  fastx input basecalls (required).
     -d  fasta input assembly (required). 
     -o  output folder (default: medaka).
-    -m  medaka model (default: ${MODEL}). 
+    -m  medaka model, One of: 'r94', 'r941_flip' (default: ${MODEL}).
+        Alternatively a .hdf file from 'medaka train'. 
     -t  number of threads with which to create features (default: 1).
-    -b  batchsize (controls how much memory is used running network) (default: 200)."
+    -b  batchsize, controls memory use (default: 200)."
 
 while getopts ':hi::d:o:m:t:b:' option; do
   case "$option" in
