@@ -1,5 +1,5 @@
 from collections import Counter, deque
-from concurrent.futures import ProcessPoolExecutor, Future, ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, Future
 import functools
 import inspect
 import itertools
@@ -18,7 +18,9 @@ from medaka import vcf
 from medaka.datastore import DataStore, DataIndex
 from medaka.common import (get_regions, decoding, grouper, mkdir_p, Sample,
                            _gap_, threadsafe_generator, get_named_logger)
+
 from medaka.features import SampleGenerator
+import medaka.models
 
 
 def weighted_categorical_crossentropy(weights):
@@ -36,8 +38,9 @@ def weighted_categorical_crossentropy(weights):
         model.compile(loss=loss,optimizer='adam')
     """
 
+    import tensorflow as tf
     from keras import backend as K
-    weights = K.variable(weights)
+    weights = tf.variable(weights)
 
     def loss(y_true, y_pred):
         # scale predictions so that the class probas of each sample sum to 1
@@ -50,47 +53,6 @@ def weighted_categorical_crossentropy(weights):
         return loss
 
     return loss
-
-
-def build_model(chunk_size, feature_len, num_classes, gru_size=128, input_dropout=0.0,
-                inter_layer_dropout=0.0, recurrent_dropout=0.0):
-    """Builds a bidirectional GRU model
-    :param chunk_size: int, number of pileup columns in a sample.
-    :param feature_len: int, number of features for each pileup column.
-    :param num_classes: int, number of output class labels.
-    :param gru_size: int, size of each GRU layer.
-    :param input_dropout: float, fraction of the input feature-units to drop.
-    :param inter_layer_dropout: float, fraction of units to drop between layers.
-    :param recurrent_dropout: float, fraction of units to drop within the recurrent state.
-    :returns: `keras.models.Sequential` object.
-    """
-
-    from keras.models import Sequential
-    from keras.layers import Dense, GRU, Dropout
-    from keras.layers.wrappers import Bidirectional
-
-    model = Sequential()
-
-    input_shape=(chunk_size, feature_len)
-    for i in [1, 2]:
-        name = 'gru{}'.format(i)
-        gru = GRU(gru_size,
-                activation='tanh',
-                return_sequences=True, name=name,
-                dropout=input_dropout, recurrent_dropout=recurrent_dropout
-                )
-        model.add(Bidirectional(gru, input_shape=input_shape))
-
-    if inter_layer_dropout > 0:
-        model.add(Dropout(inter_layer_dropout))
-
-    # see keras #10417 for why we specify input shape
-    model.add(Dense(
-        num_classes, activation='softmax', name='classify',
-        input_shape=(chunk_size, 2 * feature_len)
-    ))
-
-    return model
 
 
 def qscore(y_true, y_pred):
@@ -111,27 +73,34 @@ def run_training(train_name, batcher, model_fp=None,
     logger = get_named_logger('RunTraining')
 
     if model_fp is None:
-        model_kwargs = { k:v.default for (k,v) in inspect.signature(build_model).parameters.items()
+        model_name = medaka.models.default_model
+        model_kwargs = { k:v.default for (k,v) in inspect.signature(medaka.models.model_builders[model_name]).parameters.items()
                          if v.default is not inspect.Parameter.empty}
     else:
         with DataStore(model_fp) as ds:
+            model_name = ds.meta['medaka_model_name']
             model_kwargs = ds.meta['medaka_model_kwargs']
 
     opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in model_kwargs.items()])
-    logger.info('Building model with: \n{}'.format(opt_str))
+    logger.info('Building {} model with: \n{}'.format(model_name, opt_str))
     num_classes = len(batcher.label_counts)
     timesteps, feat_dim = batcher.feature_shape
-    model = build_model(timesteps, feat_dim, num_classes, **model_kwargs)
+    model = medaka.models.model_builders[model_name](timesteps, feat_dim, num_classes, **model_kwargs)
 
-    if model_fp is not None and os.path.splitext(model_fp)[-1] != '.yml':
-        logger.info("Loading weights from {}".format(model_fp))
-        model.load_weights(model_fp)
+    if model_fp is not None:
+        try:
+            model.load_weights(model_fp)
+            logger.info("Loading weights from {}".format(model_fp))
+        except:
+            logger.info("Could not load weights from {}".format(model_fp))
 
     msg = "feat_dim: {}, timesteps: {}, num_classes: {}"
     logger.info(msg.format(feat_dim, timesteps, num_classes))
     model.summary()
 
     model_details = batcher.meta.copy()
+
+    model_details['medaka_model_name'] = model_name
     model_details['medaka_model_kwargs'] = model_kwargs
     model_details['medaka_label_decoding'] = batcher.label_decoding
 
@@ -640,10 +609,10 @@ def predict(args):
             logger.info("Rebuilding model according to chunk_size: {}->{}".format(time_steps, chunk_len))
             feat_dim = model.get_input_shape_at(0)[2]
             num_classes = model.get_output_shape_at(-1)[-1]
-            model = build_model(chunk_len, feat_dim, num_classes)
+            build_model = medaka.models.model_builders[meta['medaka_model_name']]
+            model = build_model(chunk_len, feat_dim, num_classes, **meta['medaka_model_kwargs'])
             logger.info("Loading weights from {}".format(args.model))
             model.load_weights(args.model)
-
         if logger.level == logging.DEBUG:
             model.summary()
         return model

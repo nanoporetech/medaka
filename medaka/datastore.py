@@ -10,7 +10,7 @@ from medaka.common import Sample, decoding, get_named_logger
 class DataStore(object):
     """Class to read/write to a data file"""
     _sample_path_ = 'samples'
-    _groups_ = ('medaka_features_kwargs', 'medaka_model_kwargs',
+    _groups_ = ('medaka_features_kwargs', 'medaka_model_kwargs', 'medaka_model_name',
                 'medaka_label_decoding', 'medaka_feature_decoding',
                 'medaka_label_counts', 'medaka_samples')
 
