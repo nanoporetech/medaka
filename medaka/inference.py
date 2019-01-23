@@ -18,8 +18,9 @@ from medaka import vcf
 from medaka.datastore import DataStore, DataIndex
 from medaka.common import (get_regions, decoding, grouper, mkdir_p, Sample,
                            _gap_, threadsafe_generator, get_named_logger)
+
 from medaka.features import SampleGenerator
-from medaka.models import model_builders, default_model
+import medaka.models
 
 
 def weighted_categorical_crossentropy(weights):
@@ -72,8 +73,8 @@ def run_training(train_name, batcher, model_fp=None,
     logger = get_named_logger('RunTraining')
 
     if model_fp is None:
-        model_name = default_model
-        model_kwargs = { k:v.default for (k,v) in inspect.signature(model_builders[model_name]).parameters.items()
+        model_name = medaka.models.default_model
+        model_kwargs = { k:v.default for (k,v) in inspect.signature(medaka.models.model_builders[model_name]).parameters.items()
                          if v.default is not inspect.Parameter.empty}
     else:
         with DataStore(model_fp) as ds:
@@ -84,7 +85,7 @@ def run_training(train_name, batcher, model_fp=None,
     logger.info('Building {} model with: \n{}'.format(model_name, opt_str))
     num_classes = len(batcher.label_counts)
     timesteps, feat_dim = batcher.feature_shape
-    model = model_builders[model_name](timesteps, feat_dim, num_classes, **model_kwargs)
+    model = medaka.models.model_builders[model_name](timesteps, feat_dim, num_classes, **model_kwargs)
 
     if model_fp is not None:
         try:
@@ -608,7 +609,7 @@ def predict(args):
             logger.info("Rebuilding model according to chunk_size: {}->{}".format(time_steps, chunk_len))
             feat_dim = model.get_input_shape_at(0)[2]
             num_classes = model.get_output_shape_at(-1)[-1]
-            build_model = model_builders[meta['medaka_model_name']]
+            build_model = medaka.models.model_builders[meta['medaka_model_name']]
             model = build_model(chunk_len, feat_dim, num_classes, **meta['medaka_model_kwargs'])
             logger.info("Loading weights from {}".format(args.model))
             model.load_weights(args.model)
