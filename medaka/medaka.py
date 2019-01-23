@@ -174,9 +174,14 @@ def main():
     sparser.add_argument('output', help='Output .fasta.', default='consensus.fasta')
     sparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
 
+    # Tools
+    toolparser = subparsers.add_parser('tools',
+        help='tools sub-command.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    toolsubparsers = toolparser.add_subparsers(title='tools', description='valid tool commands', help='additional help', dest='tool_command')
 
     # Dump model/feature meta to yaml
-    hparser = subparsers.add_parser('hdf2yaml',
+    hparser = toolsubparsers.add_parser('hdf2yaml',
         help='Dump medaka meta in a hdf to yaml.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -185,14 +190,13 @@ def main():
     hparser.add_argument('output', help='Output .yaml file.', default='meta.yaml')
 
     # Create model .hdf containing model/feature meta from yaml
-    yparser = subparsers.add_parser('yaml2hdf',
+    yparser = toolsubparsers.add_parser('yaml2hdf',
         help='Dump medaka meta in a yaml to hdf.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     yparser.set_defaults(func=yaml2hdf)
     yparser.add_argument('input', help='Input .yaml file.')
     yparser.add_argument('output', help='Output .hdf, will be appended to if it exists.', default='meta.hdf')
-
 
     args = parser.parse_args()
 
@@ -203,8 +207,6 @@ def main():
     #TODO: do common argument validation here: e.g. rle_ref being present if
     #      required by model
     args.func(args)
-
-    #TODO: subcommand to print extract model / feature yaml data and print to screen / dump to txt yaml file.
 
 
 if __name__ == '__main__':
