@@ -2,7 +2,7 @@ from distutils.version import LooseVersion
 import os
 import subprocess
 
-__version__ = '0.4.3'
+__version__ = '0.5.0-pre.1'
 
 
 def check_minimap2_version():
@@ -20,6 +20,7 @@ def check_minimap2_version():
 
 
 def check_samtools_version():
+    """Checks samtools version is greater than or equal to that required."""
     try:
         proc = subprocess.run(["samtools", "--version"], stdout=subprocess.PIPE)
         if proc.returncode != 0:

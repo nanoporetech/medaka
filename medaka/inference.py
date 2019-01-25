@@ -37,10 +37,8 @@ def weighted_categorical_crossentropy(weights):
         loss = weighted_categorical_crossentropy(weights)
         model.compile(loss=loss,optimizer='adam')
     """
-
-    import tensorflow as tf
     from keras import backend as K
-    weights = tf.variable(weights)
+    weights = K.variable(weights)
 
     def loss(y_true, y_pred):
         # scale predictions so that the class probas of each sample sum to 1
@@ -167,15 +165,13 @@ def run_training(train_name, batcher, model_fp=None,
     model.fit_generator(
         batcher.gen_train(), steps_per_epoch=ceil(batcher.n_train_batches/n_mini_epochs),
         validation_data=batcher.gen_valid(), validation_steps=batcher.n_valid_batches,
-        max_queue_size=8, workers=8, use_multiprocessing=False,
+        max_queue_size=8, workers=1, use_multiprocessing=False,
         epochs=epochs,
         #verbose=False,
         callbacks=callbacks,
         class_weight=class_weight,
     )
 
-    # stop batching threads
-    batcher.stop()
 
 
 class TrainBatcher():
@@ -346,7 +342,9 @@ class BatchQueue(object):
 
         self.name = name
         self.logger = get_named_logger(name)
-        self._queue = queue.Queue(maxsize=maxsize)
+        self.maxsize = maxsize
+        self._queue = queue.Queue(maxsize=self.maxsize)
+        self._queue = queue.Queue(maxsize=self.maxsize)
         self.executor = executor
         self.stopped = threading.Event()
         self.qthread = threading.Thread(target=self._fill_queue_batch)
@@ -355,17 +353,20 @@ class BatchQueue(object):
         self.logger.info("Started reading samples from files with queue size {}".format(maxsize))
 
 
-    def stop(self):
+    def stop(self, timeout=5):
         self.logger.info("About to stop.")
         self.stopped.set()
         self.logger.info("Waiting for read thread.")
-        self.qthread.join(2)
+        self.qthread.join(timeout)
         if self.qthread.is_alive:
-            self.logger.critical("Read thread did not terminate.")
+            self.logger.critical("Read thread did not terminate after {}s.".format(timeout))
 
 
     def _fill_queue_batch(self):
         epoch = 0
+        self.loaded_batches = 0
+        self.submitted_batches = 0
+        self.taken_batches = 0
         while not self.stopped.is_set():
             batch = 0
             np.random.shuffle(self.samples)
@@ -374,21 +375,26 @@ class BatchQueue(object):
                     self.logger.info("Batching stopped.")
                     return
                 res = self.executor.submit(TrainBatcher.samples_to_batch, samples, self.prep_func, self.name, batch, epoch)
+                res.add_done_callback(self._count_finished)
                 while True: # keep an eye on the stopped flag
                     try:
                         self._queue.put(res, timeout=1)
                     except queue.Full:
-                        self.logger.debug("Queue is full ({}), cannot put, trying again.".format(self._queue.qsize()))
+                        #self.logger.debug("Queue is full ({}), cannot put, trying again.".format(self._queue.qsize()))
                         if self.stopped.is_set():
                             self.logger.info("Batching stopped.")
                             return
                     else:
-                        self.logger.debug("Successfully put sample (future).")
+                        #self.logger.debug("Successfully put sample (future).")
+                        self.submitted_batches += 1
                         break
                 batch += 1
             epoch += 1
         self.logger.info("Batching stopped.")
         return
+
+    def _count_finished(self, future):
+        self.loaded_batches += 1
 
 
     @threadsafe_generator
@@ -405,7 +411,17 @@ class BatchQueue(object):
                     res =  res.result()
                 get_time.append(now() - ta)
                 time_between.append(t0 - t1)
-                self.logger.debug("Time between requests: {}. Get time: {}.".format(np.median(time_between), np.median(get_time)))
+                get_rate = np.mean(get_time)
+                req_rate = np.mean(time_between) - get_rate
+                self.logger.debug(
+                    "Request every: {:5.3}s. Fetch time: {:5.3}.".format(
+                    np.mean(time_between), np.mean(get_time)
+                ))
+                self.logger.debug("Queue state: {}/{} ready.".format(
+                    self.loaded_batches - self.taken_batches,
+                    self.submitted_batches - self.taken_batches
+                ))
+                self.taken_batches += 1
                 yield res
         except Exception as e:
             self.logger.critical("Exception caught why yielding batches: {}".format(e))
@@ -730,5 +746,17 @@ def train(args):
             for i, l in enumerate(batcher.label_decoding)
     )))
 
-    run_training(train_name, batcher, model_fp=args.model, epochs=args.epochs,
-                 class_weight=class_weight, n_mini_epochs=args.mini_epochs)
+    # From empirical evidence setting a device here allows code to run 5-6X
+    # faster than setting CUDA_VISIBLE_DEVICES environment variable. A small
+    # (200Mb) amount of memory will be used on other devices by doing this. The
+    # option to set CUDA_VISIBLE_DEVICES is still available (but will renumber
+    # the device that should be given on the cmdline).
+    import tensorflow as tf
+    with tf.device('/gpu:{}'.format(args.device)):
+        run_training(
+            train_name, batcher, model_fp=args.model, epochs=args.epochs,
+            class_weight=class_weight, n_mini_epochs=args.mini_epochs)
+
+    # stop batching threads
+    batcher.stop()
+    logger.info("Training finished.")

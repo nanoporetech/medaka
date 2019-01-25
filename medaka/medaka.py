@@ -143,7 +143,8 @@ def main():
     tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
     tparser.add_argument('--balanced_weights', action='store_true', help='Balance label weights.')
     tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
-    tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO')
+    tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
+    tparser.add_argument('--device', type=int, default=0, help='GPU device to use.')
 
     vgrp = tparser.add_mutually_exclusive_group()
     vgrp.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
