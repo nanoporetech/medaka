@@ -64,8 +64,9 @@ class Variant(object):
     # TODO: ref/alt could be a symbolic allele "<ID>".
     # TODO: alt could contain breakends.
     # TODO: Handle genomic fields.
+    _format_fields_ = (gt,)
 
-    def __init__(self, chrom, pos, ref, alt='.', id='.', qual='.', filter='.', info='.'):
+    def __init__(self, chrom, pos, ref, alt='.', id='.', qual='.', filter='.', info='.', gt='.'):
         self.chrom = chrom
         self.pos = int(pos)
         self.ref = ref.upper()
@@ -89,6 +90,16 @@ class Variant(object):
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+
+    @property
+    def format(self):
+        return ':'.join(self._format_fields_)
+
+
+    @property
+    def sampledata(self):
+        return ':'.join((str(getattr(self, f)) for f in self._format_fields_))
 
 
     @property
@@ -130,7 +141,7 @@ class Variant(object):
 
 class VCFWriter(object):
     def __init__(self, filename, mode='w',
-                 header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO'),
+                 header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'SAMPLEDATA'),
                  meta_info=[]
                  ):
 
