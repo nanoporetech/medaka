@@ -2,7 +2,7 @@ from distutils.version import LooseVersion
 import os
 import subprocess
 
-__version__ = '0.5.0-pre.1'
+__version__ = '0.5.0-pre.2'
 
 
 def check_minimap2_version():

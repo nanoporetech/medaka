@@ -72,8 +72,11 @@ def run_training(train_name, batcher, model_fp=None,
 
     if model_fp is None:
         model_name = medaka.models.default_model
-        model_kwargs = { k:v.default for (k,v) in inspect.signature(medaka.models.model_builders[model_name]).parameters.items()
-                         if v.default is not inspect.Parameter.empty}
+        model_kwargs = {
+            k:v.default for (k,v) in
+            inspect.signature(medaka.models.model_builders[model_name]).parameters.items()
+            if v.default is not inspect.Parameter.empty
+        }
     else:
         with DataStore(model_fp) as ds:
             model_name = ds.meta['medaka_model_name']
@@ -171,7 +174,6 @@ def run_training(train_name, batcher, model_fp=None,
         callbacks=callbacks,
         class_weight=class_weight,
     )
-
 
 
 class TrainBatcher():
@@ -619,22 +621,6 @@ def predict(args):
             inter_op_parallelism_threads=args.threads)
     ))
 
-    def _rebuild_model(model, chunk_len):
-        time_steps = model.get_input_shape_at(0)[1]
-        if chunk_len is None or time_steps != chunk_len:
-            logger.info("Rebuilding model according to chunk_size: {}->{}".format(time_steps, chunk_len))
-            feat_dim = model.get_input_shape_at(0)[2]
-            num_classes = model.get_output_shape_at(-1)[-1]
-            build_model = medaka.models.model_builders[meta['medaka_model_name']]
-            model = build_model(chunk_len, feat_dim, num_classes, **meta['medaka_model_kwargs'])
-            logger.info("Loading weights from {}".format(args.model))
-            model.load_weights(args.model)
-        if logger.level == logging.DEBUG:
-            model.summary()
-        return model
-
-    model = load_model(args.model, custom_objects={'qscore': qscore})
-
     # Split overly long regions to maximum size so as to not create
     #   massive feature matrices, then segregate those which cannot be
     #   batched.
@@ -656,7 +642,7 @@ def predict(args):
 
     if len(long_regions) > 0:
         logger.info("Processing long regions.")
-        model = _rebuild_model(model, args.chunk_len)
+        model = medaka.models.load_model(args.model, time_steps=args.chunk_len)
         run_prediction(
             args.output, args.bam, long_regions, model, args.model, args.rle_ref, args.read_fraction,
             args.chunk_len, args.chunk_ovlp,
@@ -668,7 +654,7 @@ def predict(args):
     #         step down args.chunk_len by a constant factor until nothing remains.
     if len(short_regions) > 0:
         logger.info("Processing short regions")
-        model = _rebuild_model(model, None)
+        model = medaka.models.load_model(args.model, time_steps=None)
         for region in short_regions:
             chunk_len = region.size // 2
             chunk_ovlp = chunk_len // 10 # still need overlap as features will be longer
