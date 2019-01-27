@@ -52,7 +52,13 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
             if s2 is None:  # s1 is last chunk
                 end_1_ind = None
             else:
-                end_1_ind, start_2_ind = get_sample_overlap(s1, s2)
+                if s2.last_pos <= s1.last_pos:
+                    logger.info('{} ends before {}, skipping.'.format(
+                        s2.name, s1.name
+                    ))
+                    continue
+                else:
+                    end_1_ind, start_2_ind = get_sample_overlap(s1, s2)
 
             best = np.argmax(s1.label_probs[start_1_ind:end_1_ind], -1)
             seq += ''.join([label_decoding[x] for x in best]).replace(_gap_, '')
