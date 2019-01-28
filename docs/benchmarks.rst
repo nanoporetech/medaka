@@ -52,9 +52,9 @@ to be less than one minute!
 Evaluation across samples and depths
 ------------------------------------
 
-The comparison below illustrates results at various coverage depths for two further
-organisms. Assemblies were performed as above with canu and racon, using the flip-flop
-algorithm for basecalling. (nanopolish results to come...).
+The comparison below illustrates results at various coverage depths for a
+collection of further organisms. Assemblies were performed as above with
+canu and racon, using the flip-flop algorithm for basecalling.
 
 .. image:: images/cov_acc.png
 
