@@ -6,7 +6,7 @@ logger = get_named_logger('ModelLoad')
 
 def load_model(fname, time_steps=None):
     """Load a model from an .hdf file.
- 
+
     :param fname: .hdf file containing model.
     :param time_steps: number of time points in RNN, `None` for dynamic.
 
@@ -15,9 +15,8 @@ def load_model(fname, time_steps=None):
     """
     with DataStore(fname) as ds:
         meta = ds.meta
-        #TODO: store input and output size as meta data
-        num_features = ds.fh['model_weights/bidirectional_1/bidirectional_1/forward_gru1/kernel:0'].shape[0]
-        num_classes = ds.fh['model_weights/classify/classify/kernel:0'].shape[1]
+        num_features = len(meta['medaka_feature_decoding'])
+        num_classes = len(meta['medaka_label_decoding'])
     build_model = model_builders[meta['medaka_model_name']]
 
     logger.info("Building model (steps, features, classes): ({}, {}, {})".format(
