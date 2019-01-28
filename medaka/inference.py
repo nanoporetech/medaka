@@ -574,7 +574,7 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fracti
         t0 = now()
         tlast = t0
         for data in batches:
-            x_data = np.stack((x.features for x in data))
+            x_data = np.stack([x.features for x in data])
             # TODO: change to predict_on_batch?
             class_probs = model.predict(x_data, batch_size=batch_size, verbose=0)
             mbases_done += sum(x.span for x in data) / 1e6
