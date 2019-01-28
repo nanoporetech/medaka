@@ -2,7 +2,7 @@ from distutils.version import LooseVersion
 import os
 import subprocess
 
-__version__ = '0.5.0-pre.2'
+__version__ = '0.5.0'
 
 
 def check_minimap2_version():
@@ -54,7 +54,7 @@ def report_binaries():
     """
     fail = False
     versions = {prog:get_version[prog]() for prog in required_version.keys()}
-    
+
     width = 9
     cols = "Program Version Required Pass".split()
     print('  '.join([x.ljust(width) for x in cols]))
