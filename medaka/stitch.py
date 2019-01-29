@@ -191,7 +191,6 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
             # chunks with overlapping bits trimmed off
             data_gen = index.yield_from_feature_files(ref_names=(ref_name,))
             s1 = next(data_gen)
-            start = get_pos(s1, 0)
             start_1_ind = None  # don't trim beginning of s1
             for s2 in chain(data_gen, (None,)):
                 if s2 is None:  # s1 is last chunk
@@ -203,7 +202,7 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
                 probs = s1.label_probs[start_1_ind:end_1_ind]
                 # discard minor positions (insertions)
                 major_inds = np.where(pos['minor'] == 0)
-                major_pos = pos[major_inds]
+                major_pos = pos[major_inds]['major']
                 major_probs = probs[major_inds]
 
                 # for homozygous SNP max_prob_label not in {ref, del} and 2nd_max_prob < threshold
@@ -214,12 +213,12 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
                 # Note: if 2nd_max_prob > thresh and is a deletion, we will
                 # ignore the SNP (it could be a SNP in one haplotype and a
                 # deletion in the other).
-
-                ref_seq_encoded = np.fromiter((label_encoding[ref_seq[i]] for i in major_pos), int, count=len(label_decoding))
+                ref_seq_encoded = np.fromiter((label_encoding[ref_seq[i]] for i in major_pos), int, count=len(major_pos))
                 sorted_prob_inds = np.argsort(major_probs, -1)
                 sorted_probs = np.take_along_axis(major_probs, sorted_prob_inds, axis=-1)
                 primary_labels = sorted_prob_inds[:, -1]
                 secondary_labels = sorted_prob_inds[:, -2]
+                primary_probs = sorted_probs[:, -1]
                 secondary_probs = sorted_probs[:, -2]
                 # homozygous SNPs
                 is_primary_diff_to_ref = np.not_equal(primary_labels, ref_seq_encoded)
@@ -234,29 +233,34 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
                 is_heterozygous_snp = np.logical_and(is_secondary_prob_ge_thresh, is_secondary_not_del)
                 is_heterozygous_snp = np.logical_and(is_heterozygous_snp, is_primary_not_del)
                 heterozygous_snp_inds = np.where(is_heterozygous_snp)
-
-                for i in homozygous_snp_inds:
-                    ref_base = ref_seq[i]
-                    info = {ref_prob: major_probs[i][label_encoding[ref_base],
-                            primary_prob: primary_prob[i],
-                            secondary_prob: secondary_prob[i]
-                            secondary_label: label_decoding[secondary_labels[i]]
+                variants = []
+                for i in homozygous_snp_inds[0]:
+                    ref_base_encoded = ref_seq_encoded[i]
+                    info = {'ref_prob': major_probs[i][ref_base_encoded],
+                            'primary_prob': primary_probs[i],
+                            'secondary_prob': secondary_probs[i],
+                            'secondary_label': label_decoding[secondary_labels[i]],
                             }
-                    variant = Variant(ref_name, major_pos[i], ref_seq[i],
+                    qual = -10 * np.log10(1 - primary_probs[i])
+                    variants.append(Variant(ref_name, major_pos[i], label_decoding[ref_base_encoded],
                                       alt=label_decoding[primary_labels[i]],
-                                      gt=1, info=info)
-                    vcf_writer.write_variant(variant)
+                                      gt=1, gq=qual, filter='PASS', info=info, qual=qual))
 
-                for i in heterozygous_snp_inds:
-                    ref_base = ref_seq[i]
-                    info = {ref_prob: major_probs[i][label_encoding[ref_base],
-                            primary_prob: primary_prob[i],
-                            secondary_prob: secondary_prob[i]
-                            secondary_label: label_decoding[secondary_labels[i]]
+                for i in heterozygous_snp_inds[0]:
+                    ref_base_encoded = ref_seq_encoded[i]
+                    info = {'ref_prob': major_probs[i][ref_base_encoded],
+                            'primary_prob': primary_probs[i],
+                            'secondary_prob': secondary_probs[i],
+                            'secondary_label': label_decoding[secondary_labels[i]]
                             }
-                    variant = Variant(ref_name, major_pos[i], ref_seq[i],
-                                      alt=(label_decoding[primary_labels[i]], label_decoding[secondary_labels[i]]),
-                                      gt='1/2', info=info)  # / => unphased
+                    qual = -10 * np.log10(1 - primary_probs[i] - secondary_probs[i])
+                    alt = [label_decoding[l] for l in (primary_labels[i], secondary_labels[i]) if l != ref_base_encoded]
+                    gt = '0/1' if len(alt) == 1 else '1/2'  # / => unphased
+                    variants.append(Variant(ref_name, major_pos[i], label_decoding[ref_base_encoded],
+                                      alt=alt, gt=gt, gq=qual, filter='PASS', info=info, qual=qual))
+                sorter = lambda v: v.pos
+                variants.sort(key=sorter)
+                for variant in variants:
                     vcf_writer.write_variant(variant)
 
                 if end_1_ind is None:
@@ -270,3 +274,7 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
 def stitch(args):
     joined = stitch_from_probs(args.inputs, regions=args.regions)
     write_fasta(args.output, joined)
+
+
+def snps(args):
+    find_snps(args.inputs, args.ref_fasta, args.output, regions=args.regions, threshold=args.threshold)

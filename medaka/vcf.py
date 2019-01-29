@@ -64,9 +64,9 @@ class Variant(object):
     # TODO: ref/alt could be a symbolic allele "<ID>".
     # TODO: alt could contain breakends.
     # TODO: Handle genomic fields.
-    _format_fields_ = (gt,)
+    _format_fields_ = ('gt', 'gq',)
 
-    def __init__(self, chrom, pos, ref, alt='.', id='.', qual='.', filter='.', info='.', gt='.'):
+    def __init__(self, chrom, pos, ref, alt='.', id='.', qual='.', filter='.', info='.', gt='.', gq='.'):
         self.chrom = chrom
         self.pos = int(pos)
         self.ref = ref.upper()
@@ -79,6 +79,8 @@ class Variant(object):
             self.info = info
         else:
             self.info = parse_string_to_tags(info)
+        self.gt = gt
+        self.gq = gq
 
 
     def __eq__(self, other):
@@ -94,7 +96,7 @@ class Variant(object):
 
     @property
     def format(self):
-        return ':'.join(self._format_fields_)
+        return ':'.join((f.upper() for f in self._format_fields_))
 
 
     @property

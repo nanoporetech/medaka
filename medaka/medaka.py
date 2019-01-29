@@ -8,7 +8,7 @@ import  numpy as np
 
 from medaka.datastore import DataStore
 from medaka.inference import train, predict
-from medaka.stitch import stitch
+from medaka.stitch import stitch, snps
 from medaka.features import create_labelled_samples, create_samples
 
 model_store = resource_filename(__package__, 'data')
@@ -176,6 +176,17 @@ def main():
     sparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
     sparser.add_argument('output', help='Output .fasta.', default='consensus.fasta')
     sparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
+
+    pparser = subparsers.add_parser('snp',
+        help='Decode probabilities as dipoloid SNPs.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    pparser.set_defaults(func=snps)
+    pparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
+    pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
+    pparser.add_argument('output', help='Output .vcf.', default='snps.vcf')
+    pparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
+    pparser.add_argument('--threshold', default=0.1, type=float, help='Threshold for considering secondary calls.')
 
     # Tools
     toolparser = subparsers.add_parser('tools',
