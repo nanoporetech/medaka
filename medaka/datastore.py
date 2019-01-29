@@ -167,7 +167,7 @@ class DataIndex(object):
 
         with ProcessPoolExecutor(threads) as executor:
             future_to_f = {executor.submit(DataIndex._load_meta, f): f for f in filenames}
-            for i, future in enumerate(as_completed(future_to_f)):
+            for i, future in enumerate(as_completed(future_to_f), 1):
                 f = future_to_f[future]
                 try:
                     meta = future.result()

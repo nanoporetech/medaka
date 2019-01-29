@@ -1,3 +1,32 @@
+from medaka.datastore import DataStore, DataIndex
+from medaka.common import get_named_logger
+
+logger = get_named_logger('ModelLoad')
+
+
+def load_model(fname, time_steps=None):
+    """Load a model from an .hdf file.
+
+    :param fname: .hdf file containing model.
+    :param time_steps: number of time points in RNN, `None` for dynamic.
+
+    ..note:: keras' `load_model` cannot handle CuDNNGRU layers, hence this
+        function builds the model then loads the weights.
+    """
+    with DataStore(fname) as ds:
+        meta = ds.meta
+        num_features = len(meta['medaka_feature_decoding'])
+        num_classes = len(meta['medaka_label_decoding'])
+    build_model = model_builders[meta['medaka_model_name']]
+
+    logger.info("Building model (steps, features, classes): ({}, {}, {})".format(
+        time_steps, num_features, num_classes))
+    model = build_model(time_steps, num_features, num_classes, **meta['medaka_model_kwargs'])
+    logger.info("Loading weights from {}".format(fname))
+    model.load_weights(fname)
+    return model
+
+
 def build_legacy_model(chunk_size, feature_len, num_classes, gru_size=128):
     """Builds a bidirectional GRU model
     :param chunk_size: int, number of pileup columns in a sample.
@@ -46,6 +75,8 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128):
     cudnn = False
     if len(K.tensorflow_backend._get_available_gpus()) > 1:
         cudnn = True
+
+    logger.info("With cudnn: {}".format(cudnn))
 
     model = Sequential()
     input_shape=(chunk_size, feature_len)
