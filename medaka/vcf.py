@@ -142,15 +142,24 @@ class Variant(object):
 
 
 class VCFWriter(object):
+    # some tools don't like VCFv4.3, preferring VCFv4.1 - so we should be able to
+    # write VCFv4.1 files. VCFv4.3 has a few extra reserved fields ('AD', 'ADF', and
+    # 'ADR') but there is no harm in including those files written as VCFv4.1 - they
+    # just won't be recognised and used as reserved fields.
+    version_options = {'4.3', '4.1'}
     def __init__(self, filename, mode='w',
                  header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'SAMPLEDATA'),
-                 meta_info=[]
+                 meta_info=[],
+                 version='4.3'
                  ):
 
         self.filename = filename
         self.mode = mode
         self.header = header
-        self.meta = ['fileformat=VCFv4.3'] + meta_info
+        if version not in self.version_options:
+            raise ValueError('version must be one of {}'.format(self.version_options))
+        self.version = version
+        self.meta = ['fileformat=VCFv{}'.format(self.version)] + meta_info
         self.logger = get_named_logger('VCFWriter')
 
 

@@ -3,7 +3,7 @@ from itertools import chain
 import numpy as np
 import pysam
 
-from medaka.common import _gap_, Region, get_sample_overlap, get_named_logger
+import medaka
 from medaka.datastore import DataIndex
 from medaka.vcf import Variant, VCFWriter
 
@@ -22,7 +22,7 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
     :returns: list of (contig_name, sequence)
 
     """
-    logger = get_named_logger('Stitch')
+    logger = medaka.common.get_named_logger('Stitch')
 
     index = DataIndex(probs_hdfs)
 
@@ -36,7 +36,7 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
     else:
         #TODO: respect entire region specification
         ref_names = list()
-        for region in (Region.from_string(r) for r in regions):
+        for region in (medaka.common.Region.from_string(r) for r in regions):
             if region.start is None or region.end is None:
                 logger.warning("Ignoring start:end for '{}'.".format(region))
             ref_names.append(region.ref_name)
@@ -60,10 +60,10 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
                     ))
                     continue
                 else:
-                    end_1_ind, start_2_ind = get_sample_overlap(s1, s2)
+                    end_1_ind, start_2_ind = medaka.common.get_sample_overlap(s1, s2)
 
             best = np.argmax(s1.label_probs[start_1_ind:end_1_ind], -1)
-            seq += ''.join([label_decoding[x] for x in best]).replace(_gap_, '')
+            seq += ''.join([label_decoding[x] for x in best]).replace(medaka.common._gap_, '')
             if end_1_ind is None:
                 key = '{}:{}-{}'.format(s1.ref_name, start, get_pos(s1, -1))
                 ref_assemblies.append((key, seq))
@@ -87,12 +87,13 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
             for a heterozygous call) is deemed insignificant.
     :param output_file: out_file with chrom pos ref p(A) p(T) p(C) p(G) p(del).
     """
-    logger = get_named_logger('Panel')
+    logger = medaka.common.get_named_logger('SNPs')
 
     index = DataIndex(probs_hdfs)
 
     label_decoding = index.meta['medaka_label_decoding']
-    label_encoding = {label: ind for ind, label in enumerate(label_decoding)}
+    # include extra bases so we can encode e.g. N's in reference
+    label_encoding = {label: ind for ind, label in enumerate(label_decoding + list(medaka.common._extra_bases_))}
 
     logger.debug("Label decoding is:\n{}".format('\n'.join(
         '{}: {}'.format(i, x) for i, x in enumerate(label_decoding)
@@ -102,7 +103,7 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
     else:
         #TODO: respect entire region specification
         ref_names = list()
-        for region in (Region.from_string(r) for r in regions):
+        for region in (medaka.common.Region.from_string(r) for r in regions):
             if region.start is None or region.end is None:
                 logger.warning("Ignoring start:end for '{}'.".format(region))
             ref_names.append(region.ref_name)
@@ -110,7 +111,7 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
     # For SNPS, we assume we just want the label probabilities at major positions
     # We need to handle boundary effects simply to make sure we take the best
     # probability (which is furthest from the boundary).
-    with VCFWriter(out_file, 'w') as vcf_writer:
+    with VCFWriter(out_file, 'w', version='4.1') as vcf_writer:
         for ref_name in ref_names:
             ref_seq = pysam.FastaFile(ref_fasta).fetch(reference=ref_name)
             logger.info("Processing {}.".format(ref_name))
@@ -123,7 +124,7 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
                 if s2 is None:  # s1 is last chunk
                     end_1_ind = None  # go to the end of s2
                 else:
-                    end_1_ind, start_2_ind = get_sample_overlap(s1, s2)
+                    end_1_ind, start_2_ind = medaka.common.get_sample_overlap(s1, s2)
 
                 pos = s1.positions[start_1_ind:end_1_ind]
                 probs = s1.label_probs[start_1_ind:end_1_ind]
@@ -147,18 +148,23 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
                 secondary_labels = sorted_prob_inds[:, -2]
                 primary_probs = sorted_probs[:, -1]
                 secondary_probs = sorted_probs[:, -2]
+                # skip positions where ref is not a label (ATGC)
+                is_ref_valid_label = np.isin(ref_seq_encoded, np.arange(len(label_decoding)))
+
                 # homozygous SNPs
                 is_primary_diff_to_ref = np.not_equal(primary_labels, ref_seq_encoded)
-                is_primary_not_del = primary_labels != label_encoding[_gap_]
+                is_primary_not_del = primary_labels != label_encoding[medaka.common._gap_]
                 is_secondary_prob_lt_thresh = secondary_probs < threshold
                 is_homozygous_snp = np.logical_and(is_primary_diff_to_ref, is_primary_not_del)
                 is_homozygous_snp = np.logical_and(is_homozygous_snp, is_secondary_prob_lt_thresh)
+                is_homozygous_snp = np.logical_and(is_homozygous_snp, is_ref_valid_label)
                 homozygous_snp_inds = np.where(is_homozygous_snp)
                 # heterozygous SNPs
                 is_secondary_prob_ge_thresh = np.logical_not(is_secondary_prob_lt_thresh)
-                is_secondary_not_del = secondary_labels != label_encoding[_gap_]
+                is_secondary_not_del = secondary_labels != label_encoding[medaka.common._gap_]
                 is_heterozygous_snp = np.logical_and(is_secondary_prob_ge_thresh, is_secondary_not_del)
                 is_heterozygous_snp = np.logical_and(is_heterozygous_snp, is_primary_not_del)
+                is_heterozygous_snp = np.logical_and(is_heterozygous_snp, is_ref_valid_label)
                 heterozygous_snp_inds = np.where(is_heterozygous_snp)
                 variants = []
                 for i in homozygous_snp_inds[0]:
