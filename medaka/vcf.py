@@ -1,5 +1,5 @@
 from copy import deepcopy
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 import itertools
 from threading import Lock
 
@@ -66,7 +66,7 @@ class Variant(object):
     # TODO: Handle genomic fields.
     _format_fields_ = ('gt', 'gq',)
 
-    def __init__(self, chrom, pos, ref, alt='.', id='.', qual='.', filter='.', info='.', gt='.', gq='.'):
+    def __init__(self, chrom, pos, ref, alt='.', id='.', qual='.', filter='.', info='.', sample_dict=None):
         self.chrom = chrom
         self.pos = int(pos)
         self.ref = ref.upper()
@@ -79,8 +79,7 @@ class Variant(object):
             self.info = info
         else:
             self.info = parse_string_to_tags(info)
-        self.gt = gt
-        self.gq = gq
+        self.sample_dict = sample_dict if sample_dict is not None else OrderedDict()
 
 
     def __eq__(self, other):
@@ -96,12 +95,12 @@ class Variant(object):
 
     @property
     def format(self):
-        return ':'.join((f.upper() for f in self._format_fields_))
+        return ':'.join((str(v) for v in self.sample_dict.keys()))
 
 
     @property
-    def sampledata(self):
-        return ':'.join((str(getattr(self, f)) for f in self._format_fields_))
+    def sample(self):
+        return ':'.join((str(v) for v in self.sample_dict.values()))
 
 
     @property
@@ -111,10 +110,11 @@ class Variant(object):
 
     @classmethod
     def from_text(cls, line):
-        chrom, pos, id, ref, alt, qual, filter, info, *others = line.split('\t')
+        chrom, pos, id, ref, alt, qual, filter, info, sample_fields, sample_data, *others = line.split('\t')
         pos = int(pos)
         pos -= 1 # VCF is 1-based, python 0-based
-        return cls(chrom, pos, ref, alt=alt, id=id, qual=qual, filter=filter, info=info)
+        sample_dict = OrderedDict(zip(sample_fields.split(':'), sample_data.split(':')))
+        return cls(chrom, pos, ref, alt=alt, id=id, qual=qual, filter=filter, info=info, sample_dict=sample_dict)
 
 
     def add_tag(self, tag, value=None):
@@ -133,8 +133,9 @@ class Variant(object):
         attributes = {}
         for field in ('chrom', 'pos', 'ref', 'alt', 'id', 'qual', 'filter', 'info_string'):
             attributes[field] = getattr(self, field)
+        attributes['sample_repr'] = ';'.join('{}={}'.format(k,v) for k,v in self.sample_dict.items())
         return ("Variant('{chrom}', {pos}, '{ref}', alt={alt}, id={id}, qual={qual},"
-                " filter={filter}, info='{info_string}')".format(**attributes))
+                " filter={filter}, info='{info_string}', sample='{sample_repr}')".format(**attributes))
 
 
     def deep_copy(self):
@@ -148,7 +149,7 @@ class VCFWriter(object):
     # just won't be recognised and used as reserved fields.
     version_options = {'4.3', '4.1'}
     def __init__(self, filename, mode='w',
-                 header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'SAMPLEDATA'),
+                 header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'SAMPLE'),
                  meta_info=[],
                  version='4.3'
                  ):
@@ -175,6 +176,7 @@ class VCFWriter(object):
 
 
     def write_variant(self, variant):
+        variant = variant.deep_copy()
         # Some fields can be multiple
         for attribute in ('alt', 'filter'):
             value = getattr(variant, attribute)
@@ -295,6 +297,9 @@ class VCFReader(object):
         if end is None:
             end = float('inf')
 
+        def _tree_search(tree, start, end, strict):
+            return tree.overlap(start, end) if strict else tree.envelop(start, end)
+
         if not self.cache:
             # if not using a cache, just keep re-reading the file
             for variant in self._parse():
@@ -306,14 +311,12 @@ class VCFReader(object):
         else:
             self.index()
             if ref_name is not None:
-                results = self._tree[ref_name].search(start, end, strict=strict)
+                results = _tree_search(self._tree[ref_name], start, end, strict)
             else:
                 results = itertools.chain(*(
-                     x.search(start, end, strict=True)
+                     _tree_search(x, start, end, strict=True)
                      for x in self._tree.values()
                 ))
             # spec says .vcf is sorted, lets follow
             for interval in sorted(results):
                 yield interval.data
-
-
