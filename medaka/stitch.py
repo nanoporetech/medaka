@@ -78,14 +78,16 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
     return ref_assemblies
 
 
-def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
+def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, vcf_in=None):
     """Find potential homozygous and heterozygous snps based on a probability threshold.
 
     :param probs_hdfs: iterable of hdf filepaths.
     :param ref_fasta: reference fasta.
+    :param out_file: vcf output file.
     :param threshold: threshold below which a secondary call (which would make
             for a heterozygous call) is deemed insignificant.
-    :param output_file: out_file with chrom pos ref p(A) p(T) p(C) p(G) p(del).
+    :param vcf_in: input vcf to force evaluation only at these loci, even if we would
+            not otherwise call a SNP there.
     """
     logger = medaka.common.get_named_logger('SNPs')
 
@@ -108,12 +110,27 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
                 logger.warning("Ignoring start:end for '{}'.".format(region))
             ref_names.append(region.ref_name)
 
+    if vcf_in is not None:
+        vcf_in = medaka.vcf.VCFReader(vcf_in)
+#    if vcf_in is not None:
+#        # load loci from vcf
+#        with open(vcf_in) as fh:
+#            for line in fh:
+#                if line.startswith('#'):
+#                    continue
+#                split_line = line.split()
+#                chrom = split_line[0]
+#                pos = int(split_line[1])
+#                vcf_loci[chrom].add(pos)
+
     # For SNPS, we assume we just want the label probabilities at major positions
     # We need to handle boundary effects simply to make sure we take the best
     # probability (which is furthest from the boundary).
     with VCFWriter(out_file, 'w', version='4.1') as vcf_writer:
         for ref_name in ref_names:
+            called_loci = {}
             ref_seq = pysam.FastaFile(ref_fasta).fetch(reference=ref_name)
+            called_loci = {}
             logger.info("Processing {}.".format(ref_name))
             # TODO: refactor this and stitch to use common func/generator to get
             # chunks with overlapping bits trimmed off
@@ -174,10 +191,11 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
                             'secondary_prob': secondary_probs[i],
                             'secondary_label': label_decoding[secondary_labels[i]],
                             }
+                    sample = {'GT': 1, 'GQ': qual,}
                     qual = -10 * np.log10(1 - primary_probs[i])
                     variants.append(Variant(ref_name, major_pos[i], label_decoding[ref_base_encoded],
                                       alt=label_decoding[primary_labels[i]],
-                                      gt=1, gq=qual, filter='PASS', info=info, qual=qual))
+                                      filter='PASS', info=info, qual=qual, sample_dict=sample))
 
                 for i in heterozygous_snp_inds[0]:
                     ref_base_encoded = ref_seq_encoded[i]
@@ -186,11 +204,39 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1):
                             'secondary_prob': secondary_probs[i],
                             'secondary_label': label_decoding[secondary_labels[i]]
                             }
+                    sample = {'GT': 1, 'GQ': qual,}
                     qual = -10 * np.log10(1 - primary_probs[i] - secondary_probs[i])
                     alt = [label_decoding[l] for l in (primary_labels[i], secondary_labels[i]) if l != ref_base_encoded]
                     gt = '0/1' if len(alt) == 1 else '1/2'  # / => unphased
                     variants.append(Variant(ref_name, major_pos[i], label_decoding[ref_base_encoded],
-                                      alt=alt, gt=gt, gq=qual, filter='PASS', info=info, qual=qual))
+                                      alt=alt, filter='PASS', info=info, qual=qual, sample_dict=sample))
+
+#                # if we provided a vcf, check which positions are missing
+#                called_loci.update({v.pos for v in variants})
+#                missing_loci = vcf_loci[ref_name] - called_loci
+#                missing_loci_in_chunk = missing_loci.intersection(major_pos)
+#                missing_loci_in_chunk = np.fromiter(missing_loci_in_chunk, int, count=len(missing_loci_in_chunk))
+#                is_missing = np.isin(pos, missing_loci_in_chunk)
+#                missing_snp_inds = np.where(is_missing)
+#
+#                for i in missing_snp_inds[0]:
+#                    ref_base_encoded = ref_seq_encoded[i]
+#                    info = {'ref_prob': major_probs[i][ref_base_encoded],
+#                            'primary_prob': primary_probs[i],
+#                            'secondary_prob': secondary_probs[i],
+#                            'secondary_label': label_decoding[secondary_labels[i]],
+#                            }
+#                    qual = -10 * np.log10(1 - primary_probs[i])
+#                    # alt should be ref or deletion
+#                    raise NotImplementedError()
+#                    #alt = [label_decoding[l] for l in (primary_labels[i], secondary_labels[i]) if l != label_encoding[medaka.common._gap_]]
+#                    #variants.append(Variant(ref_name, major_pos[i], label_decoding[ref_base_encoded],
+#                    #                  alt=label_decoding[primary_labels[i]],
+#                    #                  gt=1, gq=qual, filter='PASS', info=info, qual=qual))
+#
+#
+
+
                 sorter = lambda v: v.pos
                 variants.sort(key=sorter)
                 for variant in variants:
