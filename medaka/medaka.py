@@ -158,6 +158,8 @@ def main():
     cparser.set_defaults(func=predict)
     cparser.add_argument('output', help='Output file.')
     cparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
+    cparser.add_argument('--save_features', action='store_true', default=False,
+                         help='Save features with consensus probabilities.')
 
     # Consensus from features input
     cfparser = subparsers.add_parser('consensus_from_features',
@@ -188,6 +190,7 @@ def main():
     pparser.add_argument('output', help='Output .vcf.', default='snps.vcf')
     pparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
     pparser.add_argument('--threshold', default=0.1, type=float, help='Threshold for considering secondary calls.')
+    pparser.add_argument('--ref_vcf', default=None, help='Reference vcf to compare to.')
 
     # Tools
     toolparser = subparsers.add_parser('tools',

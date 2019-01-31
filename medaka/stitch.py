@@ -1,3 +1,4 @@
+from collections import defaultdict
 from itertools import chain
 
 import numpy as np
@@ -78,7 +79,7 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
     return ref_assemblies
 
 
-def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, vcf_in=None):
+def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, ref_vcf=None):
     """Find potential homozygous and heterozygous snps based on a probability threshold.
 
     :param probs_hdfs: iterable of hdf filepaths.
@@ -86,7 +87,7 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, vcf_
     :param out_file: vcf output file.
     :param threshold: threshold below which a secondary call (which would make
             for a heterozygous call) is deemed insignificant.
-    :param vcf_in: input vcf to force evaluation only at these loci, even if we would
+    :param ref_vcf: input vcf to force evaluation only at these loci, even if we would
             not otherwise call a SNP there.
     """
     logger = medaka.common.get_named_logger('SNPs')
@@ -96,6 +97,9 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, vcf_
     label_decoding = index.meta['medaka_label_decoding']
     # include extra bases so we can encode e.g. N's in reference
     label_encoding = {label: ind for ind, label in enumerate(label_decoding + list(medaka.common._extra_bases_))}
+
+    fmt_feat = lambda x: '{}{}'.format('rev' if x[0] else 'fwd', x[2] * (x[1] if x[1] is not None else '-'))
+    feature_row_names = [fmt_feat(x) for x in index.meta['medaka_feature_decoding']]
 
     logger.debug("Label decoding is:\n{}".format('\n'.join(
         '{}: {}'.format(i, x) for i, x in enumerate(label_decoding)
@@ -110,27 +114,30 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, vcf_
                 logger.warning("Ignoring start:end for '{}'.".format(region))
             ref_names.append(region.ref_name)
 
-    if vcf_in is not None:
-        vcf_in = medaka.vcf.VCFReader(vcf_in)
-#    if vcf_in is not None:
-#        # load loci from vcf
-#        with open(vcf_in) as fh:
-#            for line in fh:
-#                if line.startswith('#'):
-#                    continue
-#                split_line = line.split()
-#                chrom = split_line[0]
-#                pos = int(split_line[1])
-#                vcf_loci[chrom].add(pos)
+
+    def _get_ref_variant(ref_vcf, ref_name, pos):
+        ref_variants = list(ref_vcf.fetch(ref_name=ref_name, start=pos, end=pos+1))
+        assert len(ref_variants) < 2
+        if len(ref_variants) == 0:
+            ref_info = {'ref_alt': 'na', 'ref_gt': 'na'}
+        else:
+            ref_info = {'ref_alt': ','.join(ref_variants[0].alt),
+                        'ref_gt': ref_variants[0].sample_dict['GT']}
+        return ref_info
+
+    if ref_vcf is not None:
+        ref_vcf = medaka.vcf.VCFReader(ref_vcf)
+        vcf_loci = defaultdict(set)
+        for v in ref_vcf.fetch():
+            vcf_loci[v.chrom].add(v.pos)
 
     # For SNPS, we assume we just want the label probabilities at major positions
     # We need to handle boundary effects simply to make sure we take the best
     # probability (which is furthest from the boundary).
     with VCFWriter(out_file, 'w', version='4.1') as vcf_writer:
         for ref_name in ref_names:
-            called_loci = {}
+            called_loci = set()
             ref_seq = pysam.FastaFile(ref_fasta).fetch(reference=ref_name)
-            called_loci = {}
             logger.info("Processing {}.".format(ref_name))
             # TODO: refactor this and stitch to use common func/generator to get
             # chunks with overlapping bits trimmed off
@@ -149,6 +156,8 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, vcf_
                 major_inds = np.where(pos['minor'] == 0)
                 major_pos = pos[major_inds]['major']
                 major_probs = probs[major_inds]
+                major_feat = s1.features[start_1_ind:end_1_ind][major_inds] if s1.features is not None else None
+
 
                 # for homozygous SNP max_prob_label not in {ref, del} and 2nd_max_prob < threshold
                 # for heterozygous SNP 2nd_max_prob > threshold and del not in {max_prob_label, 2nd_prob_label}
@@ -188,11 +197,18 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, vcf_
                     ref_base_encoded = ref_seq_encoded[i]
                     info = {'ref_prob': major_probs[i][ref_base_encoded],
                             'primary_prob': primary_probs[i],
+                            'primary_label': label_decoding[primary_labels[i]],
                             'secondary_prob': secondary_probs[i],
                             'secondary_label': label_decoding[secondary_labels[i]],
                             }
-                    sample = {'GT': 1, 'GQ': qual,}
+                    if ref_vcf is not None:
+                        ref_info = _get_ref_variant(ref_vcf, ref_name, major_pos[i])
+                        info.update(ref_info)
+                    if major_feat is not None:
+                        info.update(dict(zip(feature_row_names, major_feat[i])))
+
                     qual = -10 * np.log10(1 - primary_probs[i])
+                    sample = {'GT': 1, 'GQ': qual,}
                     variants.append(Variant(ref_name, major_pos[i], label_decoding[ref_base_encoded],
                                       alt=label_decoding[primary_labels[i]],
                                       filter='PASS', info=info, qual=qual, sample_dict=sample))
@@ -201,41 +217,49 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, vcf_
                     ref_base_encoded = ref_seq_encoded[i]
                     info = {'ref_prob': major_probs[i][ref_base_encoded],
                             'primary_prob': primary_probs[i],
+                            'primary_label': label_decoding[primary_labels[i]],
                             'secondary_prob': secondary_probs[i],
                             'secondary_label': label_decoding[secondary_labels[i]]
                             }
-                    sample = {'GT': 1, 'GQ': qual,}
+                    if ref_vcf is not None:
+                        ref_info = _get_ref_variant(ref_vcf, ref_name, major_pos[i])
+                        info.update(ref_info)
+                    if major_feat is not None:
+                        info.update(dict(zip(feature_row_names, major_feat[i])))
+
                     qual = -10 * np.log10(1 - primary_probs[i] - secondary_probs[i])
                     alt = [label_decoding[l] for l in (primary_labels[i], secondary_labels[i]) if l != ref_base_encoded]
                     gt = '0/1' if len(alt) == 1 else '1/2'  # / => unphased
+                    sample = {'GT': gt, 'GQ': qual,}
                     variants.append(Variant(ref_name, major_pos[i], label_decoding[ref_base_encoded],
                                       alt=alt, filter='PASS', info=info, qual=qual, sample_dict=sample))
 
-#                # if we provided a vcf, check which positions are missing
-#                called_loci.update({v.pos for v in variants})
-#                missing_loci = vcf_loci[ref_name] - called_loci
-#                missing_loci_in_chunk = missing_loci.intersection(major_pos)
-#                missing_loci_in_chunk = np.fromiter(missing_loci_in_chunk, int, count=len(missing_loci_in_chunk))
-#                is_missing = np.isin(pos, missing_loci_in_chunk)
-#                missing_snp_inds = np.where(is_missing)
-#
-#                for i in missing_snp_inds[0]:
-#                    ref_base_encoded = ref_seq_encoded[i]
-#                    info = {'ref_prob': major_probs[i][ref_base_encoded],
-#                            'primary_prob': primary_probs[i],
-#                            'secondary_prob': secondary_probs[i],
-#                            'secondary_label': label_decoding[secondary_labels[i]],
-#                            }
-#                    qual = -10 * np.log10(1 - primary_probs[i])
-#                    # alt should be ref or deletion
-#                    raise NotImplementedError()
-#                    #alt = [label_decoding[l] for l in (primary_labels[i], secondary_labels[i]) if l != label_encoding[medaka.common._gap_]]
-#                    #variants.append(Variant(ref_name, major_pos[i], label_decoding[ref_base_encoded],
-#                    #                  alt=label_decoding[primary_labels[i]],
-#                    #                  gt=1, gq=qual, filter='PASS', info=info, qual=qual))
-#
-#
+                if ref_vcf is not None:
+                    # if we provided a vcf, check which positions are missing
+                    called_loci.update({v.pos for v in variants})
+                    missing_loci = vcf_loci[ref_name] - called_loci
+                    missing_loci_in_chunk = missing_loci.intersection(major_pos)
+                    missing_loci_in_chunk = np.fromiter(missing_loci_in_chunk, int, count=len(missing_loci_in_chunk))
+                    is_missing = np.isin(major_pos, missing_loci_in_chunk)
+                    missing_snp_inds = np.where(is_missing)
 
+                    for i in missing_snp_inds[0]:
+                        ref_base_encoded = ref_seq_encoded[i]
+                        info = {'ref_prob': major_probs[i][ref_base_encoded],
+                                'primary_prob': primary_probs[i],
+                                'primary_label': label_decoding[primary_labels[i]],
+                                'secondary_prob': secondary_probs[i],
+                                'secondary_label': label_decoding[secondary_labels[i]],
+                                }
+                        ref_info = _get_ref_variant(ref_vcf, ref_name, major_pos[i])
+                        info.update(ref_info)
+                        if major_feat is not None:
+                            info.update(dict(zip(feature_row_names, major_feat[i])))
+                        qual = -10 * np.log10(1 - primary_probs[i])
+                        sample = {'GT': 0, 'GQ': qual,}
+                        variants.append(Variant(ref_name, major_pos[i], label_decoding[ref_base_encoded],
+                                          alt='.',
+                                          filter='PASS', info=info, qual=qual, sample_dict=sample))
 
                 sorter = lambda v: v.pos
                 variants.sort(key=sorter)
@@ -256,4 +280,4 @@ def stitch(args):
 
 
 def snps(args):
-    find_snps(args.inputs, args.ref_fasta, args.output, regions=args.regions, threshold=args.threshold)
+    find_snps(args.inputs, args.ref_fasta, args.output, regions=args.regions, threshold=args.threshold, ref_vcf=args.ref_vcf)

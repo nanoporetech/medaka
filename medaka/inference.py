@@ -550,7 +550,7 @@ class VCFChunkWriter(object):
 
 
 def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fraction, chunk_len, chunk_ovlp,
-                   batch_size=200):
+                   batch_size=200, save_features=False):
     """Inference worker."""
 
     logger = get_named_logger('PWorker')
@@ -586,11 +586,11 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fracti
                 logger.info(msg.format(mbases_done / total_region_mbases, mbases_done, total_region_mbases, t1 - t0))
 
             best = np.argmax(class_probs, -1)
-            for sample, prob, pred in zip(data, class_probs, best):
+            for sample, prob, pred, feat in zip(data, class_probs, best, x_data):
                 # write out positions and predictions for later analysis
                 sample_d = sample._asdict()
                 sample_d['label_probs'] = prob
-                sample_d['features'] = None  # to keep file sizes down
+                sample_d['features'] = feat if save_features else None
                 ds.write_sample(Sample(**sample_d))
 
     logger.info('All done')
@@ -646,7 +646,7 @@ def predict(args):
         run_prediction(
             args.output, args.bam, long_regions, model, args.model, args.rle_ref, args.read_fraction,
             args.chunk_len, args.chunk_ovlp,
-            batch_size=args.batch_size
+            batch_size=args.batch_size, save_features=args.save_features,
         )
 
     # short regions must be done individually since they have differing lengths
@@ -661,7 +661,7 @@ def predict(args):
             run_prediction(
                 args.output, args.bam, [region], model, args.model, args.rle_ref, args.read_fraction,
                 chunk_len, chunk_ovlp,
-                batch_size=args.batch_size
+                batch_size=args.batch_size, save_features=args.save_features,
             )
     logger.info("Finished processing all regions.")
 
