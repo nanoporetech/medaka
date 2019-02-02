@@ -63,6 +63,20 @@ def qscore(y_true, y_pred):
     return -10.0 * 0.434294481 * K.log(error)
 
 
+def cat_acc(y_true, y_pred):
+    # sparse_categorical_accuracy is broken in keras 2.2.4
+    #   https://github.com/keras-team/keras/issues/11348#issuecomment-439969957
+    # this is taken from e59570ae
+    from keras import backend as K
+    # reshape in case it's in shape (num_samples, 1) instead of (num_samples,)
+    if K.ndim(y_true) == K.ndim(y_pred):
+        y_true = K.squeeze(y_true, -1)
+    # convert dense predictions to labels
+    y_pred_labels = K.argmax(y_pred, axis=-1)
+    y_pred_labels = K.cast(y_pred_labels, K.floatx())
+    return K.cast(K.equal(y_true, y_pred_labels), K.floatx())
+
+
 def run_training(train_name, batcher, model_fp=None,
                  epochs=5000, class_weight=None, n_mini_epochs=1):
     """Run training."""
@@ -123,18 +137,18 @@ def run_training(train_name, batcher, model_fp=None,
     callbacks = [
         # Best model according to training set accuracy
         ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model.best.hdf5'),
-                            monitor='acc', **opts),
+                            monitor='cat_acc', **opts),
         # Best model according to validation set accuracy
         ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model.best.val.hdf5'),
-                        monitor='val_acc', **opts),
+                        monitor='val_cat_acc', **opts),
         # Best model according to validation set qscore
         ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model.best.val.qscore.hdf5'),
                         monitor='val_qscore', **opts),
         # Checkpoints when training set accuracy improves
-        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model-acc-improvement-{epoch:02d}-{acc:.2f}.hdf5'),
-                        monitor='acc', **opts),
-        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model-val_acc-improvement-{epoch:02d}-{val_acc:.2f}.hdf5'),
-                        monitor='val_acc', **opts),
+        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model-acc-improvement-{epoch:02d}-{cat_acc:.2f}.hdf5'),
+                        monitor='cat_acc', **opts),
+        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model-val_acc-improvement-{epoch:02d}-{val_cat_acc:.2f}.hdf5'),
+                        monitor='val_cat_acc', **opts),
         # Stop when no improvement, patience is number of epochs to allow no improvement
         EarlyStopping(monitor='val_loss', patience=20),
         # Log of epoch stats
@@ -156,7 +170,7 @@ def run_training(train_name, batcher, model_fp=None,
     model.compile(
        loss=loss,
        optimizer='rmsprop',
-       metrics=['accuracy', qscore],
+       metrics=[cat_acc, qscore],
     )
 
     if n_mini_epochs == 1:
@@ -166,9 +180,11 @@ def run_training(train_name, batcher, model_fp=None,
 
     # fit generator
     model.fit_generator(
-        batcher.gen_train(), steps_per_epoch=ceil(batcher.n_train_batches/n_mini_epochs),
-        validation_data=batcher.gen_valid(), validation_steps=batcher.n_valid_batches,
-        max_queue_size=8, workers=1, use_multiprocessing=False,
+        #batcher.fit_generator('train'), steps_per_epoch=ceil(batcher.n_train_batches/n_mini_epochs),
+        SequenceBatcher(batcher, mini_epochs=n_mini_epochs),
+        #validation_data=batcher.gen_valid(), validation_steps=batcher.n_valid_batches,
+        validation_data=SequenceBatcher(batcher, 'validation'),
+        max_queue_size=16, workers=8, use_multiprocessing=True,
         epochs=epochs,
         #verbose=False,
         callbacks=callbacks,
@@ -242,28 +258,28 @@ class TrainBatcher():
         self.logger.info("Max label length: {}".format(self.max_label_len if self.max_label_len is not None else 'inf'))
         self.label_encoding, self.label_decoding, self.label_counts = process_labels(self.label_counts, max_label_len=self.max_label_len)
 
-        prep_func = functools.partial(TrainBatcher.sample_to_x_y,
-                                      max_label_len=self.max_label_len,
-                                      label_encoding=self.label_encoding,
-                                      sparse_labels=self.sparse_labels,
-                                      n_classes=self.n_classes)
+        #self.prep_func = functools.partial(TrainBatcher.sample_to_x_y,
+        #                              max_label_len=self.max_label_len,
+        #                              label_encoding=self.label_encoding,
+        #                              sparse_labels=self.sparse_labels,
+        #                              n_classes=self.n_classes)
 
-        self.threads = threads
-        self.executor = ProcessPoolExecutor(self.threads)
-        self._valid_queue = BatchQueue(self.valid_samples, prep_func,
-                                       self.batch_size, self.executor,
-                                       self.seed, name='ValidBatcher',
-                                       maxsize=min(2 * self.n_valid_batches,
-                                                   100),)
-        self._train_queue = BatchQueue(self.train_samples, prep_func,
-                                       self.batch_size, self.executor,
-                                       self.seed, name='TrainBatcher',
-                                       maxsize=min(2 * self.n_train_batches,
-                                                   100),)
+        #self.threads = threads
+        #self.executor = ProcessPoolExecutor(self.threads)
+        #prep_func = self.prep_func
+        #self._valid_queue = BatchQueue(self.valid_samples, prep_func,
+        #                               self.batch_size, self.executor,
+        #                               self.seed, name='ValidBatcher',
+        #                               maxsize=min(2 * self.n_valid_batches,
+        #                                           100),)
+        #self._train_queue = BatchQueue(self.train_samples, prep_func,
+        #                               self.batch_size, self.executor,
+        #                               self.seed, name='TrainBatcher',
+        #                               maxsize=min(2 * self.n_train_batches,
+        #                                           100),)
 
 
-    @staticmethod
-    def sample_to_x_y(sample, max_label_len, label_encoding, sparse_labels, n_classes):
+    def sample_to_x_y(self, sample):
         """Convert a `Sample` object into an x,y tuple for training.
 
         :param sample: (filename, sample key)
@@ -274,6 +290,11 @@ class TrainBatcher():
         :returns: (np.ndarray of inputs, np.ndarray of labels)
         """
         sample_key, sample_file = sample
+
+        max_label_len=self.max_label_len
+        label_encoding=self.label_encoding
+        sparse_labels=self.sparse_labels
+        n_classes=self.n_classes
 
         with DataStore(sample_file) as ds:
             s = ds.load_sample(sample_key)
@@ -294,20 +315,19 @@ class TrainBatcher():
             y = to_categorical(y, num_classes=n_classes)
         return x, y
 
-
-    @staticmethod
-    def samples_to_batch(samples, prep_func, name, batch, epoch):
+    
+    def samples_to_batch(self, samples):
         t0 = now()
-        items = [prep_func(s) for s in samples]
+        items = [self.sample_to_x_y(s) for s in samples]
         xs, ys = zip(*items)
         x, y = np.stack(xs), np.stack(ys)
-        get_named_logger(name).debug("Took {:5.3}s to load batch {} (epoch {})".format(now()-t0, batch, epoch))
         return x, y
-
-
+    
+    
     def stop(self):
-        self._train_queue.stop()
-        self._valid_queue.stop()
+        pass
+        #self._train_queue.stop()
+        #self._valid_queue.stop()
 
 
     @threadsafe_generator
@@ -318,6 +338,48 @@ class TrainBatcher():
     @threadsafe_generator
     def gen_valid(self):
         yield from self._valid_queue.yield_batches()
+
+
+from keras.utils import Sequence
+
+class SequenceBatcher(Sequence):
+    def __init__(self, batcher, dataset='train', mini_epochs=1):
+        self.batcher = batcher
+        self.dataset = dataset
+        self.mini_epochs = mini_epochs
+        self.batch_size = self.batcher.batch_size
+        self.epoch = 1
+        if dataset == 'train':
+            self.data = batcher.train_samples
+        elif dataset == 'validation':
+            self.data = batcher.valid_samples
+        else:
+            raise ValueError("'dataset' should be 'train' or 'validation'.")
+        self.logger = get_named_logger('{}Batcher'.format(dataset.capitalize()))
+
+
+    def __len__(self):
+        if self.dataset == 'train':
+            n_batches = self.batcher.n_train_batches
+        else:
+            n_batches = self.batcher.n_valid_batches
+        return int(ceil(n_batches / self.mini_epochs))
+
+
+    def __getitem__(self, idx):
+        t0 = now()
+        bs = self.batcher.batch_size
+        samples = self.data[idx * bs:(idx + 1) * bs]
+        batch = self.batcher.samples_to_batch(samples)
+        self.logger.debug("Took {:5.3}s to load batch {}. (epoch {})".format(now() - t0, idx, self.epoch))
+        return batch
+
+
+    def on_epoch_end(self):
+        # shuffle data (keras only shuffles batches)
+        # TODO: respect mini_epochs to traverse all data
+        self.epoch += 1
+        np.random.shuffle(self.dataset)
 
 
 class BatchQueue(object):
