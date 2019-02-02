@@ -73,7 +73,8 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128):
 
     # if we can see a gpu, use CuDNNGRU for speed
     cudnn = False
-    if len(K.tensorflow_backend._get_available_gpus()) > 1:
+    gpus = K.tensorflow_backend._get_available_gpus()
+    if len(gpus) > 0:
         cudnn = True
 
     logger.info("With cudnn: {}".format(cudnn))
