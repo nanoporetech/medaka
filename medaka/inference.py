@@ -4,7 +4,6 @@ import functools
 import inspect
 import itertools
 import logging
-from math import ceil
 import os
 import queue
 import threading
@@ -239,8 +238,8 @@ class TrainBatcher():
             fraction = len(self.valid_samples) / len(self.valid_samples) + len(self.train_samples)
             self.logger.info(msg.format(len(self.valid_samples), fraction))
 
-        self.n_train_batches = ceil(len(self.train_samples) / batch_size)
-        self.n_valid_batches = ceil(len(self.valid_samples) / batch_size)
+        self.n_train_batches = len(self.train_samples) // batch_size
+        self.n_valid_batches = len(self.valid_samples) // batch_size
 
         msg = 'Got {} samples in {} batches ({} labels) for {}'
         self.logger.info(msg.format(len(self.train_samples),
@@ -347,23 +346,22 @@ class SequenceBatcher(Sequence):
         self.batcher = batcher
         self.dataset = dataset
         self.mini_epochs = mini_epochs
-        self.batch_size = self.batcher.batch_size
         self.epoch = 1
         if dataset == 'train':
             self.data = batcher.train_samples
+            self.n_batches = self.batcher.n_train_batches
         elif dataset == 'validation':
             self.data = batcher.valid_samples
+            self.n_batches = self.batcher.n_valid_batches
+            if mini_epochs != 1:
+                raise ValueError("'mini_epochs' must be equal to 1 for validation data.")
         else:
             raise ValueError("'dataset' should be 'train' or 'validation'.")
         self.logger = get_named_logger('{}Batcher'.format(dataset.capitalize()))
 
 
     def __len__(self):
-        if self.dataset == 'train':
-            n_batches = self.batcher.n_train_batches
-        else:
-            n_batches = self.batcher.n_valid_batches
-        return int(ceil(n_batches / self.mini_epochs))
+        return self.n_batches // self.mini_epochs
 
 
     def __getitem__(self, idx):
@@ -379,7 +377,7 @@ class SequenceBatcher(Sequence):
         # shuffle data (keras only shuffles batches)
         # TODO: respect mini_epochs to traverse all data
         self.epoch += 1
-        np.random.shuffle(self.dataset)
+        np.random.shuffle(self.data)
 
 
 class BatchQueue(object):
