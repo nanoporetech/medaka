@@ -79,7 +79,8 @@ def cat_acc(y_true, y_pred):
 def run_training(train_name, batcher, model_fp=None,
                  epochs=5000, class_weight=None, n_mini_epochs=1):
     """Run training."""
-    from keras.callbacks import ModelCheckpoint, CSVLogger, TensorBoard, EarlyStopping
+    from keras.callbacks import CSVLogger, TensorBoard, EarlyStopping, ReduceLROnPlateau
+    from medaka.keras_ext import ModelMetaCheckpoint, SequenceBatcher
 
     logger = get_named_logger('RunTraining')
 
@@ -120,19 +121,6 @@ def run_training(train_name, batcher, model_fp=None,
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
 
-    # define class here to avoid top-level keras import
-    class ModelMetaCheckpoint(ModelCheckpoint):
-        """Custom ModelCheckpoint to add medaka-specific metadata to model files"""
-        def __init__(self, medaka_meta, *args, **kwargs):
-            super(ModelMetaCheckpoint, self).__init__(*args, **kwargs)
-            self.medaka_meta = medaka_meta
-
-        def on_epoch_end(self, epoch, logs=None):
-            super(ModelMetaCheckpoint, self).on_epoch_end(epoch, logs)
-            filepath = self.filepath.format(epoch=epoch + 1, **logs)
-            with DataStore(filepath, 'a') as ds:
-                ds.meta.update(self.medaka_meta)
-
     callbacks = [
         # Best model according to training set accuracy
         ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model.best.hdf5'),
@@ -148,7 +136,10 @@ def run_training(train_name, batcher, model_fp=None,
                         monitor='cat_acc', **opts),
         ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model-val_acc-improvement-{epoch:02d}-{val_cat_acc:.2f}.hdf5'),
                         monitor='val_cat_acc', **opts),
-        # Stop when no improvement, patience is number of epochs to allow no improvement
+        ## Reduce learning rate when no improvement
+        #ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5,
+        #    verbose=1, min_delta=0.0001, cooldown=0, min_lr=0),
+        # Stop when no improvement
         EarlyStopping(monitor='val_loss', patience=20),
         # Log of epoch stats
         CSVLogger(os.path.join(train_name, 'training.log')),
@@ -257,26 +248,6 @@ class TrainBatcher():
         self.logger.info("Max label length: {}".format(self.max_label_len if self.max_label_len is not None else 'inf'))
         self.label_encoding, self.label_decoding, self.label_counts = process_labels(self.label_counts, max_label_len=self.max_label_len)
 
-        #self.prep_func = functools.partial(TrainBatcher.sample_to_x_y,
-        #                              max_label_len=self.max_label_len,
-        #                              label_encoding=self.label_encoding,
-        #                              sparse_labels=self.sparse_labels,
-        #                              n_classes=self.n_classes)
-
-        #self.threads = threads
-        #self.executor = ProcessPoolExecutor(self.threads)
-        #prep_func = self.prep_func
-        #self._valid_queue = BatchQueue(self.valid_samples, prep_func,
-        #                               self.batch_size, self.executor,
-        #                               self.seed, name='ValidBatcher',
-        #                               maxsize=min(2 * self.n_valid_batches,
-        #                                           100),)
-        #self._train_queue = BatchQueue(self.train_samples, prep_func,
-        #                               self.batch_size, self.executor,
-        #                               self.seed, name='TrainBatcher',
-        #                               maxsize=min(2 * self.n_train_batches,
-        #                                           100),)
-
 
     def sample_to_x_y(self, sample):
         """Convert a `Sample` object into an x,y tuple for training.
@@ -321,174 +292,6 @@ class TrainBatcher():
         xs, ys = zip(*items)
         x, y = np.stack(xs), np.stack(ys)
         return x, y
-    
-    
-    def stop(self):
-        pass
-        #self._train_queue.stop()
-        #self._valid_queue.stop()
-
-
-    @threadsafe_generator
-    def gen_train(self):
-        yield from self._train_queue.yield_batches()
-
-
-    @threadsafe_generator
-    def gen_valid(self):
-        yield from self._valid_queue.yield_batches()
-
-
-from keras.utils import Sequence
-
-class SequenceBatcher(Sequence):
-    def __init__(self, batcher, dataset='train', mini_epochs=1):
-        self.batcher = batcher
-        self.dataset = dataset
-        self.mini_epochs = mini_epochs
-        self.epoch = 1
-        if dataset == 'train':
-            self.data = batcher.train_samples
-            self.n_batches = self.batcher.n_train_batches
-        elif dataset == 'validation':
-            self.data = batcher.valid_samples
-            self.n_batches = self.batcher.n_valid_batches
-            if mini_epochs != 1:
-                raise ValueError("'mini_epochs' must be equal to 1 for validation data.")
-        else:
-            raise ValueError("'dataset' should be 'train' or 'validation'.")
-        self.logger = get_named_logger('{}Batcher'.format(dataset.capitalize()))
-
-
-    def __len__(self):
-        return self.n_batches // self.mini_epochs
-
-
-    def __getitem__(self, idx):
-        t0 = now()
-        bs = self.batcher.batch_size
-        samples = self.data[idx * bs:(idx + 1) * bs]
-        batch = self.batcher.samples_to_batch(samples)
-        self.logger.debug("Took {:5.3}s to load batch {}. (epoch {})".format(now() - t0, idx, self.epoch))
-        return batch
-
-
-    def on_epoch_end(self):
-        # shuffle data (keras only shuffles batches)
-        # TODO: respect mini_epochs to traverse all data
-        self.epoch += 1
-        np.random.shuffle(self.data)
-
-
-class BatchQueue(object):
-    def  __init__(self, samples, prep_func, batch_size, executor, seed=None, name='Batcher', maxsize=100):
-        """Load and queue training samples into batches from `.hdf` files.
-
-        :param samples: tuples of (filename, hdf sample key).
-        :param prep_func: function to transform a sample to x,y data.
-        :param batch_size: group samples by this number.
-        :param executor: `ThreadPoolExecutor` instance.
-        :param seed: seed for shuffling.
-        :param name: str, name for logger.
-        :param maxsize: int, maximum queue size.
-
-        Once initialized batches can be retrieved using batch_q._queue.get().
-
-        """
-        self.samples = samples
-        self.prep_func = prep_func
-        self.batch_size = batch_size
-
-        if seed is not None:
-            np.random.seed(seed)
-
-        self.name = name
-        self.logger = get_named_logger(name)
-        self.maxsize = maxsize
-        self._queue = queue.Queue(maxsize=self.maxsize)
-        self._queue = queue.Queue(maxsize=self.maxsize)
-        self.executor = executor
-        self.stopped = threading.Event()
-        self.qthread = threading.Thread(target=self._fill_queue_batch)
-        self.qthread.start()
-        time.sleep(2)
-        self.logger.info("Started reading samples from files with queue size {}".format(maxsize))
-
-
-    def stop(self, timeout=5):
-        self.logger.info("About to stop.")
-        self.stopped.set()
-        self.logger.info("Waiting for read thread.")
-        self.qthread.join(timeout)
-        if self.qthread.is_alive:
-            self.logger.critical("Read thread did not terminate after {}s.".format(timeout))
-
-
-    def _fill_queue_batch(self):
-        epoch = 0
-        self.loaded_batches = 0
-        self.submitted_batches = 0
-        self.taken_batches = 0
-        while not self.stopped.is_set():
-            batch = 0
-            np.random.shuffle(self.samples)
-            for samples in grouper(iter(self.samples), batch_size=self.batch_size):
-                if self.stopped.is_set(): # the loop is potentially long-running
-                    self.logger.info("Batching stopped.")
-                    return
-                res = self.executor.submit(TrainBatcher.samples_to_batch, samples, self.prep_func, self.name, batch, epoch)
-                res.add_done_callback(self._count_finished)
-                while True: # keep an eye on the stopped flag
-                    try:
-                        self._queue.put(res, timeout=1)
-                    except queue.Full:
-                        #self.logger.debug("Queue is full ({}), cannot put, trying again.".format(self._queue.qsize()))
-                        if self.stopped.is_set():
-                            self.logger.info("Batching stopped.")
-                            return
-                    else:
-                        #self.logger.debug("Successfully put sample (future).")
-                        self.submitted_batches += 1
-                        break
-                batch += 1
-            epoch += 1
-        self.logger.info("Batching stopped.")
-        return
-
-    def _count_finished(self, future):
-        self.loaded_batches += 1
-
-
-    @threadsafe_generator
-    def yield_batches(self):
-        time_between = deque(maxlen=50)
-        get_time = deque(maxlen=50)
-        t0 = now()
-        try:
-            while True:
-                t0, t1 = now(), t0
-                ta = now()
-                res = self._queue.get()
-                if isinstance(res, Future):
-                    res =  res.result()
-                get_time.append(now() - ta)
-                time_between.append(t0 - t1)
-                get_rate = np.mean(get_time)
-                req_rate = np.mean(time_between) - get_rate
-                self.logger.debug(
-                    "Request every: {:5.3}s. Fetch time: {:5.3}.".format(
-                    np.mean(time_between), np.mean(get_time)
-                ))
-                self.logger.debug("Queue state: {}/{} ready.".format(
-                    self.loaded_batches - self.taken_batches,
-                    self.submitted_batches - self.taken_batches
-                ))
-                self.taken_batches += 1
-                yield res
-        except Exception as e:
-            self.logger.critical("Exception caught why yielding batches: {}".format(e))
-            self.stop()
-            raise e
 
 
 class VarQueue(list):
