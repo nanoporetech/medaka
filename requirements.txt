@@ -2,9 +2,9 @@
 # Add comments to keep track of why we are using particular versions
 biopython
 cffi
-h5py
+h5py==2.7.1             # 2.8.0 and 2.9.0 seem to not like keras model writing
 intervaltree
-keras==2.1.6 #has CuDNNGRU-compatible GRU
-tensorflow==1.12.0 #this comes with keras 2.1.6 so a safe bet
+keras==2.2.4            # fixes some model checkpointing issues
+tensorflow-gpu==1.12.0  # comes with keras 2.1.6 which introduced CuDNNGRU
 numpy
 pysam
