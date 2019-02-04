@@ -64,7 +64,6 @@ class Variant(object):
     # TODO: ref/alt could be a symbolic allele "<ID>".
     # TODO: alt could contain breakends.
     # TODO: Handle genomic fields.
-    _format_fields_ = ('gt', 'gq',)
 
     def __init__(self, chrom, pos, ref, alt='.', id='.', qual='.', filter='.', info='.', sample_dict=None):
         self.chrom = chrom
@@ -105,7 +104,7 @@ class Variant(object):
 
     @property
     def info_string(self):
-        return parse_tags_to_string(self.info)
+         return parse_tags_to_string(self.info)
 
 
     @classmethod
@@ -140,6 +139,15 @@ class Variant(object):
 
     def deep_copy(self):
         return deepcopy(self)
+
+
+    def to_dict(self):
+        d = dict(alt=','.join(self.alt))
+        for attr in ['chrom', 'pos', 'qual', 'id', 'filter', 'ref']:
+            d[attr] = getattr(self, attr)
+        d.update(self.info)
+        d.update(self.sample_dict)
+        return d
 
 
 class VCFWriter(object):
