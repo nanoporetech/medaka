@@ -16,7 +16,8 @@ import pysam
 from medaka import vcf
 from medaka.datastore import DataStore, DataIndex
 from medaka.common import (get_regions, decoding, grouper, mkdir_p, Sample,
-                           _gap_, threadsafe_generator, get_named_logger)
+                           _gap_, threadsafe_generator, background_generator,
+                           get_named_logger)
 
 from medaka.features import SampleGenerator
 import medaka.models
@@ -426,7 +427,9 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fracti
                 bam, region, model_file, rle_ref, read_fraction,
                 chunk_len=chunk_len, chunk_overlap=chunk_ovlp)
             yield from data_gen.samples
-    batches = grouper(sample_gen(), batch_size)
+    batches = background_generator(
+        grouper(sample_gen(), batch_size), 10
+    )
 
     total_region_mbases = sum(r.size for r in regions) / 1e6
     logger.info("Running inference for {:.1f}M draft bases.".format(total_region_mbases))
@@ -438,8 +441,7 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fracti
         tlast = t0
         for data in batches:
             x_data = np.stack([x.features for x in data])
-            # TODO: change to predict_on_batch?
-            class_probs = model.predict(x_data, batch_size=batch_size, verbose=0)
+            class_probs = model.predict_on_batch(x_data)
             mbases_done += sum(x.span for x in data) / 1e6
             mbases_done = min(mbases_done, total_region_mbases)  # just to avoid funny log msg
             t1 = now()
