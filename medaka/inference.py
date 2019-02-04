@@ -81,7 +81,7 @@ def run_training(train_name, batcher, model_fp=None,
                  epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1):
     """Run training."""
     from keras.callbacks import CSVLogger, TensorBoard, EarlyStopping, ReduceLROnPlateau
-    from medaka.keras_ext import ModelMetaCheckpoint, SequenceBatcher
+    from medaka.keras_ext import ModelMetaCheckpoint, SequenceBatcher, BatchQueue
 
     logger = get_named_logger('RunTraining')
 
@@ -160,24 +160,58 @@ def run_training(train_name, batcher, model_fp=None,
 
     model.compile(
        loss=loss,
-       optimizer='rmsprop',
+       optimizer='nadam',
        metrics=[cat_acc, qscore],
     )
 
     if n_mini_epochs == 1:
-        logging.info("Not using mini_epochs, an epoch is a full traversal of the training data")
+        logger.info("Not using mini_epochs, an epoch is a full traversal of the training data")
     else:
-        logging.info("Using mini_epochs, an epoch is a traversal of 1/{} of the training data".format(n_mini_epochs))
+        logger.info("Using mini_epochs, an epoch is a traversal of 1/{} of the training data".format(n_mini_epochs))
 
-    # fit generator
-    model.fit_generator(
-        SequenceBatcher(batcher, mini_epochs=n_mini_epochs),
-        validation_data=SequenceBatcher(batcher, 'validation'),
-        max_queue_size=2*threads_io, workers=threads_io, use_multiprocessing=True,
-        epochs=epochs,
-        callbacks=callbacks,
-        class_weight=class_weight,
-    )
+
+    with ProcessPoolExecutor(threads_io) as executor:
+        logger.info("Starting data queues.")
+        prep_function = functools.partial(
+            batcher.sample_to_x_y_bq_worker,
+            max_label_len=batcher.max_label_len,
+            label_encoding=batcher.label_encoding,
+            sparse_labels=batcher.sparse_labels,
+            n_classes=batcher.n_classes
+        )
+        # TODO: should take mini_epochs into account here
+        train_queue = BatchQueue(
+            batcher.train_samples, prep_function, batcher.batch_size, executor,
+            seed=batcher.seed, name='Train', maxsize=100
+        )
+        valid_queue = BatchQueue(
+            batcher.valid_samples, prep_function, batcher.batch_size, executor,
+            seed=batcher.seed, name='Valid', maxsize=100
+        )
+
+        # run training
+        logger.info("Starting training.")
+        model.fit_generator(
+            generator=train_queue.yield_batches(), steps_per_epoch=train_queue.n_batches // n_mini_epochs,
+            validation_data=valid_queue.yield_batches(), validation_steps=valid_queue.n_batches,
+            max_queue_size=2*threads_io, workers=1, use_multiprocessing=False,
+            epochs=epochs,
+            callbacks=callbacks,
+            class_weight=class_weight,
+        )
+        logger.info("Training finished.")
+        train_queue.stop()
+        valid_queue.stop()
+
+    #TODO: understand why this is buggy (occasionally hangs during validation)
+    #model.fit_generator(
+    #    SequenceBatcher(batcher, mini_epochs=n_mini_epochs),
+    #    validation_data=SequenceBatcher(batcher, 'validation'),
+    #    max_queue_size=2*threads_io, workers=threads_io, use_multiprocessing=True,
+    #    epochs=epochs,
+    #    callbacks=callbacks,
+    #    class_weight=class_weight,
+    #)
 
 
 class TrainBatcher():
@@ -228,16 +262,13 @@ class TrainBatcher():
             fraction = len(self.valid_samples) / len(self.valid_samples) + len(self.train_samples)
             self.logger.info(msg.format(len(self.valid_samples), fraction))
 
-        self.n_train_batches = len(self.train_samples) // batch_size
-        self.n_valid_batches = len(self.valid_samples) // batch_size
-
         msg = 'Got {} samples in {} batches ({} labels) for {}'
         self.logger.info(msg.format(len(self.train_samples),
-                                    self.n_train_batches,
+                                    len(self.train_samples) // batch_size,
                                     len(self.train_samples) * self.feature_shape[0],
                                     'training'))
         self.logger.info(msg.format(len(self.valid_samples),
-                                    self.n_valid_batches,
+                                    len(self.valid_samples) // batch_size,
                                     len(self.valid_samples) * self.feature_shape[0],
                                     'validation'))
 
@@ -252,18 +283,44 @@ class TrainBatcher():
         """Convert a `Sample` object into an x,y tuple for training.
 
         :param sample: (filename, sample key)
+        
+        :returns: (np.ndarray of inputs, np.ndarray of labels)
+        
+        """
+        return self.sample_to_x_y_bq_worker(
+            sample, self.max_label_len, self.label_encoding,
+            self.sparse_labels, self.n_classes)
+
+    
+    def samples_to_batch(self, samples):
+        """Convert a set of `Sample` objects into an X, Y tuple for training.
+
+        :param samples: (filename, sample key) tuples
+        
+        :returns: (np.ndarray of inputs, np.ndarray of labels)
+        
+        """
+        t0 = now()
+        items = [self.sample_to_x_y(s) for s in samples]
+        xs, ys = zip(*items)
+        x, y = np.stack(xs), np.stack(ys)
+        return x, y
+
+
+    @staticmethod
+    def sample_to_x_y_bq_worker(sample, max_label_len, label_encoding, sparse_labels, n_classes):
+        """Convert a `Sample` object into an x,y tuple for training.
+
+        :param sample: (filename, sample key)
         :param max_label_len: int, maximum label length, longer labels will be truncated.
         :param label_encoding: {label: int encoded label}.
         :param sparse_labels: bool, create sparse labels.
         :param n_classes: int, number of label classes.
+        
         :returns: (np.ndarray of inputs, np.ndarray of labels)
+        
         """
         sample_key, sample_file = sample
-
-        max_label_len=self.max_label_len
-        label_encoding=self.label_encoding
-        sparse_labels=self.sparse_labels
-        n_classes=self.n_classes
 
         with DataStore(sample_file) as ds:
             s = ds.load_sample(sample_key)
@@ -282,14 +339,6 @@ class TrainBatcher():
         if not sparse_labels:
             from keras.utils.np_utils import to_categorical
             y = to_categorical(y, num_classes=n_classes)
-        return x, y
-
-    
-    def samples_to_batch(self, samples):
-        t0 = now()
-        items = [self.sample_to_x_y(s) for s in samples]
-        xs, ys = zip(*items)
-        x, y = np.stack(xs), np.stack(ys)
         return x, y
 
 

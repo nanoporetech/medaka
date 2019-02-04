@@ -2,7 +2,7 @@ v0.5.1
 ------
 Development and performance release
 
-* Simplify batch queuing code with keras Sequence
+* Refactor batch queuing in preparation to using keras Sequence
 * Asynchrounous feature loading during inference
 * Pin version of h5py to work around intermittent errors in saving models
 
