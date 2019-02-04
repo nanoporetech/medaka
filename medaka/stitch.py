@@ -159,14 +159,12 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, ref_
                 major_feat = s1.features[start_1_ind:end_1_ind][major_inds] if s1.features is not None else None
 
 
-                # for homozygous SNP max_prob_label not in {ref, del} and 2nd_max_prob < threshold
+                # for homozygous SNP max_prob_label not in {ref, del} and
+                # (2nd_max_prob < threshold or 2nd_max_prob_label is del)
                 # for heterozygous SNP 2nd_max_prob > threshold and del not in {max_prob_label, 2nd_prob_label}
                 # this catches both SNPs where the genotype contains the
                 # reference, and where both copies are mutated.
 
-                # Note: if 2nd_max_prob > thresh and is a deletion, we will
-                # ignore the SNP (it could be a SNP in one haplotype and a
-                # deletion in the other).
                 ref_seq_encoded = np.fromiter((label_encoding[ref_seq[i]] for i in major_pos), int, count=len(major_pos))
                 sorted_prob_inds = np.argsort(major_probs, -1)
                 sorted_probs = np.take_along_axis(major_probs, sorted_prob_inds, axis=-1)
@@ -180,9 +178,11 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, ref_
                 # homozygous SNPs
                 is_primary_diff_to_ref = np.not_equal(primary_labels, ref_seq_encoded)
                 is_primary_not_del = primary_labels != label_encoding[medaka.common._gap_]
+                is_secondary_del = secondary_labels == label_encoding[medaka.common._gap_]
                 is_secondary_prob_lt_thresh = secondary_probs < threshold
+                is_not_secondary_call = np.logical_or(is_secondary_del, is_secondary_prob_lt_thresh)
                 is_homozygous_snp = np.logical_and(is_primary_diff_to_ref, is_primary_not_del)
-                is_homozygous_snp = np.logical_and(is_homozygous_snp, is_secondary_prob_lt_thresh)
+                is_homozygous_snp = np.logical_and(is_homozygous_snp, is_not_secondary_call)
                 is_homozygous_snp = np.logical_and(is_homozygous_snp, is_ref_valid_label)
                 homozygous_snp_inds = np.where(is_homozygous_snp)
                 # heterozygous SNPs
@@ -208,7 +208,7 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, ref_
                         info.update(dict(zip(feature_row_names, major_feat[i])))
 
                     qual = -10 * np.log10(1 - primary_probs[i])
-                    sample = {'GT': 1, 'GQ': qual,}
+                    sample = {'GT': '1/1', 'GQ': qual,}
                     variants.append(Variant(ref_name, major_pos[i], label_decoding[ref_base_encoded],
                                       alt=label_decoding[primary_labels[i]],
                                       filter='PASS', info=info, qual=qual, sample_dict=sample))
