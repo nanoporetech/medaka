@@ -78,7 +78,7 @@ def cat_acc(y_true, y_pred):
 
 
 def run_training(train_name, batcher, model_fp=None,
-                 epochs=5000, class_weight=None, n_mini_epochs=1):
+                 epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1):
     """Run training."""
     from keras.callbacks import CSVLogger, TensorBoard, EarlyStopping, ReduceLROnPlateau
     from medaka.keras_ext import ModelMetaCheckpoint, SequenceBatcher
@@ -171,13 +171,10 @@ def run_training(train_name, batcher, model_fp=None,
 
     # fit generator
     model.fit_generator(
-        #batcher.fit_generator('train'), steps_per_epoch=ceil(batcher.n_train_batches/n_mini_epochs),
         SequenceBatcher(batcher, mini_epochs=n_mini_epochs),
-        #validation_data=batcher.gen_valid(), validation_steps=batcher.n_valid_batches,
         validation_data=SequenceBatcher(batcher, 'validation'),
-        max_queue_size=16, workers=8, use_multiprocessing=True,
+        max_queue_size=2*threads_io, workers=threads_io, use_multiprocessing=True,
         epochs=epochs,
-        #verbose=False,
         callbacks=callbacks,
         class_weight=class_weight,
     )
@@ -194,6 +191,7 @@ class TrainBatcher():
                 iterable of str, validation feature files.
         :param seed: int, random seed for separation of batches into training/validation.
         :param sparse_labels: bool, create sparse labels.
+
         """
         self.logger = get_named_logger('TrainBatcher')
 
@@ -597,16 +595,12 @@ def train(args):
             for i, l in enumerate(batcher.label_decoding)
     )))
 
-    # From empirical evidence setting a device here allows code to run 5-6X
-    # faster than setting CUDA_VISIBLE_DEVICES environment variable. A small
-    # (200Mb) amount of memory will be used on other devices by doing this. The
-    # option to set CUDA_VISIBLE_DEVICES is still available (but will renumber
-    # the device that should be given on the cmdline).
     import tensorflow as tf
     with tf.device('/gpu:{}'.format(args.device)):
         run_training(
             train_name, batcher, model_fp=args.model, epochs=args.epochs,
-            class_weight=class_weight, n_mini_epochs=args.mini_epochs)
+            class_weight=class_weight, n_mini_epochs=args.mini_epochs,
+            threads_io=args.threads_io)
 
     # stop batching threads
     batcher.stop()
