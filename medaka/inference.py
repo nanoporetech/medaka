@@ -652,5 +652,4 @@ def train(args):
             threads_io=args.threads_io)
 
     # stop batching threads
-    batcher.stop()
     logger.info("Training finished.")
