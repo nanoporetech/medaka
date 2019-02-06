@@ -461,7 +461,7 @@ class VCFChunkWriter(object):
 
 
 def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fraction, chunk_len, chunk_ovlp,
-                   batch_size=200):
+                   batch_size=200, tag_name=None, tag_value=None, tag_keep_missing=False):
     """Inference worker."""
 
     logger = get_named_logger('PWorker')
@@ -472,7 +472,9 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fracti
         for region in regions:
             data_gen = SampleGenerator(
                 bam, region, model_file, rle_ref, read_fraction,
-                chunk_len=chunk_len, chunk_overlap=chunk_ovlp)
+                chunk_len=chunk_len, chunk_overlap=chunk_ovlp,
+                tag_name=tag_name, tag_value=tag_value,
+                tag_keep_missing=tag_keep_missing)
             yield from data_gen.samples
     batches = background_generator(
         grouper(sample_gen(), batch_size), 10
@@ -558,7 +560,8 @@ def predict(args):
         run_prediction(
             args.output, args.bam, long_regions, model, args.model, args.rle_ref, args.read_fraction,
             args.chunk_len, args.chunk_ovlp,
-            batch_size=args.batch_size
+            batch_size=args.batch_size,
+            tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing
         )
 
     # short regions must be done individually since they have differing lengths
@@ -573,7 +576,8 @@ def predict(args):
             run_prediction(
                 args.output, args.bam, [region], model, args.model, args.rle_ref, args.read_fraction,
                 chunk_len, chunk_ovlp,
-                batch_size=args.batch_size
+                batch_size=args.batch_size,
+                tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing
             )
     logger.info("Finished processing all regions.")
 
