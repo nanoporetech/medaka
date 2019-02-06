@@ -23,13 +23,16 @@ from medaka.labels import TruthAlignment
 import libmedaka
 
 
-def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=4):
+def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=4, tag_name=None, tag_value=None, keep_missing=False):
     """Create pileup counts feature array for region.
 
     :param region: `Region` object
     :param bam: .bam file with alignments.
     :param dtype_prefixes: prefixes for query names which to separate counts.
         If `None` (or of length 1), counts are not split.
+    :param tag_name: two letter tag name by which to filter reads.
+    :param tag_value: integer value of tag for reads to keep.
+    :param keep_missing: whether to keep reads when tag is missing.
 
     :returns: pileup counts array, reference positions, insertion postions
     """
@@ -42,6 +45,14 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
         num_dtypes = len(dtype_prefixes)
         _dtypes = [ffi.new("char[]", d.encode()) for d in dtype_prefixes]
         dtypes = ffi.new("char *[]", _dtypes)
+    if tag_name is None:
+        tag_name = ffi.new("char[2]", "".encode())
+        tag_value = 0
+        keep_missing = False
+    else:
+        if len(tag_name) > 2:
+            raise ValueError("'tag_value' must be a length-2 string.")
+        tag_name = ffi.new("char[2]", tag_name.encode())
 
     featlen = lib.featlen
 
@@ -50,7 +61,8 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
         region_str = '{}:{}-{}'.format(reg.ref_name, reg.start + 1, reg.end)
 
         counts = lib.calculate_pileup(
-            region_str.encode(), bam.encode(), num_dtypes, dtypes
+            region_str.encode(), bam.encode(), num_dtypes, dtypes,
+            tag_name, tag_value, keep_missing
         )
 
         size_sizet = np.dtype(np.uintp).itemsize
