@@ -70,7 +70,7 @@ def _chunking_feature_args():
     parser.add_argument('bam', help='Input alignments.')
     parser.add_argument('--model', action=ResolveModel, default=model_dict[default_model],
                         help='Model definition, default is equivalent to {}.'.format(default_model))
-    parser.add_argument('--batch_size', type=int, default=5, help='Inference batch size.')
+    parser.add_argument('--batch_size', type=int, default=200, help='Inference batch size.')
     parser.add_argument('--regions', default=None, nargs='+', help='Genomic regions to analyse.')
     parser.add_argument('--chunk_len', type=int, default=10000, help='Chunk length of samples.')
     parser.add_argument('--chunk_ovlp', type=int, default=1000, help='Overlap of chunks.')
