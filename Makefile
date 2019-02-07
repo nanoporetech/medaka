@@ -99,8 +99,16 @@ wheels:
 	docker run -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/build-wheels.sh
 
 
-sdist: scripts/mini_align submodules/samtools-1.3.1/Makefile
-	python setup.py sdist
+build: pypi_build/bin/activate
+IN_BUILD=. ./pypi_build/bin/activate
+pypi_build/bin/activate:
+	test -d pypi_build || virtualenv pypi_build --python=python3 --prompt "(pypi) "
+	${IN_BUILD} && pip install pip --upgrade
+	${IN_BUILD} && pip install --upgrade pip setuptools twine wheel readme_renderer[md]
+
+
+sdist: pypi_build/bin/activate scripts/mini_align submodules/samtools-1.3.1/Makefile
+	${IN_BUILD} && python setup.py sdist
 
 
 # You can set these variables from the command line.
