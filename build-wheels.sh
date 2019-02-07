@@ -14,7 +14,8 @@ make scripts/mini_align clean_htslib libhts.a
 # Compile wheels
 for minor in 4 5 6; do
     PYBIN="/opt/python/cp3${minor}-cp3${minor}m/bin"
-    "${PYBIN}/pip" install cffi
+    # auditwheel/issues/102
+    "${PYBIN}/pip" install --upgrade cffi setuptools pip wheel==0.31.1
     "${PYBIN}/pip" wheel . -w wheelhouse/
 done
 

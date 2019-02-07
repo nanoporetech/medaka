@@ -1,4 +1,4 @@
-.PHONY: docs clean_samtools
+.PHONY: docs clean_samtools wheels sdist
 
 # Builds a cache of binaries which can just be copied for CI
 BINARIES=samtools minimap2
@@ -36,6 +36,7 @@ libhts.a: submodules/samtools-1.3.1/Makefile
 	cd submodules/samtools-${SAMVER}/htslib-${SAMVER}/ && CFLAGS=-fpic ./configure && make
 	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$@ $@
 
+
 clean_htslib:
 	cd submodules/samtools-${SAMVER} && make clean || exit 0
 	cd submodules/samtools-${SAMVER}/htslib-${SAMVER} && make clean || exit 0
@@ -62,11 +63,6 @@ $(BINCACHEDIR)/vcf2fasta: | $(BINCACHEDIR)
 		-lz -llzma -lbz2 -lpthread \
 		-o $(@F)
 	cp src/vcf2fasta/$(@F) $@
-
-
-sdist: scripts/mini_align submodules/samtools-1.3.1/Makefile
-	python setup.py sdist
-
 
 
 venv: venv/bin/activate
@@ -98,8 +94,14 @@ docker: binaries libhts.a
 	docker build -t medaka .
 	rm -rf for_docker
 
+
 wheels:
 	docker run -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/build-wheels.sh
+
+
+sdist: scripts/mini_align submodules/samtools-1.3.1/Makefile
+	python setup.py sdist
+
 
 # You can set these variables from the command line.
 SPHINXOPTS    =
