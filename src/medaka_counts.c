@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 #include "htslib/sam.h"
 
 #include "medaka_counts.h"
@@ -87,25 +88,45 @@ void destroy_plp_data(plp_data data) {
 }
 
 
-// some necessities
+// parameters for bam iteration
 typedef struct {
     htsFile *fp;
     bam_hdr_t *hdr;
     hts_itr_t *iter;
     int min_mapQ;
+    const char tag_name[2];
+    int tag_value;
+    bool keep_missing;
 } mplp_data;
 
 
 // iterator for reading bam
 static int read_bam(void *data, bam1_t *b) {
     mplp_data *aux = (mplp_data*) data;
+    uint8_t *tag;
+    bool check_tag = (strcmp(aux->tag_name, "") != 0);
     int ret;
-    while (1)
-    {
-        ret = aux->iter? sam_itr_next(aux->fp, aux->iter, b) : sam_read1(aux->fp, aux->hdr, b);
-        if ( ret<0 ) break;
-        if ( b->core.flag & (BAM_FUNMAP | BAM_FSECONDARY | BAM_FQCFAIL | BAM_FDUP) ) continue;
-        if ( (int)b->core.qual < aux->min_mapQ ) continue;
+    while (1) {
+        ret = aux->iter ? sam_itr_next(aux->fp, aux->iter, b) : sam_read1(aux->fp, aux->hdr, b);
+        if (ret<0) break;
+        // only take primary alignments
+        if (b->core.flag & (BAM_FUNMAP | BAM_FSECONDARY | BAM_FSUPPLEMENTARY | BAM_FQCFAIL | BAM_FDUP)) continue;
+        // filter by mapping quality
+        if ((int)b->core.qual < aux->min_mapQ) continue;
+        // filter by tag
+        if (check_tag) {
+            tag = bam_aux_get((const bam1_t*) b, aux->tag_name);
+            if (tag == NULL){ // tag isn't present or is currupt
+                if (aux->keep_missing) {
+                    break;
+                } else {
+                    continue;
+                }
+            }
+            int tag_value = bam_aux2i(tag);
+            if (errno == EINVAL) continue; // tag was not integer
+            if (tag_value != aux->tag_value) continue;
+        }
         break;
     }
     return ret;
@@ -127,8 +148,12 @@ static int read_bam(void *data, bam1_t *b) {
  *  strings, these strings being prefixes of query names of reads within the
  *  bam file. Any read not matching the prefixes will cause exit(1).
  *
+ *  If tag_name is not NULL alignments are filtered by the (integer) tag value.
+ *  When tag_name is given the behaviour for alignments without the tag is
+ *  determined by keep_missing.
+ *
  */ 
-plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[]) { 
+plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[], const char tag_name[2], const int tag_value, const bool keep_missing) { 
 
     if (num_dtypes == 1 && dtypes != NULL) {
         fprintf(stderr, "Recieved invalid num_dtypes and dtypes args.\n");
@@ -155,7 +180,6 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
     } else {
         fprintf(stderr, "Failed to parse region: '%s'.\n", region);
     }
-    //fprintf(stderr, "%s  %d  %d\n", region, start, end); 
    
     // open bam etc. 
     htsFile *fp = hts_open(bam_file, "rb");
@@ -168,8 +192,9 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
 
     // setup bam interator
     mplp_data *data = xalloc(1, sizeof(mplp_data), "pileup init data");
-    data->fp = fp; data->hdr = hdr; data->min_mapQ = 1;
-    data->iter = bam_itr_querys(idx, hdr, region);
+    data->fp = fp; data->hdr = hdr; data->iter = bam_itr_querys(idx, hdr, region);
+    data->min_mapQ = 1; memcpy(data->tag_name, tag_name, 2); data->tag_value = tag_value;
+
     bam_mplp_t mplp = bam_mplp_init(1, read_bam, (void **)& data);
     const bam_pileup1_t **plp = xalloc(1, sizeof(bam_pileup1_t *), "pileup");
     int ret, pos, tid, n_plp;
@@ -328,8 +353,13 @@ int main(int argc, char *argv[]) {
         num_dtypes = argc - 3;
         dtypes = &argv[3];
     }
+    char tag_name[2] = "";
+    int tag_value = 0;
+    bool keep_missing = false;
 
-    plp_data pileup = calculate_pileup(reg, bam_file, num_dtypes, dtypes);
+    plp_data pileup = calculate_pileup(
+        reg, bam_file, num_dtypes, dtypes,
+        tag_name, tag_value, keep_missing);
     print_pileup_data(pileup, num_dtypes, dtypes);
     destroy_plp_data(pileup);
     exit(0); 

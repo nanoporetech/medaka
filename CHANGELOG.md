@@ -1,3 +1,12 @@
+v0.5.1
+------
+Development and performance release
+
+* Refactor batch queuing in preparation to using keras Sequence
+* Asynchrounous feature loading during inference
+* Pin version of h5py to work around intermittent errors in saving models
+
+
 v0.5.0
 ------
 Training and bug-fix release.
@@ -31,7 +40,8 @@ v0.4.0
 ------
 Performance and bugfix release.
  
-* Large refactoring of feature and sample generation #10. Fixes many small bugs and edge cases
+* Large refactoring of feature and sample generation #10. Fixes many small bugs
+  and edge cases
 * Resize models for small contigs #9
 * Faster Generation of inference features
 * Model updates
@@ -40,7 +50,7 @@ Performance and bugfix release.
 * Limit CPU usage when running without a GPU
 
 
-v0.5.0
+v0.3.0
 ------
 Model and userbility release.
 

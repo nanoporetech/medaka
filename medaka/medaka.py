@@ -160,6 +160,10 @@ def main():
     cparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
     cparser.add_argument('--save_features', action='store_true', default=False,
                          help='Save features with consensus probabilities.')
+    tag_group = cparser.add_argument_group('filter tag', 'Filtering alignments by an integer valued tag.')
+    tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
+    tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
+    tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
 
     # Consensus from features input
     cfparser = subparsers.add_parser('consensus_from_features',

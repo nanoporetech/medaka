@@ -64,6 +64,9 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[]);
  *  @param bam_file input aligment file.
  *  @param num_dtypes number of datatypes in bam.
  *  @param dtypes prefixes on query names indicating datatype.
+ *  @param tag_name by which to filter alignments
+ *  @param tag_value by which to filter data
+ *  @param keep_missing alignments which do not have tag
  *  @returns a pileup counts data pointer.
  *
  *  The return value can be freed with destroy_plp_data.
@@ -73,5 +76,9 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[]);
  *  strings, these strings being prefixes of query names of reads within the
  *  bam file. Any read not matching the prefixes will cause exit(1).
  *
+ *  If tag_name is not NULL alignments are filtered by the (integer) tag value.
+ *  When tag_name is given the behaviour for alignments without the tag is
+ *  determined by keep_missing.
+ *
  */ 
-plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[]); 
+plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[], const char tag_name[2], const int tag_value, const _Bool keep_missing); 
