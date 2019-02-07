@@ -94,7 +94,7 @@ typedef struct {
     bam_hdr_t *hdr;
     hts_itr_t *iter;
     int min_mapQ;
-    const char tag_name[2];
+    char tag_name[2];
     int tag_value;
     bool keep_missing;
 } mplp_data;
@@ -186,6 +186,8 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
     hts_idx_t *idx = sam_index_load(fp, bam_file);
     bam_hdr_t *hdr = sam_hdr_read(fp);
     if (hdr == 0 || idx == 0 || fp == 0) {
+        hts_close(fp); hts_idx_destroy(idx); bam_hdr_destroy(hdr);
+        free(chr);
         fprintf(stderr, "Failed to read .bam file '%s'.", bam_file);
         exit(1);
     }
@@ -264,6 +266,10 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
                     free(aux);
                 }
                 if (!found) {
+                    bam_itr_destroy(data->iter); bam_mplp_destroy(mplp);
+                    free(data); free(plp); free(chr);
+                    hts_close(fp); hts_idx_destroy(idx); bam_hdr_destroy(hdr);
+
                     fprintf(stderr, "Datatype not found for %s.\n", qname);
                     exit(1);
                 }
