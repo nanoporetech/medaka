@@ -49,12 +49,15 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
         start = get_pos(s1, 0)
         start_1_ind = None
         for s2 in chain(data_gen, (None,)):
+            s1_name = 'Unknown' if s1 is None else s1.name
+            s2_name = 'Unknown' if s2 is None else s2.name
+
             if s2 is None:  # s1 is last chunk
                 end_1_ind = None
             else:
                 if s2.last_pos <= s1.last_pos:
                     logger.info('{} ends before {}, skipping.'.format(
-                        s2.name, s1.name
+                        s2_name, s1_name
                     ))
                     continue
                 else:
@@ -68,7 +71,7 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
                 seq = ''
                 if start_2_ind is None:
                     msg = 'There is no overlap betwen {} and {}'
-                    logger.info(msg.format(s1.name, s2.name))
+                    logger.info(msg.format(s1_name, s2_name))
                     start = get_pos(s2, 0)
 
             s1 = s2
