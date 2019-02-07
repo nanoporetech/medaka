@@ -94,7 +94,7 @@ typedef struct {
     bam_hdr_t *hdr;
     hts_itr_t *iter;
     int min_mapQ;
-    const char tag_name[2];
+    char tag_name[2];
     int tag_value;
     bool keep_missing;
 } mplp_data;
@@ -154,7 +154,6 @@ static int read_bam(void *data, bam1_t *b) {
  *
  */ 
 plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[], const char tag_name[2], const int tag_value, const bool keep_missing) { 
-
     if (num_dtypes == 1 && dtypes != NULL) {
         fprintf(stderr, "Recieved invalid num_dtypes and dtypes args.\n");
         exit(1);
@@ -186,6 +185,8 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
     hts_idx_t *idx = sam_index_load(fp, bam_file);
     bam_hdr_t *hdr = sam_hdr_read(fp);
     if (hdr == 0 || idx == 0 || fp == 0) {
+        hts_close(fp); hts_idx_destroy(idx); bam_hdr_destroy(hdr);
+        free(chr);
         fprintf(stderr, "Failed to read .bam file '%s'.", bam_file);
         exit(1);
     }
@@ -194,6 +195,7 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
     mplp_data *data = xalloc(1, sizeof(mplp_data), "pileup init data");
     data->fp = fp; data->hdr = hdr; data->iter = bam_itr_querys(idx, hdr, region);
     data->min_mapQ = 1; memcpy(data->tag_name, tag_name, 2); data->tag_value = tag_value;
+    data->keep_missing = keep_missing;
 
     bam_mplp_t mplp = bam_mplp_init(1, read_bam, (void **)& data);
     const bam_pileup1_t **plp = xalloc(1, sizeof(bam_pileup1_t *), "pileup");
@@ -264,6 +266,10 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
                     free(aux);
                 }
                 if (!found) {
+                    bam_itr_destroy(data->iter); bam_mplp_destroy(mplp);
+                    free(data); free(plp); free(chr);
+                    hts_close(fp); hts_idx_destroy(idx); bam_hdr_destroy(hdr);
+
                     fprintf(stderr, "Datatype not found for %s.\n", qname);
                     exit(1);
                 }
