@@ -449,8 +449,14 @@ def background_generator(generator, max_size, daemon=True):
     thread = threading.Thread(target=gen_to_queue)
     thread.daemon = daemon
     thread.start()
+    # yield results concurrently whilst filling queue
     while have_data.is_set():
         yield results.get()
+
+    # empty remaining items in queue when input has finished
+    while not results.empty():
+        yield results.get()
+
     thread.join(5)
 
 
