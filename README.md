@@ -56,7 +56,9 @@ We recommend using medaka within a virtual environment, viz.:
 Using this method requires the user to provide a
 [samtools](https://github.com/samtools/samtools) and
 [minimap2](https://github.com/lh3/minimap2) binary and place these
-within the `PATH`.
+within the `PATH`. `samtools` version 1.3.1 and `minimap2` version
+2.11 are recommended as these are those used in development of
+medaka.
 
 **Installation from source**
 
@@ -116,11 +118,35 @@ within the medaka environment, else they will need to be provided by the user.
     BASECALLS=basecalls.fa
     DRAFT=draft_assm/assm_final.fa
     OUTDIR=medaka_consensus
-    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC}
+    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r94
 
 The variables `BASECALLS`, `DRAFT`, and `OUTDIR` in the above should be set
 appropriately. When `medaka_consensus` has finished running, the consensus
 will be saved to `${OUTDIR}/consensus.fasta`.
+
+   **It is crucially important to specify the correct model, `-m` in the
+   above, according to the basecaller used. Allowed values can be found by
+   running `medaka consensus --help`.  For example to run medaka with a
+   model suitable for the flip-flop basecaller in Guppy use `-m r941_flip`.**
+
+### Origin of the draft sequence
+
+Medaka has been trained to correct draft sequences processed through
+[racon](https://github.com/isovic/racon), specifically `racon` run four times
+iteratively with:
+
+    racon -m 8 -x -6 -g -8 -w 500 ...
+
+Processing a draft sequence from alternative sources (e.g. the output of
+[canu](https://github.com/marbl/canu) or
+[wtdbg2](https://github.com/ruanjue/wtdbg2)) may lead to poorer results
+even when the draft is of a superior quality than that obtained from `racon`.
+
+The [walkthrough](https://nanoporetech.github.io/medaka/walkthrough.html#walkthrough)
+outlines one recommended workflow rapid construction of a draft for input into
+`medaka`. A second approach would be to run `canu` followed by `racon` applied
+twice iteratively before entry into `medaka`.
+
 
 Acknowledgements
 ----------------

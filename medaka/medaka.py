@@ -4,18 +4,18 @@ import os
 from pkg_resources import resource_filename
 import yaml
 
-import numpy as np
+import  numpy as np
 
+from medaka.datastore import DataStore
 from medaka.inference import train, predict
 from medaka.stitch import stitch
-from medaka.common import write_yaml_data
 from medaka.features import create_labelled_samples, create_samples
 
 model_store = resource_filename(__package__, 'data')
 
 model_dict = {
   'r94': 'medaka_model.hdf5',
-  'r94_flip': 'r941_flip_model.hdf5' 
+  'r941_flip': 'r941_flip_model.hdf5'
 }
 model_dict = {k:os.path.join(model_store, v) for k,v in model_dict.items()}
 default_model = 'r94'
@@ -41,7 +41,8 @@ class ResolveModel(argparse.Action):
                         self.dest, val)
                 )
             #TODO: verify the file is a model?
-        setattr(namespace, self.dest, values)
+        setattr(namespace, self.dest, val)
+
 
 
 def _log_level():
@@ -67,15 +68,15 @@ def _chunking_feature_args():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
     parser.add_argument('bam', help='Input alignments.')
-    parser.add_argument('--model', action=ResolveModel, default=default_model, help='Model definition.')
-    parser.add_argument('--batch_size', type=int, default=5, help='Inference batch size.')
+    parser.add_argument('--model', action=ResolveModel, default=model_dict[default_model],
+                        help='Model definition, default is equivalent to {}.'.format(default_model))
+    parser.add_argument('--batch_size', type=int, default=200, help='Inference batch size.')
     parser.add_argument('--regions', default=None, nargs='+', help='Genomic regions to analyse.')
     parser.add_argument('--chunk_len', type=int, default=10000, help='Chunk length of samples.')
     parser.add_argument('--chunk_ovlp', type=int, default=1000, help='Overlap of chunks.')
     parser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
         nargs=2, metavar=('lower', 'upper'))
     parser.add_argument('--rle_ref', default=None, help='Encoded reference file (required only for some model types.')
-    parser.add_argument('--max_label_len', type=int, default=1, help='Maximum label length.')
     return parser
 
 
@@ -86,12 +87,25 @@ def feature_gen_dispatch(args):
         create_samples(args)
 
 
+def hdf2yaml(args):
+    with DataStore(args.input) as ds, open(args.output, 'w') as fh:
+        yaml.dump(ds.meta, fh)
+
+
+def yaml2hdf(args):
+    with DataStore(args.output, 'a') as ds, open(args.input) as fh:
+        ds.update_meta(yaml.load(fh))
+
+
 def main():
+    from medaka import __version__
     parser = argparse.ArgumentParser('medaka',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     subparsers = parser.add_subparsers(title='subcommands', description='valid commands', help='additional help', dest='command')
     subparsers.required = True
 
+    parser.add_argument('--version', action='version',
+        version='%(prog)s {}'.format(__version__))
 
     # Transformation of sequence data
     #TODO: is this needed?
@@ -119,16 +133,22 @@ def main():
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     tparser.set_defaults(func=train)
-    tparser.add_argument('features', nargs='+', help='Path for training data.')
+    tparser.add_argument('features', nargs='+', help='Paths to training data.')
     tparser.add_argument('--train_name', type=str, default='keras_train', help='Name for training run.')
     tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
     tparser.add_argument('--max_label_len', type=int, default=1, help='Maximum label length.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
-    tparser.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
     tparser.add_argument('--batch_size', type=int, default=200, help='Training batch size.')
     tparser.add_argument('--max_samples', type=int, default=np.inf, help='Only train on max_samples.')
     tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
     tparser.add_argument('--balanced_weights', action='store_true', help='Balance label weights.')
+    tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
+    tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
+    tparser.add_argument('--device', type=int, default=0, help='GPU device to use.')
+
+    vgrp = tparser.add_mutually_exclusive_group()
+    vgrp.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
+    vgrp.add_argument('--validation_features', nargs='+', default=None, help='Paths to validation data')
 
     # Consensus from bam input
     cparser = subparsers.add_parser('consensus',
@@ -157,7 +177,30 @@ def main():
     sparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
     sparser.add_argument('output', help='Output .fasta.', default='consensus.fasta')
     sparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
-    sparser.add_argument('--model_yml', help='Model yml containing label encoding, required only if consensus ended prematurely.')
+
+    # Tools
+    toolparser = subparsers.add_parser('tools',
+        help='tools sub-command.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    toolsubparsers = toolparser.add_subparsers(title='tools', description='valid tool commands', help='additional help', dest='tool_command')
+
+    # Dump model/feature meta to yaml
+    hparser = toolsubparsers.add_parser('hdf2yaml',
+        help='Dump medaka meta in a hdf to yaml.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    hparser.set_defaults(func=hdf2yaml)
+    hparser.add_argument('input', help='Input .hdf file.')
+    hparser.add_argument('output', help='Output .yaml file.', default='meta.yaml')
+
+    # Create model .hdf containing model/feature meta from yaml
+    yparser = toolsubparsers.add_parser('yaml2hdf',
+        help='Dump medaka meta in a yaml to hdf.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    yparser.set_defaults(func=yaml2hdf)
+    yparser.add_argument('input', help='Input .yaml file.')
+    yparser.add_argument('output', help='Output .hdf, will be appended to if it exists.', default='meta.hdf')
 
     args = parser.parse_args()
 

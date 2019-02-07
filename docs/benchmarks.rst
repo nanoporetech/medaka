@@ -44,13 +44,17 @@ to `medaka` or `nanopolish`.  `nanopolish v0.10.1
 
 For this dataset the older transducer basecaller with `medaka` delivers similar
 results to `nanopolish` in a fraction of the time. The flip-flop workflow is
-seen to be superior to nanopolish.
+seen to be superior to nanopolish. The runtime of `medaka` can be reduced
+further by utilizing a GPU, the runtime with a NVIDIA GTX1080Ti is found
+to be less than one minute!
 
 
 Evaluation across samples and depths
 ------------------------------------
 
-The comparison below illustrates results at various coverage depths for two further
-organisms. Assemblies were performed as above with canu and racon, using the flip-flop
-algorithm for basecalling.
+The comparison below illustrates results at various coverage depths for a
+collection of further organisms. Assemblies were performed as above with
+canu and racon, using the flip-flop algorithm for basecalling.
+
+.. image:: images/cov_acc.png
 

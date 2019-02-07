@@ -1,25 +1,32 @@
 #!/bin/bash
-set -e
+set -eo pipefail
 
 OUTPUT="medaka"
 THREADS=1
 
-MODEL=$(medaka_data_path)/medaka_model.hdf5
+MODEL="r94"
 BATCH_SIZE=200
+medaka_version=$(python -c "import medaka; print(medaka.__version__)")
 iflag=false
 dflag=false
 
-usage="$(basename "$0") [-h] -i <fastx>
+usage="
+medaka ${medaka_version}
+------------
 
-Polish an assembly using medaka
+Assembly polishing via neural networks. The input assembly should be
+preprocessed with racon.
+
+$(basename "$0") [-h] -i <fastx>
 
     -h  show this help text.
     -i  fastx input basecalls (required).
     -d  fasta input assembly (required). 
     -o  output folder (default: medaka).
-    -m  medaka model (default: ${MODEL}). 
+    -m  medaka model, One of: 'r94', 'r941_flip' (default: ${MODEL}).
+        Alternatively a .hdf file from 'medaka train'. 
     -t  number of threads with which to create features (default: 1).
-    -b  batchsize (controls how much memory is used running network) (default: 200)."
+    -b  batchsize, controls memory use (default: 200)."
 
 while getopts ':hi::d:o:m:t:b:' option; do
   case "$option" in
@@ -27,7 +34,7 @@ while getopts ':hi::d:o:m:t:b:' option; do
     i  ) iflag=true; BASECALLS=$(readlink -f $OPTARG);;
     d  ) dflag=true; DRAFT=$(readlink -f $OPTARG);;
     o  ) OUTPUT=$OPTARG;;
-    m  ) MODEL=$(readlink -f $OPTARG);;
+    m  ) MODEL=$OPTARG;;
     t  ) THREADS=$OPTARG;;
     b  ) BATCH_SIZE=$OPTARG;;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
@@ -38,15 +45,21 @@ shift $(($OPTIND - 1))
 
 if ! $iflag; then
   echo "$usage" >&2;
+  echo "" >&2;
   echo "-i must be specified." >&2;
   exit 1;
 fi
 
 if ! $dflag; then
   echo "$usage" >&2;
+  echo "" >&2;
   echo "-d must be specified." >&2;
   exit 1;
 fi
+
+echo "Checking program versions"
+medaka_version_report || exit 1
+
 if [[ ! -e ${OUTPUT} ]]; then
   mkdir -p ${OUTPUT}
 else
@@ -58,7 +71,8 @@ cd ${OUTPUT}
 CALLS2DRAFT=calls_to_draft
 if [[ ! -e ${CALLS2DRAFT}.bam ]]; then
     echo "Aligning basecalls to draft"
-    mini_align -i ${BASECALLS} -r ${DRAFT} -P -m -p ${CALLS2DRAFT} -t ${THREADS}
+    mini_align -i ${BASECALLS} -r ${DRAFT} -P -m -p ${CALLS2DRAFT} -t ${THREADS} \
+        || (echo "Failed to run alignment of reads to draft." && exit 1)
 else
     echo "Not aligning basecalls to draft, ${CALLS2DRAFT}.bam exists."
 fi
@@ -66,7 +80,8 @@ fi
 CONSENSUSPROBS=consensus_probs.hdf
 if [[ ! -e ${CONSENSUSPROBS} ]]; then
     echo "Running medaka consensus"
-    medaka consensus ${CALLS2DRAFT}.bam ${CONSENSUSPROBS} --model ${MODEL} --batch_size ${BATCH_SIZE} --threads ${THREADS}
+    medaka consensus ${CALLS2DRAFT}.bam ${CONSENSUSPROBS} --model ${MODEL} --batch_size ${BATCH_SIZE} --threads ${THREADS} \
+        || (echo "Failed to run medaka consensus." && exit 1)
 else 
     echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
 fi
@@ -74,7 +89,8 @@ fi
 CONSENSUS=consensus.fasta
 if [[ ! -e ${CONSENSUS} ]]; then
     echo "Running medaka stitch"
-    medaka stitch ${CONSENSUSPROBS} ${CONSENSUS} --mode hdf 
+    medaka stitch ${CONSENSUSPROBS} ${CONSENSUS} \
+        || (echo "Failed to stitch consensus chunks." && exit 1)
     echo "Polished assembly written to ${OUTPUT}/${CONSENSUS}, have a nice day."
 else
     echo "Consensus ${OUTPUT}/${CONSENSUS} exists, remove ${OUTPUT} and try again."

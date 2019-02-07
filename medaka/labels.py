@@ -1,10 +1,9 @@
 import itertools
-import logging
 import numpy as np
 import pysam
 from copy import copy
 from operator import attrgetter
-from medaka.common import _gap_, encoding
+from medaka.common import _gap_, encoding, get_named_logger
 from medaka.common import get_pairs, yield_compressed_pairs, get_pairs_with_hp_len
 
 
@@ -19,7 +18,7 @@ class TruthAlignment(object):
         self.start = self.aln.reference_start  # zero-based
         self.end = self.aln.reference_end
         self.is_kept = True
-        self.logger = logging.getLogger('TruthAlign')
+        self.logger = get_named_logger('TruthAlign')
 
     def get_overlap_with(self, other):
         first, second = sorted((self, other), key=attrgetter('aln.reference_start'))
@@ -111,7 +110,7 @@ class TruthAlignment(object):
             aln_reads = bamfile.fetch(reference=ref_name, start=start, end=end)
             alignments = [TruthAlignment(r) for r in aln_reads if not (r.is_unmapped or r.is_secondary)]
             alignments.sort(key=attrgetter('start'))
-        logger = logging.getLogger("TruthAlign")
+        logger = get_named_logger("TruthAlign")
         logger.info("Retrieved {} alignments.".format(len(alignments)))
         return alignments
 
