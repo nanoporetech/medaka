@@ -1,3 +1,11 @@
+
+v0.5.2
+------
+Bug fix release
+
+* Fix bug leading to dropping of pileup chunks during loading
+
+
 v0.5.1
 ------
 Development and performance release
