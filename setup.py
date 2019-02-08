@@ -94,7 +94,7 @@ setup(
             '{0}_version_report = {0}:report_binaries'.format(__pkg_name__, )
         ]
     },
-    scripts=['scripts/medaka_consensus', 'scripts/mini_align'],
+    scripts=['scripts/medaka_consensus', 'scripts/medaka_variant', 'scripts/mini_align'],
     zip_safe=False,
     cmdclass={
         'build_ext': HTSBuild
