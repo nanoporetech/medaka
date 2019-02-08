@@ -6,7 +6,7 @@ import pysam
 
 import medaka
 from medaka.datastore import DataIndex
-from medaka.vcf import Variant, VCFWriter
+from medaka.vcf import Variant, VCFWriter, VCFReader
 
 
 def write_fasta(filename, contigs):
@@ -277,6 +277,49 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, ref_
                 start_1_ind = start_2_ind
 
 
+def merge_haploid_vcfs(vcf1, vcf2, vcf_out):
+    "Merge SNPs from two haploid VCFs into a phased diploid vcf."
+    loci_by_chrom = defaultdict(set)
+
+    vcf1 = VCFReader(vcf1)
+    vcf2 = VCFReader(vcf2)
+
+    for v in chain(vcf1.fetch(), vcf2.fetch()):
+        loci_by_chrom[v.chrom].add(v.pos)
+
+    with VCFWriter(vcf_out, 'w', version='4.1') as vcf_writer:
+        for chrom, loci in loci_by_chrom.items():
+            first_pos = min(loci)
+            for pos in sorted(loci):
+                v1 = list(vcf1.fetch(ref_name=chrom, start=pos, end=pos+1))
+                v2 = list(vcf2.fetch(ref_name=chrom, start=pos, end=pos+1))
+
+                # the QC is -10*log10(1-p(label)) where p(label) is the medaka consensus
+                # probability. To combine these, we probably want to multiply the
+                # (1-p(label)) values, i.e. add the QC scores. However, in the case of a
+                # herterozygous SNPs where one of the haplotypes is the reference, we
+                # won't have the QC value of the reference haplotype (no variant was
+                # called).
+                # Hence if we want a common scale we need to assume we can apprimate the missing
+                # QC score for the reference haplotypes as being equal to the non-reference
+                # haplotype so we can set the overall score to double the latter.
+                if len(v1) == 1 and len(v2) == 0:  # heterozygous on v1:
+                    gq = 2 * float(v1[0].sample_dict['GQ'])  # see comment above
+                    v = Variant(chrom, pos, v1[0].ref, alt=v1[0].alt, sample_dict={'GT':'1/0', 'GQ':gq, 'PS': first_pos})
+                elif len(v1) == 0 and len(v2) == 1:  # heterozygous on v2
+                    gq = 2 * float(v2[0].sample_dict['GQ'])  # see comment above
+                    v = Variant(chrom, pos, v2[0].ref, alt=v2[0].alt, sample_dict={'GT':'0/1', 'GQ':gq, 'PS': first_pos})
+                else:
+                    assert len(v1) == 1 and len(v2) == 1
+                    gq = float(v1[0].sample_dict['GQ']) + float(v2[0].sample_dict['GQ'])
+                    if v1[0].alt == v2[0].alt:  #homozygous snp
+                        v = Variant(chrom, pos, v1[0].ref, alt=v1[0].alt, sample_dict={'GT':'1/1', 'GQ': gq, 'PS': first_pos })
+                    else:  #heterozygous snp
+                        v = Variant(chrom, pos, v1[0].ref, alt=v1[0].alt + v2[0].alt, sample_dict={'GT':'1/2', 'GQ':gq, 'PS': first_pos})
+
+                vcf_writer.write_variant(v)
+
+
 def stitch(args):
     joined = stitch_from_probs(args.inputs, regions=args.regions)
     write_fasta(args.output, joined)
@@ -284,3 +327,7 @@ def stitch(args):
 
 def snps(args):
     find_snps(args.inputs, args.ref_fasta, args.output, regions=args.regions, threshold=args.threshold, ref_vcf=args.ref_vcf)
+
+
+def merge_vcfs(args):
+    merge_haploid_vcfs(args.vcf1, args.vcf2, args.vcfout)

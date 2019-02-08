@@ -8,7 +8,7 @@ import  numpy as np
 
 from medaka.datastore import DataStore
 from medaka.inference import train, predict
-from medaka.stitch import stitch, snps
+from medaka.stitch import stitch, snps, merge_vcfs
 from medaka.features import create_labelled_samples, create_samples
 
 model_store = resource_filename(__package__, 'data')
@@ -193,7 +193,7 @@ def main():
     pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
     pparser.add_argument('output', help='Output .vcf.', default='snps.vcf')
     pparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
-    pparser.add_argument('--threshold', default=0.1, type=float, help='Threshold for considering secondary calls.')
+    pparser.add_argument('--threshold', default=0.04, type=float, help='Threshold for considering secondary calls.')
     pparser.add_argument('--ref_vcf', default=None, help='Reference vcf to compare to.')
 
     # Tools
@@ -210,6 +210,26 @@ def main():
     hparser.set_defaults(func=hdf2yaml)
     hparser.add_argument('input', help='Input .hdf file.')
     hparser.add_argument('output', help='Output .yaml file.', default='meta.yaml')
+
+    # Create model .hdf containing model/feature meta from yaml
+    yparser = toolsubparsers.add_parser('yaml2hdf',
+        help='Dump medaka meta in a yaml to hdf.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    yparser.set_defaults(func=yaml2hdf)
+    yparser.add_argument('input', help='Input .yaml file.')
+    yparser.add_argument('output', help='Output .hdf, will be appended to if it exists.', default='meta.hdf')
+
+    # merge two haploid VCFs into a diploid VCF.
+    yparser = toolsubparsers.add_parser('merge_vcfs',
+        help='Merge two haploid VCFs into a phased diploid VCF.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    yparser.set_defaults(func=merge_vcfs)
+    yparser.add_argument('vcf1', help='Input .vcf file.')
+    yparser.add_argument('vcf2', help='Input .vcf file.')
+    yparser.add_argument('vcfout', help='Output .vcf.')
+
 
     # Create model .hdf containing model/feature meta from yaml
     yparser = toolsubparsers.add_parser('yaml2hdf',
