@@ -1,4 +1,5 @@
 from distutils.version import LooseVersion
+import functools
 import os
 import subprocess
 
@@ -6,7 +7,7 @@ __version__ = '0.5.2'
 
 
 def check_minimap2_version():
-    """Checks minimap2 version is greater than or equal to that required."""
+    """get minimap2 version."""
     try:
         proc = subprocess.run(["minimap2", "--version"], stdout=subprocess.PIPE)
         if proc.returncode != 0:
@@ -19,30 +20,37 @@ def check_minimap2_version():
     return version
 
 
-def check_samtools_version():
-    """Checks samtools version is greater than or equal to that required."""
+def check_htslib_tool_version(tool, pos=2):
     try:
-        proc = subprocess.run(["samtools", "--version"], stdout=subprocess.PIPE)
+        proc = subprocess.run([tool, "--version"], stdout=subprocess.PIPE)
         if proc.returncode != 0:
             return None
-        # samtools 1.3.1\n...
+        # tabix (htslib) 1.3.1\n...
         first_line = proc.stdout.decode().split("\n", 1)[0]
-        version = first_line.split()[1]
+        version = first_line.split()[pos]
         version = LooseVersion(version)
     except:
         return None
 
     return version
 
+check_tabix_version = functools.partial(check_htslib_tool_version, 'tabix')
+check_bgzip_version = functools.partial(check_htslib_tool_version, 'bgzip')
+check_samtools_version = functools.partial(check_htslib_tool_version, 'samtools', 1)
+
 
 required_version = {
-    'samtools':LooseVersion('1.3.1'),
     'minimap2':LooseVersion('2.11'),
+    'samtools':LooseVersion('1.3.1'),
+    'tabix':LooseVersion('1.3.1'),
+    'bgzip':LooseVersion('1.3.1'),
 }
 
 get_version = {
-    'samtools':check_samtools_version,
     'minimap2':check_minimap2_version,
+    'samtools':check_samtools_version,
+    'tabix':check_tabix_version,
+    'bgzip':check_bgzip_version,
 }
 
 

@@ -1,8 +1,6 @@
 #!/bin/bash
 set -eo pipefail
 
-bgzip=/nfs/vnx-home/mwykes/git/pomoxis/venv/bin/bgzip
-tabix=/nfs/vnx-home/mwykes/git/pomoxis/venv/bin/tabix
 
 OUTPUT="medaka_variant"
 THREADS=1
@@ -60,16 +58,19 @@ shift $(($OPTIND - 1))
 if ! $bflag; then
   echo "$usage" >&2;
   echo "" >&2;
-  echo "-i must be specified." >&2;
+  echo "-b must be specified." >&2;
   exit 1;
 fi
 
 if ! $rflag; then
   echo "$usage" >&2;
   echo "" >&2;
-  echo "-d must be specified." >&2;
+  echo "-r must be specified." >&2;
   exit 1;
 fi
+
+echo "Checking program versions"
+medaka_version_report bgzip tabix || exit 1
 
 run_medaka_consensus () {
     local BAM=$1
@@ -152,7 +153,7 @@ run_bgzip () {
     exit_if_file_does_not_exist ${FILEIN}
     if [[ ! -e ${FILEOUT} ]]; then
         echo "Compressing ${FILEIN}."
-        ${bgzip} -c ${FILEIN} > ${FILEOUT} \
+        bgzip -c ${FILEIN} > ${FILEOUT} \
             || (echo "Failed to compress ${FILEIN}." && exit 1)
         echo "Compressed file written to ${OUTPUT}/${FILEOUT}."
     else
@@ -167,7 +168,7 @@ run_tabix () {
     exit_if_file_does_not_exist ${FILEIN}
     if [[ ! -e ${FILEOUT} ]]; then
         echo "Indexing ${FILEIN}."
-        ${tabix} -p vcf ${FILEIN} \
+        tabix -p vcf ${FILEIN} \
             || (echo "Failed to compress ${FILEIN}." && exit 1)
         echo "Compressed file written to ${OUTPUT}/${FILEOUT}."
     else

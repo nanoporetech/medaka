@@ -1,7 +1,7 @@
 .PHONY: docs clean_samtools wheels sdist
 
 # Builds a cache of binaries which can just be copied for CI
-BINARIES=samtools minimap2
+BINARIES=samtools minimap2 tabix bgzip
 BINCACHEDIR=bincache
 $(BINCACHEDIR):
 	mkdir -p $(BINCACHEDIR)
@@ -20,7 +20,7 @@ $(BINCACHEDIR)/samtools: submodules/samtools-1.3.1/Makefile | $(BINCACHEDIR)
 	# copy our hack up version of tview
 	${SEDI} 's/tv->is_dot = 1;/tv->is_dot = 0;/' submodules/samtools-${SAMVER}/bam_tview.c
 	cd submodules/samtools-${SAMVER} && make
-	cp submodules/samtools-${SAMVER}/samtools $@
+	cp submodules/samtools-${SAMVER}/$(@F) $@
 
 
 submodules/samtools-$(SAMVER)/Makefile:
@@ -35,6 +35,14 @@ libhts.a: submodules/samtools-1.3.1/Makefile
 	@echo Compiling $(@F)
 	cd submodules/samtools-${SAMVER}/htslib-${SAMVER}/ && CFLAGS=-fpic ./configure && make
 	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$@ $@
+
+
+$(BINCACHEDIR)/tabix: libhts.a
+	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$(@F) $@
+
+
+$(BINCACHEDIR)/bgzip: libhts.a
+	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$(@F) $@
 
 
 clean_htslib:

@@ -27,11 +27,15 @@ We recommend using medaka within a virtual environment, viz.:
 
 .. note::
 
-    Using this method requires the user to provide a
-    `samtools <https://github.com/samtools/samtools>`_ and
-    `minimap2 <https://github.com/lh3/minimap2>`_ binary and place these
-    within the `PATH`. `samtools` version 1.3.1 and `minimap2` version
-    2.11 are recommended as these are those used in development of
+    Using this method requires the user to provide several binaries:
+
+    `samtools <https://github.com/samtools/samtools>`_,
+    `minimap2 <https://github.com/lh3/minimap2>`_,
+    `tabix <https://github.com/samtools/htslib>`_, and
+    `bgzip <https://github.com/samtools/htslib>`_,
+
+    and place these within the `PATH`. `samtools` version 1.3.1 and `minimap2`
+    version 2.11 are recommended as these are those used in development of
     medaka.
 
 

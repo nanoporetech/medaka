@@ -54,4 +54,4 @@ performed to achieve results in quicker time.
 
 Nevertheless researchers may find medaka useful as a method to generate
 quickly sufficiently accurate consensus sequences in many use cases; see the
-`Benchmarks` page for more details.
+:ref:`Benchmarks` page for more details.
