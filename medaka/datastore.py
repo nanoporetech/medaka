@@ -1,8 +1,13 @@
 from collections import Counter, defaultdict, OrderedDict
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import h5py
+
 import numpy as np
 import yaml
+
+import warnings
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", category=FutureWarning)
+    import h5py
 
 from medaka.common import Sample, decoding, get_named_logger
 

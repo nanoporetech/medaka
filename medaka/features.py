@@ -23,13 +23,16 @@ from medaka.labels import TruthAlignment
 import libmedaka
 
 
-def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=4):
+def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=4, tag_name=None, tag_value=None, keep_missing=False):
     """Create pileup counts feature array for region.
 
     :param region: `Region` object
     :param bam: .bam file with alignments.
     :param dtype_prefixes: prefixes for query names which to separate counts.
         If `None` (or of length 1), counts are not split.
+    :param tag_name: two letter tag name by which to filter reads.
+    :param tag_value: integer value of tag for reads to keep.
+    :param keep_missing: whether to keep reads when tag is missing.
 
     :returns: pileup counts array, reference positions, insertion postions
     """
@@ -42,6 +45,14 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
         num_dtypes = len(dtype_prefixes)
         _dtypes = [ffi.new("char[]", d.encode()) for d in dtype_prefixes]
         dtypes = ffi.new("char *[]", _dtypes)
+    if tag_name is None:
+        tag_name = ffi.new("char[2]", "".encode())
+        tag_value = 0
+        keep_missing = False
+    else:
+        if len(tag_name) > 2:
+            raise ValueError("'tag_value' must be a length-2 string.")
+        tag_name = ffi.new("char[2]", tag_name.encode())
 
     featlen = lib.featlen
 
@@ -50,7 +61,8 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
         region_str = '{}:{}-{}'.format(reg.ref_name, reg.start + 1, reg.end)
 
         counts = lib.calculate_pileup(
-            region_str.encode(), bam.encode(), num_dtypes, dtypes
+            region_str.encode(), bam.encode(), num_dtypes, dtypes,
+            tag_name, tag_value, keep_missing
         )
 
         size_sizet = np.dtype(np.uintp).itemsize
@@ -97,7 +109,9 @@ class FeatureEncoder(object):
 
     def __init__(self, ref_mode:str=None, max_hp_len:int=10,
                  log_min:int=None, normalise:str='total', with_depth:bool=False,
-                 consensus_as_ref:bool=False, is_compressed:bool=True, dtypes=('',)):
+                 consensus_as_ref:bool=False, is_compressed:bool=True, dtypes=('',),
+                 tag_name=None, tag_value=None, tag_keep_missing=False
+                 ):
         """Class to support multiple feature encodings
 
         :param ref_mode: str, how to represent the reference.
@@ -108,6 +122,9 @@ class FeatureEncoder(object):
         :param consensus_as_ref: bool, whether to use a naive max-count consensus instead of the reference.
         :param is_compressed: bool, whether to use HP compression. If false, treat as uncompressed.
         :param dtypes: iterable of str, read id prefixes of distinct data types that should be counted separately.
+        :param tag_name: two letter tag name by which to filter reads.
+        :param tag_value: integer value of tag for reads to keep.
+        :param tag_keep_missing: whether to keep reads when tag is missing.
 
         """
         self.ref_mode = ref_mode
@@ -120,6 +137,9 @@ class FeatureEncoder(object):
         self.is_compressed = is_compressed
         self.logger = get_named_logger('Feature')
         self.dtypes = dtypes
+        self.tag_name = tag_name
+        self.tag_value = tag_value
+        self.tag_keep_missing = tag_keep_missing
 
         if self.ref_mode not in self._ref_modes_:
             raise ValueError('ref_mode={} is not one of {}'.format(self.ref_mode, self._ref_modes_))
@@ -220,7 +240,11 @@ class FeatureEncoder(object):
         assert not self.with_depth
         assert not self.is_compressed
 
-        counts, positions = pileup_counts(region, reads_bam, dtype_prefixes=self.dtypes)
+        counts, positions = pileup_counts(
+            region, reads_bam, dtype_prefixes=self.dtypes,
+            tag_name=self.tag_name, tag_value=self.tag_value,
+            keep_missing=self.tag_keep_missing
+        )
         if len(counts) == 0:
             msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
             self.logger.warning(msg)
@@ -281,6 +305,8 @@ class FeatureEncoder(object):
             except Exception as e:
                 self.logger.info('Could not process sample with bam_to_sample_c, using python code instead.\n({}).'.format(e))
                 pass
+        if self.tag_name is not None:
+            raise NotImplementedError("Filtering alignments by tag is not supported in python code.")
 
         if self.is_compressed:
             aln_to_pairs = partial(yield_compressed_pairs, ref_rle=ref_rle)
@@ -509,7 +535,9 @@ def alphabet_filter(sample_gen, alphabet=None, filter_labels=True, filter_ref_se
 
 class SampleGenerator(object):
 
-    def __init__(self, bam, region, model, rle_ref=None, truth_bam=None, read_fraction=None, chunk_len=1000, chunk_overlap=200):
+    def __init__(self, bam, region, model, rle_ref=None, truth_bam=None,
+                 read_fraction=None, chunk_len=1000, chunk_overlap=200,
+                 tag_name=None, tag_value=None, tag_keep_missing=False):
         """Generate chunked inference (or training) samples.
 
         :param bam: `.bam` containing alignments from which to generate samples.
@@ -518,6 +546,9 @@ class SampleGenerator(object):
         :param truth_bam: a `.bam` containing alignment of truth sequence to
             `reference` sequence. Required only for creating training chunks.
         :param reference: reference `.fasta`, should correspond to `bam`.
+        :param tag_name: two letter tag name by which to filter reads.
+        :param tag_value: integer value of tag for reads to keep.
+        :param tag_keep_missing: whether to keep reads when tag is missing.
 
         """
         self.logger = get_named_logger("Sampler")
@@ -525,7 +556,9 @@ class SampleGenerator(object):
         self.logger.info("Initializing sampler for {} or region {}.".format(self.sample_type, region))
         with DataStore(model) as ds:
             self.fencoder_args = ds.meta['medaka_features_kwargs']
-        self.fencoder = FeatureEncoder(**self.fencoder_args)
+        self.fencoder = FeatureEncoder(
+            tag_name=tag_name, tag_value=tag_value, tag_keep_missing=tag_keep_missing,
+            **self.fencoder_args)
 
         self.bam = bam
         self.region = region

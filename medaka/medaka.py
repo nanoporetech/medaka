@@ -8,7 +8,7 @@ import  numpy as np
 
 from medaka.datastore import DataStore
 from medaka.inference import train, predict
-from medaka.stitch import stitch, snps
+from medaka.stitch import stitch, snps, merge_vcfs
 from medaka.features import create_labelled_samples, create_samples
 
 model_store = resource_filename(__package__, 'data')
@@ -70,7 +70,7 @@ def _chunking_feature_args():
     parser.add_argument('bam', help='Input alignments.')
     parser.add_argument('--model', action=ResolveModel, default=model_dict[default_model],
                         help='Model definition, default is equivalent to {}.'.format(default_model))
-    parser.add_argument('--batch_size', type=int, default=5, help='Inference batch size.')
+    parser.add_argument('--batch_size', type=int, default=200, help='Inference batch size.')
     parser.add_argument('--regions', default=None, nargs='+', help='Genomic regions to analyse.')
     parser.add_argument('--chunk_len', type=int, default=10000, help='Chunk length of samples.')
     parser.add_argument('--chunk_ovlp', type=int, default=1000, help='Overlap of chunks.')
@@ -160,6 +160,10 @@ def main():
     cparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
     cparser.add_argument('--save_features', action='store_true', default=False,
                          help='Save features with consensus probabilities.')
+    tag_group = cparser.add_argument_group('filter tag', 'Filtering alignments by an integer valued tag.')
+    tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
+    tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
+    tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
 
     # Consensus from features input
     cfparser = subparsers.add_parser('consensus_from_features',
@@ -189,7 +193,7 @@ def main():
     pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
     pparser.add_argument('output', help='Output .vcf.', default='snps.vcf')
     pparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
-    pparser.add_argument('--threshold', default=0.1, type=float, help='Threshold for considering secondary calls.')
+    pparser.add_argument('--threshold', default=0.04, type=float, help='Threshold for considering secondary calls.')
     pparser.add_argument('--ref_vcf', default=None, help='Reference vcf to compare to.')
 
     # Tools
@@ -215,6 +219,16 @@ def main():
     yparser.set_defaults(func=yaml2hdf)
     yparser.add_argument('input', help='Input .yaml file.')
     yparser.add_argument('output', help='Output .hdf, will be appended to if it exists.', default='meta.hdf')
+
+    # merge two haploid VCFs into a diploid VCF.
+    yparser = toolsubparsers.add_parser('merge_vcfs',
+        help='Merge two haploid VCFs into a phased diploid VCF.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    yparser.set_defaults(func=merge_vcfs)
+    yparser.add_argument('vcf1', help='Input .vcf file.')
+    yparser.add_argument('vcf2', help='Input .vcf file.')
+    yparser.add_argument('vcfout', help='Output .vcf.')
 
     args = parser.parse_args()
 

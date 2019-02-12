@@ -1,0 +1,286 @@
+#!/bin/bash
+set -eo pipefail
+
+bgzip=/nfs/vnx-home/mwykes/git/pomoxis/venv/bin/bgzip
+tabix=/nfs/vnx-home/mwykes/git/pomoxis/venv/bin/tabix
+
+OUTPUT="medaka_variant"
+THREADS=1
+THRESHOLD=0.04
+MODEL="r94"
+BATCH_SIZE=200
+REGIONS=""
+medaka_version=$(python -c "import medaka; print(medaka.__version__)")
+bflag=false
+rflag=false
+
+HAP1OPTS="--tag_name HP --tag_value 1 --tag_keep_missing"
+HAP2OPTS="--tag_name HP --tag_value 2 --tag_keep_missing"
+HAPLOIDTHRESHOLD=1
+
+usage="
+medaka ${medaka_version}
+------------
+
+Variant calling via neural networks. The input reads should be aligned to a standard reference.
+
+$(basename "$0") [-h] -i <fastx>
+
+    -h  show this help text.
+    -b  bam of reads aligned to ref. The RG tag should be set (required).
+    -r  fasta input reference (required).
+    -R  region string(s). If providing multiple regions, wrap them in quotes. If not provided, will process all contigs in bam. 
+    -o  output folder (default: ${OUTPUT}).
+    -m  medaka model, One of: 'r94', 'r941_flip' (default: ${MODEL}).
+        Alternatively a .hdf file from 'medaka train'. 
+    -T  label probability threshold for calling heterozygous SNPs from unphased reads. (default: ${THRESHOLD}).
+        This will only affect the initial SNP calls used to phase reads, not the final SNP calls, which are
+        computed from medaka consensuses of each haplotype run individually. 
+    -t  number of threads with which to create features (default: 1).
+    -b  batchsize, controls memory use (default: 200)."
+
+
+while getopts ':hb::r:R:o:m:T:t:b:' option; do
+  case "$option" in
+    h  ) echo "$usage" >&2; exit;;
+    b  ) bflag=true; CALLS2REF=$(readlink -f $OPTARG);;
+    r  ) rflag=true; REF=$(readlink -f $OPTARG);;
+    R  ) REGIONS="--regions $OPTARG";;
+    o  ) OUTPUT=$OPTARG;;
+    m  ) MODEL=$OPTARG;;
+    T  ) THRESHOLD=$OPTARG;;
+    t  ) THREADS=$OPTARG;;
+    b  ) BATCH_SIZE=$OPTARG;;
+    \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
+    :  ) echo "Option -$OPTARG requires an argument." >&2; exit 1;;
+  esac
+done
+shift $(($OPTIND - 1))
+
+if ! $bflag; then
+  echo "$usage" >&2;
+  echo "" >&2;
+  echo "-i must be specified." >&2;
+  exit 1;
+fi
+
+if ! $rflag; then
+  echo "$usage" >&2;
+  echo "" >&2;
+  echo "-d must be specified." >&2;
+  exit 1;
+fi
+
+run_medaka_consensus () {
+    local BAM=$1
+    local PROBS=$2
+    local EXTRAOPTS=$3
+    exit_if_file_does_not_exist ${BAM} ${BAM}.bai
+    if [[ ! -e ${PROBS} ]]; then
+        echo ""
+        echo "======================================"
+        echo "Running medaka consensus ${BAM} ${EXTRAOPTS}"
+        echo "======================================"
+        echo ""
+        medaka consensus ${BAM} ${PROBS} --model ${MODEL} --batch_size ${BATCH_SIZE} ${REGIONS} --threads ${THREADS} ${EXTRAOPTS} \
+            || (echo "Failed to run medaka consensus." && exit 1)
+    else 
+        echo "Not running medaka consensus, ${PROBS} exists."
+    fi
+}
+
+run_medaka_snp () {
+    local PROBS=$1
+    local VCF=$2
+    local T=$3
+    exit_if_file_does_not_exist ${PROBS} ${REF}
+    if [[ ! -e ${VCF} ]]; then
+        echo ""
+        echo "======================================"
+        echo "Running medaka snp with threshold ${T}"
+        echo "======================================"
+        echo ""
+        medaka snp ${REF} ${PROBS} ${VCF} --threshold ${T} \
+            || (echo "Failed to call snps from consensus chunks." && exit 1)
+        echo "VCF written to ${OUTPUT}/${VCF}."
+    else
+        echo "Using existing output:  ${OUTPUT}/${VCF}."
+    fi
+}
+
+run_phase_vcf () {
+    local VCFIN=$1 
+    local VCFOUT=$2
+    exit_if_file_does_not_exist ${VCFIN}
+    run_samtools_faidx ${REF}
+    if [[ ! -e ${VCFOUT} ]]; then
+        echo ""
+        echo "============================================="
+        echo "Running whatshap phase to phase vcf ${VCFIN}."
+        echo "============================================="
+        echo ""
+        whatshap phase --reference ${REF} -o ${VCFOUT} ${VCFIN} ${CALLS2REF} \
+            || (echo "Failed to phase variants in ${VCFIN}." && exit 1)
+        echo "Phased VCF written to ${OUTPUT}/${VCFOUT}."
+    else
+        echo "Using existing output:  ${OUTPUT}/${VCFOUT}."
+    fi
+}
+
+run_whatshap_tag () {
+    local VCFIN=$1
+    local BAMOUT=$2
+    if [[ ! -e ${BAMOUT} ]]; then
+        echo ""
+        echo "============================================="
+        echo "Running whatshap tag using ${VCFIN}."
+        echo "============================================="
+        echo ""
+        whatshap haplotag -o ${BAMOUT} --reference ${REF} ${VCFIN} ${CALLS2REF} \
+            || (echo "Failed to partition reads in round 0." && exit 1)
+        echo "Tagged reads written to ${OUTPUT}/${BAMOUT}."
+    else
+        echo "Using existing output:  ${OUTPUT}/${BAMOUT}."
+    fi
+    run_samtools_index ${BAMOUT}
+}
+
+run_bgzip () {
+    local FILEIN=$1
+    local FILEOUT=$2
+    exit_if_file_does_not_exist ${FILEIN}
+    if [[ ! -e ${FILEOUT} ]]; then
+        echo "Compressing ${FILEIN}."
+        ${bgzip} -c ${FILEIN} > ${FILEOUT} \
+            || (echo "Failed to compress ${FILEIN}." && exit 1)
+        echo "Compressed file written to ${OUTPUT}/${FILEOUT}."
+    else
+        echo "Using existing output:  ${OUTPUT}/${FILEOUT}."
+    fi
+    run_tabix ${FILEOUT} 
+}
+
+run_tabix () {
+    local FILEIN=$1
+    local FILEOUT=${1}.tbi
+    exit_if_file_does_not_exist ${FILEIN}
+    if [[ ! -e ${FILEOUT} ]]; then
+        echo "Indexing ${FILEIN}."
+        ${tabix} -p vcf ${FILEIN} \
+            || (echo "Failed to compress ${FILEIN}." && exit 1)
+        echo "Compressed file written to ${OUTPUT}/${FILEOUT}."
+    else
+        echo "Using existing output:  ${OUTPUT}/${FILEOUT}."
+    fi
+}
+
+run_samtools_faidx () {
+    local FILEIN=$1
+    local FILEOUT=${1}.fai
+    exit_if_file_does_not_exist ${FILEIN}
+    if [[ ! -e ${FILEOUT} ]]; then
+        echo "Indexing ${FILEIN}."
+        samtools faidx ${FILEIN} \
+            || (echo "Failed to index ${FILEIN}." && exit 1)
+        echo "Created index ${OUTPUT}/${FILEOUT}."
+    else
+        echo "Using existing output:  ${OUTPUT}/${FILEOUT}."
+    fi
+}
+
+
+run_samtools_index () {
+    local BAM=$1
+    local INDEX=${BAM}.bai
+    exit_if_file_does_not_exist ${BAM}
+
+    if [[ ! -e ${INDEX} ]]; then
+        echo "Running samtools index on ${BAM}."
+        samtools index ${BAM} \
+            || (echo "Failed to index bam ${BAM}." && exit 1)
+        echo "Bam index in ${OUTPUT}/${INDEX}."
+    else
+        echo "Using existing output:  ${OUTPUT}/${INDEX}."
+    fi
+}
+
+exit_if_file_does_not_exist () {
+    for FILE in "$@"; do
+        if [[ ! -e ${FILE} ]]; then
+            echo "Could not find file ${FILE}, exiting." && exit 1
+        fi
+    done
+}
+
+echo "Checking program versions"
+medaka_version_report || exit 1
+
+if [[ ! -e ${OUTPUT} ]]; then
+  mkdir -p ${OUTPUT}
+else
+  echo "Warning: Output ${OUTPUT} already exists, may use old results."
+fi
+
+cd ${OUTPUT}
+
+# check input bam, bam index and ref exist
+exit_if_file_does_not_exist ${CALLS2REF} ${CALLS2REF}.bai ${REF}
+
+CONSENSUSPROBS=round_0_hap_mixed_probs.hdf
+run_medaka_consensus ${CALLS2REF} ${CONSENSUSPROBS}
+
+UNPHASEDVCF=round_0_hap_mixed_thresh_${THRESHOLD}_unphased.vcf
+run_medaka_snp ${CONSENSUSPROBS} ${UNPHASEDVCF} ${THRESHOLD}
+
+PHASEDVCF=round_0_hap_mixed_thresh_${THRESHOLD}_phased.vcf
+run_phase_vcf ${UNPHASEDVCF} ${PHASEDVCF} 
+
+PHASEDVCFGZ=${PHASEDVCF}.gz
+run_bgzip ${PHASEDVCF} ${PHASEDVCFGZ}
+
+PHASEDBAM=round_0_hap_mixed_thresh_${THRESHOLD}_phased.bam
+run_whatshap_tag ${PHASEDVCFGZ} ${PHASEDBAM}
+
+PROBSHAP1=round_1_hap_1_probs.hdf
+run_medaka_consensus ${PHASEDBAM} ${PROBSHAP1} "${HAP1OPTS}"
+
+PROBSHAP2=round_1_hap_2_probs.hdf
+run_medaka_consensus ${PHASEDBAM} ${PROBSHAP2} "${HAP2OPTS}" 
+
+VCFHAP1=round_1_hap_1.vcf
+run_medaka_snp ${PROBSHAP1} ${VCFHAP1} ${HAPLOIDTHRESHOLD}
+VCFHAP2=round_1_hap_2.vcf
+run_medaka_snp ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD}
+VCFMERGED=round_1_final.vcf
+
+medaka tools merge_vcfs ${VCFHAP1} ${VCFHAP2} ${VCFMERGED}
+
+# use the new VCF to rebin reads for another round
+#VCFMERGEDGZ=${VCFMERGED}.gz 
+#run_bgzip ${VCFMERGED} ${VCFMERGEDGZ}
+#PHASEDBAM=round_1_phased.bam
+#run_whatshap_tag ${VCFMERGEDGZ} ${PHASEDBAM}
+
+# seemingly using the phased medaka vcf does not work with whatshap
+# so rephase it with whatshap first
+VCFREPHASED="${VCFMERGED%.*}_rephased.vcf"
+run_phase_vcf ${VCFMERGED} ${VCFREPHASED} 
+VCFREPHASEDGZ=${VCFREPHASED}.gz 
+run_bgzip ${VCFREPHASED} ${VCFREPHASEDGZ}
+
+PHASEDBAM=round_1_phased.bam
+run_whatshap_tag ${VCFREPHASEDGZ} ${PHASEDBAM}
+
+PROBSHAP1=round_2_hap_1_probs.hdf
+run_medaka_consensus ${PHASEDBAM} ${PROBSHAP1} "${HAP1OPTS}"
+PROBSHAP2=round_2_hap_2_probs.hdf
+run_medaka_consensus ${PHASEDBAM} ${PROBSHAP2} "${HAP2OPTS}"
+
+VCFHAP1=round_2_hap_1.vcf
+run_medaka_snp ${PROBSHAP1} ${VCFHAP1} ${HAPLOIDTHRESHOLD}
+VCFHAP2=round_2_hap_2.vcf
+run_medaka_snp ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD}
+VCFMERGED=round_2_final.vcf
+
+medaka tools merge_vcfs ${VCFHAP1} ${VCFHAP2} ${VCFMERGED}
+

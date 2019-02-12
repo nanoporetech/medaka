@@ -5,6 +5,7 @@ import itertools
 import logging
 import os
 from pkg_resources import resource_filename
+import queue
 import re
 import threading
 
@@ -428,6 +429,35 @@ def threadsafe_generator(f):
     def g(*args, **kwargs):
         return ThreadsafeIter(f(*args, **kwargs))
     return g
+
+
+def background_generator(generator, max_size, daemon=True):
+    """Run a generator in background thread.
+    
+    :param max_size: maximum number of items from the generator to cache.
+    :param daemon: run generator in daemon thread
+
+    """
+    results = queue.Queue(maxsize=max_size)
+    have_data = threading.Event()
+    have_data.set()
+    def gen_to_queue():
+        for item in generator:
+            results.put(item)
+        have_data.clear()
+
+    thread = threading.Thread(target=gen_to_queue)
+    thread.daemon = daemon
+    thread.start()
+    # yield results concurrently whilst filling queue
+    while have_data.is_set():
+        yield results.get()
+
+    # empty remaining items in queue when input has finished
+    while not results.empty():
+        yield results.get()
+
+    thread.join(5)
 
 
 def grouper(gen, batch_size=4):
