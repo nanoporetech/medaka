@@ -230,16 +230,6 @@ def main():
     yparser.add_argument('vcf2', help='Input .vcf file.')
     yparser.add_argument('vcfout', help='Output .vcf.')
 
-
-    # Create model .hdf containing model/feature meta from yaml
-    yparser = toolsubparsers.add_parser('yaml2hdf',
-        help='Dump medaka meta in a yaml to hdf.',
-        parents=[_log_level()],
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    yparser.set_defaults(func=yaml2hdf)
-    yparser.add_argument('input', help='Input .yaml file.')
-    yparser.add_argument('output', help='Output .hdf, will be appended to if it exists.', default='meta.hdf')
-
     args = parser.parse_args()
 
     logging.basicConfig(format='[%(asctime)s - %(name)s] %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
