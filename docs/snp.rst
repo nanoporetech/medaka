@@ -49,6 +49,8 @@ second pass is a task in which we know `medaka` excels, see :ref:`Benchmarks`.
 Having run `medaka` on the partitioned reads it is a simple task to reconstruct
 variant calls, both homo- and heterozygous, and rephase.
 
+.. image:: images/phased_snps.png
+
 In principle one can iterate this process to further refine the partitioning of
 reads into their haplotypes. After two iterations we obtain state-of-the-art
 results for the region under test:
