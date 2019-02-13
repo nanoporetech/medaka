@@ -21,7 +21,7 @@ a region of Chr20 in the NA12878 human sample.
     Single nucleotide polymorphism calling at 100-fold coverage using
     simple `medaka consensus` pipeline. Comparison
     is made with the `GIAB <http://jimb.stanford.edu/giab-resources/>`_
-    high confidence callset.
+    high confidence callset using `RTG vcfeval <https://github.com/RealTimeGenomics/rtg-tools>`_.
 
     +------------------+-----------+--------+----------+
     |                  | Precision | Recall | F1 score |
