@@ -4,7 +4,8 @@ import os
 from pkg_resources import resource_filename
 import yaml
 
-import  numpy as np
+import numpy as np
+import pysam
 
 from medaka.datastore import DataStore
 from medaka.inference import train, predict
@@ -44,6 +45,21 @@ class ResolveModel(argparse.Action):
         setattr(namespace, self.dest, val)
 
 
+class CheckBam(argparse.Action):
+    """Check a bam has < 2 samples (RG tag)"""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if not os.path.exists(values):
+            raise RuntimeError(
+                "Filepath for '--{}' argument does not exist ({})".format(
+                    self.dest, values)
+            )
+        with pysam.AlignmentFile(values) as bam:
+            header_dict = bam.header.as_dict()
+            if 'RG' in header_dict and len(header_dict['RG']) > 1:
+                raise RuntimeError('The bam {} contains more than one read group.'.format(values))
+        setattr(namespace, self.dest, values)
+
 
 def _log_level():
     """Parser to set logging level and acquire software version/commit"""
@@ -67,7 +83,7 @@ def _log_level():
 def _chunking_feature_args():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
-    parser.add_argument('bam', help='Input alignments.')
+    parser.add_argument('bam', help='Input alignments.', action=CheckBam)
     parser.add_argument('--model', action=ResolveModel, default=model_dict[default_model],
                         help='Model definition, default is equivalent to {}.'.format(default_model))
     parser.add_argument('--batch_size', type=int, default=200, help='Inference batch size.')
