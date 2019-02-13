@@ -43,7 +43,7 @@ with open(os.path.join(dir_path, 'requirements.txt')) as fh:
     )
     for req in reqs:
         if req.startswith('git+https'):
-            req.split('/')[-1].split('@')[0]
+            req = req.split('/')[-1].split('@')[0]
         install_requires.append(req)
 
 
