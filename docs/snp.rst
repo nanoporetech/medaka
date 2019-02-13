@@ -76,9 +76,18 @@ The pipeline described above is implemented in the `medaka_variant` program:
 .. code-block:: bash
 
     source ${MEDAKA}
-    medaka_variant -r <REFERENCE> -b <reads.bam> -m f941_flip
+    medaka_variant -r <REFERENCE.fata> -b <reads.bam> -m 941_flip
 
-It has been benchmarked Flip-Flop basecaller output only.
+It has been benchmarked flip-flop basecaller output only. This will run all
+the necessary steps, performing two iterations of the process described above
+finally outputting a final phased `.vcf` variant file.
+
+.. note::
+
+    The `medaka_variant` (and `medaka_consensus`) pipeline only operate on
+    a `.bam` alignment file containing a single sample (value of the `RG`
+    alignment tag). It will refuse to run in the case of two read groups
+    being present.
 
 
 Further Improvements
