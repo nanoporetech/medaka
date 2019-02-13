@@ -71,8 +71,6 @@ if ! $rflag; then
   exit 1;
 fi
 
-echo "Checking program versions"
-medaka_version_report bgzip tabix || exit 1
 
 run_medaka_consensus () {
     local BAM=$1
