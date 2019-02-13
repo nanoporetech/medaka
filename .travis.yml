@@ -7,10 +7,11 @@ dist: trusty
 before_install:
   - sudo apt-get -qq update
   - sudo apt-get install -y python3-all-dev
+  - pip install -r install_requires.txt
 
 script:
-  - make install
-  - make docs
+  - make scripts/mini_align binaries
+  - MEDAKA_BINARIES=1 python setup.py install 
 
 deploy:
   provider: pages
