@@ -278,7 +278,7 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, ref_
 
 
 def merge_haploid_vcfs(vcf1, vcf2, vcf_out):
-    "Merge SNPs from two haploid VCFs into a phased diploid vcf."
+    "Merge SNPs from two haploid VCFs into an unphased diploid vcf."
     loci_by_chrom = defaultdict(set)
 
     vcf1 = VCFReader(vcf1)
@@ -319,7 +319,7 @@ def merge_haploid_vcfs(vcf1, vcf2, vcf_out):
                 # heterozygous on v1:
                 if len(v1) == 1 and (len(v2) == 0 or v2[0].alt == ['.']):
                     alt = v1[0].alt
-                    gt = '1/0'
+                    gt = '0/1'  # not 1/0 by convention since this is unphased
                 # heterozygous on v2
                 elif (len(v1) == 0 or v1[0].alt == ['.']) and len(v2) == 1:
                     alt = v2[0].alt
