@@ -43,19 +43,24 @@ with open(os.path.join(dir_path, 'requirements.txt')) as fh:
     )
     for req in reqs:
         if req.startswith('git+https'):
-            req.split('/')[-1].split('@')[0]
+            req = req.split('/')[-1].split('@')[0]
         install_requires.append(req)
 
 
 data_files = []
-if os.environ.get('MEDAKA_BINARIES') is not None:
-    exes = ['samtools', 'minimap2']
+if os.environ.get("MEDAKA_BINARIES") is not None:
+    with open(os.path.join(dir_path, 'Makefile')) as fh:
+        for line in fh.readlines():
+            tokens = line.split('=')
+            if tokens[0] == 'BINARIES':
+                exes = tokens[1].split()
+                break
+    #place binaries as package data, below we'll copy them to standard path in dist
     data_files.append(
         ('exes', [
             'bincache/{}'.format(x, x) for x in exes
         ])
     )
-
 
 class HTSBuild(build_ext):
     # uses the Makefile to build libhts.a, this will get done before the cffi extension
@@ -94,7 +99,7 @@ setup(
             '{0}_version_report = {0}:report_binaries'.format(__pkg_name__, )
         ]
     },
-    scripts=['scripts/medaka_consensus', 'scripts/mini_align'],
+    scripts=['scripts/medaka_consensus', 'scripts/medaka_variant', 'scripts/mini_align'],
     zip_safe=False,
     cmdclass={
         'build_ext': HTSBuild

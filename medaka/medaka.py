@@ -4,11 +4,12 @@ import os
 from pkg_resources import resource_filename
 import yaml
 
-import  numpy as np
+import numpy as np
+import pysam
 
 from medaka.datastore import DataStore
 from medaka.inference import train, predict
-from medaka.stitch import stitch
+from medaka.stitch import stitch, snps, merge_vcfs
 from medaka.features import create_labelled_samples, create_samples
 
 model_store = resource_filename(__package__, 'data')
@@ -44,6 +45,21 @@ class ResolveModel(argparse.Action):
         setattr(namespace, self.dest, val)
 
 
+class CheckBam(argparse.Action):
+    """Check a bam has < 2 samples (RG tag)"""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if not os.path.exists(values):
+            raise RuntimeError(
+                "Filepath for '--{}' argument does not exist ({})".format(
+                    self.dest, values)
+            )
+        with pysam.AlignmentFile(values) as bam:
+            header_dict = bam.header.as_dict()
+            if 'RG' in header_dict and len(header_dict['RG']) > 1:
+                raise RuntimeError('The bam {} contains more than one read group.'.format(values))
+        setattr(namespace, self.dest, values)
+
 
 def _log_level():
     """Parser to set logging level and acquire software version/commit"""
@@ -67,7 +83,7 @@ def _log_level():
 def _chunking_feature_args():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
-    parser.add_argument('bam', help='Input alignments.')
+    parser.add_argument('bam', help='Input alignments.', action=CheckBam)
     parser.add_argument('--model', action=ResolveModel, default=model_dict[default_model],
                         help='Model definition, default is equivalent to {}.'.format(default_model))
     parser.add_argument('--batch_size', type=int, default=200, help='Inference batch size.')
@@ -158,6 +174,12 @@ def main():
     cparser.set_defaults(func=predict)
     cparser.add_argument('output', help='Output file.')
     cparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
+    cparser.add_argument('--save_features', action='store_true', default=False,
+                         help='Save features with consensus probabilities.')
+    tag_group = cparser.add_argument_group('filter tag', 'Filtering alignments by an integer valued tag.')
+    tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
+    tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
+    tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
 
     # Consensus from features input
     cfparser = subparsers.add_parser('consensus_from_features',
@@ -177,6 +199,18 @@ def main():
     sparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
     sparser.add_argument('output', help='Output .fasta.', default='consensus.fasta')
     sparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
+
+    pparser = subparsers.add_parser('snp',
+        help='Decode probabilities as dipoloid SNPs.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    pparser.set_defaults(func=snps)
+    pparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
+    pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
+    pparser.add_argument('output', help='Output .vcf.', default='snps.vcf')
+    pparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
+    pparser.add_argument('--threshold', default=0.04, type=float, help='Threshold for considering secondary calls.')
+    pparser.add_argument('--ref_vcf', default=None, help='Reference vcf to compare to.')
 
     # Tools
     toolparser = subparsers.add_parser('tools',
@@ -201,6 +235,16 @@ def main():
     yparser.set_defaults(func=yaml2hdf)
     yparser.add_argument('input', help='Input .yaml file.')
     yparser.add_argument('output', help='Output .hdf, will be appended to if it exists.', default='meta.hdf')
+
+    # merge two haploid VCFs into a diploid VCF.
+    yparser = toolsubparsers.add_parser('merge_vcfs',
+        help='Merge two haploid VCFs into a diploid VCF.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    yparser.set_defaults(func=merge_vcfs)
+    yparser.add_argument('vcf1', help='Input .vcf file.')
+    yparser.add_argument('vcf2', help='Input .vcf file.')
+    yparser.add_argument('vcfout', help='Output .vcf.')
 
     args = parser.parse_args()
 

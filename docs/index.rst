@@ -60,6 +60,7 @@ Table of contents
 
    installation
    benchmarks
+   snp
    walkthrough
    development
    future

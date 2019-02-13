@@ -19,6 +19,8 @@ def main():
     parser.add_argument('region', help='alignment region to sample.')
     parser.add_argument('--print', action='store_true', help='print counts.')
     parser.add_argument('--dtypes', nargs='+', help='perform a multi-datatype tests.')
+    parser.add_argument('--norm', nargs='+', help='additional normalisation tests. (total, fwd_rev)')
+
     args = parser.parse_args()
     
     region = Region.from_string(args.region)
@@ -40,7 +42,9 @@ def main():
     dtype_options = [('',)]
     if args.dtypes is not None:
         dtype_options.append(args.dtypes)
-    norm_options = (None, 'total', 'fwd_rev')
+    norm_options = [None, ]
+    if args.norm is not None:
+        norm_options.extend(args.norm)
     
     for dtypes in dtype_options:
         kwargs['dtypes'] = dtypes

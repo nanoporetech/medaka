@@ -283,22 +283,22 @@ class TrainBatcher():
         """Convert a `Sample` object into an x,y tuple for training.
 
         :param sample: (filename, sample key)
-        
+
         :returns: (np.ndarray of inputs, np.ndarray of labels)
-        
+
         """
         return self.sample_to_x_y_bq_worker(
             sample, self.max_label_len, self.label_encoding,
             self.sparse_labels, self.n_classes)
 
-    
+
     def samples_to_batch(self, samples):
         """Convert a set of `Sample` objects into an X, Y tuple for training.
 
         :param samples: (filename, sample key) tuples
-        
+
         :returns: (np.ndarray of inputs, np.ndarray of labels)
-        
+
         """
         t0 = now()
         items = [self.sample_to_x_y(s) for s in samples]
@@ -316,9 +316,9 @@ class TrainBatcher():
         :param label_encoding: {label: int encoded label}.
         :param sparse_labels: bool, create sparse labels.
         :param n_classes: int, number of label classes.
-        
+
         :returns: (np.ndarray of inputs, np.ndarray of labels)
-        
+
         """
         sample_key, sample_file = sample
 
@@ -461,7 +461,7 @@ class VCFChunkWriter(object):
 
 
 def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fraction, chunk_len, chunk_ovlp,
-                   batch_size=200):
+                   batch_size=200, save_features=False, tag_name=None, tag_value=None, tag_keep_missing=False):
     """Inference worker."""
 
     logger = get_named_logger('PWorker')
@@ -472,7 +472,9 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fracti
         for region in regions:
             data_gen = SampleGenerator(
                 bam, region, model_file, rle_ref, read_fraction,
-                chunk_len=chunk_len, chunk_overlap=chunk_ovlp)
+                chunk_len=chunk_len, chunk_overlap=chunk_ovlp,
+                tag_name=tag_name, tag_value=tag_value,
+                tag_keep_missing=tag_keep_missing)
             yield from data_gen.samples
     batches = background_generator(
         grouper(sample_gen(), batch_size), 10
@@ -498,11 +500,11 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fracti
                 logger.info(msg.format(mbases_done / total_region_mbases, mbases_done, total_region_mbases, t1 - t0))
 
             best = np.argmax(class_probs, -1)
-            for sample, prob, pred in zip(data, class_probs, best):
+            for sample, prob, pred, feat in zip(data, class_probs, best, x_data):
                 # write out positions and predictions for later analysis
                 sample_d = sample._asdict()
                 sample_d['label_probs'] = prob
-                sample_d['features'] = None  # to keep file sizes down
+                sample_d['features'] = feat if save_features else None
                 ds.write_sample(Sample(**sample_d))
 
     logger.info('All done')
@@ -558,7 +560,8 @@ def predict(args):
         run_prediction(
             args.output, args.bam, long_regions, model, args.model, args.rle_ref, args.read_fraction,
             args.chunk_len, args.chunk_ovlp,
-            batch_size=args.batch_size
+            batch_size=args.batch_size, save_features=args.save_features,
+            tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing
         )
 
     # short regions must be done individually since they have differing lengths
@@ -573,7 +576,8 @@ def predict(args):
             run_prediction(
                 args.output, args.bam, [region], model, args.model, args.rle_ref, args.read_fraction,
                 chunk_len, chunk_ovlp,
-                batch_size=args.batch_size
+                batch_size=args.batch_size, save_features=args.save_features,
+                tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing
             )
     logger.info("Finished processing all regions.")
 

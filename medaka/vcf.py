@@ -1,5 +1,5 @@
 from copy import deepcopy
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 import itertools
 from threading import Lock
 
@@ -65,7 +65,7 @@ class Variant(object):
     # TODO: alt could contain breakends.
     # TODO: Handle genomic fields.
 
-    def __init__(self, chrom, pos, ref, alt='.', id='.', qual='.', filter='.', info='.'):
+    def __init__(self, chrom, pos, ref, alt='.', id='.', qual='.', filter='.', info='.', sample_dict=None):
         self.chrom = chrom
         self.pos = int(pos)
         self.ref = ref.upper()
@@ -78,6 +78,7 @@ class Variant(object):
             self.info = info
         else:
             self.info = parse_string_to_tags(info)
+        self.sample_dict = sample_dict if sample_dict is not None else OrderedDict()
 
 
     def __eq__(self, other):
@@ -92,16 +93,35 @@ class Variant(object):
 
 
     @property
+    def _sorted_format_keys(self):
+        sorted_keys = sorted(self.sample_dict.keys())
+        if 'GT' in sorted_keys:
+            sorted_keys = ['GT'] + [k for k in sorted_keys if k != 'GT']
+        return sorted_keys
+
+
+    @property
+    def format(self):
+        return ':'.join((str(v) for v in self._sorted_format_keys))
+
+
+    @property
+    def sample(self):
+        return ':'.join((str(self.sample_dict[k]) for k in self._sorted_format_keys))
+
+
+    @property
     def info_string(self):
-        return parse_tags_to_string(self.info)
+         return parse_tags_to_string(self.info)
 
 
     @classmethod
     def from_text(cls, line):
-        chrom, pos, id, ref, alt, qual, filter, info, *others = line.split('\t')
+        chrom, pos, id, ref, alt, qual, filter, info, sample_fields, sample_data, *others = line.split('\t')
         pos = int(pos)
         pos -= 1 # VCF is 1-based, python 0-based
-        return cls(chrom, pos, ref, alt=alt, id=id, qual=qual, filter=filter, info=info)
+        sample_dict = OrderedDict(zip(sample_fields.split(':'), sample_data.split(':')))
+        return cls(chrom, pos, ref, alt=alt, id=id, qual=qual, filter=filter, info=info, sample_dict=sample_dict)
 
 
     def add_tag(self, tag, value=None):
@@ -120,24 +140,43 @@ class Variant(object):
         attributes = {}
         for field in ('chrom', 'pos', 'ref', 'alt', 'id', 'qual', 'filter', 'info_string'):
             attributes[field] = getattr(self, field)
+        attributes['sample_repr'] = ';'.join('{}={}'.format(k,self.sample_dict[k]) for k in self._sorted_format_keys)
         return ("Variant('{chrom}', {pos}, '{ref}', alt={alt}, id={id}, qual={qual},"
-                " filter={filter}, info='{info_string}')".format(**attributes))
+                " filter={filter}, info='{info_string}', sample='{sample_repr}')".format(**attributes))
 
 
     def deep_copy(self):
         return deepcopy(self)
 
 
+    def to_dict(self):
+        d = dict(alt=','.join(self.alt))
+        for attr in ['chrom', 'pos', 'qual', 'id', 'filter', 'ref']:
+            d[attr] = getattr(self, attr)
+        d.update(self.info)
+        d.update(self.sample_dict)
+        return d
+
+
 class VCFWriter(object):
+    # some tools don't like VCFv4.3, preferring VCFv4.1 - so we should be able to
+    # write VCFv4.1 files. VCFv4.3 has a few extra reserved fields ('AD', 'ADF', and
+    # 'ADR') but there is no harm in including those files written as VCFv4.1 - they
+    # just won't be recognised and used as reserved fields.
+    version_options = {'4.3', '4.1'}
     def __init__(self, filename, mode='w',
-                 header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO'),
-                 meta_info=[]
+                 header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'SAMPLE'),
+                 meta_info=[],
+                 version='4.3'
                  ):
 
         self.filename = filename
         self.mode = mode
         self.header = header
-        self.meta = ['fileformat=VCFv4.3'] + meta_info
+        if version not in self.version_options:
+            raise ValueError('version must be one of {}'.format(self.version_options))
+        self.version = version
+        self.meta = ['fileformat=VCFv{}'.format(self.version)] + meta_info
         self.logger = get_named_logger('VCFWriter')
 
 
@@ -153,6 +192,7 @@ class VCFWriter(object):
 
 
     def write_variant(self, variant):
+        variant = variant.deep_copy()
         # Some fields can be multiple
         for attribute in ('alt', 'filter'):
             value = getattr(variant, attribute)
@@ -273,6 +313,9 @@ class VCFReader(object):
         if end is None:
             end = float('inf')
 
+        def _tree_search(tree, start, end, strict):
+            return tree.overlap(start, end) if strict else tree.envelop(start, end)
+
         if not self.cache:
             # if not using a cache, just keep re-reading the file
             for variant in self._parse():
@@ -284,14 +327,12 @@ class VCFReader(object):
         else:
             self.index()
             if ref_name is not None:
-                results = self._tree[ref_name].search(start, end, strict=strict)
+                results = _tree_search(self._tree[ref_name], start, end, strict)
             else:
                 results = itertools.chain(*(
-                     x.search(start, end, strict=True)
+                     _tree_search(x, start, end, strict=True)
                      for x in self._tree.values()
                 ))
             # spec says .vcf is sorted, lets follow
             for interval in sorted(results):
                 yield interval.data
-
-

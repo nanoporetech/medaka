@@ -42,7 +42,7 @@ master_doc = 'index'
 # General information about the project.
 __pkg_name__ = u'medaka'
 project = __pkg_name__.capitalize()
-copyright = u'2017, Oxford Nanopore Technologies'
+copyright = u'2017-19, Oxford Nanopore Technologies'
 
 # Generate API documentation:
 if subprocess.call(['sphinx-apidoc', '-o', './', "../{}".format(__pkg_name__)]) != 0:

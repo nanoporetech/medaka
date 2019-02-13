@@ -8,3 +8,4 @@ keras==2.2.4        # fixes some model checkpointing issues
 tensorflow==1.12.0  # comes with keras 2.1.6 which introduced CuDNNGRU
 numpy
 pysam
+git+https://bitbucket.org/whatshap/whatshap  # the --ignore-read-groups to haplotag has not yet been released (13/02/2019)
