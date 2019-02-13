@@ -13,9 +13,9 @@ ligation sequencing kit.
 The below serves to demonstrate the process at a simple level. It does not
 represent a best-practices or state-of-the-art workflow. To train models
 which generalise well to other datasets more careful preparation of a larger
-dataset is required. `medaka` is designed for flexibility over performance,
-though see :doc:`benchmarks` for a speed comparison with other commonly used
-tools.
+dataset is required. Refer to the `medaka training branch of katuali
+<https://github.com/nanoporetech/katuali/releases/tag/v0.1-medaka>`_ for how
+this can be done. 
 
 
 Obtaining Data and Software
@@ -211,3 +211,50 @@ the model using the `-m` option):
     CONSENSUS=consensus_trained
     MODEL=${TRAINNAME}/model.best.val.hdf5
     medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${CONSENSUS} -t ${NPROC} -m ${MODEL}
+
+
+Automated training pipeline
+---------------------------
+
+With the `medaka training branch of katuali
+<https://github.com/nanoporetech/katuali/releases/tag/v0.1-medaka>`_, it is now
+possible to train medaka models starting from folders of fast5s in a single
+command. 
+
+After updating the `template config
+<https://github.com/nanoporetech/katuali/blob/v0.1-medaka/config.yaml>`_ to
+reflect your input data (fast5s and references as well as training and
+evaluation region definitions), 
+
+running
+
+.. code-block:: bash
+
+    katuali all_medaka_train_features --keep-going
+
+will
+
+    * basecall all the runs
+    * align each run to its reference
+    * create subsampled sets of basecalls over the desired regions and depths
+    * assemble those sets of basecalls
+    * create medaka training features for all those sets
+
+
+while running
+
+.. code-block:: bash
+
+    katuali medaka_train_replicates --keep-going
+
+will do all the tasks of `all_medaka_train_features` and additionally launch
+multiple medaka model-training replicates.
+
+If some of your input runs have insufficient coverage-depth for some of the
+training regions, some of the training feature files will not be made. In this
+case the final stage of training should be performed by invoking `medaka train`
+directly rather than via `katuali`.
+
+Refer to comments in the `katuali config.yaml
+<https://github.com/nanoporetech/katuali/blob/v0.1-medaka/config.yaml>`_ to see
+how this process can be controlled.
