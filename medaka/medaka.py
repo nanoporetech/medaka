@@ -222,7 +222,7 @@ def main():
 
     # merge two haploid VCFs into a diploid VCF.
     yparser = toolsubparsers.add_parser('merge_vcfs',
-        help='Merge two haploid VCFs into a phased diploid VCF.',
+        help='Merge two haploid VCFs into a diploid VCF.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     yparser.set_defaults(func=merge_vcfs)

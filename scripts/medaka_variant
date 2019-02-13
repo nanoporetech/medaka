@@ -94,6 +94,7 @@ run_medaka_snp () {
     local PROBS=$1
     local VCF=$2
     local T=$3
+    local EXTRAOPTS=$4
     exit_if_file_does_not_exist ${PROBS} ${REF}
     if [[ ! -e ${VCF} ]]; then
         echo ""
@@ -101,7 +102,7 @@ run_medaka_snp () {
         echo "Running medaka snp with threshold ${T}"
         echo "======================================"
         echo ""
-        medaka snp ${REF} ${PROBS} ${VCF} --threshold ${T} \
+        medaka snp ${REF} ${PROBS} ${VCF} --threshold ${T} ${EXTRAOPTS} \
             || (echo "Failed to call snps from consensus chunks." && exit 1)
         echo "VCF written to ${OUTPUT}/${VCF}."
     else
@@ -256,14 +257,7 @@ VCFMERGED=round_1_final.vcf
 
 medaka tools merge_vcfs ${VCFHAP1} ${VCFHAP2} ${VCFMERGED}
 
-# use the new VCF to rebin reads for another round
-#VCFMERGEDGZ=${VCFMERGED}.gz 
-#run_bgzip ${VCFMERGED} ${VCFMERGEDGZ}
-#PHASEDBAM=round_1_phased.bam
-#run_whatshap_tag ${VCFMERGEDGZ} ${PHASEDBAM}
-
-# seemingly using the phased medaka vcf does not work with whatshap
-# so rephase it with whatshap first
+# since medaka output unphased VCF, rephase variants with whatshap
 VCFREPHASED="${VCFMERGED%.*}_rephased.vcf"
 run_phase_vcf ${VCFMERGED} ${VCFREPHASED} 
 VCFREPHASEDGZ=${VCFREPHASED}.gz 
@@ -283,5 +277,12 @@ VCFHAP2=round_2_hap_2.vcf
 run_medaka_snp ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD}
 VCFMERGED=round_2_final.vcf
 
-medaka tools merge_vcfs ${VCFHAP1} ${VCFHAP2} ${VCFMERGED}
+# to get the best GQ we can, rerun medaka snp on each haplotype providing the
+# other haplotype as ref vcf to ensure we have GQ for both haplotpyes at all
+# variant loci.
+VCFHAP1WITH2=round_2_hap_1_with_hap2.vcf
+run_medaka_snp ${PROBSHAP1} ${VCFHAP1WITH2} ${HAPLOIDTHRESHOLD} "--ref_vcf ${VCFHAP2}"
+VCFHAP2WITH1=round_2_hap_2_with_hap1.vcf
+run_medaka_snp ${PROBSHAP2} ${VCFHAP2WITH1} ${HAPLOIDTHRESHOLD} "--ref_vcf ${VCFHAP1}"
 
+medaka tools merge_vcfs ${VCFHAP1WITH2} ${VCFHAP2WITH1} ${VCFMERGED}

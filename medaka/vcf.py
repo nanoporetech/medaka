@@ -93,13 +93,21 @@ class Variant(object):
 
 
     @property
+    def _sorted_format_keys(self):
+        sorted_keys = sorted(self.sample_dict.keys())
+        if 'GT' in sorted_keys:
+            sorted_keys = ['GT'] + [k for k in sorted_keys if k != 'GT']
+        return sorted_keys
+
+
+    @property
     def format(self):
-        return ':'.join((str(v) for v in self.sample_dict.keys()))
+        return ':'.join((str(v) for v in self._sorted_format_keys))
 
 
     @property
     def sample(self):
-        return ':'.join((str(v) for v in self.sample_dict.values()))
+        return ':'.join((str(self.sample_dict[k]) for k in self._sorted_format_keys))
 
 
     @property
@@ -132,7 +140,7 @@ class Variant(object):
         attributes = {}
         for field in ('chrom', 'pos', 'ref', 'alt', 'id', 'qual', 'filter', 'info_string'):
             attributes[field] = getattr(self, field)
-        attributes['sample_repr'] = ';'.join('{}={}'.format(k,v) for k,v in self.sample_dict.items())
+        attributes['sample_repr'] = ';'.join('{}={}'.format(k,self.sample_dict[k]) for k in self._sorted_format_keys)
         return ("Variant('{chrom}', {pos}, '{ref}', alt={alt}, id={id}, qual={qual},"
                 " filter={filter}, info='{info_string}', sample='{sample_repr}')".format(**attributes))
 

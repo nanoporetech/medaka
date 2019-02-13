@@ -289,7 +289,6 @@ def merge_haploid_vcfs(vcf1, vcf2, vcf_out):
 
     with VCFWriter(vcf_out, 'w', version='4.1') as vcf_writer:
         for chrom, loci in loci_by_chrom.items():
-            first_pos = min(loci)
             for pos in sorted(loci):
                 v1 = list(vcf1.fetch(ref_name=chrom, start=pos, end=pos+1))
                 v2 = list(vcf2.fetch(ref_name=chrom, start=pos, end=pos+1))
@@ -303,20 +302,39 @@ def merge_haploid_vcfs(vcf1, vcf2, vcf_out):
                 # Hence if we want a common scale we need to assume we can apprimate the missing
                 # QC score for the reference haplotypes as being equal to the non-reference
                 # haplotype so we can set the overall score to double the latter.
-                if len(v1) == 1 and len(v2) == 0:  # heterozygous on v1:
-                    gq = 2 * float(v1[0].sample_dict['GQ'])  # see comment above
-                    v = Variant(chrom, pos, v1[0].ref, alt=v1[0].alt, sample_dict={'GT':'1/0', 'GQ':gq, 'PS': first_pos})
-                elif len(v1) == 0 and len(v2) == 1:  # heterozygous on v2
-                    gq = 2 * float(v2[0].sample_dict['GQ'])  # see comment above
-                    v = Variant(chrom, pos, v2[0].ref, alt=v2[0].alt, sample_dict={'GT':'0/1', 'GQ':gq, 'PS': first_pos})
+                def get_gq(v1, v2):
+                    if len(v1) == 1 and len(v2) == 1:
+                        gq = float(v1[0].sample_dict['GQ']) + float(v2[0].sample_dict['GQ'])
+                    else:
+                        v = v1[0] if len(v1) == 1 else v2[0]
+                        gq = 2 * float(v.sample_dict['GQ'])
+                    return gq
+
+                def get_ref(v1, v2):
+                    return v1[0].ref if len(v1) == 1 else v2[0].ref
+
+                # Note we output unphased GTs as we might have multiple phased
+                # regions and the phase can switch between regions
+
+                # heterozygous on v1:
+                if len(v1) == 1 and (len(v2) == 0 or v2[0].alt == ['.']):
+                    alt = v1[0].alt
+                    gt = '1/0'
+                # heterozygous on v2
+                elif (len(v1) == 0 or v1[0].alt == ['.']) and len(v2) == 1:
+                    alt = v2[0].alt
+                    gt = '0/1'
                 else:
                     assert len(v1) == 1 and len(v2) == 1
-                    gq = float(v1[0].sample_dict['GQ']) + float(v2[0].sample_dict['GQ'])
                     if v1[0].alt == v2[0].alt:  #homozygous snp
-                        v = Variant(chrom, pos, v1[0].ref, alt=v1[0].alt, sample_dict={'GT':'1/1', 'GQ': gq, 'PS': first_pos })
+                        alt = v1[0].alt
+                        gt = '1/1'
                     else:  #heterozygous snp
-                        v = Variant(chrom, pos, v1[0].ref, alt=v1[0].alt + v2[0].alt, sample_dict={'GT':'1/2', 'GQ':gq, 'PS': first_pos})
+                        alt = v1[0].alt + v2[0].alt
+                        gt = '1/2'
 
+                gq = get_gq(v1, v2)
+                v = Variant(chrom, pos, get_ref(v1, v2), alt=alt, qual=gq, sample_dict={'GT':gt, 'GQ':gq})
                 vcf_writer.write_variant(v)
 
 
