@@ -16,16 +16,18 @@ HAP1OPTS="--tag_name HP --tag_value 1 --tag_keep_missing"
 HAP2OPTS="--tag_name HP --tag_value 2 --tag_keep_missing"
 HAPLOIDTHRESHOLD=1
 
+WHATSHAPOPTS="--ignore-read-groups"
+
 usage="
 medaka ${medaka_version}
 ------------
 
-Variant calling via neural networks. The input reads should be aligned to a standard reference.
+Variant calling via neural networks. The input bam should be aligned to the reference against which to call variants.
 
 $(basename "$0") [-h] -i <fastx>
 
     -h  show this help text.
-    -b  bam of reads aligned to ref. The RG tag should be set (required).
+    -b  bam of reads aligned to ref. Read groups are currently ignored, so the bam should only contain reads from a single sample.
     -r  fasta input reference (required).
     -R  region string(s). If providing multiple regions, wrap them in quotes. If not provided, will process all contigs in bam. 
     -o  output folder (default: ${OUTPUT}).
@@ -121,7 +123,7 @@ run_phase_vcf () {
         echo "Running whatshap phase to phase vcf ${VCFIN}."
         echo "============================================="
         echo ""
-        whatshap phase --reference ${REF} -o ${VCFOUT} ${VCFIN} ${CALLS2REF} \
+        whatshap phase --reference ${REF} -o ${VCFOUT} ${VCFIN} ${CALLS2REF} ${WHATSHAPOPTS} \
             || (echo "Failed to phase variants in ${VCFIN}." && exit 1)
         echo "Phased VCF written to ${OUTPUT}/${VCFOUT}."
     else
@@ -138,7 +140,7 @@ run_whatshap_tag () {
         echo "Running whatshap tag using ${VCFIN}."
         echo "============================================="
         echo ""
-        whatshap haplotag -o ${BAMOUT} --reference ${REF} ${VCFIN} ${CALLS2REF} \
+        whatshap haplotag -o ${BAMOUT} --reference ${REF} ${VCFIN} ${CALLS2REF} ${WHATSHAPOPTS} \
             || (echo "Failed to partition reads in round 0." && exit 1)
         echo "Tagged reads written to ${OUTPUT}/${BAMOUT}."
     else
@@ -275,7 +277,6 @@ VCFHAP1=round_2_hap_1.vcf
 run_medaka_snp ${PROBSHAP1} ${VCFHAP1} ${HAPLOIDTHRESHOLD}
 VCFHAP2=round_2_hap_2.vcf
 run_medaka_snp ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD}
-VCFMERGED=round_2_final.vcf
 
 # to get the best GQ we can, rerun medaka snp on each haplotype providing the
 # other haplotype as ref vcf to ensure we have GQ for both haplotpyes at all
@@ -285,4 +286,14 @@ run_medaka_snp ${PROBSHAP1} ${VCFHAP1WITH2} ${HAPLOIDTHRESHOLD} "--ref_vcf ${VCF
 VCFHAP2WITH1=round_2_hap_2_with_hap1.vcf
 run_medaka_snp ${PROBSHAP2} ${VCFHAP2WITH1} ${HAPLOIDTHRESHOLD} "--ref_vcf ${VCFHAP1}"
 
-medaka tools merge_vcfs ${VCFHAP1WITH2} ${VCFHAP2WITH1} ${VCFMERGED}
+VCFMERGEDUNPHASED=round_2_final_unphased.vcf
+medaka tools merge_vcfs ${VCFHAP1WITH2} ${VCFHAP2WITH1} ${VCFMERGEDUNPHASED}
+
+# since medaka output unphased VCF, rephase variants with whatshap
+VCFMERGEDPHASED="${VCFMERGEDUNPHASED%_*}_phased.vcf"
+run_phase_vcf ${VCFMERGEDUNPHASED} ${VCFMERGEDPHASED} 
+
+echo ""
+echo "All done." 
+echo "Final unphased VCF written to ${OUTPUT}/${VCFMERGEDUNPHASED}"
+echo "Final phased VCF written to ${OUTPUT}/${VCFMERGEDPHASED}"
