@@ -702,6 +702,9 @@ def create_labelled_samples(args):
         # TODO: this parallelism would be better in `SampleGenerator.bams_to_training_samples`
         #       since training alignments are usually chunked.
         with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as executor:
+            # break up overly long chunks
+            MAX_SIZE= int(1e6)
+            regions = itertools.chain(*(r.split(MAX_SIZE) for r in regions))
             futures = [executor.submit(_labelled_samples_worker, args, reg) for reg in regions]
             for fut in concurrent.futures.as_completed(futures):
                 if fut.exception() is None:
@@ -709,6 +712,9 @@ def create_labelled_samples(args):
                     logger.info("Writing {} samples for region {}".format(len(samples), region))
                     for sample in samples:
                         ds.write_sample(sample)
+                else:
+                    logger.info(fut.exception())
+                fut._result = None  # python issue 27144
         no_data = ds.n_samples == 0
 
     if no_data:
