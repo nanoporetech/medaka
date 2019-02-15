@@ -1,3 +1,0 @@
-# things which are required for the installation of requirements. 
-# Add comments to keep track of why we are using particular versions
-cython  # required to install whatshap from source
