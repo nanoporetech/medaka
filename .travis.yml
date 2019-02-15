@@ -7,10 +7,15 @@ dist: trusty
 before_install:
   - sudo apt-get -qq update
   - sudo apt-get install -y python3-all-dev
+  - pip install -r install_requires.txt
 
 script:
-  - make install
-  - make docs
+  - make scripts/mini_align binaries
+  - MEDAKA_BINARIES=1 python setup.py install 
+  - pip install sphinx sphinx_rtd_theme sphinx-argparse
+  - cd docs && sphinx-build -b html . _build/html
+  - rm -rf modules.rst medaka.rst
+  - touch _build/html/.nojekyll
 
 deploy:
   provider: pages
