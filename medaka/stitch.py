@@ -168,7 +168,6 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, ref_
                 # this catches both SNPs where the genotype contains the
                 # reference, and where both copies are mutated.
 
-                ref_seq_encoded = np.fromiter((label_encoding[ref_seq[i]] for i in major_pos), int, count=len(major_pos))
                 sorted_prob_inds = np.argsort(major_probs, -1)
                 sorted_probs = np.take_along_axis(major_probs, sorted_prob_inds, axis=-1)
                 primary_labels = sorted_prob_inds[:, -1]
@@ -176,6 +175,7 @@ def find_snps(probs_hdfs, ref_fasta, out_file, regions=None, threshold=0.1, ref_
                 primary_probs = sorted_probs[:, -1]
                 secondary_probs = sorted_probs[:, -2]
                 # skip positions where ref is not a label (ATGC)
+                ref_seq_encoded = np.fromiter((label_encoding[ref_seq[i]] for i in major_pos), int, count=len(major_pos))
                 is_ref_valid_label = np.isin(ref_seq_encoded, np.arange(len(label_decoding)))
 
                 # homozygous SNPs

@@ -21,7 +21,7 @@ _gap_ = '*'
 _ref_gap_ = '#'
 _read_sep_ = ' '
 _alphabet_ = 'ACGT'
-_extra_bases_ = 'N'
+_extra_bases_ = 'NMRWSKYWS' #TODO: put this in htslib order
 #TODO: change name of these
 decoding = _gap_ + _alphabet_.lower() + _alphabet_.upper() + _read_sep_ + _extra_bases_
 # store encoding in ordered dict as the order will always be the same
