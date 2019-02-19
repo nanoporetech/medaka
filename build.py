@@ -3,9 +3,10 @@ import os
 from cffi import FFI
 
 #TODO: configure this better
-htslib_dir=os.path.join('submodules', 'samtools-1.3.1', 'htslib-1.3.1')
+samver="1.9"
+htslib_dir=os.path.join('submodules', 'samtools-{}'.format(samver), 'htslib-{}'.format(samver))
 
-libraries=['z', 'lzma', 'bz2', 'pthread']
+libraries=['z', 'lzma', 'bz2', 'pthread', 'curl', 'crypto']
 library_dirs=[htslib_dir]
 src_dir='src'
 

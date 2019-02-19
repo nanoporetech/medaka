@@ -49,8 +49,8 @@ Medaka can be installed from its source quite easily on most systems.
     prerequisite libraries, best installed by a package manager. On Ubuntu
     theses are:
     
-    gcc zlib1g-dev libbz2-dev liblzma-dev libffi-dev libncurses5-dev make wget
-    python3-all-dev python-virtualenv
+    gcc zlib1g-dev libbz2-dev liblzma-dev libffi-dev libncurses5-dev
+    libcurl4-gnutls-dev libssl-dev make wget python3-all-dev python-virtualenv
 
 A Makefile is provided to fetch, compile and install all direct dependencies
 into a python virtual environment. To setup the environment run:

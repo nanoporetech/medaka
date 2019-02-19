@@ -1,11 +1,19 @@
 
-![Oxford Nanopore Technologies logo](images/ONT_logo_590x106.png)
+![Oxford Nanopore Technologies logo](https://github.com/nanoporetech/medaka/raw/master/images/ONT_logo_590x106.png)
 
 
 Medaka
 ======
 
 [![Build Status](https://travis-ci.org/nanoporetech/medaka.svg?branch=master)](https://travis-ci.org/nanoporetech/medaka)
+
+[![](https://img.shields.io/pypi/v/medaka.svg)](https://pypi.org/project/medaka/)
+[![](https://img.shields.io/pypi/wheel/medaka.svg)](https://pypi.org/project/medaka/)
+
+[![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)](https://anaconda.org/bioconda/medaka)
+[![](https://img.shields.io/conda/pn/bioconda/medaka.svg)](https://anaconda.org/bioconda/medaka)
+
+
 
 `medaka` is a tool to create a consensus sequence of nanopore sequencing data.
 This task is performed using neural networks applied a pileup of individual
@@ -24,7 +32,7 @@ Features
   * Benchmarks are provided [here](https://nanoporetech.github.io/medaka/benchmarks.html).
   * Includes extras for implementing and training bespoke correction
     networks.
-  * Works on Linux (MacOS and Windows support is untested).
+  * Works on Linux and MacOS.
   * Open source (Mozilla Public License 2.0).
 
 Tools to enable the creation of draft assemblies can be found in a sister
@@ -36,11 +44,20 @@ Documentation can be found at https://nanoporetech.github.io/medaka/.
 Installation
 ------------
 
-There are currently two installation methods for medaka, detailed below.
+Medaka can be installed in one of several ways.
+
+**Installation with conda**
+
+Perhaps the simplest way to start using medaka on both Linux and MacOS is
+through conda; medaka is available via the
+[bioconda](https://anaconda.org/bioconda/medaka) channel:
+
+    conda install -c bioconda medaka
 
 **Installation with pip**
   
-Medaka can be installed using the python package manager, pip:
+For those who prefer python's native pacakage manager, medaka is also available
+on pypi and can be installed using pip:
 
     pip install medaka
 
@@ -77,6 +94,8 @@ Medaka can be installed from its source quite easily on most systems.
  > * liblzma-dev
  > * libffi-dev
  > * libncurses5-dev
+ > * libcurl4-gnutls-dev
+ > * libssl-dev
  > * make
  > * wget
  > * python3-all-dev
