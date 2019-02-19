@@ -14,8 +14,8 @@ endif
 
 binaries: $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 
-SAMVER=1.3.1
-$(BINCACHEDIR)/samtools: submodules/samtools-1.3.1/Makefile | $(BINCACHEDIR)
+SAMVER=1.9
+$(BINCACHEDIR)/samtools: submodules/samtools-$(SAMVER)/Makefile | $(BINCACHEDIR)
 	@echo Making $(@F)
 	# copy our hack up version of tview
 	${SEDI} 's/tv->is_dot = 1;/tv->is_dot = 0;/' submodules/samtools-${SAMVER}/bam_tview.c
@@ -30,7 +30,7 @@ submodules/samtools-$(SAMVER)/Makefile:
 		rm samtools-${SAMVER}.tar.bz2
 
 
-libhts.a: submodules/samtools-1.3.1/Makefile
+libhts.a: submodules/samtools-$(SAMVER)/Makefile
 	# this is required only to add in -fpic so we can build python module
 	@echo Compiling $(@F)
 	cd submodules/samtools-${SAMVER}/htslib-${SAMVER}/ && CFLAGS=-fpic ./configure && make
@@ -115,21 +115,18 @@ pypi_build/bin/activate:
 	${IN_BUILD} && pip install --upgrade pip setuptools twine wheel readme_renderer[md]
 
 
-sdist: pypi_build/bin/activate scripts/mini_align submodules/samtools-1.3.1/Makefile
+sdist: pypi_build/bin/activate scripts/mini_align submodules/samtools-$(SAMVER)/Makefile
 	${IN_BUILD} && python setup.py sdist
 
 
-# You can set these variables from the command line.
+# Documentation
 SPHINXOPTS    =
 SPHINXBUILD   = sphinx-build
 PAPER         =
 BUILDDIR      = _build
-
-# Internal variables.
 PAPEROPT_a4     = -D latex_paper_size=a4
 PAPEROPT_letter = -D latex_paper_size=letter
 ALLSPHINXOPTS   = -d $(BUILDDIR)/doctrees $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) .
-
 DOCSRC = docs
 
 docs: venv

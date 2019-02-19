@@ -77,6 +77,8 @@ Medaka can be installed from its source quite easily on most systems.
  > * liblzma-dev
  > * libffi-dev
  > * libncurses5-dev
+ > * libcurl4-gnutls-dev
+ > * libssl-dev
  > * make
  > * wget
  > * python3-all-dev
