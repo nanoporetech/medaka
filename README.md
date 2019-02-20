@@ -1,4 +1,4 @@
-
+﻿
 ![Oxford Nanopore Technologies logo](https://github.com/nanoporetech/medaka/raw/master/images/ONT_logo_590x106.png)
 
 
@@ -15,11 +15,11 @@ Medaka
 
 
 
-`medaka` is a tool to create a consensus sequence of nanopore sequencing data.
-This task is performed using neural networks applied a pileup of individual
+`medaka` is a tool to create a consensus sequence from nanopore sequencing data.
+This task is performed using neural networks applied from a pileup of individual
 sequencing reads against a draft assembly. It outperforms graph-based methods
 operating on basecalled data, and can be competitive with state-of-the-art
-signal-based methods whilst being much faster.
+signal-based methods, whilst being much faster.
 
 © 2018 Oxford Nanopore Technologies Ltd.
 
@@ -102,7 +102,7 @@ Medaka can be installed from its source quite easily on most systems.
  > * python-virtualenv
 
 A Makefile is provided to fetch, compile and install all direct dependencies
-into a python virtual environment. To setup the environment run:
+into a python virtual environment. To set-up the environment run:
 
     git clone https://github.com/nanoporetech/medaka.git
     cd medaka
@@ -116,7 +116,7 @@ not be provided by the user.
 
 All installation methods will allow medaka to be used with CPU resource only.
 To enable the use of GPU resource it is necessary to install the
-`tensorflow-gpu` package. In outline this can be achieve with:
+`tensorflow-gpu` package. To outline, this can be achieved with:
 
     pip uninstall tensorflow
     pip install tensorflow-gpu
@@ -132,9 +132,9 @@ Usage
 
 `medaka` can be run using its default settings through the `medaka_consensus`
 program. An assembly in `.fasta` format and basecalls in `.fasta` or `.fastq`
-format are required. The program uses both `samtools` and `minimap2`. If
+formats are required. The program uses both `samtools` and `minimap2`. If
 medaka has been installed using the from-source method these will be present
-within the medaka environment, else they will need to be provided by the user.
+within the medaka environment, otherwise they will need to be provided by the user.
 
     source ${MEDAKA}  # i.e. medaka/venv/bin/activate
     NPROC=$(nproc)
