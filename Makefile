@@ -25,7 +25,7 @@ $(BINCACHEDIR)/samtools: submodules/samtools-$(SAMVER)/Makefile | $(BINCACHEDIR)
 
 submodules/samtools-$(SAMVER)/Makefile:
 	cd submodules; \
-		wget https://github.com/samtools/samtools/releases/download/${SAMVER}/samtools-${SAMVER}.tar.bz2; \
+		curl -L -o samtools-${SAMVER}.tar.bz2 https://github.com/samtools/samtools/releases/download/${SAMVER}/samtools-${SAMVER}.tar.bz2; \
 		tar -xjf samtools-${SAMVER}.tar.bz2; \
 		rm samtools-${SAMVER}.tar.bz2
 
@@ -52,7 +52,7 @@ clean_htslib:
 
 $(BINCACHEDIR)/minimap2: | $(BINCACHEDIR)
 	@echo Making $(@F)
-	wget https://github.com/lh3/minimap2/releases/download/v2.11/minimap2-2.11_x64-linux.tar.bz2 
+	curl -L -o minimap2-2.11_x64-linux.tar.bz2 https://github.com/lh3/minimap2/releases/download/v2.11/minimap2-2.11_x64-linux.tar.bz2 
 	tar -xvf minimap2-2.11_x64-linux.tar.bz2
 	cp minimap2-2.11_x64-linux/minimap2 $@
 	rm -rf minimap2-2.11_x64-linux.tar.bz2 minimap2-2.11_x64-linux
@@ -92,7 +92,7 @@ test: install
 
 
 clean: clean_htslib
-	${IN_VENV} && python setup.py clean || echo "Failed to run setup.py clean"
+	(${IN_VENV} && python setup.py clean) || echo "Failed to run setup.py clean"
 	rm -rf libhts.a venv build dist/ medaka.egg-info/ __pycache__ medaka.egg-info
 	find . -name '*.pyc' -delete
 

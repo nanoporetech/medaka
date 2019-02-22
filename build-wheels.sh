@@ -6,7 +6,7 @@ PACKAGE_NAME='medaka'
 
 cd /io
 
-yum install -y zlib-devel bzip2 bzip2-devel xz-devel
+yum install -y zlib-devel bzip2 bzip2-devel xz-devel curl-devel openssl-devel ncurses-devel
 rm -rf libhts.a bincache/*
 make scripts/mini_align clean_htslib libhts.a
 
