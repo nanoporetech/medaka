@@ -246,7 +246,7 @@ class FeatureEncoder(object):
             keep_missing=self.tag_keep_missing
         )
         start, end = positions['major'][0], positions['major'][-1]
-        if start != region.start or end != region.end:
+        if start != region.start or end + 1 != region.end: # TODO investigate off-by-one
             self.logger.warning(
                 'Pileup counts do not span requested region, requested {}, '
                 'received {}-{}.'.format(region, start, end)
