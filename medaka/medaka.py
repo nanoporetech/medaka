@@ -13,13 +13,12 @@ from medaka.stitch import stitch, snps, merge_vcfs
 from medaka.features import create_labelled_samples, create_samples
 
 model_store = resource_filename(__package__, 'data')
-
+allowed_models = ['r941_trans', 'r941_flip213', 'r941_flip235']
+default_model = 'r941_trans'
 model_dict = {
-  'r94': 'medaka_model.hdf5',
-  'r941_flip': 'r941_flip_model.hdf5'
+    k:os.path.join(model_store, '{}_model.hdf5'.format(k))
+    for k in allowed_models
 }
-model_dict = {k:os.path.join(model_store, v) for k,v in model_dict.items()}
-default_model = 'r94'
 
 
 class ResolveModel(argparse.Action):
@@ -215,6 +214,7 @@ def main():
     # Tools
     toolparser = subparsers.add_parser('tools',
         help='tools sub-command.',
+        parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     toolsubparsers = toolparser.add_subparsers(title='tools', description='valid tool commands', help='additional help', dest='tool_command')
 
@@ -252,9 +252,13 @@ def main():
     logger = logging.getLogger(__package__)
     logger.setLevel(args.log_level)
 
-    #TODO: do common argument validation here: e.g. rle_ref being present if
-    #      required by model
-    args.func(args)
+    if args.command == 'tools' and not hasattr(args, 'func'):
+        # display help if given `medaka tools (--help)`
+        toolparser.print_help()
+    else:
+        #TODO: do common argument validation here: e.g. rle_ref being present if
+        #      required by model
+        args.func(args)
 
 
 if __name__ == '__main__':

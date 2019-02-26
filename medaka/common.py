@@ -438,6 +438,7 @@ def background_generator(generator, max_size, daemon=True):
     :param daemon: run generator in daemon thread
 
     """
+
     results = queue.Queue(maxsize=max_size)
     have_data = threading.Event()
     have_data.set()
@@ -449,9 +450,16 @@ def background_generator(generator, max_size, daemon=True):
     thread = threading.Thread(target=gen_to_queue)
     thread.daemon = daemon
     thread.start()
+
     # yield results concurrently whilst filling queue
     while have_data.is_set():
-        yield results.get()
+        try:
+            res = results.get(timeout=1)
+        except queue.Empty:
+            if not have_data.is_set():
+               break
+        else:
+            yield res
 
     # empty remaining items in queue when input has finished
     while not results.empty():

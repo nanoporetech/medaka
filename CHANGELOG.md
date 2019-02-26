@@ -1,4 +1,14 @@
 
+v0.6.0
+------
+SNP calling, model, and bugfix release release
+
+* Prototype SNP calling and phasing, [benchmarks](https://nanoporetech.github.io/medaka/snp.html)
+* Add model for improved Flip-flop model in Guppy 2.3.5
+* Rename models to be more logical
+* Update to htslib version 1.9 for long cigars
+* Workaround short-contig/no-coverage corner case during pileup.
+
 v0.5.2
 ------
 Bug fix release
