@@ -149,8 +149,11 @@ will be saved to `${OUTDIR}/consensus.fasta`.
 
    **It is crucially important to specify the correct model, `-m` in the
    above, according to the basecaller used. Allowed values can be found by
-   running `medaka consensus --help`.  For example to run medaka with a
-   model suitable for the flip-flop basecaller in Guppy use `-m r941_flip`.**
+   running `medaka consensus --help`. The default model is appropriate for
+   basecallers using the transducer algorithm (Albacore or Guppy<2.1.3). For
+   Guppy versions >=2.1.3 where the flip-flop algorithm has been used, users
+   should select the highest numbered model equal to or less than the Guppy
+   version used for basecalling.**
 
 ### Origin of the draft sequence
 
