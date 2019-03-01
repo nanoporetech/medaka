@@ -5,7 +5,7 @@ set -eo pipefail
 OUTPUT="medaka_variant"
 THREADS=1
 THRESHOLD=0.04
-MODEL="r94"
+MODEL="r941_trans"
 BATCH_SIZE=200
 REGIONS=""
 medaka_version=$(python -c "import medaka; print(medaka.__version__)")
@@ -31,7 +31,7 @@ $(basename "$0") [-h] -i <fastx>
     -r  fasta input reference (required).
     -R  region string(s). If providing multiple regions, wrap them in quotes. If not provided, will process all contigs in bam. 
     -o  output folder (default: ${OUTPUT}).
-    -m  medaka model, One of: 'r94', 'r941_flip' (default: ${MODEL}).
+    -m  medaka model, One of: 'r941_trans', 'r941_flip213', 'r941_flip235' (default: ${MODEL}).
         Alternatively a .hdf file from 'medaka train'. 
     -T  label probability threshold for calling heterozygous SNPs from unphased reads. (default: ${THRESHOLD}).
         This will only affect the initial SNP calls used to phase reads, not the final SNP calls, which are
