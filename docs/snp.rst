@@ -15,7 +15,7 @@ heterozygous locus. Where no secondary call occurs with a high probability the
 locus is determined to be homozygous.
 
 Applying such a process gives respectable, if not state-of-the-art results for
-a region of Chr20 in the NA12878 human sample.
+a region (`chr21:21300000-22305000`) of the NA12878 human sample.
 
 .. table::
     Single nucleotide polymorphism calling at 100-fold coverage using
