@@ -8,7 +8,7 @@ THRESHOLD=0.04
 MODEL="r941_trans"
 BATCH_SIZE=200
 REGIONS=""
-medaka_version=$(python -c "import medaka; print(medaka.__version__)")
+medaka_version=$(medaka --version)
 bflag=false
 rflag=false
 
@@ -19,7 +19,7 @@ HAPLOIDTHRESHOLD=1
 WHATSHAPOPTS="--ignore-read-groups"
 
 usage="
-medaka ${medaka_version}
+${medaka_version}
 ------------
 
 Variant calling via neural networks. The input bam should be aligned to the reference against which to call variants.
