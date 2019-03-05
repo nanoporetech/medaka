@@ -1,3 +1,9 @@
+v0.6.1
+------
+Bug fix release
+
+* Fixed bug in `medaka_consensus` incorrectly calling python
+
 
 v0.6.0
 ------

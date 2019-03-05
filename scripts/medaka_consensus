@@ -6,12 +6,12 @@ THREADS=1
 
 MODEL="r941_trans"
 BATCH_SIZE=200
-medaka_version=$(python -c "import medaka; print(medaka.__version__)")
+medaka_version=$(medaka --version)
 iflag=false
 dflag=false
 
 usage="
-medaka ${medaka_version}
+${medaka_version}
 ------------
 
 Assembly polishing via neural networks. The input assembly should be
