@@ -176,11 +176,11 @@ class DataIndex(object):
                 f = future_to_f[future]
                 try:
                     meta = future.result()
+                    self.samples.extend([(s, f) for s in meta['medaka_samples']])
+                    self.meta[c_grp].update(meta[c_grp])
                 except Exception as exc:
                     self.logger.info('Could not load meta from {}'.format(f))
                 else:
-                    self.samples.extend([(s, f) for s in meta['medaka_samples']])
-                    self.meta[c_grp].update(meta[c_grp])
                     self.logger.info('Loaded sample-index from {}/{} ({:.2%}) of feature files.'.format(i, len(filenames), i / len(filenames)))
 
         # make order of samples independent of order in which tasks complete
