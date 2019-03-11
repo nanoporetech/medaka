@@ -1,13 +1,9 @@
-from collections import Counter, deque
-from concurrent.futures import ProcessPoolExecutor, Future
+from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 import functools
 import inspect
 import itertools
-import logging
 import os
-import queue
-import threading
-import time
 from timeit import default_timer as now
 
 import numpy as np
@@ -16,7 +12,7 @@ import pysam
 from medaka import vcf
 from medaka.datastore import DataStore, DataIndex
 from medaka.common import (get_regions, decoding, grouper, mkdir_p, Sample,
-                           _gap_, threadsafe_generator, background_generator,
+                           _gap_, background_generator,
                            get_named_logger)
 
 from medaka.features import SampleGenerator
@@ -325,7 +321,7 @@ class TrainBatcher():
         with DataStore(sample_file) as ds:
             s = ds.load_sample(sample_key)
         if s.labels is None:
-            raise ValueError("Cannot train without labels.")
+            raise ValueError("Sample {} in {} has no labels.".format(sample_key, sample_file))
         x = s.features
         # labels can either be unicode strings or (base, length) integer tuples
         if isinstance(s.labels[0], np.unicode):
