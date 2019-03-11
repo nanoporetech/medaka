@@ -41,8 +41,35 @@ class DataStore(object):
 
     def __exit__(self, *args):
         if self.mode != 'r' and self._meta is not None:
+            self._verify_()  # verify data before saving meta
             self._write_metadata(self.meta)
         self.fh.close()
+
+
+    def _verify_(self):
+        self.logger.debug("Verifying data.")
+        self.fh.flush()
+        fh = h5py.File(self.filename, 'r')
+        # find the union of all present fields and remove and samples from the
+        # index which don't contain all of these fields
+        all_fields = set()
+
+        for key in self.sample_keys:
+            # if key is not in the file, remove it from the index
+            grp = '{}/{}'.format(self._sample_path_, key)
+            if grp not in fh:
+                self.meta['medaka_samples'].remove(key)
+                self.logger.debug("Removing sample {} as grp {} is not present.".format(key, grp))
+                continue
+            all_fields.update(fh[grp].keys())
+
+        for key in self.sample_keys:
+            for field in all_fields:
+                path = '{}/{}/{}'.format(self._sample_path_, key, field)
+                if path not in fh:
+                    self.meta['medaka_samples'].remove(key)
+                    self.logger.debug("Removing sample {} as field {} is not present.".format(key, path))
+                    break
 
 
     @property
@@ -71,8 +98,9 @@ class DataStore(object):
         if 'medaka_samples' not in self.meta:
             self.meta['medaka_samples'] = set()
 
-        if sample.name not in self.meta['medaka_samples']:
-            self.meta['medaka_samples'].add(sample.name)
+        if not any([isinstance(getattr(sample, field), np.ndarray) for field in sample._fields]):
+            self.logger.debug('Not writing sample as it has no data.')
+        elif sample.name not in self.meta['medaka_samples']:
             for field in sample._fields:
                 if getattr(sample, field) is not None:
                     data = getattr(sample, field)
@@ -85,6 +113,9 @@ class DataStore(object):
                     self.meta['medaka_label_counts'].update([tuple(l) for l in sample.labels])
                 else:
                     self.meta['medaka_label_counts'].update(sample.labels)
+            # Do this last so we only add this sample to the index if we have
+            # gotten this far
+            self.meta['medaka_samples'].add(sample.name)
         else:
             self.logger.debug('Not writing {} as it is present already'.format(sample.name))
 
@@ -118,6 +149,7 @@ class DataStore(object):
 
     def _write_metadata(self, data):
         """Save a data structure to file within a yml str."""
+        self.logger.debug("Writing metadata.")
         for group, d in data.items():
             if group in self.fh:
                 del self.fh[group]
