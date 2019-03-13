@@ -245,6 +245,14 @@ class FeatureEncoder(object):
             tag_name=self.tag_name, tag_value=self.tag_value,
             keep_missing=self.tag_keep_missing
         )
+        
+        if len(counts) == 0:
+            msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
+            self.logger.warning(msg)
+            return Sample(ref_name=region.ref_name, features=None,
+                          labels=None, ref_seq=None,
+                          positions=positions, label_probs=None)
+        
         start, end = positions['major'][0], positions['major'][-1]
         if start != region.start or end + 1 != region.end: # TODO investigate off-by-one
             self.logger.warning(
@@ -252,12 +260,6 @@ class FeatureEncoder(object):
                 'received {}-{}.'.format(region, start, end)
             )
 
-        if len(counts) == 0:
-            msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
-            self.logger.warning(msg)
-            return Sample(ref_name=region.ref_name, features=None,
-                          labels=None, ref_seq=None,
-                          positions=positions, label_probs=None)
 
         # find the position index for parent major position of all minor positions
         minor_inds = np.where(positions['minor'] > 0)
