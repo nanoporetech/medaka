@@ -164,10 +164,9 @@ class DataStore(object):
 
     @property
     def sample_keys(self):
-        """Return list of sample keys"""
+        """Return tuple of sample keys"""
 
-        #return tuple(self.fh[self._sample_path_].keys()) if self._sample_path_ in self.fh else ()
-        return tuple(self.meta['medaka_samples'])
+        return tuple(self.meta['medaka_samples']) if 'medaka_samples' in self.meta else tuple()
 
 
     def _find_samples(self):
