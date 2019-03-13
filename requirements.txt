@@ -8,4 +8,5 @@ keras==2.2.4        # fixes some model checkpointing issues
 tensorflow==1.12.0  # comes with keras 2.1.6 which introduced CuDNNGRU
 numpy==1.16.1       # tensorflow needs numpy>=1.13.3, travis needs this forced
 pysam
+pyyaml==5.1
 whatshap==0.18      # added --ignore-read-groups to haplotag
