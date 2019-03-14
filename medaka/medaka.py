@@ -109,7 +109,7 @@ def hdf2yaml(args):
 
 def yaml2hdf(args):
     with DataStore(args.output, 'a') as ds, open(args.input) as fh:
-        ds.update_meta(yaml.full_load(fh))
+        ds.update_meta(yaml.unsafe_load(fh))
 
 
 def main():
