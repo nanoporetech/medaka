@@ -3,7 +3,7 @@ import functools
 import os
 import subprocess
 
-__version__ = '0.6.1'
+__version__ = '0.6.2'
 
 
 def check_minimap2_version():
@@ -41,9 +41,9 @@ check_samtools_version = functools.partial(check_htslib_tool_version, 'samtools'
 
 required_version = {
     'minimap2':LooseVersion('2.11'),
-    'samtools':LooseVersion('1.3.1'),
-    'tabix':LooseVersion('1.3.1'),
-    'bgzip':LooseVersion('1.3.1'),
+    'samtools':LooseVersion('1.9'),
+    'tabix':LooseVersion('1.9'),
+    'bgzip':LooseVersion('1.9'),
 }
 
 get_version = {

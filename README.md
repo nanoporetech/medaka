@@ -77,7 +77,7 @@ Using this method requires the user to provide several binaries:
  * [tabix](https://github.com/samtools/htslib), and
  * [bgzip](https://github.com/samtools/htslib)
 
-and place these within the `PATH`. `samtools/bgzip/tabix` version 1.3.1 and
+and place these within the `PATH`. `samtools/bgzip/tabix` version 1.9 and
 `minimap2` version 2.11 are recommended as these are those used in development
 of medaka.
 

@@ -34,7 +34,7 @@ We recommend using medaka within a virtual environment, viz.:
     `tabix <https://github.com/samtools/htslib>`_, and
     `bgzip <https://github.com/samtools/htslib>`_,
 
-    and place these within the `PATH`. `samtools` version 1.3.1 and `minimap2`
+    and place these within the `PATH`. `samtools` version 1.9 and `minimap2`
     version 2.11 are recommended as these are those used in development of
     medaka.
 
