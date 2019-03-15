@@ -1,3 +1,11 @@
+
+v0.6.2
+------
+Bug fix release
+
+* Enhanced verification of training feature samples
+* Pin pyyaml version
+
 v0.6.1
 ------
 Bug fix release

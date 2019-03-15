@@ -13,9 +13,8 @@ ligation sequencing kit.
 The below serves to demonstrate the process at a simple level. It does not
 represent a best-practices or state-of-the-art workflow. To train models
 which generalise well to other datasets more careful preparation of a larger
-dataset is required. Refer to the `medaka training branch of katuali
-<https://github.com/nanoporetech/katuali/releases/tag/v0.1-medaka>`_ for how
-this can be done. 
+dataset is required. Medaka's standard models are trained using 
+`katuali <https://nanoporetech.github.io/katuali/medaka_train.html>`_.
 
 
 Obtaining Data and Software
@@ -201,60 +200,39 @@ output models including in particular:
 
 Other ancilliary output are also produced. 
 
-To use a model run `medaka_consensus` for the default model (specifying
-the model using the `-m` option):
+To use a model run `medaka_consensus`, specifying the full absolute path to
+the model using the `-m` option:
 
 .. code-block:: bash
 
     cd ${WALKTHROUGH}
     source ${MEDAKA}
     CONSENSUS=consensus_trained
-    MODEL=${TRAINNAME}/model.best.val.hdf5
+    MODEL=${PWD}/${TRAINNAME}/model.best.val.hdf5
     medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${CONSENSUS} -t ${NPROC} -m ${MODEL}
 
 
 Automated training pipeline
 ---------------------------
 
-With the `medaka training branch of katuali
-<https://github.com/nanoporetech/katuali/releases/tag/v0.1-medaka>`_, it is now
-possible to train medaka models starting from folders of fast5s in a single
-command. 
-
-After updating the `template config
-<https://github.com/nanoporetech/katuali/blob/v0.1-medaka/config.yaml>`_ to
-reflect your input data (fast5s and references as well as training and
-evaluation region definitions), 
-
-running
-
-.. code-block:: bash
-
-    katuali all_medaka_train_features --keep-going
-
-will
-
-    * basecall all the runs
-    * align each run to its reference
-    * create subsampled sets of basecalls over the desired regions and depths
-    * assemble those sets of basecalls
-    * create medaka training features for all those sets
-
-
-while running
+With `katuali <https://nanoporetech.github.io/katuali/medaka_train.html>`_ it
+is now possible to train medaka models starting from folders of fast5s in a single
+command:
 
 .. code-block:: bash
 
     katuali medaka_train_replicates --keep-going
 
-will do all the tasks of `all_medaka_train_features` and additionally launch
-multiple medaka model-training replicates.
+Running the above will
 
-If some of your input runs have insufficient coverage-depth for some of the
-training regions, some of the training feature files will not be made. In this
-case the final stage of training should be performed by invoking `medaka train`
-directly rather than via `katuali`.
+    * basecall all multiple runs of data,
+    * align all basecalls to reference sequences,
+    * create subsampled sets of basecalls over reference sequences and depths,
+    * assemble those sets of basecalls into draft assemblies,
+    * create medaka training features for all assemblies,
+    * train a medaka in multiple replicates, and
+    * evaluate the models on test data.
 
-Refer to comments in the `katuali config.yaml
-<https://github.com/nanoporetech/katuali/blob/v0.1-medaka/config.yaml>`_ to see
-how this process can be controlled.
+For further information concerning settig-up adnd running katuali, refer to
+its `documentation <https://nanoporetech.github.io/>`_.
+

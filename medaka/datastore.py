@@ -160,7 +160,7 @@ class DataStore(object):
         """Load meta data"""
         if groups is None:
             groups = self._groups_
-        return {g: yaml.full_load(self.fh[g][()]) for g in groups if g in self.fh}
+        return {g: yaml.unsafe_load(self.fh[g][()]) for g in groups if g in self.fh}
 
     @property
     def sample_keys(self):
