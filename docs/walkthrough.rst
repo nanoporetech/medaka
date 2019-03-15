@@ -13,9 +13,8 @@ ligation sequencing kit.
 The below serves to demonstrate the process at a simple level. It does not
 represent a best-practices or state-of-the-art workflow. To train models
 which generalise well to other datasets more careful preparation of a larger
-dataset is required. Refer to the `medaka training branch of katuali
-<https://github.com/nanoporetech/katuali/releases/tag/v0.1-medaka>`_ for how
-this can be done. 
+dataset is required. Medaka's standard models are trained using 
+`katuali <https://nanoporetech.github.io/katuali/medaka_train.html>`_.
 
 
 Obtaining Data and Software
