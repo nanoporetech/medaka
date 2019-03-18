@@ -607,7 +607,8 @@ class SampleGenerator(object):
 
     def __init__(self, bam, region, model, rle_ref=None, truth_bam=None,
                  read_fraction=None, chunk_len=1000, chunk_overlap=200,
-                 tag_name=None, tag_value=None, tag_keep_missing=False):
+                 tag_name=None, tag_value=None, tag_keep_missing=False,
+                 enable_chunking=True):
         """Generate chunked inference (or training) samples.
 
         :param bam: `.bam` containing alignments from which to generate samples.
@@ -619,11 +620,12 @@ class SampleGenerator(object):
         :param tag_name: two letter tag name by which to filter reads.
         :param tag_value: integer value of tag for reads to keep.
         :param tag_keep_missing: whether to keep reads when tag is missing.
+        :param enable_chunking: when yielding samples, do so in chunks.
 
         """
         self.logger = get_named_logger("Sampler")
         self.sample_type = "training" if truth_bam is not None else "consensus"
-        self.logger.info("Initializing sampler for {} or region {}.".format(self.sample_type, region))
+        self.logger.info("Initializing sampler for {} of region {}.".format(self.sample_type, region))
         with DataStore(model) as ds:
             self.fencoder_args = ds.meta['medaka_features_kwargs']
         self.fencoder = FeatureEncoder(
@@ -638,13 +640,16 @@ class SampleGenerator(object):
         self.read_fraction = read_fraction
         self.chunk_len = chunk_len
         self.chunk_overlap = chunk_overlap
+        self.enable_chunking = enable_chunking
         self._source = None # the base data to be chunked
+        self._quarantined = list() # samples which are shorter than chunk size
 
         #TODO: check reference has been given if model/feature encoder requires it
 
 
     def _fill_features(self):
         if self._source is None:
+            self._quarantined = None
             t0 = now()
             if self.truth_bam is not None:
                 self._source = self.fencoder.bams_to_training_samples(
@@ -656,30 +661,42 @@ class SampleGenerator(object):
             t1 = now()
             self.logger.info("Took {:.2f}s to make features.".format(t1-t0))
 
-    @property
-    def n_samples(self):
-        """The approximate number of samples that will be yielded by `.samples`."""
-        self._fill_features()
-        return 1 + sum(s.size // (self.chunk_len - self.chunk_overlap) for s in self._source)
+
+    def _quarantine_sample(self, sample):
+        """Add sample name and pileup width to a list."""
+        # Note: the below assumes we haven't split a pileup on minor positions.
+        # This should be the case: chunking on minor positions only occurs for
+        # larger regions.
+        start, _ = sample.first_pos
+        end, _ = sample.last_pos
+        end += 1 # end exclusive
+        self._quarantined.append((
+            Region(sample.ref_name, start, end), sample.size
+        ))
 
 
     @property
     def samples(self):
         """Iterator over chunked samples."""
         self._fill_features()
+        self._quarantined = list()
         for source in self._source:
             if source.is_empty:
                 continue
-            if source.size < self.chunk_len:
-                msg = "Region {} ({} positions) is smaller than inference chunk length {}.".format(
-                    source.name, source.size, self.chunk_len)
-                self.logger.warning(msg)
-                continue
-
-            self.logger.debug(
-                "Chunking pileup data into {} columns with overlap of {}.".format(
-                self.chunk_len, self.chunk_overlap))
-            chunks = source.chunks(chunk_len=self.chunk_len, overlap=self.chunk_overlap)
+            if not self.enable_chunking:
+                chunks = [source]
+            else:
+                if source.size < self.chunk_len:
+                    msg = "Region {} ({} positions) is smaller than inference chunk length {}, quarantining.".format(
+                        source.name, source.size, self.chunk_len)
+                    self.logger.warning(msg)
+                    self._quarantine_sample(source)
+                    continue
+                self.logger.debug(
+                    "Chunking pileup data into {} columns with overlap of {}.".format(
+                    self.chunk_len, self.chunk_overlap))
+                chunks = source.chunks(chunk_len=self.chunk_len, overlap=self.chunk_overlap)
+            self.logger.info("Pileup for {} is of width {}".format(source.name, source.size))
             yield from alphabet_filter(chunks)
 
 

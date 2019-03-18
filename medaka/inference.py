@@ -456,12 +456,15 @@ class VCFChunkWriter(object):
             self.writer.write_variant(var_queue[0])
 
 
-def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fraction, chunk_len, chunk_ovlp,
-                   batch_size=200, save_features=False, tag_name=None, tag_value=None, tag_keep_missing=False):
+def run_prediction(output, bam, regions, model, model_file, rle_ref,
+        read_fraction, chunk_len, chunk_ovlp, batch_size=200,
+        save_features=False, tag_name=None, tag_value=None,
+        tag_keep_missing=False, enable_chunking=True):
     """Inference worker."""
 
     logger = get_named_logger('PWorker')
 
+    remainder_regions = list()
     def sample_gen():
         # chain all samples whilst dispensing with generators when done
         #   (they hold the feature vector in memory until they die)
@@ -470,8 +473,10 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fracti
                 bam, region, model_file, rle_ref, read_fraction,
                 chunk_len=chunk_len, chunk_overlap=chunk_ovlp,
                 tag_name=tag_name, tag_value=tag_value,
-                tag_keep_missing=tag_keep_missing)
+                tag_keep_missing=tag_keep_missing,
+                enable_chunking=enable_chunking)
             yield from data_gen.samples
+            remainder_regions.extend(data_gen._quarantined)
     batches = background_generator(
         grouper(sample_gen(), batch_size), 10
     )
@@ -503,8 +508,8 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref, read_fracti
                 sample_d['features'] = feat if save_features else None
                 ds.write_sample(Sample(**sample_d))
 
-    logger.info('All done')
-    return None
+    logger.info("All done, {} remainder regions.".format(len(remainder_regions)))
+    return remainder_regions
 
 
 def predict(args):
@@ -532,49 +537,46 @@ def predict(args):
     ))
 
     # Split overly long regions to maximum size so as to not create
-    #   massive feature matrices, then segregate those which cannot be
-    #   batched.
+    #   massive feature matrices
     MAX_REGION_SIZE = int(1e6)  # 1Mb
-    long_regions = []
-    short_regions = []
+    regions = []
     for region in args.regions:
         if region.size > MAX_REGION_SIZE:
             regs = region.split(MAX_REGION_SIZE, args.chunk_ovlp)
         else:
             regs = [region]
-        for r in regs:
-            if r.size > args.chunk_len:
-                long_regions.append(r)
-            else:
-                short_regions.append(r)
-    logger.info("Found {} long and {} short regions.".format(
-        len(long_regions), len(short_regions)))
+        regions.extend(regs)
 
-    if len(long_regions) > 0:
-        logger.info("Processing long regions.")
-        model = medaka.models.load_model(args.model, time_steps=args.chunk_len)
-        run_prediction(
-            args.output, args.bam, long_regions, model, args.model, args.rle_ref, args.read_fraction,
-            args.chunk_len, args.chunk_ovlp,
-            batch_size=args.batch_size, save_features=args.save_features,
-            tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing
-        )
+    logger.info("Processing {} long region(s) with batching.".format(len(regions)))
+    model = medaka.models.load_model(args.model, time_steps=args.chunk_len)
+    # the returned regions are those where the pileup width is smaller than chunk_len
+    remainder_regions = run_prediction(
+        args.output, args.bam, regions, model, args.model, args.rle_ref, args.read_fraction,
+        args.chunk_len, args.chunk_ovlp,
+        batch_size=args.batch_size, save_features=args.save_features,
+        tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing
+    )
 
-    # short regions must be done individually since they have differing lengths
-    #   TODO: consider masking (it appears slow to apply wholesale), maybe
-    #         step down args.chunk_len by a constant factor until nothing remains.
-    if len(short_regions) > 0:
-        logger.info("Processing short regions")
+    # short/remainder regions: just do things without chunking. We can do this
+    # here because we now have the size of all pileups (and know they are small).
+    # TODO: can we avoid calculating pileups twice whilst controlling memory?
+    if len(remainder_regions) > 0:
+        logger.info("Processing {} short region(s).".format(len(remainder_regions)))
         model = medaka.models.load_model(args.model, time_steps=None)
-        for region in short_regions:
-            chunk_len = region.size // 2
-            chunk_ovlp = chunk_len // 10 # still need overlap as features will be longer
-            run_prediction(
-                args.output, args.bam, [region], model, args.model, args.rle_ref, args.read_fraction,
-                chunk_len, chunk_ovlp,
+        for region in remainder_regions:
+            new_remainders = run_prediction(
+                args.output, args.bam, [region[0]], model, args.model, args.rle_ref, args.read_fraction,
+                args.chunk_len, args.chunk_ovlp, # these won't be used
                 batch_size=args.batch_size, save_features=args.save_features,
-                tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing
+                tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing,
+                enable_chunking=False
             )
+            if len(new_remainders) > 0:
+                # shouldn't get here
+                ignored = [x[0] for x in new_remainders]
+                n_ignored = len(ignored)
+                logger.warning("{} regions were not processed: {}.".format(n_ignored, ignored))
+
     logger.info("Finished processing all regions.")
 
 

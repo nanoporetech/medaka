@@ -80,7 +80,8 @@ fi
 CONSENSUSPROBS=consensus_probs.hdf
 if [[ ! -e ${CONSENSUSPROBS} ]]; then
     echo "Running medaka consensus"
-    medaka consensus ${CALLS2DRAFT}.bam ${CONSENSUSPROBS} --model ${MODEL} --batch_size ${BATCH_SIZE} --threads ${THREADS} \
+    medaka consensus ${CALLS2DRAFT}.bam ${CONSENSUSPROBS} \
+        --model ${MODEL} --batch_size ${BATCH_SIZE} --threads ${THREADS} \
         || (echo "Failed to run medaka consensus." && exit 1)
 else 
     echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
