@@ -95,7 +95,7 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128):
     # see keras #10417 for why we specify input shape
     model.add(Dense(
         num_classes, activation='softmax', name='classify',
-        input_shape=(chunk_size, 2 * feature_len)
+        input_shape=(chunk_size, 2 * gru_size)
     ))
 
     return model
