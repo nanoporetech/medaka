@@ -1,6 +1,6 @@
 from collections import defaultdict, Counter, OrderedDict
 import concurrent.futures
-from copy import copy, deepcopy
+from copy import deepcopy
 import inspect
 import itertools
 from functools import partial
@@ -291,7 +291,7 @@ class FeatureEncoder(object):
         )
         samples = list()
         for counts, positions in pileup:
-        
+
             if len(counts) == 0:
                 msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
                 self.logger.warning(msg)
@@ -301,7 +301,7 @@ class FeatureEncoder(object):
                            postions=positions, label_probs=None
                     ))
                 continue
-            
+
             start, end = positions['major'][0], positions['major'][-1]
             if start != region.start or end + 1 != region.end: # TODO investigate off-by-one
                 self.logger.warning(
@@ -353,7 +353,7 @@ class FeatureEncoder(object):
             Required only for run length encoded references and reads.
         :param read_fraction: fraction of reads to use, if `None` use all.
         :param force_py: bool, if True, force use of python code (rather than c library).
-        :returns: `Sample` object
+        :returns: iterable of `Sample` objects
         """
 
         ref_rle = self.process_ref_seq(region.ref_name, reference)
@@ -526,8 +526,7 @@ class FeatureEncoder(object):
             the reference will be parsed.
         :param reference: reference `.fasta`, should correspond to `bam`.
 
-        :returns: tuple of `Sample` objects (one item for each input bam) for
-            each chunk.
+        :returns: tuple of `Sample` objects.
 
         .. note:: Chunks might be missing if `truth_bam` is provided and
             regions with multiple mappings were encountered.
@@ -547,23 +546,21 @@ class FeatureEncoder(object):
             mock_compr = self.max_hp_len > 1 and not self.is_compressed
             truth_pos, truth_labels = aln.get_positions_and_labels(ref_compr_rle=ref_rle, mock_compr=mock_compr,
                                                                    is_compressed=self.is_compressed, rle_dtype=True)
-            sample = self.bam_to_sample(bam, Region(region.ref_name, aln.start, aln.end), ref_rle, read_fraction=read_fraction)
-            if len(sample) > 1:
-                logger.info("Not using gapped sample region.")
-                continue
-            sample = sample[0]
-            # Create labels according to positions in pileup
-            pad = (encoding[_gap_], 1) if len(truth_labels.dtype) > 0 else encoding[_gap_]
-            padder = itertools.repeat(pad)
-            position_to_label = defaultdict(padder.__next__,
-                                            zip([tuple(p) for p in truth_pos],
-                                                [a for a in truth_labels]))
-            padded_labels = np.fromiter((position_to_label[tuple(p)] for p in sample.positions),
-                                            dtype=truth_labels.dtype, count=len(sample.positions))
+            aln_samples = self.bam_to_sample(bam, Region(region.ref_name, aln.start, aln.end),
+                                             ref_rle, read_fraction=read_fraction)
+            for sample in aln_samples:
+                # Create labels according to positions in pileup
+                pad = (encoding[_gap_], 1) if len(truth_labels.dtype) > 0 else encoding[_gap_]
+                padder = itertools.repeat(pad)
+                position_to_label = defaultdict(padder.__next__,
+                                                zip([tuple(p) for p in truth_pos],
+                                                    [a for a in truth_labels]))
+                padded_labels = np.fromiter((position_to_label[tuple(p)] for p in sample.positions),
+                                                dtype=truth_labels.dtype, count=len(sample.positions))
 
-            sample = sample._asdict()
-            sample['labels'] = padded_labels
-            samples.append(Sample(**sample))
+                sample = sample._asdict()
+                sample['labels'] = padded_labels
+                samples.append(Sample(**sample))
         return tuple(samples)
 
 
