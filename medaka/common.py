@@ -70,8 +70,7 @@ class Sample(_Sample):
         fmaj, fmin = self.first_pos
         lmaj, lmin = self.last_pos
         return '{}:{}.{}-{}.{}'.format(
-            self.ref_name, fmaj, fmin, lmaj + 1, lmin)
-
+            self.ref_name, fmaj, fmin, lmaj, lmin)
 
     @staticmethod
     def decode_sample_name(name):

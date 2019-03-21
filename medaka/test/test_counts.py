@@ -1,11 +1,12 @@
 import numpy as np
 import os
 import unittest
-from medaka.features import FeatureEncoder
+from medaka.features import FeatureEncoder, pileup_counts
 from medaka.common import Region
 
 __reads_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'test_reads.bam')
 __two_type_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'test_two_type.bam')
+__gapped_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'reads_gapped.bam')
 __region__ = Region('Consensus_Consensus_Consensus_Consensus_utg000001l', start=50000, end=100000)
 __region_start__ = Region('Consensus_Consensus_Consensus_Consensus_utg000001l', start=0, end=200)
 
@@ -28,6 +29,7 @@ class CountsTest(unittest.TestCase):
         kwargs['normalise'] = None   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
         sample = encoder.bam_to_sample(__reads_bam__, __region__, reference=None, read_fraction=None, force_py=True)
+        sample = sample[0]
         assert tuple(sample.positions.shape) == (81730,)
         assert tuple(sample.positions[0]) == (50000, 0)
         assert tuple(sample.positions[-1]) == (99999, 1)
@@ -43,6 +45,7 @@ class CountsTest(unittest.TestCase):
         kwargs['normalise'] = None   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
         sample = encoder.bam_to_sample_c(__reads_bam__, __region__)
+        sample = sample[0]
         assert sample.positions.shape == (81730,)
         assert tuple(sample.positions[0]) == (50000, 0)
         assert tuple(sample.positions[-1]) == (99999, 1)
@@ -58,7 +61,9 @@ class CountsTest(unittest.TestCase):
         kwargs['normalise'] = None   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
         sample_py = encoder.bam_to_sample(__reads_bam__, __region__, reference=None, read_fraction=None, force_py=True)
+        sample_py = sample_py[0]
         sample_c = encoder.bam_to_sample_c(__reads_bam__, __region__)
+        sample_c = sample_c[0]
 
         # it seems the pysam implementation does not include counts of bases
         # where the last aligned base follows an insertion
@@ -78,7 +83,9 @@ class CountsTest(unittest.TestCase):
         kwargs['normalise'] = None   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
         sample_py = encoder.bam_to_sample(__reads_bam__, __region_start__, reference=None, read_fraction=None, force_py=True)
+        sample_py = sample_py[0]
         sample_c = encoder.bam_to_sample_c(__reads_bam__, __region_start__)
+        sample_c = sample_c[0]
 
         np.testing.assert_array_equal(sample_py.positions, sample_c.positions)
         np.testing.assert_array_equal(sample_py.features, sample_c.features)
@@ -89,7 +96,9 @@ class CountsTest(unittest.TestCase):
         kwargs['normalise'] = 'total'   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
         sample_py = encoder.bam_to_sample(__reads_bam__, __region__, reference=None, read_fraction=None, force_py=True)
+        sample_py = sample_py[0]
         sample_c = encoder.bam_to_sample_c(__reads_bam__, __region__)
+        sample_c = sample_c[0]
 
         # it seems the pysam implementation does not include counts of bases
         # where the last aligned base follows an insertion
@@ -121,6 +130,7 @@ class CountsTest(unittest.TestCase):
         kwargs['normalise'] = 'fwd_rev'   # change this just for simple comparison
         encoder = FeatureEncoder(**kwargs)
         sample_py = encoder.bam_to_sample(__reads_bam__, __region__, reference=None, read_fraction=None, force_py=True)
+        sample_py = sample_py[0]
 
         d_p = np.sum(sample_py.features, axis=1)
         expected_norm_depth = np.array([2.        , 1.9999999 , 0.04545455, 2.        , 2.        ,
@@ -137,6 +147,24 @@ class CountsTest(unittest.TestCase):
                                             0.07142857, 0.07142857, 1.        , 1.        , 0.        ])
         np.testing.assert_almost_equal(sample_py.features[:10, (fwd_inds)].sum(axis=1), expected_fwd_norm_depth)
 
+
+class CountsSplittingTest(unittest.TestCase):
+
+    def test_000_split_gap(self):
+        # The gapped bam has:
+        # @SQ    SN:ref    LN:30
+        # seq1    0    ref    1    7    10M
+        # seq2    0    ref    15    13    16M
+        # so an alignment from [0:10] and one from [14:30] without insertions
+        chunk_lengths = [10, 16]
+
+        region = Region.from_string('ref:0-30')
+        results = pileup_counts(region, __gapped_bam__)
+        self.assertEqual(len(results), 2, 'Number of chunks from gapped alignment')
+        for exp_len, chunk in zip(chunk_lengths, results):
+            for i in (0, 1):
+                # check both pileup and positions
+                self.assertEqual(exp_len, len(chunk[i]))
 
 if __name__ == '__main__':
     unittest.main()

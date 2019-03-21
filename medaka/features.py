@@ -1,6 +1,6 @@
 from collections import defaultdict, Counter, OrderedDict
 import concurrent.futures
-from copy import copy, deepcopy
+from copy import deepcopy
 import inspect
 import itertools
 from functools import partial
@@ -37,6 +37,7 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
     :returns: pileup counts array, reference positions, insertion postions
     """
     ffi, lib = libmedaka.ffi, libmedaka.lib
+    logger = get_named_logger('PileUp')
 
     num_dtypes, dtypes = 1, ffi.NULL
     if isinstance(dtype_prefixes, str):
@@ -86,20 +87,63 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
         lib.destroy_plp_data(counts)
         return np_counts, positions
 
-    # split large regions, the chunks are trivially stacked
+    # split large regions for performance
     regions = region.split(region_split)
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         results = list(executor.map(_process_region, regions))
 
-    np_counts = np.concatenate([x[0] for x in results])
-    positions = np.concatenate([x[1] for x in results])
+    # First pass: need to check for discontinuities within chunks,
+    # these show up as >2 changes in the major coordinate
+    _results = list()
+    for counts, positions in results:
+        move = np.ediff1d(positions['major'])
+        gaps = np.where(move > 2)[0] + 1
+        if len(gaps) == 0:
+            _results.append((counts, positions))
+        else:
+            logger.info("Splitting discontiguous pileup region.")
+            start = 0
+            for i in gaps:
+                _results.append((counts[start:i], positions[start:i]))
+                start = i
+            _results.append((counts[start:], positions[start:]))
+    results = _results
 
-    # get rid of 'first' counts row for each datatype (counts of alternative bases)
-    mask = np.ones(np_counts.shape[1], dtype=bool)
-    mask[[x * featlen for x in range(0, num_dtypes)]] = False
-    np_counts = np_counts[:, mask]
+    # Second pass: stitch abutting chunks together, anything not neighbouring
+    # is kept separate whether it came from the same chunk originally or not
 
-    return np_counts, positions
+    def _finalize_chunk(c_buf, p_buf):
+        chunk_counts = np.concatenate(c_buf)
+        chunk_positions = np.concatenate(p_buf)
+        # get rid of 'first' counts row for each datatype (counts of
+        # alternative bases)
+        mask = np.ones(chunk_counts.shape[1], dtype=bool)
+        mask[[x * featlen for x in range(0, num_dtypes)]] = False
+        chunk_counts = chunk_counts[:, mask]
+        return chunk_counts, chunk_positions
+
+    counts_buffer, positions_buffer = list(), list()
+    chunk_results = list()
+    last = None
+    for counts, positions in results:
+        if len(positions) == 0:
+            continue
+        first = positions['major'][0]
+        if len(counts_buffer) == 0 or first - last == 1:
+            # new or contiguous
+            counts_buffer.append(counts)
+            positions_buffer.append(positions)
+            last = positions['major'][-1]
+        else:
+            # discontinuity
+            chunk_results.append(_finalize_chunk(counts_buffer, positions_buffer))
+            counts_buffer = [counts]
+            positions_buffer = [positions]
+            last = positions['major'][-1]
+    if len(counts_buffer) != 0:
+        chunk_results.append(_finalize_chunk(counts_buffer, positions_buffer))
+
+    return chunk_results
 
 
 class FeatureEncoder(object):
@@ -240,56 +284,63 @@ class FeatureEncoder(object):
         assert not self.with_depth
         assert not self.is_compressed
 
-        counts, positions = pileup_counts(
+        pileup = pileup_counts(
             region, reads_bam, dtype_prefixes=self.dtypes,
             tag_name=self.tag_name, tag_value=self.tag_value,
             keep_missing=self.tag_keep_missing
         )
-        
-        if len(counts) == 0:
-            msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
-            self.logger.warning(msg)
-            return Sample(ref_name=region.ref_name, features=None,
-                          labels=None, ref_seq=None,
-                          positions=positions, label_probs=None)
-        
-        start, end = positions['major'][0], positions['major'][-1]
-        if start != region.start or end + 1 != region.end: # TODO investigate off-by-one
-            self.logger.warning(
-                'Pileup counts do not span requested region, requested {}, '
-                'received {}-{}.'.format(region, start, end)
+        samples = list()
+        for counts, positions in pileup:
+
+            if len(counts) == 0:
+                msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
+                self.logger.warning(msg)
+                samples.append(
+                    Sample(ref_name=region.ref_name, features=None,
+                           labels=None, ref_seq=None,
+                           postions=positions, label_probs=None
+                    ))
+                continue
+
+            start, end = positions['major'][0], positions['major'][-1]
+            if start != region.start or end + 1 != region.end: # TODO investigate off-by-one
+                self.logger.warning(
+                    'Pileup counts do not span requested region, requested {}, '
+                    'received {}-{}.'.format(region, start, end)
+                )
+
+
+            # find the position index for parent major position of all minor positions
+            minor_inds = np.where(positions['minor'] > 0)
+            major_pos_at_minor_inds = positions['major'][minor_inds]
+            major_ind_at_minor_inds = np.searchsorted(positions['major'], major_pos_at_minor_inds, side='left')
+
+            depth = np.sum(counts, axis=1)
+            depth[minor_inds] = depth[major_ind_at_minor_inds]
+            if self.normalise == 'total':
+                # normalize counts by total depth at major position, since the
+                # counts include deletions this is a count of spanning reads
+                feature_array = counts / np.maximum(1, depth).reshape((-1, 1)) # max just to avoid div error
+            elif self.normalise == 'fwd_rev':
+                # normalize forward and reverse and by dtype
+                feature_array = np.empty_like(counts, dtype=float)
+                for (dt, is_rev), inds in self.feature_indices.items():
+                    dt_depth = np.sum(counts[:, inds], axis=1)
+                    dt_depth[minor_inds] = dt_depth[major_ind_at_minor_inds]
+                    feature_array[: , inds] = counts[:, inds] / np.maximum(1, dt_depth).reshape((-1, 1)) # max just to avoid div error
+            else:
+                feature_array = counts
+
+            feature_array = feature_array.astype(self.feature_dtype)
+
+            sample = Sample(
+                ref_name=region.ref_name, features=feature_array,
+                labels=None, ref_seq=None,
+                positions=positions, label_probs=None
             )
-
-
-        # find the position index for parent major position of all minor positions
-        minor_inds = np.where(positions['minor'] > 0)
-        major_pos_at_minor_inds = positions['major'][minor_inds]
-        major_ind_at_minor_inds = np.searchsorted(positions['major'], major_pos_at_minor_inds, side='left')
-
-        depth = np.sum(counts, axis=1)
-        depth[minor_inds] = depth[major_ind_at_minor_inds]
-        if self.normalise == 'total':
-            # normalize counts by total depth at major position, since the
-            # counts include deletions this is a count of spanning reads
-            feature_array = counts / np.maximum(1, depth).reshape((-1, 1)) # max just to avoid div error
-        elif self.normalise == 'fwd_rev':
-            # normalize forward and reverse and by dtype
-            feature_array = np.empty_like(counts, dtype=float)
-            for (dt, is_rev), inds in self.feature_indices.items():
-                dt_depth = np.sum(counts[:, inds], axis=1)
-                dt_depth[minor_inds] = dt_depth[major_ind_at_minor_inds]
-                feature_array[: , inds] = counts[:, inds] / np.maximum(1, dt_depth).reshape((-1, 1)) # max just to avoid div error
-        else:
-            feature_array = counts
-
-        feature_array = feature_array.astype(self.feature_dtype)
-
-        sample = Sample(ref_name=region.ref_name, features=feature_array,
-                        labels=None, ref_seq=None,
-                        positions=positions, label_probs=None)
-
-        self.logger.info('Processed {} (median depth {})'.format(sample.name, np.median(depth)))
-        return sample
+            samples.append(sample)
+            self.logger.info('Processed {} (median depth {})'.format(sample.name, np.median(depth)))
+        return samples
 
 
     def bam_to_sample(self, reads_bam, region, reference=None, read_fraction=None, force_py=False):
@@ -302,7 +353,7 @@ class FeatureEncoder(object):
             Required only for run length encoded references and reads.
         :param read_fraction: fraction of reads to use, if `None` use all.
         :param force_py: bool, if True, force use of python code (rather than c library).
-        :returns: `Sample` object
+        :returns: iterable of `Sample` objects
         """
 
         ref_rle = self.process_ref_seq(region.ref_name, reference)
@@ -316,6 +367,12 @@ class FeatureEncoder(object):
                 pass
         if self.tag_name is not None:
             raise NotImplementedError("Filtering alignments by tag is not supported in python code.")
+
+        #TODO: The code below will abut discontiguous regions in a pileup i.e.
+        #      where no reads span a reference position the major position
+        #      is dropped from the pileup. The correct behaviour would be to
+        #      split apart the sub-regions and return them separately.
+        #      The C implementation does this splitting.
 
         if self.is_compressed:
             aln_to_pairs = partial(yield_compressed_pairs, ref_rle=ref_rle)
@@ -391,9 +448,9 @@ class FeatureEncoder(object):
             if aln_cols == 0:
                 msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
                 self.logger.warning(msg)
-                return Sample(ref_name=region.ref_name, features=None,
+                return [Sample(ref_name=region.ref_name, features=None,
                               labels=None, ref_seq=None,
-                              positions=positions, label_probs=None)
+                              positions=positions, label_probs=None)]
 
             depth_array = np.empty(shape=(aln_cols), dtype=int)
 
@@ -457,7 +514,7 @@ class FeatureEncoder(object):
                             positions=positions, label_probs=None)
             self.logger.info('Processed {} (median depth {})'.format(sample.name, np.median(depth_array)))
 
-            return sample
+            return [sample]
 
 
     def bams_to_training_samples(self, truth_bam, bam, region, reference=None, read_fraction=None):
@@ -469,8 +526,7 @@ class FeatureEncoder(object):
             the reference will be parsed.
         :param reference: reference `.fasta`, should correspond to `bam`.
 
-        :returns: tuple of `Sample` objects (one item for each input bam) for
-            each chunk.
+        :returns: tuple of `Sample` objects.
 
         .. note:: Chunks might be missing if `truth_bam` is provided and
             regions with multiple mappings were encountered.
@@ -490,19 +546,21 @@ class FeatureEncoder(object):
             mock_compr = self.max_hp_len > 1 and not self.is_compressed
             truth_pos, truth_labels = aln.get_positions_and_labels(ref_compr_rle=ref_rle, mock_compr=mock_compr,
                                                                    is_compressed=self.is_compressed, rle_dtype=True)
-            sample = self.bam_to_sample(bam, Region(region.ref_name, aln.start, aln.end), ref_rle, read_fraction=read_fraction)
-            # Create labels according to positions in pileup
-            pad = (encoding[_gap_], 1) if len(truth_labels.dtype) > 0 else encoding[_gap_]
-            padder = itertools.repeat(pad)
-            position_to_label = defaultdict(padder.__next__,
-                                            zip([tuple(p) for p in truth_pos],
-                                                [a for a in truth_labels]))
-            padded_labels = np.fromiter((position_to_label[tuple(p)] for p in sample.positions),
-                                            dtype=truth_labels.dtype, count=len(sample.positions))
+            aln_samples = self.bam_to_sample(bam, Region(region.ref_name, aln.start, aln.end),
+                                             ref_rle, read_fraction=read_fraction)
+            for sample in aln_samples:
+                # Create labels according to positions in pileup
+                pad = (encoding[_gap_], 1) if len(truth_labels.dtype) > 0 else encoding[_gap_]
+                padder = itertools.repeat(pad)
+                position_to_label = defaultdict(padder.__next__,
+                                                zip([tuple(p) for p in truth_pos],
+                                                    [a for a in truth_labels]))
+                padded_labels = np.fromiter((position_to_label[tuple(p)] for p in sample.positions),
+                                                dtype=truth_labels.dtype, count=len(sample.positions))
 
-            sample = sample._asdict()
-            sample['labels'] = padded_labels
-            samples.append(Sample(**sample))
+                sample = sample._asdict()
+                sample['labels'] = padded_labels
+                samples.append(Sample(**sample))
         return tuple(samples)
 
 
@@ -546,7 +604,8 @@ class SampleGenerator(object):
 
     def __init__(self, bam, region, model, rle_ref=None, truth_bam=None,
                  read_fraction=None, chunk_len=1000, chunk_overlap=200,
-                 tag_name=None, tag_value=None, tag_keep_missing=False):
+                 tag_name=None, tag_value=None, tag_keep_missing=False,
+                 enable_chunking=True):
         """Generate chunked inference (or training) samples.
 
         :param bam: `.bam` containing alignments from which to generate samples.
@@ -558,11 +617,12 @@ class SampleGenerator(object):
         :param tag_name: two letter tag name by which to filter reads.
         :param tag_value: integer value of tag for reads to keep.
         :param tag_keep_missing: whether to keep reads when tag is missing.
+        :param enable_chunking: when yielding samples, do so in chunks.
 
         """
         self.logger = get_named_logger("Sampler")
         self.sample_type = "training" if truth_bam is not None else "consensus"
-        self.logger.info("Initializing sampler for {} or region {}.".format(self.sample_type, region))
+        self.logger.info("Initializing sampler for {} of region {}.".format(self.sample_type, region))
         with DataStore(model) as ds:
             self.fencoder_args = ds.meta['medaka_features_kwargs']
         self.fencoder = FeatureEncoder(
@@ -577,13 +637,16 @@ class SampleGenerator(object):
         self.read_fraction = read_fraction
         self.chunk_len = chunk_len
         self.chunk_overlap = chunk_overlap
+        self.enable_chunking = enable_chunking
         self._source = None # the base data to be chunked
+        self._quarantined = list() # samples which are shorter than chunk size
 
         #TODO: check reference has been given if model/feature encoder requires it
 
 
     def _fill_features(self):
         if self._source is None:
+            self._quarantined = None
             t0 = now()
             if self.truth_bam is not None:
                 self._source = self.fencoder.bams_to_training_samples(
@@ -592,34 +655,45 @@ class SampleGenerator(object):
             else:
                 self._source = self.fencoder.bam_to_sample(
                     self.bam, self.region, self.rle_ref, self.read_fraction)
-                self._source = (self._source,) # wrap to be the same as above
             t1 = now()
             self.logger.info("Took {:.2f}s to make features.".format(t1-t0))
 
-    @property
-    def n_samples(self):
-        """The approximate number of samples that will be yielded by `.samples`."""
-        self._fill_features()
-        return 1 + sum(s.size // (self.chunk_len - self.chunk_overlap) for s in self._source)
+
+    def _quarantine_sample(self, sample):
+        """Add sample name and pileup width to a list."""
+        # Note: the below assumes we haven't split a pileup on minor positions.
+        # This should be the case: chunking on minor positions only occurs for
+        # larger regions.
+        start, _ = sample.first_pos
+        end, _ = sample.last_pos
+        end += 1 # end exclusive
+        self._quarantined.append((
+            Region(sample.ref_name, start, end), sample.size
+        ))
 
 
     @property
     def samples(self):
         """Iterator over chunked samples."""
         self._fill_features()
+        self._quarantined = list()
         for source in self._source:
             if source.is_empty:
                 continue
-            if source.size < self.chunk_len:
-                msg = "Region {} ({} positions) is smaller than inference chunk length {}.".format(
-                    source.name, source.size, self.chunk_len)
-                self.logger.warning(msg)
-                continue
-
-            self.logger.debug(
-                "Chunking pileup data into {} columns with overlap of {}.".format(
-                self.chunk_len, self.chunk_overlap))
-            chunks = source.chunks(chunk_len=self.chunk_len, overlap=self.chunk_overlap)
+            if not self.enable_chunking:
+                chunks = [source]
+            else:
+                if source.size < self.chunk_len:
+                    msg = "Region {} ({} positions) is smaller than inference chunk length {}, quarantining.".format(
+                        source.name, source.size, self.chunk_len)
+                    self.logger.warning(msg)
+                    self._quarantine_sample(source)
+                    continue
+                self.logger.debug(
+                    "Chunking pileup data into {} columns with overlap of {}.".format(
+                    self.chunk_len, self.chunk_overlap))
+                chunks = source.chunks(chunk_len=self.chunk_len, overlap=self.chunk_overlap)
+            self.logger.info("Pileup for {} is of width {}".format(source.name, source.size))
             yield from alphabet_filter(chunks)
 
 
