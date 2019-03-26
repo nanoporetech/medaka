@@ -4,8 +4,9 @@ import itertools
 from threading import Lock
 
 from intervaltree import IntervalTree
+import numpy as np
 
-from medaka.common import get_named_logger
+import medaka.common
 
 
 def self_return(x):
@@ -177,7 +178,7 @@ class VCFWriter(object):
             raise ValueError('version must be one of {}'.format(self.version_options))
         self.version = version
         self.meta = ['fileformat=VCFv{}'.format(self.version)] + meta_info
-        self.logger = get_named_logger('VCFWriter')
+        self.logger = medaka.common.get_named_logger('VCFWriter')
 
 
     def __enter__(self):
@@ -224,7 +225,7 @@ class VCFReader(object):
         self._indexed = False
         self._tree = None
         self._parse_lock = Lock()
-        self.logger = get_named_logger('VCFReader')
+        self.logger = medaka.common.get_named_logger('VCFReader')
 
         # Read both metadata and header
         self.meta = []
@@ -336,3 +337,67 @@ class VCFReader(object):
             # spec says .vcf is sorted, lets follow
             for interval in sorted(results):
                 yield interval.data
+
+
+def get_homozygous_regions(args):
+
+    vcf = VCFReader(args.vcf, cache=False)
+    reg = medaka.common.Region.from_string(args.region)
+    if reg.start is None or reg.end is None:
+        raise ValueError('Region start and end must be specified')
+
+    def get_hetero_pos(v):
+        gt = v.to_dict()['GT']
+        is_hetero = gt[0] != gt[-1]
+        pos = [p for p in range(v.pos, v.pos + len(v.ref))] if is_hetero else []
+        return pos
+
+    def get_homo_regions(ref_name, pos, min_len=1000):
+        regions = []
+        hetero_gaps = np.ediff1d(pos)
+        sort_inds = np.argsort(hetero_gaps)[::-1]
+        homo_len = 0
+        for i in sort_inds:
+            if hetero_gaps[i] < min_len:
+                break
+            homo_len += hetero_gaps[i]
+            start = pos[i]
+            end = start + hetero_gaps[i]
+            regions.append(medaka.common.Region(ref_name, start, end))
+        return regions, homo_len
+
+    pos = [reg.start]
+    for v in vcf.fetch(ref_name=reg.ref_name, start=reg.start, end=reg.end):
+        pos.extend(get_hetero_pos(v))
+    pos.append(reg.end)
+
+    homo_regions, homo_len = get_homo_regions(reg.ref_name, pos, min_len=args.min_len)
+
+    # sort regions by start
+    homo_regions.sort(key=lambda r: r.start)
+
+    # invert homozygous regions to get regions containing heterozygous calls
+    hetero_regions = []
+    start = reg.start
+    hetero_len = 0
+    for homo_reg in homo_regions + [medaka.common.Region(reg.ref_name, start=reg.end, end=None)]:
+        end = homo_reg.start
+        if end - start > args.min_len:
+            hetero_regions.append(medaka.common.Region(reg.ref_name, start, end))
+            hetero_len += end - start
+        start = homo_reg.end
+
+    homo_fp = 'homozygous_' + args.suffix
+    with open(homo_fp, 'w') as fh:
+        fh.write('\n'.join((r.name for r in homo_regions)))
+    hetero_fp = 'heterozygous_' + args.suffix
+    with open(hetero_fp, 'w') as fh:
+        fh.write('\n'.join((r.name for r in hetero_regions)))
+
+    reg_len = reg.end - reg.start
+    logger = medaka.common.get_named_logger('REGIONS')
+    msg = 'Found {} {} regions > {} within {}, spanning {}/{} ({:.2%})'
+    logger.info(msg.format(len(homo_regions), 'homozygous', args.min_len,
+                           reg.name, reg_len, homo_len, homo_len / reg_len))
+    logger.info(msg.format(len(hetero_regions), 'heterozygous', args.min_len,
+                           reg.name, reg_len, hetero_len, hetero_len / reg_len))
