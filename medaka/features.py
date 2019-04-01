@@ -270,13 +270,14 @@ class FeatureEncoder(object):
 
         depth = np.sum(counts, axis=1)
         depth[minor_inds] = depth[major_ind_at_minor_inds]
-        # there is currently an assymmetry between ref and non-ref
-        # positions; major columns have counts of reads with and without a
-        # deletion, whilst minor (inserted) columns only have counts of
-        # the reads with an isertion.
-        # To fix this, fill in counts of reads which don't have insertions
-        # i.e. depth_del = depth_major - depth_ins
+ 
         if self.sym_indels:
+            # make indels at ref and non-ref positions symmetric.
+            # major columns otherwise have counts of reads with and without a
+            # deletion, whilst minor (inserted) columns only have counts of
+            # the reads with an isertion.
+            # To make ref and non-ref positions symmetric, fill in counts of reads which don't have insertions
+            # i.e. depth_del = depth_major - depth_ins
             for (dt, is_rev), inds in self.feature_indices.items():
                 dt_depth = np.sum(counts[:, inds], axis=1)
                 del_ind = self.encoding[(dt, is_rev, None, 1)]
@@ -434,13 +435,9 @@ class FeatureEncoder(object):
                     major_depths_by_type = {t: sum((counts[i] for i in inds_by_type[t])) for t in inds_by_type}
                     assert sum(major_depths_by_type.values()) == major_depth
 
-                # there is currently an assymmetry between ref and non-ref
-                # positions; major columns have counts of reads with and without a
-                # deletion, whilst minor (inserted) columns only have counts of
-                # the reads with an isertion.
-                # To fix this, fill in counts of reads which don't have insertions
-                # i.e. depth_del = depth_major - depth_ins
                 if self.sym_indels and positions[i]['minor'] > 0:
+                    # make indels at ref and non-ref positions symmetric (see comment in bam_to_sample_c). 
+                
                     for (dtype, is_rev), inds in inds_by_type.items():
                         del_ind = self.encoding[(dtype, is_rev, None, 1)]
                         assert feature_array[i, del_ind] == 0
