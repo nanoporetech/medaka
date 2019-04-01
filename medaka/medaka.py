@@ -7,10 +7,11 @@ import yaml
 import numpy as np
 import pysam
 
-from medaka.datastore import DataStore
-from medaka.inference import train, predict
-from medaka.stitch import stitch, snps, merge_vcfs
-from medaka.features import create_labelled_samples, create_samples
+import medaka.vcf
+import medaka.datastore
+import medaka.inference
+import medaka.features
+import medaka.stitch
 
 model_store = resource_filename(__package__, 'data')
 allowed_models = ['r941_trans', 'r941_flip213', 'r941_flip235']
@@ -97,18 +98,18 @@ def _chunking_feature_args():
 
 def feature_gen_dispatch(args):
     if hasattr(args, 'truth'):
-        create_labelled_samples(args)
+        medaka.features.create_labelled_samples(args)
     else:
-        create_samples(args)
+        medaka.features.create_samples(args)
 
 
 def hdf2yaml(args):
-    with DataStore(args.input) as ds, open(args.output, 'w') as fh:
+    with medaka.datastore.DataStore(args.input) as ds, open(args.output, 'w') as fh:
         yaml.dump(ds.meta, fh)
 
 
 def yaml2hdf(args):
-    with DataStore(args.output, 'a') as ds, open(args.input) as fh:
+    with medaka.datastore.DataStore(args.output, 'a') as ds, open(args.input) as fh:
         ds.update_meta(yaml.unsafe_load(fh))
 
 
@@ -147,7 +148,7 @@ def main():
         help='Train a model from features.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    tparser.set_defaults(func=train)
+    tparser.set_defaults(func=medaka.inference.train)
     tparser.add_argument('features', nargs='+', help='Paths to training data.')
     tparser.add_argument('--train_name', type=str, default='keras_train', help='Name for training run.')
     tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
@@ -170,7 +171,7 @@ def main():
         help='Run inference from a trained model and alignments.',
         parents=[_log_level(), _chunking_feature_args()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    cparser.set_defaults(func=predict)
+    cparser.set_defaults(func=medaka.inference.predict)
     cparser.add_argument('output', help='Output file.')
     cparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
     cparser.add_argument('--save_features', action='store_true', default=False,
@@ -194,7 +195,7 @@ def main():
         help='Stitch together output from medaka consensus into final output.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    sparser.set_defaults(func=stitch)
+    sparser.set_defaults(func=medaka.stitch.stitch)
     sparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
     sparser.add_argument('output', help='Output .fasta.', default='consensus.fasta')
     sparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
@@ -203,7 +204,7 @@ def main():
         help='Decode probabilities as dipoloid SNPs.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    pparser.set_defaults(func=snps)
+    pparser.set_defaults(func=medaka.stitch.snps)
     pparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
     pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
     pparser.add_argument('output', help='Output .vcf.', default='snps.vcf')
@@ -241,10 +242,22 @@ def main():
         help='Merge two haploid VCFs into a diploid VCF.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    yparser.set_defaults(func=merge_vcfs)
+    yparser.set_defaults(func=medaka.stitch.merge_vcfs)
     yparser.add_argument('vcf1', help='Input .vcf file.')
     yparser.add_argument('vcf2', help='Input .vcf file.')
     yparser.add_argument('vcfout', help='Output .vcf.')
+
+    # merge two haploid VCFs into a diploid VCF.
+    hzregparser = toolsubparsers.add_parser('homozygous_regions',
+        help='Find homozygous regions from a diploid vcf.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    hzregparser.set_defaults(func=medaka.vcf.get_homozygous_regions)
+    hzregparser.add_argument('vcf', help='Input .vcf file.')
+    hzregparser.add_argument('region', help='Genomic region within which to find homozygous sub-regions.')
+    hzregparser.add_argument('--min_len', type=int, default=1000,
+                             help='Minimum region length.')
+    hzregparser.add_argument('--suffix', help='Output suffix.', default='regions.txt')
 
     args = parser.parse_args()
 

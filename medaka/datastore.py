@@ -197,7 +197,8 @@ class DataIndex(object):
         if c_grp in self.meta:
             self.meta[c_grp] = Counter()
 
-        del self.meta['medaka_samples']
+        if 'medaka_samples' in self.meta:
+            del self.meta['medaka_samples']
 
         self.samples = []
 
@@ -207,7 +208,11 @@ class DataIndex(object):
                 f = future_to_f[future]
                 try:
                     meta = future.result()
-                    self.samples.extend([(s, f) for s in meta['medaka_samples']])
+                    if 'medaka_samples' in meta:
+                        self.samples.extend([(s, f) for s in meta['medaka_samples']])
+                    else:
+                        self.logger.info('Could not find samples in {}'.format(f))
+
                     self.meta[c_grp].update(meta[c_grp])
                 except Exception as exc:
                     self.logger.info('Could not load meta from {}'.format(f))

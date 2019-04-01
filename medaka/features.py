@@ -154,7 +154,7 @@ class FeatureEncoder(object):
     def __init__(self, ref_mode:str=None, max_hp_len:int=10,
                  log_min:int=None, normalise:str='total', with_depth:bool=False,
                  consensus_as_ref:bool=False, is_compressed:bool=True, dtypes=('',),
-                 tag_name=None, tag_value=None, tag_keep_missing=False
+                 tag_name=None, tag_value=None, tag_keep_missing=False, sym_indels=False,
                  ):
         """Class to support multiple feature encodings
 
@@ -169,6 +169,7 @@ class FeatureEncoder(object):
         :param tag_name: two letter tag name by which to filter reads.
         :param tag_value: integer value of tag for reads to keep.
         :param tag_keep_missing: whether to keep reads when tag is missing.
+        :param sym_indels: bool, whether to count a lack of an insertion as a deletion.
 
         """
         self.ref_mode = ref_mode
@@ -184,6 +185,7 @@ class FeatureEncoder(object):
         self.tag_name = tag_name
         self.tag_value = tag_value
         self.tag_keep_missing = tag_keep_missing
+        self.sym_indels = sym_indels
 
         if self.ref_mode not in self._ref_modes_:
             raise ValueError('ref_mode={} is not one of {}'.format(self.ref_mode, self._ref_modes_))
@@ -309,7 +311,6 @@ class FeatureEncoder(object):
                     'received {}-{}.'.format(region, start, end)
                 )
 
-
             # find the position index for parent major position of all minor positions
             minor_inds = np.where(positions['minor'] > 0)
             major_pos_at_minor_inds = positions['major'][minor_inds]
@@ -317,6 +318,18 @@ class FeatureEncoder(object):
 
             depth = np.sum(counts, axis=1)
             depth[minor_inds] = depth[major_ind_at_minor_inds]
+
+            if self.sym_indels:
+                # make indels at ref and non-ref positions symmetric.
+                # major columns otherwise have counts of reads with and without a
+                # deletion, whilst minor (inserted) columns only have counts of
+                # the reads with an isertion.
+                # To make ref and non-ref positions symmetric, fill in counts of reads which don't have insertions
+                # i.e. depth_del = depth_major - depth_ins
+                for (dt, is_rev), inds in self.feature_indices.items():
+                    dt_depth = np.sum(counts[:, inds], axis=1)
+                    del_ind = self.encoding[(dt, is_rev, None, 1)]
+                    counts[minor_inds, del_ind] = dt_depth[major_ind_at_minor_inds] - dt_depth[minor_inds]
             if self.normalise == 'total':
                 # normalize counts by total depth at major position, since the
                 # counts include deletions this is a count of spanning reads
@@ -477,6 +490,13 @@ class FeatureEncoder(object):
                     # get the depth of each fwd and rev dtype
                     major_depths_by_type = {t: sum((counts[i] for i in inds_by_type[t])) for t in inds_by_type}
                     assert sum(major_depths_by_type.values()) == major_depth
+
+                if self.sym_indels and positions[i]['minor'] > 0:
+                    # make indels at ref and non-ref positions symmetric (see comment in bam_to_sample_c).
+                    for (dtype, is_rev), inds in inds_by_type.items():
+                        del_ind = self.encoding[(dtype, is_rev, None, 1)]
+                        assert feature_array[i, del_ind] == 0
+                        feature_array[i, del_ind] = major_depths_by_type[(dtype, is_rev)] - feature_array[i, inds].sum()
 
                 if self.normalise is not None:
                     if self.normalise == 'total':
