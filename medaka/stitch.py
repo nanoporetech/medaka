@@ -51,6 +51,8 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
         s1 = next(data_gen)
         start = get_pos(s1, 0)
         start_1_ind = None
+        start_2_ind = None
+
         for s2 in chain(data_gen, (None,)):
             s1_name = 'Unknown' if s1 is None else s1.name
             s2_name = 'Unknown' if s2 is None else s2.name
@@ -72,7 +74,7 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
                 key = '{}:{}-{}'.format(s1.ref_name, start, get_pos(s1, -1))
                 ref_assemblies.append((key, seq))
                 seq = ''
-                if start_2_ind is None:
+                if s2 is not None and start_2_ind is None:
                     msg = 'There is no overlap betwen {} and {}'
                     logger.info(msg.format(s1_name, s2_name))
                     start = get_pos(s2, 0)
