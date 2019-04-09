@@ -266,11 +266,10 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
                     free(aux);
                 }
                 if (!found) {
+                    fprintf(stderr, "Datatype not found for %s.\n", qname);
                     bam_itr_destroy(data->iter); bam_mplp_destroy(mplp);
                     free(data); free(plp); free(chr);
                     hts_close(fp); hts_idx_destroy(idx); bam_hdr_destroy(hdr);
-
-                    fprintf(stderr, "Datatype not found for %s.\n", qname);
                     exit(1);
                 }
             }
