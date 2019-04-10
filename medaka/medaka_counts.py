@@ -57,7 +57,7 @@ def main():
         
             # py-style
             t0=now()
-            samples = encoder.bam_to_sample(args.bam, region, force_py=True)
+            samples = encoder.bam_to_sample(args.bam, region, force_py=True)[0]
             t1=now()
             if not samples.is_empty:
                 print(samples.features.shape)
@@ -68,7 +68,7 @@ def main():
         
             # C-style
             t2=now()
-            samples = encoder.bam_to_sample(args.bam, region)
+            samples = encoder.bam_to_sample(args.bam, region)[0]
             t3=now()
             if not samples.is_empty:
                 print(samples.features.shape)
