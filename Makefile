@@ -97,12 +97,6 @@ clean: clean_htslib
 	find . -name '*.pyc' -delete
 
 
-docker: binaries libhts.a
-	mkdir for_docker && cp -r medaka scripts bincache setup.py build.py requirements.txt for_docker 
-	docker build -t medaka .
-	rm -rf for_docker
-
-
 wheels:
 	docker run -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/build-wheels.sh
 
