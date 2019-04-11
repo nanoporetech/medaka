@@ -1,4 +1,21 @@
 
+v0.6.4
+------
+Bug fix
+
+* Fix for models not specifiying data types.
+
+
+v0.6.3
+------
+Bug fix release
+
+* Split pileup when reads do not span rather than silently deleting region.
+* Refactor handling of short and remainder regions.
+* Drop 3.4 support.
+* Fix error in stitching occuring with a single region.
+
+
 v0.6.2
 ------
 Bug fix release
