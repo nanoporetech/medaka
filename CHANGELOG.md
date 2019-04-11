@@ -1,4 +1,11 @@
 
+v0.6.4
+------
+Bug fix
+
+* Fix for models not specifiying data types.
+
+
 v0.6.3
 ------
 Bug fix release

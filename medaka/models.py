@@ -17,7 +17,10 @@ def load_model(fname, time_steps=None):
         meta = ds.meta
         num_features = len(meta['medaka_feature_decoding'])
         num_classes = len(meta['medaka_label_decoding'])
-        num_dtypes = len(meta['medaka_features_kwargs']['dtypes'])
+        try:
+            num_dtypes = len(meta['medaka_features_kwargs']['dtypes'])
+        except KeyError:
+            num_dtypes = 1
         num_features *= num_dtypes
     build_model = model_builders[meta['medaka_model_name']]
 
