@@ -34,7 +34,7 @@ while getopts ':hi::d:o:m:t:b:' option; do
     i  ) iflag=true; BASECALLS=$(readlink -f $OPTARG);;
     d  ) dflag=true; DRAFT=$(readlink -f $OPTARG);;
     o  ) OUTPUT=$OPTARG;;
-    m  ) MODEL=$OPTARG;;
+    m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
     t  ) THREADS=$OPTARG;;
     b  ) BATCH_SIZE=$OPTARG;;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
