@@ -80,12 +80,20 @@ def _log_level():
     return parser
 
 
-def _chunking_feature_args():
+def _model_arg():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
-    parser.add_argument('bam', help='Input alignments.', action=CheckBam)
     parser.add_argument('--model', action=ResolveModel, default=model_dict[default_model],
                         help='Model definition, default is equivalent to {}.'.format(default_model))
+    return parser
+
+
+def _chunking_feature_args():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False,
+        parents=[_model_arg()],
+    )
+    parser.add_argument('bam', help='Input alignments.', action=CheckBam)
     parser.add_argument('--batch_size', type=int, default=200, help='Inference batch size.')
     parser.add_argument('--regions', default=None, nargs='+', help='Genomic regions to analyse.')
     parser.add_argument('--chunk_len', type=int, default=10000, help='Chunk length of samples.')
@@ -111,6 +119,10 @@ def hdf2yaml(args):
 def yaml2hdf(args):
     with medaka.datastore.DataStore(args.output, 'a') as ds, open(args.input) as fh:
         ds.update_meta(yaml.unsafe_load(fh))
+
+
+def print_model_path(args):
+    print(os.path.abspath(args.model))
 
 
 def main():
@@ -258,6 +270,14 @@ def main():
     hzregparser.add_argument('--min_len', type=int, default=1000,
                              help='Minimum region length.')
     hzregparser.add_argument('--suffix', help='Output suffix.', default='regions.txt')
+
+    # resolve model and print full model file path to screen
+    rmparser = toolsubparsers.add_parser('resolve_model',
+        help='Resolve model and print full file path.',
+        parents=[_log_level(), _model_arg()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    rmparser.set_defaults(func=print_model_path)
+
 
     args = parser.parse_args()
 
