@@ -1,10 +1,13 @@
 from copy import deepcopy
-from collections import defaultdict, OrderedDict
+import collections
+import contextlib
 import itertools
+import os
 from threading import Lock
 
-from intervaltree import IntervalTree
+import intervaltree
 import numpy as np
+import pysam
 
 import medaka.common
 
@@ -32,7 +35,7 @@ all_info_fields.update(own_info_fields)
 
 def parse_tags_to_string(tags):
     str_tags = []
-    for key, value in tags.items():
+    for key, value in sorted(tags.items()):  # ensure fields occur in same order
         # If key is of type 'Flag', print only key, else 'key=value'
         if value is True:
             str_tags.append(key)
@@ -79,11 +82,11 @@ class Variant(object):
             self.info = info
         else:
             self.info = parse_string_to_tags(info)
-        self.sample_dict = sample_dict if sample_dict is not None else OrderedDict()
+        self.sample_dict = sample_dict if sample_dict is not None else collections.OrderedDict()
 
 
     def __eq__(self, other):
-        for field in ('chrom', 'pos', 'id', 'ref', 'alt', 'qual', 'filter', 'info'):
+        for field in ('chrom', 'pos', 'id', 'ref', 'alt', 'qual', 'filter', 'info', 'sample_dict'):
             if getattr(self, field) != getattr(other, field):
                 return False
         return True
@@ -95,9 +98,9 @@ class Variant(object):
 
     @property
     def _sorted_format_keys(self):
-        sorted_keys = sorted(self.sample_dict.keys())
-        if 'GT' in sorted_keys:
-            sorted_keys = ['GT'] + [k for k in sorted_keys if k != 'GT']
+        start_with = ['GT', 'GQ']
+        sorted_keys = [k for k in start_with if k in self.sample_dict.keys()]
+        sorted_keys.extend([k for k in sorted(self.sample_dict.keys()) if k not in sorted_keys])
         return sorted_keys
 
 
@@ -116,12 +119,26 @@ class Variant(object):
          return parse_tags_to_string(self.info)
 
 
+    @property
+    def gt(self):
+        if 'GT' in self.sample_dict:
+            return tuple(int(x) for x in self.sample_dict['GT'].replace('|', '/').split('/'))
+        else:
+            return None
+
+
+    @property
+    def alleles(self):
+         all_alleles = [self.ref] + self.alt
+         return tuple([all_alleles[i] for i in self.gt]) if self.gt is not None else None
+
+
     @classmethod
     def from_text(cls, line):
         chrom, pos, id, ref, alt, qual, filter, info, sample_fields, sample_data, *others = line.split('\t')
         pos = int(pos)
         pos -= 1 # VCF is 1-based, python 0-based
-        sample_dict = OrderedDict(zip(sample_fields.split(':'), sample_data.split(':')))
+        sample_dict = collections.OrderedDict(tuple(zip(sample_fields.split(':'), sample_data.split(':'))))
         return cls(chrom, pos, ref, alt=alt, id=id, qual=qual, filter=filter, info=info, sample_dict=sample_dict)
 
 
@@ -151,12 +168,69 @@ class Variant(object):
 
 
     def to_dict(self):
+        """Return a dictionary representation.
+        """
         d = dict(alt=','.join(self.alt))
         for attr in ['chrom', 'pos', 'qual', 'id', 'filter', 'ref']:
             d[attr] = getattr(self, attr)
         d.update(self.info)
         d.update(self.sample_dict)
         return d
+
+
+    def trim(self):
+        """Return new trimmed Variant with minimal ref and alt sequence.
+        """
+        def get_trimmed_start_ref_alt(seqs):
+            def trim_start(seqs):
+                min_len = min([len(s) for s in seqs])
+                trim_start = 0
+                for bases in zip(*seqs):
+                    bases = list(bases)
+                    bases_same = len(set(bases)) == 1
+                    if not bases_same or trim_start == min_len - 1:
+                        break
+                    if bases_same:
+                        trim_start += 1
+                return trim_start, [s[trim_start:] for s in seqs]
+
+            # trim ends
+            rev_seqs = [s[::-1] for s in seqs]
+            _, trimmed_rev_seqs = trim_start(rev_seqs)
+            seqs = [s[::-1] for s in trimmed_rev_seqs]
+
+            trim_start, seqs = trim_start(seqs)
+            return trim_start, seqs
+
+        trimmed = self.deep_copy()
+        seqs = [trimmed.ref] + trimmed.alt
+        trim_start, (ref, *alt) = get_trimmed_start_ref_alt(seqs)
+        trimmed.pos += trim_start
+        trimmed.ref = ref
+        trimmed.alt = alt
+        return trimmed
+
+
+    def split_haplotypes(self):
+        """Split multiploid variants into list of non-ref haploid variants.
+
+        :returns: tuple of (int haplotype number,
+                            `medaka.vcf.Variant` obj or None if the haplotype is the ref allele)
+        """
+        if 'GT' not in self.sample_dict:
+            return tuple()
+
+        vs = []
+        gt_haps = [int(i) for i in self.sample_dict['GT'].replace('|', '/').split('/')]
+        sample_dict = self.sample_dict.copy()
+        sample_dict['GT'] = '1/1'
+        for hap_n, n in enumerate(gt_haps, 1):
+            if n == 0:
+                v = None
+            else:
+                v = Variant(self.chrom, self.pos, self.ref, self.alt[n - 1], qual=self.qual, info=self.info.copy(), sample_dict=sample_dict)
+            vs.append((hap_n, v))
+        return tuple(vs)
 
 
 class VCFWriter(object):
@@ -192,6 +266,15 @@ class VCFWriter(object):
         self.handle.close()
 
 
+    def write_variants(self, variants, sort=True):
+        """Write variants to file, optionally sorting before writing."""
+        if sort:
+            variants = medaka.common.loose_version_sort(variants, key=lambda v: '{}-{}'.format(v.chrom, v.pos))
+
+        for variant in variants:
+            self.write_variant(variant)
+
+
     def write_variant(self, variant):
         variant = variant.deep_copy()
         # Some fields can be multiple
@@ -222,6 +305,7 @@ class VCFReader(object):
 
         self.filename = filename
         self.cache = cache
+        self.chroms = collections.OrderedDict()  # keep a record of chroms in order in which they were read
         self._indexed = False
         self._tree = None
         self._parse_lock = Lock()
@@ -263,6 +347,7 @@ class VCFReader(object):
                     last_pos = [variant.chrom, None]
                 elif last_pos[1] is not None and last_pos[1] > variant.pos:
                     raise IOError('.vcf is unsorted at index #{}.'.format(index))
+                self.chroms[variant.chrom] = None  # store chroms in order they are parsed
                 yield variant
                 last_pos[1] = variant.pos
 
@@ -279,7 +364,7 @@ class VCFReader(object):
             try:
                 # clear out an incomplete parse, actually this doesn't matter since
                 #    the values in the tree are set-like.
-                self._tree = defaultdict(IntervalTree)
+                self._tree = collections.defaultdict(intervaltree.IntervalTree)
                 for variant in self._parse():
                     self._tree[variant.chrom][variant.pos:variant.pos + len(variant.ref)] = variant
             except Exception:
@@ -327,19 +412,261 @@ class VCFReader(object):
                 yield variant
         else:
             self.index()
+            # spec says .vcf is sorted, lets follow. Keep ordering of
+            # chromosomes as they are in the file, and sort positions.
             if ref_name is not None:
-                results = _tree_search(self._tree[ref_name], start, end, strict)
+                results = sorted(_tree_search(self._tree[ref_name], start, end, strict))
             else:
                 results = itertools.chain(*(
-                     _tree_search(x, start, end, strict=True)
-                     for x in self._tree.values()
+                     sorted(_tree_search(self._tree[chrom], start, end, strict=True))
+                     for chrom in self.chroms
                 ))
-            # spec says .vcf is sorted, lets follow
-            for interval in sorted(results):
+            for interval in results:
                 yield interval.data
 
 
+def _get_hap(v, trees):
+    for hap, tree in enumerate(trees, 1):
+        at_pos = tree.at(v.pos)
+        for vp in at_pos:
+            if vp.data is v:
+                return hap
+
+
+def _merge_variants(interval, trees, ref_seq, detailed_info=False, discard_phase=True):
+    """Merge variants in an interval into a `Variant` obj
+
+    .. note:: It is assumed that variants in each haplotype have a single alt (an exception will be raised if this is
+    not the case) and that that if two overlapping variants have the same alt, the GT it 1/1, else if the alts are
+    different, the GT is 1/2 (or the phased equivalents if discard_phase is False)
+
+    :param interval: `intervaltree.Interval` with .data containing list of `medaka.vcf.Variant` objs to be merged
+    :param trees: iterable of `intervaltree.IntervalTree` objs containing the `medaka.vcf.Variant` objs of each haplotype
+        (used to determine which haplotype variants in `interval` belong to).
+    :param ref_seq: str, reference sequence
+    :param detailed_info: bool, whether to add more detail to Variant info.
+    :param discard_phase: bool, if False, preserve phase, else return unphased variants.
+
+    :returns: `medaka.vcf.Variant` obj
+    """
+    if interval.end > len(ref_seq):
+        raise ValueError('A variant occurs after the end of the reference sequence.')
+    ref = ref_seq[interval.begin: interval.end]
+    alts_dict = collections.OrderedDict()
+    info = {}
+    mixed_vars = collections.defaultdict(list)
+    for v in interval.data:
+        mixed_vars[str(_get_hap(v, trees))].append(v)
+    qual = 0.0
+    for hap, hap_vars in sorted(mixed_vars.items()):
+        alt = list(ref)
+        for v in hap_vars:
+            if len(v.alt) > 1:
+                raise ValueError('Only single-allele variants from two vcfs can be merged')
+            start_i = v.pos - interval.begin
+            end_i = start_i + len(v.ref)
+            if v.ref != ref[start_i:end_i]:
+                msg = 'Variant ref {} does not match ref {} at {}:{}'
+                raise ValueError(msg.format(v.ref, ref[start_i:end_i], v.chrom, v.pos))
+            # also check ref is correct within unsliced ref seq
+            assert ref_seq[v.pos:v.pos + len(v.ref)] == v.ref
+            alt[start_i:end_i] = [''] * len(v.ref)
+            alt[start_i] = v.alt[0]
+        # calculate mean GQ for each haplotype, and take mean of these for
+        # overall qual.
+        # Use mean otherwise we might need very different thresholds for
+        # short vs long variants and homozygous vs heterozygous variants.
+        info['q{}'.format(hap)] = sum((float(v.qual) for v in hap_vars)) / len(hap_vars)
+        info['pos{}'.format(hap)] = ','.join((str(v.pos + 1) for v in hap_vars))
+        if detailed_info:
+            # + 1 as VCF is 1-based, v.pos is 0 based
+            info['ref{}'.format(hap)] = ','.join((v.ref for v in hap_vars))
+            info['alt{}'.format(hap)] = ','.join((v.alt[0] for v in hap_vars))
+        qual += info['q{}'.format(hap)] / len(mixed_vars)
+        alts_dict[hap] = ''.join(alt)
+
+    haps = list(alts_dict.keys())
+    alts = list(alts_dict.values())
+    gt_sep = '/' if discard_phase else '|'
+    if len(alts) == 2:
+        if alts[0] == alts[1]:  # homozygous 1/1
+            gt = gt_sep.join(len(haps) * '1')
+            alts = alts[:1]
+        else:  # heterozygous 1/2
+            gt = gt_sep.join(map(str, haps))
+    else:  # heterozygous 0/1
+        assert len(haps) == 1
+        gts = [0, 1]  # appropriate if hap with variant is 2
+        if not discard_phase:
+            if int(haps[0]) == 1:
+                gts = [1, 0]
+        gt = gt_sep.join(map(str, gts))
+
+    sample = {'GT': gt, 'GQ': qual,}
+    return medaka.vcf.Variant(v.chrom, interval.begin, ref, alt=alts,
+                            filter='PASS', info=info, qual=qual,
+                            sample_dict=sample).trim()
+
+
+def merge_haploid_vcfs(vcf1, vcf2, ref_fasta, only_overlapping=True, discard_phase=True, detailed_info=False):
+    """Merge variants from two haploid VCFs into a diploid vcf.
+
+    Variants in one file which overlap with variants in the other will have their alts padded.
+    .. note:: Variants in a single vcf file should not overlap with each other.
+
+    :param vcf1, vcf2: paths to haploid vcf files.
+    :param ref_fasta: path to reference.fasta file.
+    :param only_overlapping: bool, merge only overlapping variants (not adjacent ones).
+    :param discard_phase: bool, if False, preserve phase, else output unphased variants.
+
+    :yields `medaka.vcf.Variant` objs
+    """
+    logger = medaka.common.get_named_logger('VCFMERGE')
+
+    vcfs = [medaka.vcf.VCFReader(vcf) for vcf in (vcf1, vcf2)]
+    for vcf in vcfs:
+        vcf.index()  # create tree
+    fasta = pysam.FastaFile(ref_fasta)
+    chroms = set(itertools.chain(*[v.chroms for v in vcfs]))
+    for chrom in medaka.common.loose_version_sort(chroms):
+        logger.info('Merging variants in chrom {}'.format(chrom))
+        merged = []
+        trees = [vcf._tree[chrom] for vcf in vcfs]
+        # assign haplotype so that otherwise identical variants in both trees
+        # are not treated as identical (we need to be able to distinguish
+        # between 0/1 and 1/1)
+        for h, tree in enumerate(trees):
+            for i in tree.all_intervals:
+                i.data.info['mhap'] = h
+        comb = intervaltree.IntervalTree(trees[0].all_intervals.union(trees[1].all_intervals))
+        # if strict, merge only overlapping intervals (not adjacent ones)
+        comb.merge_overlaps(strict=only_overlapping, data_initializer=list(), data_reducer=lambda x,y: x + [y])
+        ref_seq = fasta.fetch(chrom)
+        for interval in comb.all_intervals:
+            merged.append(_merge_variants(interval, trees, ref_seq,
+                                          detailed_info=detailed_info, discard_phase=discard_phase))
+        yield from sorted(merged, key=lambda x: x.pos)
+
+
+def haploid2diploid(args):
+    """Entry point for merging two haploid vcfs into a diploid vcf"""
+
+    with VCFWriter(args.vcfout, 'w', version='4.1') as vcf_writer:
+        for v in merge_haploid_vcfs(args.vcf1, args.vcf2, args.ref_fasta,
+                                    only_overlapping=not args.adjacent):
+            vcf_writer.write_variant(v)
+
+
+def split_variants(vcf_fp, trim=True):
+    """Split diploid vcf into two haploid vcfs.
+
+    :param vcf: str, path to input vcf.
+    :param trim: bool, trim variants to minimal alt and ref and update pos.
+
+    :returns: tuple of output files written
+    """
+
+    vcf = VCFReader(vcf_fp, cache=False)
+    q = collections.defaultdict(list)
+    for v in vcf.fetch():
+        for k, v in v.split_haplotypes():
+            if v is not None:
+                v = v.trim() if trim else v
+                q[k].append(v)
+
+    basename, ext = os.path.splitext(vcf_fp)
+    output_files = []
+    for k, variants in q.items():
+        output_files.append('{}_hap{}{}'.format(basename, k, ext))
+        with medaka.vcf.VCFWriter(output_files[-1]) as vcf_writer:
+            # output variants in the same order they occured in the input file
+            vcf_writer.write_variants(variants, sort=False)
+    return tuple(output_files)
+
+
+def diploid2haploid(args):
+    """Entry point to split a diploid VCF into two haploid VCFs."""
+    output_files = split_variants(args.vcf, trim=not args.notrim)
+    medaka.common.get_named_logger('Diploid2Haploid').info('VCFs files written to: {}'.format('\n'.join(output_files)))
+
+
+def classify_variant(v):
+    """Classify a variant.
+
+    :param v: `medaka.vcf.Variant` obj
+
+    :returns: typ: str, variant classification.
+    """
+
+    typ = 'other'
+    # find if the first base of an alt is the same as the ref
+    is_start_same = lambda x: all([a[0] == x.ref[0] for a in x.alt])
+    is_end_same = lambda x: all([a[-1] == x.ref[-1] for a in x.alt])
+    is_len_same = lambda x: all(len(a) == len(x.ref) for a in x.alt)
+    is_longer = lambda x: all([len(a) > len(v.ref) for a in x.alt])
+    is_shorter = lambda x: all([len(a) < len(v.ref) for a in x.alt])
+    if is_len_same(v):  # sub
+        typ = 'snp' if len(v.ref) == 1 else 'mnp'
+    elif is_start_same(v) or is_end_same(v):  # i.e. not a sub and indel
+        if is_longer(v):  # ins
+            typ = 'sni' if all(len(a) == len(v.ref) + 1 for a in v.alt) else 'mni'
+        elif is_shorter(v):  # del
+            typ = 'snd' if all(len(a) == len(v.ref) - 1 for a in v.alt) else 'mnd'
+        elif all(len(a) != len(v.ref) for a in v.alt):
+            typ = 'indel'  # could be mix of ins and del
+    return typ
+
+
+def classify_variants(args):
+    """Entry point to classify variants and write out a new VCF for each class and class-groups.
+
+    Example classifications for subsitutions are 'snp' and 'mnp', which belong to the same class-group 'sub'.
+    """
+    path, ext = os.path.splitext(args.vcf)
+
+    typs = { base_typ: {base_typ} for base_typ in ['snp', 'mnp', 'sni', 'mni', 'snd', 'mnd', 'other', 'all']}
+    typs['sub'] = {'snp', 'mnp'}
+    typs['del'] = {'snd', 'mnd'}
+    typs['ins'] = {'sni', 'mni'}
+    typs['snid'] = {'sni', 'snd'}
+    typs['mnid'] = {'mni', 'mnd'}
+    typs['indel'] = set.union({'indel'}, typs['del'], typs['ins'])
+    typs['all'] = set.union(*[s for s in typs.values()])
+
+    vcfs = {s: '{}.{}{}'.format(path, s, ext) for s in typs.keys()}
+
+    vcf = VCFReader(args.vcf, cache=True)
+    neighbours = None
+    with contextlib.ExitStack() as stack:
+        writers = {s: stack.enter_context(VCFWriter(vcfs[s], header=vcf.header)) for s in typs.keys()}
+        for v in vcf.fetch():
+            v_typ = classify_variant(v)
+            d = {'type': v_typ}
+            if args.replace_info:
+                v.info = d
+            else:
+                v.info.update(d)
+            for typ, typ_set in typs.items():
+                if v_typ in typ_set:
+                    writers[typ].write_variant(v)
+
+
+def vcf2tsv(args):
+    """Entry point to convert vcf to tsv, unpacking info and sample fields"""
+    try:
+        import pandas as pd
+    except:
+        print("Converting vcf to tsv requires pandas to be installed.")
+        print("Try running 'pip install pandas'")
+
+    vcf = VCFReader(args.vcf, cache=False)
+    df = pd.DataFrame((v.to_dict() for v in vcf.fetch()))
+    df.to_csv(args.vcf + '.tsv', sep='\t', index=False)
+
+
 def get_homozygous_regions(args):
+    """Entry point to find homozygous regions from an input diploid VCF.
+    """
 
     vcf = VCFReader(args.vcf, cache=False)
     reg = medaka.common.Region.from_string(args.region)
