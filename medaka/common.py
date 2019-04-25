@@ -1,4 +1,5 @@
 from collections import OrderedDict, namedtuple
+from distutils.version import LooseVersion
 import errno
 import functools
 import itertools
@@ -135,28 +136,29 @@ class Region(_Region):
 
     @classmethod
     def from_string(cls, region):
-        """Parse region strings into `Region` objects.
+        """Parse region string into `Region` objects.
 
-        :param regions: iterable of str
+        :param region: region str
 
-        >>> parse_regions(['Ecoli'])[0]
-        Region(ref_name='Ecoli', start=None, end=None)
-        >>> parse_regions(['Ecoli:1000-2000'])[0]
-        Region(ref_name='Ecoli', start=1000, end=2000)
-        >>> parse_regions(['Ecoli:1000'])[0]
-        Region(ref_name='Ecoli', start=0, end=1000)
-        >>> parse_regions(['Ecoli:500-'])[0]
-        Region(ref_name='Ecoli', start=500, end=None)
-
+        >>> Region.from_string('Ecoli') == Region(ref_name='Ecoli', start=None, end=None)
+        True
+        >>> Region.from_string('Ecoli:1000-2000') == Region(ref_name='Ecoli', start=1000, end=2000)
+        True
+        >>> Region.from_string('Ecoli:1000') == Region(ref_name='Ecoli', start=0, end=1000)
+        True
+        >>> Region.from_string('Ecoli:-1000') == Region(ref_name='Ecoli', start=0, end=1000)
+        True
+        >>> Region.from_string('Ecoli:500-') == Region(ref_name='Ecoli', start=500, end=None)
+        True
         """
         if ':' not in region:
             ref_name, start, end = region, None, None
         else:
             start, end = None, None
             ref_name, bounds = region.split(':')
-            if bounds[0] == '-':
+            if bounds[0] == '-' or '-' not in bounds:
                 start = 0
-                end = int(bounds[1:])
+                end = int(bounds.replace('-', ''))
             elif bounds[-1] == '-':
                 start = int(bounds[:-1])
                 end = None
@@ -432,7 +434,7 @@ def threadsafe_generator(f):
 
 def background_generator(generator, max_size, daemon=True):
     """Run a generator in background thread.
-    
+
     :param max_size: maximum number of items from the generator to cache.
     :param daemon: run generator in daemon thread
 
@@ -490,3 +492,30 @@ def get_named_logger(name):
     logger = logging.getLogger('{}.{}'.format(__package__, name))
     logger.name = name
     return logger
+
+
+def loose_version_sort(it, key=None):
+    """Try to sort iterable with distutils.version.LooseVersion, falling back on regular sort.
+
+    >>> loose_version_sort(['chr10', 'chr2', 'chr1'])
+    ['chr1', 'chr2', 'chr10']
+    >>> sorted(['chr10', 'chr2', 'chr1'])
+    ['chr1', 'chr10', 'chr2']
+    >>> loose_version_sort(['chr{}c{}'.format(i,j) for i,j in itertools.product([1, 10, 2] , [1,10,2])])
+    ['chr1c1', 'chr1c2', 'chr1c10', 'chr2c1', 'chr2c2', 'chr2c10', 'chr10c1', 'chr10c2', 'chr10c10']
+    """
+    def version_sorter(x):
+        return LooseVersion(x) if key is None else LooseVersion(key(x))
+    it = list(it)
+    try:
+        result = sorted(it, key=version_sorter)
+    except:
+        logger = get_named_logger("VariantSort")
+        logger.debug("Could not sort with LooseVersion")
+        result = sorted(it, key=key)
+    return result
+
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()

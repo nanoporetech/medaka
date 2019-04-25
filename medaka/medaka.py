@@ -250,16 +250,50 @@ def main():
     yparser.add_argument('output', help='Output .hdf, will be appended to if it exists.', default='meta.hdf')
 
     # merge two haploid VCFs into a diploid VCF.
-    yparser = toolsubparsers.add_parser('merge_vcfs',
+    h2dparser = toolsubparsers.add_parser('haploid2diploid',
         help='Merge two haploid VCFs into a diploid VCF.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    yparser.set_defaults(func=medaka.stitch.merge_vcfs)
-    yparser.add_argument('vcf1', help='Input .vcf file.')
-    yparser.add_argument('vcf2', help='Input .vcf file.')
-    yparser.add_argument('vcfout', help='Output .vcf.')
+    h2dparser.set_defaults(func=medaka.vcf.haploid2diploid)
+    h2dparser.add_argument('vcf1', help='Input .vcf file.')
+    h2dparser.add_argument('vcf2', help='Input .vcf file.')
+    h2dparser.add_argument('ref_fasta', help='Reference .fasta file.')
+    h2dparser.add_argument('vcfout', help='Output .vcf.')
+    h2dparser.add_argument('--adjacent', action='store_true',
+                         help=('Merge adjacent variants (i.e. variants with non-overlapping genomic ranges) instead' +
+                               ' of just overlapping ones. If set to True, all runs of adjacent variants will be' +
+                               ' merged including those which appear in just one of the input VCFs.'))
 
-    # merge two haploid VCFs into a diploid VCF.
+    # split a diploid VCF into two haploid VCFs.
+    d2hparser = toolsubparsers.add_parser('diploid2haploid',
+        help='Split a diploid VCF into two haploid VCFs.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    d2hparser.set_defaults(func=medaka.vcf.diploid2haploid)
+    d2hparser.add_argument('vcf', help='Input .vcf file.')
+    d2hparser.add_argument('--notrim', action='store_true',
+                         help='Do not trim variant to minimal ref and alt and update pos.')
+
+    # classify variants in a vcf writing new vcfs containing subs, indels etc.
+    clparser = toolsubparsers.add_parser('classify_variants',
+        help='Classify variants and write vcf for each type and subtype.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    clparser.set_defaults(func=medaka.vcf.classify_variants)
+    clparser.add_argument('vcf', help='Input .vcf file.')
+    clparser.add_argument('--replace_info', action='store_true',
+                         help='Replace info tag (useful for visual inspection of types).')
+
+    # convert a vcf to tsv
+    tsvparser = toolsubparsers.add_parser('vcf2tsv',
+        help='convert vcf to tsv, unpacking info and sample columns.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    tsvparser.set_defaults(func=medaka.vcf.vcf2tsv)
+    tsvparser.add_argument('vcf', help='Input .vcf file.')
+
+
+    # find homozygous and heterozygous regions in a VCF
     hzregparser = toolsubparsers.add_parser('homozygous_regions',
         help='Find homozygous regions from a diploid vcf.',
         parents=[_log_level()],
