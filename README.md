@@ -141,19 +141,31 @@ within the medaka environment, otherwise they will need to be provided by the us
     BASECALLS=basecalls.fa
     DRAFT=draft_assm/assm_final.fa
     OUTDIR=medaka_consensus
-    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r94
+    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r941_min_high
 
 The variables `BASECALLS`, `DRAFT`, and `OUTDIR` in the above should be set
 appropriately. When `medaka_consensus` has finished running, the consensus
 will be saved to `${OUTDIR}/consensus.fasta`.
 
-   **It is crucially important to specify the correct model, `-m` in the
-   above, according to the basecaller used. Allowed values can be found by
-   running `medaka consensus --help`. The default model is appropriate for
-   basecallers using the transducer algorithm (Albacore or Guppy<2.1.3). For
-   Guppy versions >=2.1.3 where the flip-flop algorithm has been used, users
-   should select the highest numbered model equal to or less than the Guppy
-   version used for basecalling.**
+Models
+------
+
+It is crucially important to specify the correct model, `-m` in the
+above, according to the basecaller used. Allowed values can be found by
+running `medaka tools list\_models`.
+
+For guppy v3.0.3 models are named similarly to their basecalling counterparts
+with a "fast" and "high accuracy" model, for example `r941_min_fast` and
+`r941_min_high`. The medaka models are equal in speed regardless of basecaller
+speed/accuracy.
+
+For guppy versions >=2.1.3 where the flip-flop algorithm has been used, users
+should select the highest numbered model equal to or less than the guppy
+version used for basecalling. There are two models here: `r941_flip213` and
+`r941_flip235`
+
+A final model `r941_trans` is available where a basecaller with the transducer
+algorithm has been used (Albacore or Guppy<2.1.3).
 
 ### Origin of the draft sequence
 

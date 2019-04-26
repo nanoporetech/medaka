@@ -14,8 +14,11 @@ import medaka.features
 import medaka.stitch
 
 model_store = resource_filename(__package__, 'data')
-allowed_models = ['r941_trans', 'r941_flip213', 'r941_flip235']
-default_model = 'r941_trans'
+allowed_models = [
+    'r941_trans', 'r941_flip213', 'r941_flip235',
+    'r941_min_fast', 'r941_min_high', #'r941_prom_fast', 'r941_prom_high',
+]
+default_model = 'r941_min_high'
 model_dict = {
     k:os.path.join(model_store, '{}_model.hdf5'.format(k))
     for k in allowed_models
@@ -27,7 +30,7 @@ class ResolveModel(argparse.Action):
     def __init__(self, option_strings, dest, default=None, required=False, help='Model file.'):
         super().__init__(
             option_strings, dest, nargs=1, default=default, required=required,
-            help='{} {{{}}}'.format(help, ', '.join(model_dict.keys()))
+            help='{} {{{}}}'.format(help, ', '.join(allowed_models))
         )
 
     def __call__(self, parser, namespace, values, option_string=None):
@@ -123,6 +126,11 @@ def yaml2hdf(args):
 
 def print_model_path(args):
     print(os.path.abspath(args.model))
+
+
+def print_all_models(args):
+    print('Available:', ', '.join(allowed_models))
+    print('Default:', default_model)
 
 
 def main():
@@ -312,6 +320,12 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     rmparser.set_defaults(func=print_model_path)
 
+    # print all model tags followed by default
+    rmparser = toolsubparsers.add_parser('list_models',
+        help='List all models.',
+        parents=[_log_level(), _model_arg()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    rmparser.set_defaults(func=print_all_models)
 
     args = parser.parse_args()
 
