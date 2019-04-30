@@ -484,7 +484,7 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
     total_region_mbases = sum(r.size for r in regions) / 1e6
     logger.info("Running inference for {:.1f}M draft bases.".format(total_region_mbases))
 
-    with DataStore(output, 'a') as ds:
+    with DataStore(output, 'a', verify_on_close=False) as ds:
         mbases_done = 0
 
         t0 = now()
@@ -514,7 +514,7 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
 
 def predict(args):
     """Inference program."""
-    os.environ["TF_CPP_MIN_LOG_LEVEL"]="2"
+    #os.environ["TF_CPP_MIN_LOG_LEVEL"]="2"
     from keras.models import load_model
     from keras import backend as K
 
@@ -525,7 +525,7 @@ def predict(args):
     # write class names to output
     with DataStore(args.model) as ds:
         meta = ds.meta
-    with DataStore(args.output, 'w') as ds:
+    with DataStore(args.output, 'w', verify_on_close=False) as ds:
         ds.update_meta(meta)
 
     logger.info("Setting tensorflow threads to {}.".format(args.threads))
@@ -578,6 +578,11 @@ def predict(args):
                 logger.warning("{} regions were not processed: {}.".format(n_ignored, ignored))
 
     logger.info("Finished processing all regions.")
+
+    if args.check_output:
+        logger.info("Validating and finalising output data.")
+        with DataStore(args.output, 'a') as ds:
+            pass
 
 
 def process_labels(label_counts, max_label_len=10):
