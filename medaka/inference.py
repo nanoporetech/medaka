@@ -492,7 +492,14 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
         for data in batches:
             x_data = np.stack([x.features for x in data])
             class_probs = model.predict_on_batch(x_data)
-            mbases_done += sum(x.span for x in data) / 1e6
+            # calculate bases done taking into account overlap
+            new_bases = 0
+            for x in data:
+                if chunk_ovlp < x.size:
+                    new_bases += x.last_pos[0] - x._get_pos(chunk_ovlp)[0]
+                else:
+                    new_bases += x.span
+            mbases_done += new_bases / 1e6
             mbases_done = min(mbases_done, total_region_mbases)  # just to avoid funny log msg
             t1 = now()
             if t1 - tlast > 10:
