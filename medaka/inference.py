@@ -3,6 +3,7 @@ from concurrent.futures import ProcessPoolExecutor
 import functools
 import inspect
 import itertools
+import logging
 import os
 from timeit import default_timer as now
 
@@ -521,7 +522,10 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
 
 def predict(args):
     """Inference program."""
-    #os.environ["TF_CPP_MIN_LOG_LEVEL"]="2"
+    logger_level = logging.getLogger(__package__).level
+    if logger_level > logging.DEBUG:
+        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
     from keras.models import load_model
     from keras import backend as K
 
