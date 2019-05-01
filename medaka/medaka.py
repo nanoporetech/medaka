@@ -186,8 +186,10 @@ def main():
     cparser.set_defaults(func=medaka.inference.predict)
     cparser.add_argument('output', help='Output file.')
     cparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
+    cparser.add_argument('--check_output', action='store_true', default=False,
+            help='Verify integrity of output file after inference.')
     cparser.add_argument('--save_features', action='store_true', default=False,
-                         help='Save features with consensus probabilities.')
+            help='Save features with consensus probabilities.')
     tag_group = cparser.add_argument_group('filter tag', 'Filtering alignments by an integer valued tag.')
     tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')

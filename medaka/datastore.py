@@ -19,10 +19,11 @@ class DataStore(object):
                 'medaka_label_decoding', 'medaka_feature_decoding',
                 'medaka_label_counts', 'medaka_samples')
 
-    def __init__(self, filename, mode='r'):
+    def __init__(self, filename, mode='r', verify_on_close=True):
 
         self.filename = filename
         self.mode = mode
+        self.verify_on_close = verify_on_close
 
         self._sample_keys = set()
         self.fh = None
@@ -40,8 +41,12 @@ class DataStore(object):
 
 
     def __exit__(self, *args):
-        if self.mode != 'r' and self._meta is not None:
-            self._verify_()  # verify data before saving meta
+
+        if self.mode != 'r':
+            if self.verify_on_close:
+                self._verify_()  # verify data before saving meta
+            else:
+                self.logger.debug("Skipping validation on close.")
             self._write_metadata(self.meta)
         self.fh.close()
 
@@ -55,6 +60,7 @@ class DataStore(object):
         all_fields = set()
 
         for key in self.sample_keys:
+            self.logger.debug("First round verify {}.".format(key))
             # if key is not in the file, remove it from the index
             grp = '{}/{}'.format(self._sample_path_, key)
             if grp not in fh:
@@ -64,6 +70,7 @@ class DataStore(object):
             all_fields.update(fh[grp].keys())
 
         for key in self.sample_keys:
+            self.logger.debug("Second round verify {}.".format(key))
             for field in all_fields:
                 path = '{}/{}/{}'.format(self._sample_path_, key, field)
                 if path not in fh:
@@ -161,6 +168,7 @@ class DataStore(object):
         if groups is None:
             groups = self._groups_
         return {g: yaml.unsafe_load(self.fh[g][()]) for g in groups if g in self.fh}
+
 
     @property
     def sample_keys(self):

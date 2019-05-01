@@ -3,6 +3,7 @@ from concurrent.futures import ProcessPoolExecutor
 import functools
 import inspect
 import itertools
+import logging
 import os
 from timeit import default_timer as now
 
@@ -484,7 +485,7 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
     total_region_mbases = sum(r.size for r in regions) / 1e6
     logger.info("Running inference for {:.1f}M draft bases.".format(total_region_mbases))
 
-    with DataStore(output, 'a') as ds:
+    with DataStore(output, 'a', verify_on_close=False) as ds:
         mbases_done = 0
 
         t0 = now()
@@ -492,7 +493,14 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
         for data in batches:
             x_data = np.stack([x.features for x in data])
             class_probs = model.predict_on_batch(x_data)
-            mbases_done += sum(x.span for x in data) / 1e6
+            # calculate bases done taking into account overlap
+            new_bases = 0
+            for x in data:
+                if chunk_ovlp < x.size:
+                    new_bases += x.last_pos[0] - x._get_pos(chunk_ovlp)[0]
+                else:
+                    new_bases += x.span
+            mbases_done += new_bases / 1e6
             mbases_done = min(mbases_done, total_region_mbases)  # just to avoid funny log msg
             t1 = now()
             if t1 - tlast > 10:
@@ -514,7 +522,10 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
 
 def predict(args):
     """Inference program."""
-    os.environ["TF_CPP_MIN_LOG_LEVEL"]="2"
+    logger_level = logging.getLogger(__package__).level
+    if logger_level > logging.DEBUG:
+        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
     from keras.models import load_model
     from keras import backend as K
 
@@ -525,7 +536,7 @@ def predict(args):
     # write class names to output
     with DataStore(args.model) as ds:
         meta = ds.meta
-    with DataStore(args.output, 'w') as ds:
+    with DataStore(args.output, 'w', verify_on_close=False) as ds:
         ds.update_meta(meta)
 
     logger.info("Setting tensorflow threads to {}.".format(args.threads))
@@ -578,6 +589,11 @@ def predict(args):
                 logger.warning("{} regions were not processed: {}.".format(n_ignored, ignored))
 
     logger.info("Finished processing all regions.")
+
+    if args.check_output:
+        logger.info("Validating and finalising output data.")
+        with DataStore(args.output, 'a') as ds:
+            pass
 
 
 def process_labels(label_counts, max_label_len=10):
