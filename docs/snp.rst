@@ -76,9 +76,9 @@ The pipeline described above is implemented in the `medaka_variant` program:
 .. code-block:: bash
 
     source ${MEDAKA}
-    medaka_variant -r <REFERENCE.fata> -b <reads.bam> -m 941_flip
+    medaka_variant -f <REFERENCE.fasta> -b <reads.bam> -m r941_flip213
 
-It has been benchmarked flip-flop basecaller output only. This will run all
+It has been benchmarked on flip-flop basecaller output only. This will run all
 the necessary steps, performing two iterations of the process described above
 finally outputting a final phased `.vcf` variant file.
 
