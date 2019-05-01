@@ -10,7 +10,8 @@ BATCH_SIZE=200
 REGIONS=""
 medaka_version=$(medaka --version)
 bflag=false
-rflag=false
+fflag=false
+DELETE=false
 
 HAP1OPTS="--tag_name HP --tag_value 1 --tag_keep_missing"
 HAP2OPTS="--tag_name HP --tag_value 2 --tag_keep_missing"
@@ -28,8 +29,8 @@ $(basename "$0") [-h] -i <fastx>
 
     -h  show this help text.
     -b  bam of reads aligned to ref. Read groups are currently ignored, so the bam should only contain reads from a single sample.
-    -r  fasta input reference (required).
-    -R  region string(s). If providing multiple regions, wrap them in quotes. If not provided, will process all contigs in bam. 
+    -f  fasta input reference (required).
+    -r  region string(s). If providing multiple regions, wrap them in quotes. If not provided, will process all contigs in bam. 
     -o  output folder (default: ${OUTPUT}).
     -m  medaka model, One of: 'r941_trans', 'r941_flip213', 'r941_flip235' (default: ${MODEL}).
         Alternatively a .hdf file from 'medaka train'. 
@@ -37,20 +38,22 @@ $(basename "$0") [-h] -i <fastx>
         This will only affect the initial SNP calls used to phase reads, not the final SNP calls, which are
         computed from medaka consensuses of each haplotype run individually. 
     -t  number of threads with which to create features (default: 1).
-    -b  batchsize, controls memory use (default: 200)."
+    -b  batchsize, controls memory use (default: 200).
+    -d  delete intermediate files. (default: keep)."
 
 
-while getopts ':hb::r:R:o:m:T:t:b:' option; do
+while getopts ':hb::f:r:o:m:v:T:t:b:d' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     b  ) bflag=true; CALLS2REF=$(readlink -f $OPTARG);;
-    r  ) rflag=true; REF=$(readlink -f $OPTARG);;
-    R  ) REGIONS="--regions $OPTARG";;
+    f  ) fflag=true; REF=$(readlink -f $OPTARG);;
+    r  ) REGIONS="$OPTARG";;
     o  ) OUTPUT=$OPTARG;;
     m  ) MODEL=$OPTARG;;
     T  ) THRESHOLD=$OPTARG;;
     t  ) THREADS=$OPTARG;;
     b  ) BATCH_SIZE=$OPTARG;;
+    d  ) DELETE=true;;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
     :  ) echo "Option -$OPTARG requires an argument." >&2; exit 1;;
   esac
@@ -64,18 +67,44 @@ if ! $bflag; then
   exit 1;
 fi
 
-if ! $rflag; then
+if ! $fflag; then
   echo "$usage" >&2;
   echo "" >&2;
-  echo "-r must be specified." >&2;
+  echo "-f must be specified." >&2;
   exit 1;
 fi
+
+run_extract_region_from_bam () {
+
+    local BAMIN=$1
+    local BAMOUT=$2
+    local REGIONS=$3
+
+    exit_if_file_does_not_exist ${BAMIN} ${BAMIN}.bai
+    if [[ ! -e ${BAMOUT} ]]; then
+        echo ""
+        echo "======================================"
+        echo "Extracting regions $REGIONS from bam ${BAMIN} "
+        echo "======================================"
+        echo ""
+        samtools view -b -h ${BAMIN} -@ ${THREADS} -o ${BAMOUT} ${REGIONS} \
+            || (echo "Failed to extract regions from bam." && exit 1)
+    else 
+        echo "Not extracting regions from bam, ${BAMOUT} exists."
+    fi
+    run_samtools_index ${BAMOUT}
+}
 
 
 run_medaka_consensus () {
     local BAM=$1
     local PROBS=$2
     local EXTRAOPTS=$3
+    if [ -n "${REGIONS}" ]; then
+        local REG_OPT="--regions ${REGIONS}"
+    else
+        local REG_OPT=""
+    fi
     exit_if_file_does_not_exist ${BAM} ${BAM}.bai
     if [[ ! -e ${PROBS} ]]; then
         echo ""
@@ -83,7 +112,7 @@ run_medaka_consensus () {
         echo "Running medaka consensus ${BAM} ${EXTRAOPTS}"
         echo "======================================"
         echo ""
-        medaka consensus ${BAM} ${PROBS} --model ${MODEL} --batch_size ${BATCH_SIZE} ${REGIONS} --threads ${THREADS} ${EXTRAOPTS} \
+        medaka consensus ${BAM} ${PROBS} --model ${MODEL} --batch_size ${BATCH_SIZE} ${REG_OPT} --threads ${THREADS} ${EXTRAOPTS} \
             || (echo "Failed to run medaka consensus." && exit 1)
     else 
         echo "Not running medaka consensus, ${PROBS} exists."
@@ -198,7 +227,7 @@ run_samtools_index () {
 
     if [[ ! -e ${INDEX} ]]; then
         echo "Running samtools index on ${BAM}."
-        samtools index ${BAM} \
+        samtools index ${BAM} -@ ${THREADS} \
             || (echo "Failed to index bam ${BAM}." && exit 1)
         echo "Bam index in ${OUTPUT}/${INDEX}."
     else
@@ -228,6 +257,15 @@ cd ${OUTPUT}
 # check input bam, bam index and ref exist
 exit_if_file_does_not_exist ${CALLS2REF} ${CALLS2REF}.bai ${REF}
 
+# if regions have been provided, extract that region from the input bam
+# (whatshap currently does not have a region string option). 
+
+if [ -n "${REGIONS}" ]; then
+    CALLS2REF_EXTRACTED=$(basename ${CALLS2REF})
+    run_extract_region_from_bam ${CALLS2REF} ${CALLS2REF_EXTRACTED} ${REGIONS}
+    CALLS2REF=${CALLS2REF_EXTRACTED}
+fi
+
 CONSENSUSPROBS=round_0_hap_mixed_probs.hdf
 run_medaka_consensus ${CALLS2REF} ${CONSENSUSPROBS}
 
@@ -255,7 +293,7 @@ VCFHAP2=round_1_hap_2.vcf
 run_medaka_snp ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD}
 VCFMERGED=round_1_final.vcf
 
-medaka tools merge_vcfs ${VCFHAP1} ${VCFHAP2} ${VCFMERGED}
+medaka tools haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGED}
 
 # since medaka output unphased VCF, rephase variants with whatshap
 VCFREPHASED="${VCFMERGED%.*}_rephased.vcf"
@@ -276,20 +314,20 @@ run_medaka_snp ${PROBSHAP1} ${VCFHAP1} ${HAPLOIDTHRESHOLD}
 VCFHAP2=round_2_hap_2.vcf
 run_medaka_snp ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD}
 
-# to get the best GQ we can, rerun medaka snp on each haplotype providing the
-# other haplotype as ref vcf to ensure we have GQ for both haplotpyes at all
-# variant loci.
-VCFHAP1WITH2=round_2_hap_1_with_hap2.vcf
-run_medaka_snp ${PROBSHAP1} ${VCFHAP1WITH2} ${HAPLOIDTHRESHOLD} "--ref_vcf ${VCFHAP2}"
-VCFHAP2WITH1=round_2_hap_2_with_hap1.vcf
-run_medaka_snp ${PROBSHAP2} ${VCFHAP2WITH1} ${HAPLOIDTHRESHOLD} "--ref_vcf ${VCFHAP1}"
-
 VCFMERGEDUNPHASED=round_2_final_unphased.vcf
-medaka tools merge_vcfs ${VCFHAP1WITH2} ${VCFHAP2WITH1} ${VCFMERGEDUNPHASED}
+medaka tools haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGEDUNPHASED}
 
 # since medaka output unphased VCF, rephase variants with whatshap
 VCFMERGEDPHASED="${VCFMERGEDUNPHASED%_*}_phased.vcf"
 run_phase_vcf ${VCFMERGEDUNPHASED} ${VCFMERGEDPHASED} 
+
+if $DELETE; then
+  files=$(ls *.hdf *.bam *.bai *.gz *.tbi)
+  echo ""
+  echo "Deleting intermediate files:"
+  echo "${files}"
+  rm ${files}
+fi
 
 echo ""
 echo "All done." 
