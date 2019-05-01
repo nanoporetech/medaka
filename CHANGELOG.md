@@ -1,7 +1,17 @@
+v0.6.5
+------
+Bug fix release
+
+* Tidy up some parsing and sorting of regions from strings.
+* Disable by default validation of output HDF during consensus.
+* Refactor variant handling code.
+* Ensure medaka consensus is given absolute path to model.
+* Fix Makefile for parallel build.
+
 
 v0.6.4
 ------
-Bug fix
+Bug fix release
 
 * Fix for models not specifiying data types.
 
