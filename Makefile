@@ -15,14 +15,6 @@ endif
 binaries: $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 
 SAMVER=1.9
-$(BINCACHEDIR)/samtools: submodules/samtools-$(SAMVER)/Makefile | $(BINCACHEDIR)
-	@echo Making $(@F)
-	# copy our hack up version of tview
-	${SEDI} 's/tv->is_dot = 1;/tv->is_dot = 0;/' submodules/samtools-${SAMVER}/bam_tview.c
-	cd submodules/samtools-${SAMVER} && make
-	cp submodules/samtools-${SAMVER}/$(@F) $@
-
-
 submodules/samtools-$(SAMVER)/Makefile:
 	cd submodules; \
 		curl -L -o samtools-${SAMVER}.tar.bz2 https://github.com/samtools/samtools/releases/download/${SAMVER}/samtools-${SAMVER}.tar.bz2; \
@@ -37,11 +29,19 @@ libhts.a: submodules/samtools-$(SAMVER)/Makefile
 	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$@ $@
 
 
-$(BINCACHEDIR)/tabix: libhts.a
+$(BINCACHEDIR)/samtools: | libhts.a $(BINCACHEDIR)
+	@echo Making $(@F)
+	# copy our hack up version of tview
+	${SEDI} 's/tv->is_dot = 1;/tv->is_dot = 0;/' submodules/samtools-${SAMVER}/bam_tview.c
+	cd submodules/samtools-${SAMVER} && make -j 4
+	cp submodules/samtools-${SAMVER}/$(@F) $@
+
+
+$(BINCACHEDIR)/tabix: | libhts.a $(BINCACHEDIR)
 	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$(@F) $@
 
 
-$(BINCACHEDIR)/bgzip: libhts.a
+$(BINCACHEDIR)/bgzip: | libhts.a $(BINCACHEDIR)
 	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$(@F) $@
 
 
@@ -58,12 +58,6 @@ $(BINCACHEDIR)/minimap2: | $(BINCACHEDIR)
 	rm -rf minimap2-2.11_x64-linux.tar.bz2 minimap2-2.11_x64-linux
 
 
-scripts/mini_align:
-	@echo Making $(@F)
-	curl https://raw.githubusercontent.com/nanoporetech/pomoxis/master/scripts/mini_align -o $@
-	chmod +x $@
-
-
 $(BINCACHEDIR)/vcf2fasta: | $(BINCACHEDIR)
 	cd src/vcf2fasta && g++ -std=c++11 \
 		-I./../../submodules/samtools-${SAMVER}/htslib-${SAMVER}/ vcf2fasta.cpp \
@@ -71,6 +65,12 @@ $(BINCACHEDIR)/vcf2fasta: | $(BINCACHEDIR)
 		-lz -llzma -lbz2 -lpthread \
 		-o $(@F)
 	cp src/vcf2fasta/$(@F) $@
+
+
+scripts/mini_align:
+	@echo Making $(@F)
+	curl https://raw.githubusercontent.com/nanoporetech/pomoxis/master/scripts/mini_align -o $@
+	chmod +x $@
 
 
 venv: venv/bin/activate
@@ -82,7 +82,7 @@ venv/bin/activate:
 	${IN_VENV} && pip install -r requirements.txt
 
 
-install: venv scripts/mini_align | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
+install: venv scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 	${IN_VENV} && MEDAKA_BINARIES=1 python setup.py install
 
 
