@@ -62,7 +62,7 @@ into a python virtual environment. To setup the environment run:
     make install
     . ./venv/bin/activate
 
-Using this method both `samtools` and `minimap2` are built from source and need
+Using this method both ``samtools`` and ``minimap2`` are built from source and need
 not be provided by the user.
 
 
@@ -70,14 +70,19 @@ not be provided by the user.
 
 All installation methods will allow medaka to be used with CPU resource only.
 To enable the use of GPU resource it is necessary to install the
-`tensorflow-gpu` package. In outline this can be achieved with:
+``tensorflow-gpu`` package. Unfortunately depending on your python version it
+may be necessary to modify the requirements of the ``medaka`` package for it
+to run without complaining. Using the source code from github a working
+GPU-powered ``medaka`` can be configured with:
 
 .. code-block:: bash
 
-    pip uninstall tensorflow
-    pip install tensorflow-gpu
+    git clone https://github.com/nanoporetech/medaka.git
+    cd medaka
+    sed -i 's/tensorflow/tensorflow-gpu/' requirements.txt
+    make install
 
-However, note that The `tensorflow-gpu` GPU package is compiled against a
+However, note that The ``tensorflow-gpu`` GPU package is compiled against a
 specific version of the NVIDIA CUDA library; users are directed to the 
 `tensorflow installation <https://www.tensorflow.org/install/gpu>`_ pages
 for further information.
@@ -118,6 +123,51 @@ will be saved to `${OUTDIR}/consensus.fasta`.
    should select the highest numbered model equal to or less than the Guppy
    version used for basecalling.
 
+
+Improving parallelism
+~~~~~~~~~~~~~~~~~~~~~
+
+The ``medaka_consensus`` program is good for simple datasets but perhaps not
+optimal for running large datasets at scale. examples. A higher level of
+parallelism can be achieved by running independently the component steps
+of ``medaka_consensus``. The program performs three tasks:
+
+1. alignment or reads to input assembly (via ``mini_align`` which is a thin
+   veil over ``minimap2``)
+2. running of consensus algorithm across assembly regions
+   (``medaka consensus``, note no underscore!)
+3. aggregation of the results of 2. to create consensus sequences
+   (``medaka stitch``)
+
+The three steps are discrete, and can be split apart an run independently. In
+most cases, Step 2. is the bottleneck and can be trivially parallelized. The
+``medaka consensus program`` can be supplied a ``--regions``
+argument which will restrict its action to particular assembly sequences from
+the ``.bam`` file output in Step 1. Therefore individual jobs can be run for batches
+of assembly sequences simultaneously. In the final step, ``medaka stitch``
+can take as input one or more of the ``.hdf`` files output by Step 2.
+
+So in summary something like this is possible:
+
+.. code-block:: bash
+
+    # align reads to assembly
+    mini_align -i basecalls.fasta -r assembly.fasta -P -m \
+        -p calls_to_draft.bam -t <threads>
+    # run lots of jobs like this, change model as appropriate
+    mkdir results
+    medaka consensus calls_to_draft.bam results/contigs1-4.hdf \
+        --model r941_flip235 --batch 200 --threads 8 \
+        --region contig1 contig2 contig3 contig4
+    ...
+    # wait for jobs, then collate results
+    medaka stitch results/*.hdf polished.assembly.fasta
+
+It is not recommended to specify a value of ``--threads`` greater than 8 for
+``medaka consensus`` since the compute scaling efficiency is poor beyond this.
+Note also than ``medaka consensus`` may been seen to use resource equivalent to
+``<threads> + 4`` as an additional 4 threads are used for reading and preparing
+input data.
 
 Origin of the draft sequence
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

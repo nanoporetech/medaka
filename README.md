@@ -112,14 +112,20 @@ into a python virtual environment. To set-up the environment run:
 Using this method both `samtools` and `minimap2` are built from source and need
 not be provided by the user.
 
+
 **Using a GPU**
 
 All installation methods will allow medaka to be used with CPU resource only.
 To enable the use of GPU resource it is necessary to install the
-`tensorflow-gpu` package. To outline, this can be achieved with:
+`tensorflow-gpu` package. Unfortunately depending on your python version it
+may be necessary to modify the requirements of the `medaka` package for it
+to run without complaining. Using the source code from github a working
+GPU-powered `medaka` can be configured with:
 
-    pip uninstall tensorflow
-    pip install tensorflow-gpu
+    git clone https://github.com/nanoporetech/medaka.git
+    cd medaka
+    sed -i 's/tensorflow/tensorflow-gpu/' requirements.txt
+    make install
 
 However, note that The `tensorflow-gpu` GPU package is compiled against a
 specific version of the NVIDIA CUDA library; users are directed to the 
