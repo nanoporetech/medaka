@@ -4,9 +4,14 @@ set -eo pipefail
 OUTPUT="medaka"
 THREADS=1
 
-MODEL="r941_trans"
-BATCH_SIZE=200
 medaka_version=$(medaka --version)
+modeldata=()
+while read -r line; do
+    modeldata+=("$line")
+done < <(medaka tools list_models) # Two items, available then default
+MODEL=${modeldata##* }
+BATCH_SIZE=200
+
 iflag=false
 dflag=false
 
@@ -23,10 +28,11 @@ $(basename "$0") [-h] -i <fastx>
     -i  fastx input basecalls (required).
     -d  fasta input assembly (required). 
     -o  output folder (default: medaka).
-    -m  medaka model, One of: 'r941_trans', 'r941_flip213', 'r941_flip235' (default: ${MODEL}).
+    -m  medaka model, (default: ${MODEL}).
+        ${modeldata[0]}.
         Alternatively a .hdf file from 'medaka train'. 
     -t  number of threads with which to create features (default: 1).
-    -b  batchsize, controls memory use (default: 200)."
+    -b  batchsize, controls memory use (default: ${BATCH_SIZE})."
 
 while getopts ':hi::d:o:m:t:b:' option; do
   case "$option" in
