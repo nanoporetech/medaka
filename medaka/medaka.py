@@ -16,7 +16,7 @@ import medaka.stitch
 model_store = resource_filename(__package__, 'data')
 allowed_models = [
     'r941_trans', 'r941_flip213', 'r941_flip235',
-    'r941_min_fast', 'r941_min_high', #'r941_prom_fast', 'r941_prom_high',
+    'r941_min_fast', 'r941_min_high', 'r941_prom_fast', 'r941_prom_high',
 ]
 default_model = 'r941_min_high'
 model_dict = {
@@ -323,11 +323,11 @@ def main():
     rmparser.set_defaults(func=print_model_path)
 
     # print all model tags followed by default
-    rmparser = toolsubparsers.add_parser('list_models',
+    lmparser = toolsubparsers.add_parser('list_models',
         help='List all models.',
         parents=[_log_level(), _model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    rmparser.set_defaults(func=print_all_models)
+    lmparser.set_defaults(func=print_all_models)
 
     args = parser.parse_args()
 
