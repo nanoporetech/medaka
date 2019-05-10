@@ -7,11 +7,12 @@ import yaml
 import numpy as np
 import pysam
 
-import medaka.vcf
 import medaka.datastore
-import medaka.inference
 import medaka.features
+import medaka.inference
 import medaka.stitch
+import medaka.variant
+import medaka.vcf
 
 model_store = resource_filename(__package__, 'data')
 allowed_models = [
@@ -222,17 +223,22 @@ def main():
     sparser.add_argument('output', help='Output .fasta.', default='consensus.fasta')
     sparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
 
-    pparser = subparsers.add_parser('snp',
-        help='Decode probabilities as dipoloid SNPs.',
+    pparser = subparsers.add_parser('variant',
+        help='Decode probabilities to VCF.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    pparser.set_defaults(func=medaka.stitch.snps)
+    pparser.set_defaults(func=medaka.variant.variants_from_hdf)
     pparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
     pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
-    pparser.add_argument('output', help='Output .vcf.', default='snps.vcf')
-    pparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
-    pparser.add_argument('--threshold', default=0.04, type=float, help='Threshold for considering secondary calls.')
-    pparser.add_argument('--ref_vcf', default=None, help='Reference vcf to compare to.')
+    pparser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
+    pparser.add_argument('--regions', default=None, nargs='+', help='Limit variant calling to these reference names')
+    pparser.add_argument('--threshold', default=0.04, type=float,
+                         help="""Threshold for considering secondary calls. Only used in SNPDecoder.
+                         A value of 1 will result in haploid decoding.""")
+    pparser.add_argument('--ref_vcf', default=None, help='Reference vcf to compare to, only used in SNPDecoder.')
+    pparser.add_argument('--decoder', default='SNPDecoder', help='Variant decoder.',
+                         choices=sorted(medaka.variant.variant_decoders.keys()))
+
 
     # Tools
     toolparser = subparsers.add_parser('tools',

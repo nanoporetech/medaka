@@ -16,6 +16,7 @@ DELETE=false
 HAP1OPTS="--tag_name HP --tag_value 1 --tag_keep_missing"
 HAP2OPTS="--tag_name HP --tag_value 2 --tag_keep_missing"
 HAPLOIDTHRESHOLD=1
+VARIANT_DECODER="SNPDecoder"
 
 WHATSHAPOPTS="--ignore-read-groups"
 
@@ -34,6 +35,7 @@ $(basename "$0") [-h] -i <fastx>
     -o  output folder (default: ${OUTPUT}).
     -m  medaka model, One of: 'r941_trans', 'r941_flip213', 'r941_flip235' (default: ${MODEL}).
         Alternatively a .hdf file from 'medaka train'. 
+    -v  medaka variant decoder used to call final variants. One of: 'SNPDecoder', 'HaploidVariantDecoder' (default: ${MODEL}).
     -T  label probability threshold for calling heterozygous SNPs from unphased reads. (default: ${THRESHOLD}).
         This will only affect the initial SNP calls used to phase reads, not the final SNP calls, which are
         computed from medaka consensuses of each haplotype run individually. 
@@ -50,6 +52,7 @@ while getopts ':hb::f:r:o:m:v:T:t:b:d' option; do
     r  ) REGIONS="$OPTARG";;
     o  ) OUTPUT=$OPTARG;;
     m  ) MODEL=$OPTARG;;
+    v  ) VARIANT_DECODER=$OPTARG;;
     T  ) THRESHOLD=$OPTARG;;
     t  ) THREADS=$OPTARG;;
     b  ) BATCH_SIZE=$OPTARG;;
@@ -119,7 +122,7 @@ run_medaka_consensus () {
     fi
 }
 
-run_medaka_snp () {
+run_medaka_variant () {
     local PROBS=$1
     local VCF=$2
     local T=$3
@@ -128,11 +131,11 @@ run_medaka_snp () {
     if [[ ! -e ${VCF} ]]; then
         echo ""
         echo "======================================"
-        echo "Running medaka snp with threshold ${T}"
+        echo "Running medaka variant with threshold ${T}"
         echo "======================================"
         echo ""
-        medaka snp ${REF} ${PROBS} ${VCF} --threshold ${T} ${EXTRAOPTS} \
-            || (echo "Failed to call snps from consensus chunks." && exit 1)
+        medaka variant ${REF} ${PROBS} ${VCF} --threshold ${T} ${EXTRAOPTS} \
+            || (echo "Failed to call variants from consensus chunks." && exit 1)
         echo "VCF written to ${OUTPUT}/${VCF}."
     else
         echo "Using existing output:  ${OUTPUT}/${VCF}."
@@ -270,7 +273,7 @@ CONSENSUSPROBS=round_0_hap_mixed_probs.hdf
 run_medaka_consensus ${CALLS2REF} ${CONSENSUSPROBS}
 
 UNPHASEDVCF=round_0_hap_mixed_thresh_${THRESHOLD}_unphased.vcf
-run_medaka_snp ${CONSENSUSPROBS} ${UNPHASEDVCF} ${THRESHOLD}
+run_medaka_variant ${CONSENSUSPROBS} ${UNPHASEDVCF} ${THRESHOLD}
 
 PHASEDVCF=round_0_hap_mixed_thresh_${THRESHOLD}_phased.vcf
 run_phase_vcf ${UNPHASEDVCF} ${PHASEDVCF} 
@@ -288,9 +291,9 @@ PROBSHAP2=round_1_hap_2_probs.hdf
 run_medaka_consensus ${PHASEDBAM} ${PROBSHAP2} "${HAP2OPTS}" 
 
 VCFHAP1=round_1_hap_1.vcf
-run_medaka_snp ${PROBSHAP1} ${VCFHAP1} ${HAPLOIDTHRESHOLD}
+run_medaka_variant ${PROBSHAP1} ${VCFHAP1} ${HAPLOIDTHRESHOLD}
 VCFHAP2=round_1_hap_2.vcf
-run_medaka_snp ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD}
+run_medaka_variant ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD}
 VCFMERGED=round_1_final.vcf
 
 medaka tools haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGED}
@@ -309,10 +312,11 @@ run_medaka_consensus ${PHASEDBAM} ${PROBSHAP1} "${HAP1OPTS}"
 PROBSHAP2=round_2_hap_2_probs.hdf
 run_medaka_consensus ${PHASEDBAM} ${PROBSHAP2} "${HAP2OPTS}"
 
+FINAL_DECODING_OPTS="--decoder ${VARIANT_DECODER}"
 VCFHAP1=round_2_hap_1.vcf
-run_medaka_snp ${PROBSHAP1} ${VCFHAP1} ${HAPLOIDTHRESHOLD}
+run_medaka_variant ${PROBSHAP1} ${VCFHAP1} ${HAPLOIDTHRESHOLD} "${FINAL_DECODING_OPTS}"
 VCFHAP2=round_2_hap_2.vcf
-run_medaka_snp ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD}
+run_medaka_variant ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD} "${FINAL_DECODING_OPTS}"
 
 VCFMERGEDUNPHASED=round_2_final_unphased.vcf
 medaka tools haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGEDUNPHASED}

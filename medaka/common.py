@@ -1,5 +1,6 @@
 from collections import OrderedDict, namedtuple
 from distutils.version import LooseVersion
+import enum
 import errno
 import functools
 import itertools
@@ -31,6 +32,11 @@ encoding = OrderedDict(((a, i) for i, a in enumerate(decoding)))
 
 AlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'rpos', 'rbase'))
 ComprAlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'qlen', 'rpos', 'rbase', 'rlen'))
+
+
+class OverlapException(Exception):
+    pass
+
 
 #TODO: refactor all this..
 # We might consider creating a Sample class with methods to encode, decode sample name
@@ -87,6 +93,192 @@ class Sample(_Sample):
             d = m.groupdict()
         return d
 
+
+    @staticmethod
+    def from_samples(samples):
+        """Create a sample by concatenating an iterable of `Sample` objects.
+
+        :param samples: iterable of `Sample` objects.
+        :returns: `Sample` obj
+        """
+        samples = list(samples)
+        for s1, s2 in zip(samples[0:-1], samples[1:]):
+            rel = Sample.relative_position(s1, s2)
+            if rel is not Sample.Relationship.forward_abutted:
+                msg = 'Refusing to concatenate unordered/non-abutting samples {} and {} with relationship {}.'
+                raise ValueError(msg.format(s1.name, s2.name, repr(rel)))
+
+        # Sample.Relationship.forward_abutted guarantees all samples have the
+        # same ref_name
+        non_concat_fields = {'ref_name'}
+        def concat_attr(attr):
+            vals = [getattr(s, attr) for s in samples]
+            if attr not in non_concat_fields:
+                all_none = all([v is None for v in vals])
+                c = np.concatenate(vals) if not all_none else None
+            else:
+                assert len(set(vals)) == 1
+                c = vals[0]
+            return c
+
+        return Sample(**{attr:  concat_attr(attr) for attr in Sample._fields})
+
+
+    class Relationship(enum.Enum):
+            different_ref_name = 'Samples come from different reference contigs.'
+            forward_overlap = 'The end of s1 overlaps the start of s2.'
+            reverse_overlap = 'The end of s2 overlaps the start of s1.'
+            forward_abutted = 'The end of s1 abuts the start of s2.'
+            reverse_abutted = 'The end of s2 abuts the start of s1.'
+            forward_gapped = 's2 follows s1 with a gab inbetween.'
+            reverse_gapped = 's1 follows s2 with a gab inbetween.'
+            s2_within_s1 = 's2 is fully contained within s1.'
+            s1_within_s2 = 's1 is fully contained within s2.'
+
+
+    @staticmethod
+    def relative_position(s1, s2):
+        """Check the relative position of two samples in genomic coordinates.
+
+        :param s1, s2: `medaka.common.Sample` objs.
+
+        :returns: `Relationship` enum member.
+        """
+
+        def ordered_abuts(s1, s2):
+            """Check if end of s1 abuts the start of s2 (i.e. is adjacent but not overlapping)
+            """
+            s1_end_maj, s1_end_min = s1.last_pos
+            s2_start_maj, s2_start_min = s2.first_pos
+            if s2_start_maj == s1_end_maj + 1 and s2_start_min == 0:
+                abuts = True
+            elif s2_start_maj == s1_end_maj and s2_start_min == s1_end_min + 1:
+                abuts = True
+            else:
+                abuts = False
+            return abuts
+
+        def ordered_contained(s1, s2):
+            """Check if s2 is contained within s1.
+            """
+            return s2.first_pos >= s1.first_pos and s2.last_pos <= s1.last_pos
+
+        def ordered_overlaps(s1, s2):
+            """Check if end of s1 overlaps start of s2.
+            """
+            s1_end_maj, s1_end_min = s1.last_pos
+            s2_start_maj, s2_start_min = s2.first_pos
+            if s2_start_maj < s1_end_maj:  # we have overlap of major coordinates
+                overlaps = True
+            elif s2_start_maj == s1_end_maj and s2_start_min < s1_end_min + 1:
+                # we have overlap of minor coordinates
+                overlaps = True
+            else:
+                overlaps = False
+            return overlaps
+
+        def ordered_gapped(s1, s2):
+            """Check if there is a gap between the end of s1 and the start of s2.
+            """
+            s1_end_maj, s1_end_min = s1.last_pos
+            s2_start_maj, s2_start_min = s2.first_pos
+            gapped = False
+            if s2_start_maj > s1_end_maj + 1:  # gap in major
+                gapped = True
+            elif s2_start_maj > s1_end_maj and s2_start_min > 0:  # missing minors
+                gapped = True
+            elif s2_start_maj == s1_end_maj and s2_start_min > s1_end_min + 1:  # missing minors
+                gapped = True
+            return gapped
+
+        if s1.ref_name != s2.ref_name:  # different ref_names
+            return Sample.Relationship.different_ref_name
+
+        s1_ord, s2_ord = sorted((s1, s2), key=lambda x: (x.first_pos, -x.size))
+        is_ordered = s1_ord.name == s1.name
+
+        # is one sample within the other?
+        if ordered_contained(s1_ord, s2_ord):
+            return Sample.Relationship.s2_within_s1 if is_ordered else Sample.Relationship.s1_within_s2
+
+        # do samples abut?
+        elif ordered_abuts(s1_ord, s2_ord):
+            return Sample.Relationship.forward_abutted if is_ordered else Sample.Relationship.reverse_abutted
+
+        # do samples overlap?
+        elif ordered_overlaps(s1_ord, s2_ord):
+            return Sample.Relationship.forward_overlap if is_ordered else Sample.Relationship.reverse_overlap
+
+        # if we got this far there should be a gap between s1_ord and s2_ord
+        elif ordered_gapped(s1_ord, s2_ord):
+            return Sample.Relationship.forward_gapped if is_ordered else Sample.Relationship.reverse_gapped
+
+        else:
+            raise RuntimeError('Something went wrong checking the relative position of {} and {}'.format(s1.name, s2.name))
+
+
+    @staticmethod
+    def overlap_indices(s1, s2):
+        """Find indices to trim end of s1 which overlaps start of s2 to allow concatenation without gaps or overlap,::
+
+                       end1
+                       |
+            s1 ............
+                       |
+            s2      ...............
+                       |
+                       start2
+
+        such that
+        .. code: python
+
+            Sample.from_samples([s1.slice(slice(0, end1)), s2.slice(slice(start2, None))])
+
+        would join them without gaps or overlap.
+
+        :param s1: First `Sample` object.
+        :param s2: Second `Sample` object.
+
+        :returns: (int end1: start of overlap in s1,
+                   int start2: end of overlap in s2,
+                such that s1.positions[:end1] could be concatenated with
+                s2.positions[start2:] to join them without gaps or overlap.
+        :raises: `OverlapException` if samples do not overlap nor abut.
+        """
+
+        rel = Sample.relative_position(s1, s2)
+
+        if rel is Sample.Relationship.forward_abutted:  # they can be concatenated witout slicing
+            return None, None
+
+        if rel is not Sample.Relationship.forward_overlap:
+            msg = 'Cannot overlap samples {} and {} with relationhip {}'
+            raise OverlapException(msg.format(s1.name, s2.name, repr(rel)))
+
+        # find where the overlap starts in s1 indices
+        ovl_start_ind1 = np.searchsorted(s1.positions, s2.positions[0])
+
+        # find where the overlap ends in s2 indices
+        ovl_end_ind2 = np.searchsorted(s2.positions, s1.positions[-1], side='right')
+        pos1_ovl = s1.positions[ovl_start_ind1:]
+        pos2_ovl = s2.positions[0:ovl_end_ind2]
+        assert len(pos1_ovl) == len(pos2_ovl)  # check overlap length is the same in both
+        overlap_len = len(pos1_ovl)
+        # find mid-point (handling case where we have an odd number of overlap columns)
+        pad_1 = overlap_len // 2
+        pad_2 = overlap_len - pad_1
+        end_1_ind = ovl_start_ind1 + pad_1
+        start_2_ind = ovl_end_ind2 - pad_2
+
+        # check the length of the overlap obtained using our indices is the same
+        # in each sample
+        contr_1 = s1.positions[ovl_start_ind1:end_1_ind]
+        contr_2 = s2.positions[start_2_ind:ovl_end_ind2]
+        assert len(contr_1) + len(contr_2) == overlap_len
+
+        return end_1_ind, start_2_ind
+
+
     def chunks(self, chunk_len=1000, overlap=200):
         """Create overlapping chunks of self.
 
@@ -95,6 +287,7 @@ class Sample(_Sample):
 
         :yields: chunked :py:class:`Sample` instances.
         """
+        # TODO - could refactor this to use Sample.slice?
         chunker = functools.partial(sliding_window,
             window=chunk_len, step=chunk_len - overlap, axis=0)
         sample = self._asdict()
@@ -112,6 +305,43 @@ class Sample(_Sample):
             for field in fields:
                 new_sample[field] = next(chunkers[field])
             yield Sample(**new_sample)
+
+
+    def slice(self, key):
+        """Slice fields along the genomic axis
+
+        :param key: slice or index (on array indices)
+        :returns: `Sample` obj with views of slices of the original `Sample`.
+
+        >>> pos = np.array([(0, 0), (1, 0), (1, 1), (2, 0)], dtype=[('major', int), ('minor', int)])
+        >>> feat = np.arange(len(pos))
+        >>> s = Sample('contig1', feat , None, None, pos, None)
+        >>> s.slice(2)
+        Sample(ref_name='contig1', features=2, labels=None, ref_seq=None, positions=(1, 1), label_probs=None)
+        >>> s.slice(slice(1,3))
+        Sample(ref_name='contig1', features=array([1, 2]), labels=None, ref_seq=None, positions=array([(1, 0), (1, 1)], dtype=[('major', '<i8'), ('minor', '<i8')]), label_probs=None)
+        """
+        non_slice_fields = {'ref_name'}
+        def slice_attr(attr):
+            a = getattr(self, attr)
+            if attr not in non_slice_fields:
+                a = a[key] if a is not None else None
+            return a
+        return Sample(**{attr: slice_attr(attr) for attr in self._fields})
+
+
+    def __eq__(self, other):
+        for field in self._fields:
+            s = getattr(self, field)
+            o = getattr(other, field)
+            if type(s) != type(o):
+                return False
+            elif isinstance(s, np.ndarray):
+                if (s.shape != o.shape or np.any(s != o)):
+                    return False
+            elif s != o:
+                return False
+        return True
 
 
 #TODO: refactor this
@@ -291,37 +521,6 @@ def yield_compressed_pairs(aln, ref_rle):
         yield a
 
 
-def get_sample_overlap(s1, s2):
-    """Calculate overlap (in pileup columns) between two `Sample` objects.
-
-    :param s1: First `Sample` object.
-    :param s2: Second `Sample` object.
-    :returns: (int end1, int start2) such that s1.positions[:end1] could be
-        concatenated with s2.positions[start2:] to join them without gaps or overlap.
-    """
-    ovl_start_ind1 = np.searchsorted(s1.positions, s2.positions[0])
-    if ovl_start_ind1 == len(s1.positions):
-        # they don't overlap
-        print('{} and {} do not overlap'.format(s1.name, s2.name))
-        return None, None
-
-    ovl_end_ind2 = np.searchsorted(s2.positions, s1.positions[-1], side='right')
-    pos1_ovl = s1.positions[ovl_start_ind1:]
-    pos2_ovl = s2.positions[0:ovl_end_ind2]
-    assert len(pos1_ovl) == len(pos2_ovl)
-    overlap_len = len(pos1_ovl)
-    pad_1 = overlap_len // 2
-    pad_2 = overlap_len - pad_1
-    end_1_ind = ovl_start_ind1 + pad_1
-    start_2_ind = ovl_end_ind2 - pad_2
-
-    contr_1 = s1.positions[ovl_start_ind1:end_1_ind]
-    contr_2 = s2.positions[start_2_ind:ovl_end_ind2]
-    assert len(contr_1) + len(contr_2) == overlap_len
-
-    return end_1_ind, start_2_ind
-
-
 def segment_limits(start, end, segment_len=20000, overlap_len=1000):
     """Generate segments of a range [0, end_point].
 
@@ -352,7 +551,7 @@ def rle(array, low_mem=False):
         pos = np.where(np.diff(array) != 0)[0]
         pos = np.concatenate(([0], pos+1, [len(array)]))
         return np.fromiter(
-            ((length, start, array[start]) for (length, start) in zip(pos[1:], pos[:-1])),
+            ((stop - start, start, array[start]) for (stop, start) in zip(pos[1:], pos[:-1])),
             dtype, count=len(pos) - 1,
         )
     else:
