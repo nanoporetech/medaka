@@ -305,7 +305,7 @@ class VCFReader(object):
 
         self.filename = filename
         self.cache = cache
-        self.chroms = collections.OrderedDict()  # keep a record of chroms in order in which they were read
+        self.chroms = list()  # keep a record of chroms in order in which they were read
         self._indexed = False
         self._tree = None
         self._parse_lock = Lock()
@@ -347,7 +347,8 @@ class VCFReader(object):
                     last_pos = [variant.chrom, None]
                 elif last_pos[1] is not None and last_pos[1] > variant.pos:
                     raise IOError('.vcf is unsorted at index #{}.'.format(index))
-                self.chroms[variant.chrom] = None  # store chroms in order they are parsed
+                if variant.chrom not in self.chroms:
+                    self.chroms.append(variant.chrom)
                 yield variant
                 last_pos[1] = variant.pos
 
