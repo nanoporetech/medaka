@@ -325,6 +325,19 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
                                              alt='.', filter='PASS', info=info,
                                              qual=qual, sample_dict=sample)
 
+    @property
+    def meta_info(self):
+        m = [
+            medaka.vcf.MetaInfo('INFO', 'ref_prob', 1, 'Float', 'Medaka label probability for the reference allele'),
+            medaka.vcf.MetaInfo('INFO', 'primary_prob', 1, 'String', 'Medaka label probability of primary call'),
+            medaka.vcf.MetaInfo('INFO', 'primary_label', 1, 'String', 'Medaka label of primary call'),
+            medaka.vcf.MetaInfo('INFO', 'secondary_prob', 1, 'Float', 'Medaka label probability of secondary call'),
+            medaka.vcf.MetaInfo('INFO', 'secondary_label', 1, 'String', 'Medaka label of secondary call'),
+            medaka.vcf.MetaInfo('FORMAT', 'GT', 1, 'String', 'Medaka genotype'),
+            medaka.vcf.MetaInfo('FORMAT', 'GQ', 1, 'Float', 'Medaka genotype quality score'),
+        ]
+        return m
+
 
 def parse_regions(regions):
     """Parse region strings, returning a list of ref_names.
@@ -448,6 +461,22 @@ class HaploidVariantDecoder(SNPDecoder, metaclass=DecoderRegistrar):
                                          sample_dict=sample).trim()
 
 
+    @property
+    def meta_info(self):
+        m = [
+            medaka.vcf.MetaInfo('INFO', 'ref_seq', 1, 'String', 'Medaka reference label for each pileup column'),
+            medaka.vcf.MetaInfo('INFO', 'pred_seq', 1, 'String', 'Medaka predicted-label for each pileup column'),
+            medaka.vcf.MetaInfo('INFO', 'pred_qs', '.', 'Float', 'Medaka predicted-label quality score for each pileup column'),
+            medaka.vcf.MetaInfo('INFO', 'ref_qs', '.', 'Float', 'Medaka reference-label quality score for each pileup column'),
+            medaka.vcf.MetaInfo('INFO', 'pred_q', 1, 'Float', 'Medaka total predicted-label quality score'),
+            medaka.vcf.MetaInfo('INFO', 'ref_q', 1, 'Float', 'Medaka total reference-label quality score'),
+            medaka.vcf.MetaInfo('INFO', 'n_cols', 1, 'Integer', 'Number of Medaka pileup columns in the variant call'),
+            medaka.vcf.MetaInfo('FORMAT', 'GT', 1, 'String', 'Medaka genotype.'),
+            medaka.vcf.MetaInfo('FORMAT', 'GQ', 1, 'Float', 'Medaka genotype quality score'),
+        ]
+        return m
+
+
 def variants_from_hdf(args):
     """Entry point for variant calling from hdf consensus probability files."""
     index = medaka.datastore.DataIndex(args.inputs)
@@ -463,7 +492,8 @@ def variants_from_hdf(args):
     opts = {k:getattr(args, k) for k in opts if k not in  {'self', 'samples', 'ref_seq'}}
     logger = medaka.common.get_named_logger('Variants')
 
-    with medaka.vcf.VCFWriter(args.output, 'w', version='4.1') as vcf_writer:
+    with medaka.vcf.VCFWriter(args.output, 'w', version='4.1', contigs=ref_names,
+                              meta_info=decoder.meta_info) as vcf_writer:
         for ref_name in ref_names:
             logger.info("Processing {}.".format(ref_name))
             ref_seq = pysam.FastaFile(args.ref_fasta).fetch(reference=ref_name)

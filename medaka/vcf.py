@@ -64,6 +64,45 @@ def parse_string_to_tags(string, splitter=','):
     return tags
 
 
+class MetaInfo(object):
+
+    __valid_groups__ = ('INFO', 'FILTER', 'FORMAT')
+    __valid_group_sort__ = {v: k for k, v in enumerate(__valid_groups__)}
+    __valid_non_int_nums__ = {'A', 'R', 'G', '.'}
+    __valid_types__ = {'Integer', 'Float', 'Flag', 'Character', 'String'}
+
+    def __init__(self, group, id, number, typ, descr):
+        """Class for representing meta info for VCF header
+
+        :param group: str, one of {'INFO', 'FILTER', 'FORMAT'}
+        :param id: str, short name as it occurs in a VCF data line.
+        :param number: int or one of {'A', 'R', 'G', '.'}.
+        :param type: one of {'Integer', 'Float', 'Flag', 'Character', 'String'}
+        :param descr: str, free form description.
+        """
+        if group not in self.__valid_groups__:
+            raise ValueError('Group {} is not one of {}'.format(group, __valid_groups__))
+
+        if not isinstance(number, int) and not (isinstance(number, str) and number.isdigit()) and number not in self.__valid_non_int_nums__:
+            raise ValueError('Number {} is not an int, digit str or one of {}'.format(number, __valid_non_int_nums__))
+
+        if typ not in self.__valid_types__:
+            raise ValueError('typ {} is not one of {}'.format(typ, __valid_types__))
+
+        self.group = group
+        self.id = id
+        self.number = number
+        self.typ = typ
+        self.descr = descr
+
+    def __repr__(self):
+        return '{}=<ID={},Number={},Type={},Description="{}">'.format(self.group, self.id, self.number, self.typ, self.descr)
+
+    def __str__(self):
+        return self.__repr__()
+
+
+
 class Variant(object):
     # TODO: ref/alt could be a symbolic allele "<ID>".
     # TODO: alt could contain breakends.
@@ -241,8 +280,9 @@ class VCFWriter(object):
     version_options = {'4.3', '4.1'}
     def __init__(self, filename, mode='w',
                  header=('CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT', 'SAMPLE'),
-                 meta_info=[],
-                 version='4.3'
+                 contigs=None,
+                 meta_info=None,
+                 version='4.1'
                  ):
 
         self.filename = filename
@@ -251,7 +291,22 @@ class VCFWriter(object):
         if version not in self.version_options:
             raise ValueError('version must be one of {}'.format(self.version_options))
         self.version = version
-        self.meta = ['fileformat=VCFv{}'.format(self.version)] + meta_info
+        self.meta = ['fileformat=VCFv{}'.format(self.version)]
+
+        if contigs is not None:
+            self.meta.extend(['contig=<ID={}>'.format(c) for c in contigs])
+
+        if meta_info is not None:
+            # try to sort so we get INFO, FILTER, FORMAT in that order
+            try:
+                meta_info.sort(key = lambda x: MetaInfo.__valid_group_sort__[x.group])
+            except:  # we probably have a pre-formed meta str we assume are in order
+                pass
+            meta_info = [str(m) for m in meta_info]
+            # remove version if this is present in meta_info
+            meta_info = [m for m in meta_info if 'fileformat=VCFv' not in m]
+            self.meta.extend(meta_info)
+
         self.logger = medaka.common.get_named_logger('VCFWriter')
 
 
@@ -509,52 +564,89 @@ def _merge_variants(interval, trees, ref_seq, detailed_info=False, discard_phase
                             sample_dict=sample).trim()
 
 
-def merge_haploid_vcfs(vcf1, vcf2, ref_fasta, only_overlapping=True, discard_phase=True, detailed_info=False):
-    """Merge variants from two haploid VCFs into a diploid vcf.
+class Haploid2DiploidConverter(object):
 
-    Variants in one file which overlap with variants in the other will have their alts padded.
-    .. note:: Variants in a single vcf file should not overlap with each other.
+    def __init__(self, vcf1, vcf2, ref_fasta, only_overlapping=True, discard_phase=True, detailed_info=False):
+        """Merge variants from two haploid VCFs into a diploid vcf.
 
-    :param vcf1, vcf2: paths to haploid vcf files.
-    :param ref_fasta: path to reference.fasta file.
-    :param only_overlapping: bool, merge only overlapping variants (not adjacent ones).
-    :param discard_phase: bool, if False, preserve phase, else output unphased variants.
+        Variants in one file which overlap with variants in the other will have their alts padded.
+        .. note:: Variants in a single vcf file should not overlap with each other.
 
-    :yields `medaka.vcf.Variant` objs
-    """
-    logger = medaka.common.get_named_logger('VCFMERGE')
+        :param vcf1, vcf2: paths to haploid vcf files.
+        :param ref_fasta: path to reference.fasta file.
+        :param only_overlapping: bool, merge only overlapping variants (not adjacent ones).
+        :param discard_phase: bool, if False, preserve phase, else output unphased variants.
+        """
 
-    vcfs = [medaka.vcf.VCFReader(vcf) for vcf in (vcf1, vcf2)]
-    for vcf in vcfs:
-        vcf.index()  # create tree
-    fasta = pysam.FastaFile(ref_fasta)
-    chroms = set(itertools.chain(*[v.chroms for v in vcfs]))
-    for chrom in medaka.common.loose_version_sort(chroms):
-        logger.info('Merging variants in chrom {}'.format(chrom))
-        merged = []
-        trees = [vcf._tree[chrom] for vcf in vcfs]
-        # assign haplotype so that otherwise identical variants in both trees
-        # are not treated as identical (we need to be able to distinguish
-        # between 0/1 and 1/1)
-        for h, tree in enumerate(trees):
-            for i in tree.all_intervals:
-                i.data.info['mhap'] = h
-        comb = intervaltree.IntervalTree(trees[0].all_intervals.union(trees[1].all_intervals))
-        # if strict, merge only overlapping intervals (not adjacent ones)
-        comb.merge_overlaps(strict=only_overlapping, data_initializer=list(), data_reducer=lambda x,y: x + [y])
-        ref_seq = fasta.fetch(chrom)
-        for interval in comb.all_intervals:
-            merged.append(_merge_variants(interval, trees, ref_seq,
-                                          detailed_info=detailed_info, discard_phase=discard_phase))
-        yield from sorted(merged, key=lambda x: x.pos)
+        self.only_overlapping = only_overlapping
+        self.discard_phase = discard_phase
+        self.detailed_info = detailed_info
+
+        self.logger = medaka.common.get_named_logger('VCFMERGE')
+
+        self.vcfs = [medaka.vcf.VCFReader(vcf) for vcf in (vcf1, vcf2)]
+        for vcf in self.vcfs:
+            vcf.index()  # create tree
+        self.fasta = pysam.FastaFile(ref_fasta)
+        self.chroms = set(itertools.chain(*[v.chroms for v in self.vcfs]))
+
+
+    def variants(self):
+        """Yield diploid variants.
+
+        :yields `medaka.vcf.Variant` objs
+        """
+
+        for chrom in medaka.common.loose_version_sort(self.chroms):
+            self.logger.info('Merging variants in chrom {}'.format(chrom))
+            merged = []
+            trees = [vcf._tree[chrom] for vcf in self.vcfs]
+            # assign haplotype so that otherwise identical variants in both trees
+            # are not treated as identical (we need to be able to distinguish
+            # between 0/1 and 1/1)
+            for h, tree in enumerate(trees):
+                for i in tree.all_intervals:
+                    i.data.info['mhap'] = h
+            comb = intervaltree.IntervalTree(trees[0].all_intervals.union(trees[1].all_intervals))
+            # if strict, merge only overlapping intervals (not adjacent ones)
+            comb.merge_overlaps(strict=self.only_overlapping, data_initializer=list(), data_reducer=lambda x,y: x + [y])
+            ref_seq = self.fasta.fetch(chrom)
+            for interval in comb.all_intervals:
+                merged.append(_merge_variants(interval, trees, ref_seq,
+                                            detailed_info=self.detailed_info, discard_phase=self.discard_phase))
+            yield from sorted(merged, key=lambda x: x.pos)
+
+
+    @property
+    def meta_info(self):
+        m = []
+        for h in 1, 2:
+            m.append(MetaInfo('INFO', 'pos{}'.format(h), '.', 'Integer',
+                                         'POS of incorporated variants from haplotype {}'.format(h)))
+            m.append(MetaInfo('INFO', 'q{}'.format(h), 1, 'Float',
+                                         'Combined qual score for haplotype {}'.format(h)))
+        if self.detailed_info:
+            for h in 1, 2:
+                m.append(MetaInfo('INFO', 'ref{}'.format(h), '.', 'String',
+                                             'ref alleles of incorporated variants from haplotype {}'.format(m)))
+                m.append(MetaInfo('INFO', 'alt{}'.format(h), '.', 'String',
+                                             'alt alleles of incorporated variants from haplotype {}'.format(m)))
+
+        m.append(MetaInfo('FORMAT', 'GT', 1, 'String', 'Genotype'))
+        m.append(MetaInfo('FORMAT', 'GQ', 1, 'Float', 'Genotype quality score'))
+        return m
 
 
 def haploid2diploid(args):
     """Entry point for merging two haploid vcfs into a diploid vcf"""
 
-    with VCFWriter(args.vcfout, 'w', version='4.1') as vcf_writer:
-        for v in merge_haploid_vcfs(args.vcf1, args.vcf2, args.ref_fasta,
-                                    only_overlapping=not args.adjacent):
+    convertor = Haploid2DiploidConverter(args.vcf1, args.vcf2, args.ref_fasta,
+                                         only_overlapping=not args.adjacent)
+
+
+    with VCFWriter(args.vcfout, 'w', version='4.1', contigs=convertor.chroms,
+                   meta_info=convertor.meta_info) as vcf_writer:
+        for v in convertor.variants():
             vcf_writer.write_variant(v)
 
 
@@ -579,7 +671,7 @@ def split_variants(vcf_fp, trim=True):
     output_files = []
     for k, variants in q.items():
         output_files.append('{}_hap{}{}'.format(basename, k, ext))
-        with medaka.vcf.VCFWriter(output_files[-1]) as vcf_writer:
+        with medaka.vcf.VCFWriter(output_files[-1], meta_info=vcf.meta) as vcf_writer:
             # output variants in the same order they occured in the input file
             vcf_writer.write_variants(variants, sort=False)
     return tuple(output_files)
@@ -637,9 +729,16 @@ def classify_variants(args):
     vcfs = {s: '{}.{}{}'.format(path, s, ext) for s in typs.keys()}
 
     vcf = VCFReader(args.vcf, cache=True)
+
+    type_meta = str(MetaInfo('INFO', 'type', 1, 'String', 'Type of variant'))
+    if args.replace_info:
+        meta_info = [type_meta]
+    else:
+        meta_info = vcf.meta + [type_meta]
+
     neighbours = None
     with contextlib.ExitStack() as stack:
-        writers = {s: stack.enter_context(VCFWriter(vcfs[s], header=vcf.header)) for s in typs.keys()}
+        writers = {s: stack.enter_context(VCFWriter(vcfs[s], header=vcf.header, meta_info=meta_info)) for s in typs.keys()}
         for v in vcf.fetch():
             v_typ = classify_variant(v)
             d = {'type': v_typ}

@@ -30,6 +30,7 @@ class TestSample(unittest.TestCase):
 
     def test_eq(self):
         for sample in self.samples:
+           self.assertEqual(sample, sample)
            self.assertEqual(sample, deepcopy(sample))
 
 
