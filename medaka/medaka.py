@@ -323,11 +323,11 @@ def main():
     rmparser.set_defaults(func=print_model_path)
 
     # print all model tags followed by default
-    rmparser = toolsubparsers.add_parser('list_models',
+    lmparser = toolsubparsers.add_parser('list_models',
         help='List all models.',
         parents=[_log_level(), _model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    rmparser.set_defaults(func=print_all_models)
+    lmparser.set_defaults(func=print_all_models)
 
     args = parser.parse_args()
 
