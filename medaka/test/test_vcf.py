@@ -5,7 +5,7 @@ import unittest
 
 import intervaltree
 
-from medaka.vcf import VCFWriter, VCFReader, Variant, merge_haploid_vcfs, split_variants, classify_variant, _merge_variants
+from medaka.vcf import VCFWriter, VCFReader, Variant, Haploid2DiploidConverter, split_variants, classify_variant, _merge_variants
 
 root_dir = os.path.abspath(os.path.dirname(__file__))
 test1_file = os.path.join(root_dir, 'data/test1.vcf')
@@ -294,9 +294,10 @@ class TestMergeAndSplitVCFs(unittest.TestCase):
 
 
     def test_001_check_merge(self):
-        merged = merge_haploid_vcfs(self.vcf1, self.vcf2, self.ref_fasta,
+        converter = Haploid2DiploidConverter(self.vcf1, self.vcf2, self.ref_fasta,
                                     only_overlapping=True, discard_phase=False,
                                     detailed_info=True)
+        merged = converter.variants()
         for expt, found in zip(VCFReader(self.vcf_merged, cache=False).fetch(), merged):
             for key in  ('chrom', 'pos', 'ref', 'alt', 'info_string'):
                 expected = getattr(expt, key)
