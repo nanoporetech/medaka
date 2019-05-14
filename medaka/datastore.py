@@ -263,11 +263,12 @@ class DataIndex(object):
 
         # sort dicts so that refs are in order and within a ref, chunks are in order
         ref_names_ordered = OrderedDict()
+
+        get_major_minor = lambda x: tuple((int(i) for i in x.split('.')))
+        # sort by start and -end so that if we have two samples with the same
+        # start but differrent end points, the longest sample comes first
+        sorter = lambda x: (get_major_minor(x['start']) + tuple((-i for i in get_major_minor(x['end']))))
         for ref_name in sorted(ref_names.keys()):
-            # sort by start and -end so that if we have two samples with the
-            # same start but differrent end points, the longest sample comes
-            # first
-            sorter = lambda x: (float(x['start']), -float(x['end']))
             ref_names[ref_name].sort(key=sorter)
             ref_names_ordered[ref_name] = ref_names[ref_name]
 
