@@ -4,7 +4,18 @@
 Getting Started
 ===============
 
-There are currently two installation methods for medaka, detailed below.
+Medaka can be installed in one of several ways.
+
+**Installation with conda**
+
+Perhaps the simplest way to start using medaka on both Linux and MacOS is
+through conda; medaka is available via the
+`bioconda <https://anaconda.org/bioconda/medaka>`_ channel:
+
+.. code-block:: bash
+
+    conda install -c bioconda medaka
+
 
 **Installation with pip**
   
