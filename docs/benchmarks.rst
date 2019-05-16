@@ -44,12 +44,20 @@ to ``medaka`` or ``nanopolish``.  `nanopolish v0.10.1
 | CPU time / hrs  |        00:50 |  00:07   |        49:10 |        00:50 |    00:07 |        50:24 |
 +-----------------+--------------+----------+--------------+--------------+----------+--------------+
 
-For this dataset the older transducer basecaller with ``medaka`` delivers similar
-results to ``nanopolish`` in a fraction of the time. The flip-flop workflow is
-seen to be superior to nanopolish. The runtime of ``medaka`` can be reduced
-further by utilizing a GPU, the runtime with a NVIDIA GTX1080Ti is found
-to be less than one minute!
+For this dataset the older transducer basecaller with ``medaka`` delivers
+similar results to ``nanopolish`` in a fraction of the time. The flip-flop
+workflow is seen to be superior to nanopolish. The runtime of ``medaka`` can be
+reduced further by utilizing a GPU, the runtime with a NVIDIA GTX1080Ti is
+found to be less than one minute!
 
+A particular advantage of ``medaka`` over other methods is its improved
+accuracy in recovering homopolymer lengths.
+
+.. image:: images/hp_acc.png
+    :align: center
+
+Above the main plot we show homopolymer frequencies from H.sapiens Chrom. 1,
+adapted from `Statistical analysis of simple repeats in the human genome <http://dirac.cnrs-orleans.fr/~piazza/PB/files/DNA.pdf>`_.
 
 Evaluation across samples and depths
 ------------------------------------
@@ -60,4 +68,5 @@ canu and racon, using the ``Guppy v3.0.3`` high accuracy basecaller and
 ``medaka v0.6.5``.
 
 .. image:: images/cov_acc.png
+    :align: center
 
