@@ -1,4 +1,11 @@
 
+v0.7.1
+------
+Bug fix release
+
+* Fix regression in consensus stitching when chunks do not overlap
+
+
 v0.7.0
 ------
 Feature release

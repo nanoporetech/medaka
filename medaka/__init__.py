@@ -3,7 +3,7 @@ import functools
 import os
 import subprocess
 
-__version__ = '0.7.0'
+__version__ = '0.7.1'
 
 
 def check_minimap2_version():
