@@ -23,7 +23,7 @@ from medaka.labels import TruthAlignment
 import libmedaka
 
 
-def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=4, tag_name=None, tag_value=None, keep_missing=False):
+def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=12, tag_name=None, tag_value=None, keep_missing=False):
     """Create pileup counts feature array for region.
 
     :param region: `Region` object
