@@ -479,30 +479,36 @@ def seq_to_hp_lens(seq):
     return qlens
 
 
-def get_pairs_with_hp_len(aln, ref_seq):
+def get_pairs_with_hp_len(aln, ref_seq=None):
     """Return generator of pairs in which the qbase is not just the base,
     but is decorated with extra information. E.g. an A which is part of a basecalled
     6mer HP would be AAAAAA.
 
     :param aln: `pysam.AlignedSegment` object.
     :param ref_seq: str containing reference sequence or result of
-        `seq_to_hp_lens` (ref_seq).
+        `seq_to_hp_lens` (ref_seq), or None
 
     :yields: `ComprAlignPos` objects.
     """
     seq = aln.query_sequence
     qlens = seq_to_hp_lens(seq)
 
-    rlens = seq_to_hp_lens(ref_seq) if isinstance(ref_seq, str) else ref_seq
-
     h = lambda ar, i, alt: ar[i] if i is not None else alt
+
+    if ref_seq is not None:
+        rlens = seq_to_hp_lens(ref_seq) if isinstance(ref_seq, str) else ref_seq
+        h_rlen = h
+    else:
+        rlens = None
+        h_rlen = lambda ar, i, alt: None
+
     for qp, rp, rb in aln.get_aligned_pairs(with_seq=True):
         a = ComprAlignPos(qpos=qp, qbase=h(seq, qp, None), qlen=h(qlens, qp, 1),
-                          rpos=rp, rbase=rb, rlen=h(rlens, rp, 1))
+                          rpos=rp, rbase=rb, rlen=h_rlen(rlens, rp, 1))
         yield a
 
 
-def yield_compressed_pairs(aln, ref_rle):
+def yield_compressed_pairs(aln, ref_rle=None):
     """Yield ComprAlignPos objects for aligned pairs of an AlignedSegment.
 
     :param aln: pysam AlignedSegment.
@@ -514,10 +520,16 @@ def yield_compressed_pairs(aln, ref_rle):
     if qlens is None:
         raise ValueError('Found an alignment without qscores, try filter to only primary alignments.')
     qrle = lengths_to_rle(qlens)
+    # define helpers
     h = lambda ar, i, alt: ar[i] if i is not None else alt
+    if ref_rle is None:
+        h_ref_rle = lambda ar, i , alt: None
+    else:
+        h_ref_rle = lambda ar, i , alt: h(ar['length'], i, alt)
+
     for qp, rp, rb in aln.get_aligned_pairs(with_seq=True):
         a = ComprAlignPos(qpos=qp, qbase=h(seq, qp, None), qlen=h(qlens, qp, 1),
-                          rpos=rp, rbase=rb, rlen=h(ref_rle['length'], rp, 1))
+                          rpos=rp, rbase=rb, rlen=h_ref_rle(ref_rle, rp, 1))
         yield a
 
 

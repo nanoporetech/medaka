@@ -162,6 +162,7 @@ def main():
     fparser.set_defaults(func=feature_gen_dispatch)
     fparser.add_argument('output', help='Output features file.')
     fparser.add_argument('--truth', help='Bam of truth aligned to ref to create features for training.')
+    fparser.add_argument('--truth_haplotag', help='Two-letter tag defining haplotype of alignments for polyploidy labels.')
     fparser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
 
     # Training program
