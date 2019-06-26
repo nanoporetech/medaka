@@ -569,6 +569,7 @@ class FeatureEncoder(object):
             self.logger.info("Filtering and grouping removed all alignments of truth to ref from {}.".format(region))
 
         samples = []
+        pad = (medaka.common.encoding[medaka.common._gap_], 1)
         for aln in alns:
             # truth_labels should be shape (pos, ploidy) and dtype (base, run_length)
             truth_pos, truth_labels = TruthAlignment.get_positions_and_labels(aln, aln_to_pairs)
@@ -578,6 +579,8 @@ class FeatureEncoder(object):
             for sample in aln_samples:
                 # Create labels according to positions in pileup
                 padded_labels = np.empty((len(sample.positions), ploidy), dtype=truth_labels.dtype)
+                # fill with pad so that insertions not present in labels have correct gap-label
+                padded_labels.fill(pad)
                 truth_inds = np.where(np.in1d(truth_pos, sample.positions))
                 sample_inds = np.where(np.in1d(sample.positions, truth_pos))
                 assert len(truth_inds[0]) == len(sample_inds[0])
@@ -662,6 +665,7 @@ class SampleGenerator(object):
         self.model = model
         self.rle_ref = rle_ref
         self.truth_bam = truth_bam
+        self.truth_haplotag = truth_haplotag
         self.read_fraction = read_fraction
         self.chunk_len = chunk_len
         self.chunk_overlap = chunk_overlap
@@ -679,7 +683,7 @@ class SampleGenerator(object):
             if self.truth_bam is not None:
                 self._source = self.fencoder.bams_to_training_samples(
                     self.truth_bam, self.bam, self.region, self.rle_ref,
-                    self.read_fraction)
+                    self.read_fraction, truth_haplotag=self.truth_haplotag)
             else:
                 self._source = self.fencoder.bam_to_sample(
                     self.bam, self.region, self.rle_ref, self.read_fraction)
@@ -733,6 +737,11 @@ class SampleGenerator(object):
         Takes care of converting medaka.common.Sample.labels (which could be unicode strings or (base, length) integer tuples)
         into integer label classes.
         """
+        # TODO: it seems this method is not used anywhere, with the
+        # functionality duplicated in medaka.inference.TrainBatcher.sample_to_x_y_bq_worker
+        # In principle one might want to keep it to enable on-the-fly training
+        # feature generation, but currently we only train from hdf.
+
         self.logger.info("Max label length: {}".format(max_label_len))
         if self.truth_bam is None:
             raise ValueError("Cannot iterate over training pairs when truth bam has not been given.""")
@@ -760,8 +769,8 @@ class SampleGenerator(object):
 
             if len(hap_ys) == 1:  # haploid
                 # don't use hot-encoding
-                y = hap_ys[0].reshape(y.shape + (1,))
-            else:  # "multi_hot_encoding"
+                y = hap_ys[0].reshape(hap_ys[0].shape + (1,))
+            else:  # multi-hot-encoding
                 y = np.zeros(shape=(len(s.labels), len(label_decoding)), dtype=int)
                 for hap_y in hap_ys:
                     np.put_along_axis(y, hap_y.reshape(-1,1), 1, axis=1)
@@ -816,6 +825,8 @@ def _labelled_samples_worker(args, region):
 
 def create_labelled_samples(args):
     logger = medaka.common.get_named_logger('Prepare')
+    if args.chunk_ovlp >= args.chunk_len:
+        raise ValueError('chunk_ovlp {} is not smaller than chunk_len {}'.format(args.chunk_ovlp, args.chunk_len))
     regions = medaka.common.get_regions(args.bam, args.regions)
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))

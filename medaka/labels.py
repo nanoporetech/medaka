@@ -210,20 +210,19 @@ class TruthAlignment(object):
                            dtype [('base, int), ('run_length', int)]
         """
         # ensure all provided alignments have the same start end
-        try:
-            if max(len(set((a.end for a in h_algns))), len(set((a.start for a in h_algns)))) != 1:
-                raise ValueError('Alignments must be trimmed to common genomic region')
-        except:
-            import pdb; pdb.set_trace()
+        if max(len(set((a.end for a in h_algns))), len(set((a.start for a in h_algns)))) != 1:
+            raise ValueError('Alignments must be trimmed to common genomic region')
 
         start = h_algns[0].start
         end = h_algns[0].end
 
         pos2label_haps = []
+        pad = (medaka.common.encoding[medaka.common._gap_], 1)
+
         for aln in h_algns:
             pairs = aln_to_pairs(aln.aln)
             # pad labels with encoded gap
-            padder = lambda: (medaka.common.encoding[medaka.common._gap_], 1)
+            padder = lambda: pad
             pos2label = collections.defaultdict(padder)
             ins_count = 0
             for pair in itertools.dropwhile(lambda x: (x.rpos is None)
@@ -250,6 +249,9 @@ class TruthAlignment(object):
         dtype = [('base', int), ('run_length', int)]
         ploidy = len(pos2label_haps)
         label_array = np.empty(shape=(len(positions), ploidy), dtype=dtype)
+        # fill with pad so that insertions present on only one haplotype have
+        # correct gap-label on other haplotype(s)
+        label_array.fill(pad)
 
         for h, pos2label in enumerate(pos2label_haps):
             label_array[:, h] = np.fromiter((pos2label[p] for p in positions), dtype=dtype, count=len(positions))
