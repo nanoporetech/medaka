@@ -855,6 +855,7 @@ def create_labelled_samples(args):
                         ds.write_sample(sample)
                 else:
                     logger.info(fut.exception())
+                    logger.info(fut.result())
                 fut._result = None  # python issue 27144
         no_data = ds.n_samples == 0
 

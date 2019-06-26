@@ -209,6 +209,7 @@ class TruthAlignment(object):
             - encoded_label_array: numpy array, with shape (pos, ploidy) and
                            dtype [('base, int), ('run_length', int)]
         """
+        logger = medaka.common.get_named_logger('Labels')
         # ensure all provided alignments have the same start end
         if max(len(set((a.end for a in h_algns))), len(set((a.start for a in h_algns)))) != 1:
             raise ValueError('Alignments must be trimmed to common genomic region')
@@ -237,7 +238,7 @@ class TruthAlignment(object):
                 pos = (current_pos, ins_count)
                 label = pair.qbase.upper() if pair.qbase else medaka.common._gap_
                 if label == 'N':
-                    self.logger.info('Found {} at pos {}'.format(label, pos))
+                    logger.info('Found {} at pos {}'.format(label, pos))
                 label = (medaka.common.encoding[label], pair.qlen)
                 pos2label[pos] = label
 
