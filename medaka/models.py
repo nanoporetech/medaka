@@ -60,7 +60,7 @@ def build_legacy_model(chunk_size, feature_len, num_classes, gru_size=128):
     return model
 
 
-def build_model(chunk_size, feature_len, num_classes, gru_size=128):
+def build_model(chunk_size, feature_len, num_classes, gru_size=128, classify_activation='softmax'):
     """Builds a bidirectional GRU model. Uses CuDNNGRU for additional
     speed-up on GPU (claimed 7x).
 
@@ -68,6 +68,7 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128):
     :param feature_len: int, number of features for each pileup column.
     :param num_classes: int, number of output class labels.
     :param gru_size: int, size of each GRU layer.
+    :param classify_activation, str, activation to use in classification layer.
 
     :returns: `keras.models.Sequential` object.
     """
@@ -99,7 +100,7 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128):
 
     # see keras #10417 for why we specify input shape
     model.add(Dense(
-        num_classes, activation='softmax', name='classify',
+        num_classes, activation=classify_activation, name='classify',
         input_shape=(chunk_size, 2 * gru_size)
     ))
 
