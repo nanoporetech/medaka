@@ -240,6 +240,7 @@ def main():
     pparser.add_argument('--ref_vcf', default=None, help='Reference vcf to compare to, only used in SNPDecoder.')
     pparser.add_argument('--decoder', default='SNPDecoder', help='Variant decoder.',
                          choices=sorted(medaka.variant.variant_decoders.keys()))
+    pparser.add_argument('--multi_label', action='store_true', help='Multi-classification decoding.')
 
 
     # Tools
