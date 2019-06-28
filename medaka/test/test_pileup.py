@@ -1,8 +1,6 @@
-import numpy as np
 import os
 import unittest
 from collections import namedtuple
-from medaka.common import decoding, encoding
 from medaka.labels import TruthAlignment
 
 __truth_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'truth_to_ref.bam')

@@ -10,14 +10,11 @@ from timeit import default_timer as now
 import numpy as np
 import pysam
 
-from medaka import vcf
-from medaka.datastore import DataStore, DataIndex
-from medaka.common import (get_regions, decoding, grouper, mkdir_p, Sample,
-                           _gap_, background_generator,
-                           get_named_logger)
-
-from medaka.features import SampleGenerator
+import medaka.common
+import medaka.datastore
+import medaka.features
 import medaka.models
+import medaka.vcf
 
 
 def weighted_categorical_crossentropy(weights):
@@ -80,7 +77,7 @@ def run_training(train_name, batcher, model_fp=None,
     from keras.callbacks import CSVLogger, TensorBoard, EarlyStopping, ReduceLROnPlateau
     from medaka.keras_ext import ModelMetaCheckpoint, SequenceBatcher, BatchQueue
 
-    logger = get_named_logger('RunTraining')
+    logger = medaka.common.get_named_logger('RunTraining')
 
     if model_fp is None:
         model_name = medaka.models.default_model
@@ -90,7 +87,7 @@ def run_training(train_name, batcher, model_fp=None,
             if v.default is not inspect.Parameter.empty
         }
     else:
-        with DataStore(model_fp) as ds:
+        with medaka.datastore.DataStore(model_fp) as ds:
             model_name = ds.meta['medaka_model_name']
             model_kwargs = ds.meta['medaka_model_kwargs']
 
@@ -224,7 +221,7 @@ class TrainBatcher():
         :param sparse_labels: bool, create sparse labels.
 
         """
-        self.logger = get_named_logger('TrainBatcher')
+        self.logger = medaka.common.get_named_logger('TrainBatcher')
 
         self.features = features
         self.max_label_len = max_label_len
@@ -233,14 +230,14 @@ class TrainBatcher():
         self.sparse_labels = sparse_labels
         self.batch_size = batch_size
 
-        di = DataIndex(self.features, threads=threads)
+        di = medaka.datastore.DataIndex(self.features, threads=threads)
         self.samples = di.samples.copy()
         self.meta = di.meta.copy()
         self.label_counts = self.meta['medaka_label_counts']
 
         # check sample size using first batch
         test_sample, test_fname = self.samples[0]
-        with DataStore(test_fname) as ds:
+        with medaka.datastore.DataStore(test_fname) as ds:
             self.feature_shape = ds.load_sample(test_sample).features.shape
         self.logger.info("Sample features have shape {}".format(self.feature_shape))
 
@@ -254,7 +251,7 @@ class TrainBatcher():
             self.logger.info(msg.format(len(self.valid_samples), self.validation, self.seed))
         else:
             self.train_samples = self.samples
-            self.valid_samples = DataIndex(self.validation).samples.copy()
+            self.valid_samples = medaka.datastore.DataIndex(self.validation).samples.copy()
             msg = 'Found {} validation samples equivalent to {:3.2%} of all the data'
             fraction = len(self.valid_samples) / len(self.valid_samples) + len(self.train_samples)
             self.logger.info(msg.format(len(self.valid_samples), fraction))
@@ -277,7 +274,7 @@ class TrainBatcher():
 
 
     def sample_to_x_y(self, sample):
-        """Convert a `Sample` object into an x,y tuple for training.
+        """Convert a `medaka.common.Sample` object into an x,y tuple for training.
 
         :param sample: (filename, sample key)
 
@@ -290,7 +287,7 @@ class TrainBatcher():
 
 
     def samples_to_batch(self, samples):
-        """Convert a set of `Sample` objects into an X, Y tuple for training.
+        """Convert a set of `medaka.common.Sample` objects into an X, Y tuple for training.
 
         :param samples: (filename, sample key) tuples
 
@@ -306,7 +303,7 @@ class TrainBatcher():
 
     @staticmethod
     def sample_to_x_y_bq_worker(sample, max_label_len, label_encoding, sparse_labels, n_classes):
-        """Convert a `Sample` object into an x,y tuple for training.
+        """Convert a `medaka.common.Sample` object into an x,y tuple for training.
 
         :param sample: (filename, sample key)
         :param max_label_len: int, maximum label length, longer labels will be truncated.
@@ -319,7 +316,7 @@ class TrainBatcher():
         """
         sample_key, sample_file = sample
 
-        with DataStore(sample_file) as ds:
+        with medaka.datastore.DataStore(sample_file) as ds:
             s = ds.load_sample(sample_key)
         if s.labels is None:
             raise ValueError("Sample {} in {} has no labels.".format(sample_key, sample_file))
@@ -359,7 +356,7 @@ class VarQueue(list):
                 ref += self[-1].ref[-1]
                 alt = ref[0]
 
-                merged_var = vcf.Variant(name, pos, ref, alt, info=info)
+                merged_var = medaka.vcf.Variant(name, pos, ref, alt, info=info)
                 vcf_fh.write_variant(merged_var)
             else:
                 raise ValueError('Cannot merge variants: {}.'.format(self))
@@ -372,11 +369,11 @@ class VCFChunkWriter(object):
     def __init__(self, fname, chrom, start, end, reference_fasta, label_decoding):
         vcf_region_str = '{}:{}-{}'.format(chrom, start, end) #is this correct?
         self.label_decoding = label_decoding
-        self.logger = get_named_logger('VCFWriter')
+        self.logger = medaka.common.get_named_logger('VCFWriter')
         self.logger.info("Writing variants for {}".format(vcf_region_str))
 
         vcf_meta = ['region={}'.format(vcf_region_str)]
-        self.writer = vcf.VCFWriter(fname, meta_info=vcf_meta)
+        self.writer = medaka.vcf.VCFWriter(fname, meta_info=vcf_meta)
         self.ref_fasta = pysam.FastaFile(reference_fasta)
 
     def __enter__(self):
@@ -395,7 +392,7 @@ class VCFChunkWriter(object):
         ref_seq = self.ref_fasta.fetch(sample.ref_name)
         for pos, grp in itertools.groupby(sample.positions['major']):
             end = cursor + len(list(grp))
-            alt = ''.join(self.label_decoding[x] for x in pred[cursor:end]).replace(_gap_, '')
+            alt = ''.join(self.label_decoding[x] for x in pred[cursor:end]).replace(medaka.common._gap_, '')
             # For simple insertions and deletions in which either
             #   the REF or one of the ALT alleles would otherwise be
             #   null/empty, the REF and ALT Strings must include the
@@ -428,7 +425,7 @@ class VCFChunkWriter(object):
                 self.write(var_queue)
                 var_queue = list()
             else:
-                var = vcf.Variant(sample.ref_name, pos, ref, alt)
+                var = medaka.vcf.Variant(sample.ref_name, pos, ref, alt)
                 if len(var_queue) == 0 or pos - var_queue[-1].pos == 1:
                     var_queue.append(var)
                 else:
@@ -449,7 +446,7 @@ class VCFChunkWriter(object):
                 ref += var_queue[-1].ref[-1]
                 alt = ref[0]
 
-                merged_var = vcf.Variant(name, pos, ref, alt)
+                merged_var = medaka.vcf.Variant(name, pos, ref, alt)
                 self.writer.write_variant(merged_var)
             else:
                 raise ValueError('Cannot merge variants: {}.'.format(var_queue))
@@ -463,14 +460,14 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
         tag_keep_missing=False, enable_chunking=True):
     """Inference worker."""
 
-    logger = get_named_logger('PWorker')
+    logger = medaka.common.get_named_logger('PWorker')
 
     remainder_regions = list()
     def sample_gen():
         # chain all samples whilst dispensing with generators when done
         #   (they hold the feature vector in memory until they die)
         for region in regions:
-            data_gen = SampleGenerator(
+            data_gen = medaka.features.SampleGenerator(
                 bam, region, model_file, rle_ref, read_fraction,
                 chunk_len=chunk_len, chunk_overlap=chunk_ovlp,
                 tag_name=tag_name, tag_value=tag_value,
@@ -478,14 +475,14 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
                 enable_chunking=enable_chunking)
             yield from data_gen.samples
             remainder_regions.extend(data_gen._quarantined)
-    batches = background_generator(
-        grouper(sample_gen(), batch_size), 10
+    batches = medaka.common.background_generator(
+        medaka.common.grouper(sample_gen(), batch_size), 10
     )
 
     total_region_mbases = sum(r.size for r in regions) / 1e6
     logger.info("Running inference for {:.1f}M draft bases.".format(total_region_mbases))
 
-    with DataStore(output, 'a', verify_on_close=False) as ds:
+    with medaka.datastore.DataStore(output, 'a', verify_on_close=False) as ds:
         mbases_done = 0
 
         t0 = now()
@@ -514,7 +511,7 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
                 sample_d = sample._asdict()
                 sample_d['label_probs'] = prob
                 sample_d['features'] = feat if save_features else None
-                ds.write_sample(Sample(**sample_d))
+                ds.write_sample(medaka.common.Sample(**sample_d))
 
     logger.info("All done, {} remainder regions.".format(len(remainder_regions)))
     return remainder_regions
@@ -529,14 +526,14 @@ def predict(args):
     from keras.models import load_model
     from keras import backend as K
 
-    args.regions = get_regions(args.bam, region_strs=args.regions)
-    logger = get_named_logger('Predict')
+    args.regions = medaka.common.get_regions(args.bam, region_strs=args.regions)
+    logger = medaka.common.get_named_logger('Predict')
     logger.info('Processing region(s): {}'.format(' '.join(str(r) for r in args.regions)))
 
     # write class names to output
-    with DataStore(args.model) as ds:
+    with medaka.datastore.DataStore(args.model) as ds:
         meta = ds.meta
-    with DataStore(args.output, 'w', verify_on_close=False) as ds:
+    with medaka.datastore.DataStore(args.output, 'w', verify_on_close=False) as ds:
         ds.update_meta(meta)
 
     logger.info("Setting tensorflow threads to {}.".format(args.threads))
@@ -592,7 +589,7 @@ def predict(args):
 
     if args.check_output:
         logger.info("Validating and finalising output data.")
-        with DataStore(args.output, 'a') as ds:
+        with medaka.datastore.DataStore(args.output, 'a') as ds:
             pass
 
 
@@ -607,11 +604,11 @@ def process_labels(label_counts, max_label_len=10):
     :param n_classes: int, number of label classes.
     :returns: ({label: int encoding}, [label decodings], `Counter` of truncated counts).
     """
-    logger = get_named_logger('Labelling')
+    logger = medaka.common.get_named_logger('Labelling')
 
     old_labels = [k for k in label_counts.keys()]
     if type(old_labels[0]) == tuple:
-        new_labels = (l[1] * decoding[l[0]].upper() for l in old_labels)
+        new_labels = (l[1] * medaka.common.decoding[l[0]].upper() for l in old_labels)
     else:
         new_labels = [l for l in old_labels]
 
@@ -636,9 +633,9 @@ def process_labels(label_counts, max_label_len=10):
 def train(args):
     """Training program."""
     train_name = args.train_name
-    mkdir_p(train_name, info='Results will be overwritten.')
+    medaka.common.mkdir_p(train_name, info='Results will be overwritten.')
 
-    logger = get_named_logger('Training')
+    logger = medaka.common.get_named_logger('Training')
     logger.debug("Loading datasets:\n{}".format('\n'.join(args.features)))
 
     sparse_labels = not args.balanced_weights

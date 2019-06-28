@@ -13,13 +13,9 @@ from Bio import SeqIO
 import numpy as np
 import pysam
 
-#TODO: from medaka import common
-from medaka.common import (yield_compressed_pairs, Sample, lengths_to_rle, rle,
-                           Region, decoding, encoding, get_regions, _gap_,
-                           _alphabet_, get_pairs, get_pairs_with_hp_len,
-                           seq_to_hp_lens, get_named_logger)
-from medaka.datastore import DataStore
-from medaka.labels import TruthAlignment
+import medaka.common
+import medaka.datastore
+import medaka.labels
 import libmedaka
 
 
@@ -37,7 +33,7 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
     :returns: pileup counts array, reference positions, insertion postions
     """
     ffi, lib = libmedaka.ffi, libmedaka.lib
-    logger = get_named_logger('PileUp')
+    logger = medaka.common.get_named_logger('PileUp')
 
     num_dtypes, dtypes = 1, ffi.NULL
     if isinstance(dtype_prefixes, str):
@@ -58,7 +54,7 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
     featlen = lib.featlen
 
     def _process_region(reg):
-        # htslib start is 1-based, Region object is 0-based
+        # htslib start is 1-based, medaka.common.Region object is 0-based
         region_str = '{}:{}-{}'.format(reg.ref_name, reg.start + 1, reg.end)
 
         counts = lib.calculate_pileup(
@@ -180,7 +176,7 @@ class FeatureEncoder(object):
         self.feature_dtype = np.float32 if (self.normalise is not None or self.log_min is not None) else np.uint64
         self.with_depth = with_depth
         self.is_compressed = is_compressed
-        self.logger = get_named_logger('Feature')
+        self.logger = medaka.common.get_named_logger('Feature')
         self.dtypes = dtypes
         self.tag_name = tag_name
         self.tag_value = tag_value
@@ -201,7 +197,7 @@ class FeatureEncoder(object):
             read_decoding += [
                 (dtype,) + k
                 for k in itertools.product(
-                    (True, False), _alphabet_, range(1, max_hp_len + 1)
+                    (True, False), medaka.common._alphabet_, range(1, max_hp_len + 1)
                 )
             ]
 
@@ -211,10 +207,10 @@ class FeatureEncoder(object):
         if self.ref_mode == 'onehot':
             ref_decoding = [('ref', b, l) for b, l in itertools.product(
                 alphabet, range(1, max_hp_len + 1))]
-            ref_decoding.append(('ref', _gap_, 1))  # gaps
+            ref_decoding.append(('ref', medaka.common._gap_, 1))  # gaps
         elif self.ref_mode == 'base_length':
             ref_decoding = ['ref_base', 'ref_length']
-            self.ref_base_encoding = {b:i for i, b in enumerate(_alphabet_ + _gap_)}
+            self.ref_base_encoding = {b:i for i, b in enumerate(medaka.common._alphabet_ + medaka.common._gap_)}
         elif self.ref_mode == 'index':
             ref_decoding = ['ref_index']
         else:
@@ -247,7 +243,7 @@ class FeatureEncoder(object):
             if isinstance(ref_fq, str):
                 ref_fq = SeqIO.index(ref_fq, 'fastq')
             read = ref_fq[ref_name]
-            return seq_to_hp_lens(read.seq)
+            return medaka.common.seq_to_hp_lens(read.seq)
         else:
             return None
 
@@ -273,10 +269,10 @@ class FeatureEncoder(object):
         by e.g. samtools tview) to a base frequency feature array
 
         :param reads_bam: (sorted indexed) bam with read alignment to reference
-        :param region: `Region` object with ref_name, start and end attributes.
+        :param region: `medaka.common.Region` object with ref_name, start and end attributes.
         :param start: starting position within reference
         :param end: ending position within reference
-        :returns: `Sample` object
+        :returns: `medaka.common.Sample` object
         """
         assert self.ref_mode is None
         assert not self.consensus_as_ref
@@ -298,7 +294,7 @@ class FeatureEncoder(object):
                 msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
                 self.logger.warning(msg)
                 samples.append(
-                    Sample(ref_name=region.ref_name, features=None,
+                    medaka.common.Sample(ref_name=region.ref_name, features=None,
                            labels=None, ref_seq=None,
                            postions=positions, label_probs=None
                     ))
@@ -346,7 +342,7 @@ class FeatureEncoder(object):
 
             feature_array = feature_array.astype(self.feature_dtype)
 
-            sample = Sample(
+            sample = medaka.common.Sample(
                 ref_name=region.ref_name, features=feature_array,
                 labels=None, ref_seq=None,
                 positions=positions, label_probs=None
@@ -361,12 +357,12 @@ class FeatureEncoder(object):
         by e.g. samtools tview) to a base frequency feature array
 
         :param reads_bam: (sorted indexed) bam with read alignment to reference
-        :param region: `Region` object with ref_name, start and end attributes.
+        :param region: `medaka.common.Region` object with ref_name, start and end attributes.
         :param reference: reference `.fasta`, should correspond to `bam`.
             Required only for run length encoded references and reads.
         :param read_fraction: fraction of reads to use, if `None` use all.
         :param force_py: bool, if True, force use of python code (rather than c library).
-        :returns: iterable of `Sample` objects
+        :returns: iterable of `medaka.common.Sample` objects
         """
 
         ref_rle = self.process_ref_seq(region.ref_name, reference)
@@ -388,11 +384,11 @@ class FeatureEncoder(object):
         #      The C implementation does this splitting.
 
         if self.is_compressed:
-            aln_to_pairs = partial(yield_compressed_pairs, ref_rle=ref_rle)
+            aln_to_pairs = partial(medaka.common.yield_compressed_pairs, ref_rle=ref_rle)
         elif self.max_hp_len == 1:
-            aln_to_pairs = get_pairs
+            aln_to_pairs = medaka.common.get_pairs
         else:
-            aln_to_pairs = partial(get_pairs_with_hp_len, ref_seq=ref_rle)
+            aln_to_pairs = partial(medaka.common.get_pairs_with_hp_len, ref_seq=ref_rle)
 
         # accumulate data in dicts
         aln_counters = defaultdict(Counter)
@@ -461,7 +457,7 @@ class FeatureEncoder(object):
             if aln_cols == 0:
                 msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
                 self.logger.warning(msg)
-                return [Sample(ref_name=region.ref_name, features=None,
+                return [medaka.common.Sample(ref_name=region.ref_name, features=None,
                               labels=None, ref_seq=None,
                               positions=positions, label_probs=None)]
 
@@ -475,14 +471,14 @@ class FeatureEncoder(object):
                     enumerate(zip(sorted(aln_counters.items()),
                                 sorted(ref_bases.items()))):
                 positions[i] = pos
-                ref_array[i] = (encoding[ref_base], ref_len)
+                ref_array[i] = (medaka.common.encoding[ref_base], ref_len)
                 for j in counts.keys():
                     feature_array[i, j] = counts[j]
 
                 if self.consensus_as_ref:
                     cons_i = np.argmax(feature_array[i])
                     cons_is_reverse, cons_base, cons_length = self.decoding[cons_i]
-                    ref_base = cons_base if cons_base is not None else _gap_
+                    ref_base = cons_base if cons_base is not None else medaka.common._gap_
                     ref_len = cons_length
 
                 if positions[i]['minor'] == 0:
@@ -529,7 +525,7 @@ class FeatureEncoder(object):
                     # index of count which ref would contribute to were it a read
                     feature_array[i, self.encoding['ref_index']] = self.encoding[(False, min(ref_len, self.max_hp_len), ref_base)]
 
-            sample = Sample(ref_name=region.ref_name, features=feature_array,
+            sample = medaka.common.Sample(ref_name=region.ref_name, features=feature_array,
                             labels=None, ref_seq=ref_array,
                             positions=positions, label_probs=None)
             self.logger.info('Processed {} (median depth {})'.format(sample.name, np.median(depth_array)))
@@ -542,11 +538,11 @@ class FeatureEncoder(object):
 
         :param truth_bam: .bam file of truth aligned to ref to generate labels.
         :param bam: input .bam file.
-        :param region: `Region` obj.
+        :param region: `medaka.common.Region` obj.
             the reference will be parsed.
         :param reference: reference `.fasta`, should correspond to `bam`.
 
-        :returns: tuple of `Sample` objects.
+        :returns: tuple of `medaka.common.Sample` objects.
 
         .. note:: Chunks might be missing if `truth_bam` is provided and
             regions with multiple mappings were encountered.
@@ -556,8 +552,8 @@ class FeatureEncoder(object):
 
         # filter truth alignments to restrict ourselves to regions of the ref where the truth
         # in unambiguous
-        alignments = TruthAlignment.bam_to_alignments(truth_bam, region.ref_name, start=region.start, end=region.end)
-        filtered_alignments = TruthAlignment.filter_alignments(alignments, start=region.start, end=region.end)
+        alignments = medaka.labels.TruthAlignment.bam_to_alignments(truth_bam, region.ref_name, start=region.start, end=region.end)
+        filtered_alignments = medaka.labels.TruthAlignment.filter_alignments(alignments, start=region.start, end=region.end)
         if len(filtered_alignments) == 0:
             self.logger.info("Filtering removed all alignments of truth to ref from {}.".format(region))
 
@@ -566,11 +562,11 @@ class FeatureEncoder(object):
             mock_compr = self.max_hp_len > 1 and not self.is_compressed
             truth_pos, truth_labels = aln.get_positions_and_labels(ref_compr_rle=ref_rle, mock_compr=mock_compr,
                                                                    is_compressed=self.is_compressed, rle_dtype=True)
-            aln_samples = self.bam_to_sample(bam, Region(region.ref_name, aln.start, aln.end),
+            aln_samples = self.bam_to_sample(bam, medaka.common.Region(region.ref_name, aln.start, aln.end),
                                              ref_rle, read_fraction=read_fraction)
             for sample in aln_samples:
                 # Create labels according to positions in pileup
-                pad = (encoding[_gap_], 1) if len(truth_labels.dtype) > 0 else encoding[_gap_]
+                pad = (medaka.common.encoding[medaka.common._gap_], 1) if len(truth_labels.dtype) > 0 else medaka.common.encoding[medaka.common._gap_]
                 padder = itertools.repeat(pad)
                 position_to_label = defaultdict(padder.__next__,
                                                 zip([tuple(p) for p in truth_pos],
@@ -580,32 +576,32 @@ class FeatureEncoder(object):
 
                 sample = sample._asdict()
                 sample['labels'] = padded_labels
-                samples.append(Sample(**sample))
+                samples.append(medaka.common.Sample(**sample))
         return tuple(samples)
 
 
 def alphabet_filter(sample_gen, alphabet=None, filter_labels=True, filter_ref_seq=True):
     """Skip chunks in which labels and/or ref_seq contain bases not in `alphabet`.
 
-    :param sample_gen: generator of `Sample` named tuples.
+    :param sample_gen: generator of `medaka.common.Sample` named tuples.
     :param alphabet: set of str of allowed bases. If None, automatically generated from decoding.
     :param filter_labels: bool, whether to filter on labels.
     :param filter_ref_seq: bool, whether to filter on ref_seq.
 
-    :yields: `Sample` named tuples.
+    :yields: `medaka.common.Sample` named tuples.
     """
     if alphabet is None:
-        alphabet = set([c for c in _alphabet_ + _gap_])
-    logger = get_named_logger('AlphaFilter')
+        alphabet = set([c for c in medaka.common._alphabet_ + medaka.common._gap_])
+    logger = medaka.common.get_named_logger('AlphaFilter')
     logger.debug("alphabet: {}".format(alphabet))
 
-    alphabet = set([encoding[c] for c in alphabet])
+    alphabet = set([medaka.common.encoding[c] for c in alphabet])
 
     def _find_bad_bases(s, field, alphabet):
         seq_rle = getattr(s, field)
         bases = set(np.unique(seq_rle['base']))
         if not bases.issubset(alphabet):
-            diff = [decoding[i] for i in bases - alphabet]
+            diff = [medaka.common.decoding[i] for i in bases - alphabet]
             msg = "Skipping {}:{}-{} ({} bases) due to {} {}"
             pos = s.positions
             logger.info(msg.format(s.ref_name, pos['major'][0], pos['major'][-1],
@@ -629,7 +625,7 @@ class SampleGenerator(object):
         """Generate chunked inference (or training) samples.
 
         :param bam: `.bam` containing alignments from which to generate samples.
-        :param region: a `Region` for which to generate samples.
+        :param region: a `medaka.common.Region` for which to generate samples.
         :param model: a medaka model.
         :param truth_bam: a `.bam` containing alignment of truth sequence to
             `reference` sequence. Required only for creating training chunks.
@@ -640,10 +636,10 @@ class SampleGenerator(object):
         :param enable_chunking: when yielding samples, do so in chunks.
 
         """
-        self.logger = get_named_logger("Sampler")
+        self.logger = medaka.common.get_named_logger("Sampler")
         self.sample_type = "training" if truth_bam is not None else "consensus"
         self.logger.info("Initializing sampler for {} of region {}.".format(self.sample_type, region))
-        with DataStore(model) as ds:
+        with medaka.datastore.DataStore(model) as ds:
             self.fencoder_args = ds.meta['medaka_features_kwargs']
         self.fencoder = FeatureEncoder(
             tag_name=tag_name, tag_value=tag_value, tag_keep_missing=tag_keep_missing,
@@ -688,7 +684,7 @@ class SampleGenerator(object):
         end, _ = sample.last_pos
         end += 1 # end exclusive
         self._quarantined.append((
-            Region(sample.ref_name, start, end), sample.size
+            medaka.common.Region(sample.ref_name, start, end), sample.size
         ))
 
 
@@ -765,12 +761,12 @@ def get_label_encoding(max_label_len):
     )
 
     """
-    encoded_bases = [encoding[b] for b in _alphabet_]
+    encoded_bases = [medaka.common.encoding[b] for b in medaka.common._alphabet_]
     label_decoding = [(b, l) for b, l in itertools.product(
         encoded_bases, range(1, max_label_len + 1))]
-    label_decoding.append((encoding[_gap_], 1))  # gaps
+    label_decoding.append((medaka.common.encoding[medaka.common._gap_], 1))  # gaps
     label_encoding = {t: i for i, t in enumerate(label_decoding)}
-    label_decoding_strs = [l * decoding[b] for (b,l) in label_decoding]
+    label_decoding_strs = [l * medaka.common.decoding[b] for (b,l) in label_decoding]
     return label_encoding, label_decoding_strs
 
 
@@ -779,7 +775,7 @@ def create_samples(args):
 
 
 def _labelled_samples_worker(args, region):
-    logger = get_named_logger('PrepWork')
+    logger = medaka.common.get_named_logger('PrepWork')
     logger.info("Processing region {}.".format(region))
     data_gen = SampleGenerator(
         args.bam, region, args.model, args.rle_ref, truth_bam = args.truth,
@@ -788,18 +784,18 @@ def _labelled_samples_worker(args, region):
 
 
 def create_labelled_samples(args):
-    logger = get_named_logger('Prepare')
-    regions = get_regions(args.bam, args.regions)
+    logger = medaka.common.get_named_logger('Prepare')
+    regions = medaka.common.get_regions(args.bam, args.regions)
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))
 
     labels_counter = Counter()
 
     no_data = False
-    with DataStore(args.output, 'w') as ds:
+    with medaka.datastore.DataStore(args.output, 'w') as ds:
         # write feature options to file
         logger.info("Writing meta data to file.")
-        with DataStore(args.model) as model:
+        with medaka.datastore.DataStore(args.model) as model:
             meta = { k: model.meta[k] for k in ('medaka_features_kwargs', 'medaka_feature_decoding')}
         ds.update_meta(meta)
         # TODO: this parallelism would be better in `SampleGenerator.bams_to_training_samples`
@@ -839,7 +835,7 @@ def get_runs_from_fastq(fastq, ref_name):
         fastq = SeqIO.index(fastq, 'fastq')
     read = fastq[ref_name]
     lengths = read.letter_annotations['phred_quality']
-    return lengths_to_rle(lengths)
+    return medaka.common.lengths_to_rle(lengths)
 
 
 def compress_seq(read):
@@ -852,7 +848,7 @@ def compress_seq(read):
                structured array with fields `start`, `length`, and `value`).
     """
     seq_array = np.fromiter(read.seq, dtype='U1', count=len(read.seq))
-    runs = rle(seq_array, low_mem=True)
+    runs = medaka.common.rle(seq_array, low_mem=True)
     compressed_seq = ''.join(runs['value'])
     # we can only encode up to a homopolymer length 93
     # if we want to the score decoding in pysam to correspond to counts
