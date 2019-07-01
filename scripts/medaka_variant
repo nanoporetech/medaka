@@ -148,6 +148,27 @@ run_medaka_variant () {
     fi
 }
 
+run_medaka_haploid2diploid () {
+    local VCF1=$1
+    local VCF2=$2
+    local REF=$3
+    local MERGED=$4
+
+    exit_if_file_does_not_exist ${VCF1} ${VCF2} ${REF}
+    if [[ ! -e ${MERGED} ]]; then
+        echo ""
+        echo "======================================"
+        echo "Running medaka haploid2diploid "
+        echo "======================================"
+        echo ""
+        medaka tools haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGEDUNPHASED} \
+            || (echo "Failed to run medaka haploid2diploid." && exit 1)
+        echo "VCF written to ${OUTPUT}/${MERGED}."
+    else
+        echo "Using existing output:  ${OUTPUT}/${MERGED}."
+    fi
+}
+
 run_phase_vcf () {
     local VCFIN=$1 
     local VCFOUT=$2
@@ -301,8 +322,7 @@ run_medaka_variant ${PROBSHAP1} ${VCFHAP1} ${HAPLOIDTHRESHOLD}
 VCFHAP2=round_1_hap_2.vcf
 run_medaka_variant ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD}
 VCFMERGED=round_1_final.vcf
-
-medaka tools haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGED}
+run_medaka_haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGED}
 
 # since medaka output unphased VCF, rephase variants with whatshap
 VCFREPHASED="${VCFMERGED%.*}_rephased.vcf"
@@ -325,7 +345,7 @@ VCFHAP2=round_2_hap_2.vcf
 run_medaka_variant ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD} "${FINAL_DECODING_OPTS}"
 
 VCFMERGEDUNPHASED=round_2_final_unphased.vcf
-medaka tools haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGEDUNPHASED}
+run_medaka_haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGEDUNPHASED}
 
 # since medaka output unphased VCF, rephase variants with whatshap
 VCFMERGEDPHASED="${VCFMERGEDUNPHASED%_*}_phased.vcf"
