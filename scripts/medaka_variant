@@ -161,7 +161,7 @@ run_medaka_haploid2diploid () {
         echo "Running medaka haploid2diploid "
         echo "======================================"
         echo ""
-        medaka tools haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGEDUNPHASED} \
+        medaka tools haploid2diploid ${VCF1} ${VCF2} ${REF} ${MERGED} \
             || (echo "Failed to run medaka haploid2diploid." && exit 1)
         echo "VCF written to ${OUTPUT}/${MERGED}."
     else
@@ -322,6 +322,7 @@ run_medaka_variant ${PROBSHAP1} ${VCFHAP1} ${HAPLOIDTHRESHOLD}
 VCFHAP2=round_1_hap_2.vcf
 run_medaka_variant ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD}
 VCFMERGED=round_1_final.vcf
+echo "run_medaka_haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGED}"
 run_medaka_haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGED}
 
 # since medaka output unphased VCF, rephase variants with whatshap
