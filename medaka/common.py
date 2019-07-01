@@ -239,11 +239,11 @@ class Sample(_Sample):
         :param s1: First `Sample` object.
         :param s2: Second `Sample` object.
 
-        :returns: (int end1: start of overlap in s1,
-                   int start2: end of overlap in s2,
-                such that s1.positions[:end1] could be concatenated with
-                s2.positions[start2:] to join them without gaps or overlap.
+        :returns: (int end1: start of overlap in s1, int start2: end of overlap in s2,
+            such that s1.positions[:end1] could be concatenated with
+            s2.positions[start2:] to join them without gaps or overlap.
         :raises: `OverlapException` if samples do not overlap nor abut.
+
         """
 
         rel = Sample.relative_position(s1, s2)

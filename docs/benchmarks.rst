@@ -6,11 +6,11 @@ Benchmarks
 The following demonstrates the utility of Medaka's neural network in forming an
 improved consensus from a pileup of reads.
 
-Results were obtained using the default model provided with `medaka`. This model
+Results were obtained using the default model provided with ``medaka``. This model
 was trained using data obtained from E.coli, S.cerevisaie and H.sapiens samples.
 
 Error statistics were calculated using the `pomoxis
-<https://github.com/nanoporetech/pomoxis>`_ program `assess_assembly` after
+<https://github.com/nanoporetech/pomoxis>`_ program ``assess_assembly`` after
 aligning 100kb chunks of the consensus to the reference. Reported metrics are
 median values over all chunks. 
 
@@ -18,14 +18,14 @@ median values over all chunks.
 Comparison of `medaka` and `nanopolish` 
 ---------------------------------------
 
-In this comparison the `medaka` E.coli :doc:`walkthrough` dataset was used.
+In this comparison the ``medaka`` E.coli :doc:`walkthrough` dataset was used.
 These data were not used to train the model.  Basecalling was performed using
-`Guppy v2.2.1`; both the older transducer and the newer flip-flop algorithm
+``Guppy v2.2.1``; both the older transducer and the newer flip-flop algorithm
 were used for comparison. Basecalled reads were trimmed using `porechop
 <https://github.com/rrwick/Porechop>`_ to remove adapters, and assembly was
 performed using `canu v1.8 <https://github.com/marbl/canu>`_. The assembly was
 corrected using `racon v1.3.1 <https://github.com/isovic/racon>`_ before being passed
-to `medaka` or `nanopolish`.  `nanopolish v0.10.1
+to ``medaka`` or ``nanopolish``.  `nanopolish v0.10.1
 <https://github.com/jts/nanopolish>`_ was run using :code:`--fix-homopolymers` option.
 
 +-----------------+----------------------------------------+----------------------------------------+
@@ -44,19 +44,29 @@ to `medaka` or `nanopolish`.  `nanopolish v0.10.1
 | CPU time / hrs  |        00:50 |  00:07   |        49:10 |        00:50 |    00:07 |        50:24 |
 +-----------------+--------------+----------+--------------+--------------+----------+--------------+
 
-For this dataset the older transducer basecaller with `medaka` delivers similar
-results to `nanopolish` in a fraction of the time. The flip-flop workflow is
-seen to be superior to nanopolish. The runtime of `medaka` can be reduced
-further by utilizing a GPU, the runtime with a NVIDIA GTX1080Ti is found
-to be less than one minute!
+For this dataset the older transducer basecaller with ``medaka`` delivers
+similar results to ``nanopolish`` in a fraction of the time. The flip-flop
+workflow is seen to be superior to nanopolish. The runtime of ``medaka`` can be
+reduced further by utilizing a GPU, the runtime with a NVIDIA GTX1080Ti is
+found to be less than one minute!
 
+A particular advantage of ``medaka`` over other methods is its improved
+accuracy in recovering homopolymer lengths.
+
+.. image:: images/hp_acc.png
+    :align: center
+
+Above the main plot we show homopolymer frequencies from H.sapiens Chrom. 1,
+adapted from `Statistical analysis of simple repeats in the human genome <http://dirac.cnrs-orleans.fr/~piazza/PB/files/DNA.pdf>`_.
 
 Evaluation across samples and depths
 ------------------------------------
 
 The comparison below illustrates results at various coverage depths for a
 collection of further organisms. Assemblies were performed as above with
-canu and racon, using the flip-flop algorithm for basecalling.
+canu and racon, using the ``Guppy v3.0.3`` high accuracy basecaller and
+``medaka v0.6.5``.
 
 .. image:: images/cov_acc.png
+    :align: center
 

@@ -62,8 +62,15 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
                         s2_name, s1_name
                     ))
                     continue
+                elif s2.first_pos >= s1.last_pos:
+                    # trigger a break
+                    end_1_ind, start_2_ind = None, None
                 else:
-                    end_1_ind, start_2_ind = medaka.common.Sample.overlap_indices(s1, s2)
+                    try:
+                        end_1_ind, start_2_ind = medaka.common.Sample.overlap_indices(s1, s2)
+                    except medaka.common.OverlapException as e:
+                        logger.info("Unhandled overlap type whilst stitching chunks.")
+                        raise(e)
 
             best = np.argmax(s1.label_probs[start_1_ind:end_1_ind], -1)
             seq += ''.join([label_decoding[x] for x in best]).replace(medaka.common._gap_, '')

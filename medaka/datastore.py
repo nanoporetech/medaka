@@ -9,7 +9,7 @@ with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
     import h5py
 
-from medaka.common import Sample, decoding, get_named_logger
+import medaka.common
 
 
 class DataStore(object):
@@ -28,7 +28,7 @@ class DataStore(object):
         self._sample_keys = set()
         self.fh = None
 
-        self.logger = get_named_logger('DataStore')
+        self.logger = medaka.common.get_named_logger('DataStore')
 
         self._meta = None
 
@@ -96,7 +96,7 @@ class DataStore(object):
         """Write sample to hdf, ensuring a sample is not written twice and maintaining
         a count of labels seen.
 
-        :param sample: `Sample` object.
+        :param sample: `medaka.common.Sample` object.
         """
         # count labels and store them in meta
         if 'medaka_label_counts' not in self.meta:
@@ -131,13 +131,13 @@ class DataStore(object):
 
 
     def load_sample(self, key):
-        """Load `Sample` object from HDF5
+        """Load `medaka.common.Sample` object from HDF5
 
         :param key: str, sample name.
-        :returns: `Sample` object.
+        :returns: `medaka.common.Sample` object.
         """
         s = {}
-        for field in Sample._fields:
+        for field in medaka.common.Sample._fields:
             pth = '{}/{}/{}'.format(self._sample_path_, key, field)
             if pth in self.fh:
                 s[field] = self.fh[pth][()]
@@ -145,13 +145,13 @@ class DataStore(object):
                     s[field] = np.char.decode(s[field])
             else:
                 s[field] = None
-        return Sample(**s)
+        return medaka.common.Sample(**s)
 
 
     def log_counts(self):
         """Log label counts"""
 
-        h = lambda l: (decoding[l[0]], l[1]) if type(l) == tuple else l
+        h = lambda l: (medaka.common.decoding[l[0]], l[1]) if type(l) == tuple else l
         self.logger.info("Label counts:\n{}".format('\n'.join(
             ['{}: {}'.format(h(label), count) for label, count in self.meta['medaka_label_counts'].items()]
         )))
@@ -196,7 +196,7 @@ class DataIndex(object):
 
     def __init__(self, filenames, threads=4):
 
-        self.logger = get_named_logger('DataIndex')
+        self.logger = medaka.common.get_named_logger('DataIndex')
 
         self.filenames = filenames
 
@@ -239,7 +239,7 @@ class DataIndex(object):
     def _load_meta(f):
         with DataStore(f) as ds:
             meta = ds.meta
-            #get_named_logger('Load_meta').debug('Done {}'.format(f))
+            #medaka.common.get_named_logger('Load_meta').debug('Done {}'.format(f))
             return meta
 
 
@@ -258,7 +258,7 @@ class DataIndex(object):
         ref_names = defaultdict(list)
 
         for key, f in self.samples:
-            d = Sample.decode_sample_name(key)
+            d = medaka.common.Sample.decode_sample_name(key)
             if d is not None:
                 d['key'] = key
                 d['filename'] = f
@@ -279,11 +279,11 @@ class DataIndex(object):
 
 
     def yield_from_feature_files(self, ref_names=None, samples=None):
-        """Yield `Sample` objects from one or more feature files.
+        """Yield `medaka.common.Sample` objects from one or more feature files.
 
         :ref_names: iterable of str, only process these references.
         :samples: iterable of sample names to yield (in order in which they are supplied).
-        :yields: `Sample` objects.
+        :yields: `medaka.common.Sample` objects.
         """
 
         if samples is not None:

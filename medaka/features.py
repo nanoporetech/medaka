@@ -14,12 +14,12 @@ import numpy as np
 import pysam
 
 import medaka.common
-from medaka.datastore import DataStore
-from medaka.labels import TruthAlignment
+import medaka.datastore
+import medaka.labels
 import libmedaka
 
 
-def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=4, tag_name=None, tag_value=None, keep_missing=False):
+def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=12, tag_name=None, tag_value=None, keep_missing=False):
     """Create pileup counts feature array for region.
 
     :param region: `medaka.common.Region` object
@@ -654,7 +654,7 @@ class SampleGenerator(object):
         self.logger = medaka.common.get_named_logger("Sampler")
         self.sample_type = "training" if truth_bam is not None else "consensus"
         self.logger.info("Initializing sampler for {} of region {}.".format(self.sample_type, region))
-        with DataStore(model) as ds:
+        with medaka.datastore.DataStore(model) as ds:
             self.fencoder_args = ds.meta['medaka_features_kwargs']
         self.fencoder = FeatureEncoder(
             tag_name=tag_name, tag_value=tag_value, tag_keep_missing=tag_keep_missing,
@@ -753,10 +753,10 @@ def create_labelled_samples(args):
     labels_counter = Counter()
 
     no_data = False
-    with DataStore(args.output, 'w') as ds:
+    with medaka.datastore.DataStore(args.output, 'w') as ds:
         # write feature options to file
         logger.info("Writing meta data to file.")
-        with DataStore(args.model) as model:
+        with medaka.datastore.DataStore(args.model) as model:
             meta = { k: model.meta[k] for k in ('medaka_features_kwargs', 'medaka_feature_decoding')}
         ds.update_meta(meta)
         # TODO: this parallelism would be better in `SampleGenerator.bams_to_training_samples`

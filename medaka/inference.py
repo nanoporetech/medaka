@@ -12,6 +12,7 @@ import medaka.common
 import medaka.datastore
 import medaka.features
 import medaka.models
+import medaka.vcf
 
 
 def weighted_categorical_crossentropy(weights):

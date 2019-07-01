@@ -1,3 +1,21 @@
+
+v0.7.1
+------
+Bug fix release
+
+* Fix regression in consensus stitching when chunks do not overlap
+
+
+v0.7.0
+------
+Feature release
+
+* Indel calling for `medaka_variant`.
+* New models for MinION/GridION and PromethION paired to high accuracy an fast
+  guppy basecallers.
+* Overhaul of chunk handling and overlapping.
+
+
 v0.6.5
 ------
 Bug fix release

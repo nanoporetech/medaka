@@ -1,7 +1,7 @@
-from medaka.datastore import DataStore, DataIndex
-from medaka.common import get_named_logger
+import medaka.datastore
+import medaka.common
 
-logger = get_named_logger('ModelLoad')
+logger = medaka.common.get_named_logger('ModelLoad')
 
 
 def load_model(fname, time_steps=None):
@@ -13,7 +13,7 @@ def load_model(fname, time_steps=None):
     ..note:: keras' `load_model` cannot handle CuDNNGRU layers, hence this
         function builds the model then loads the weights.
     """
-    with DataStore(fname) as ds:
+    with medaka.datastore.DataStore(fname) as ds:
         meta = ds.meta
         num_features = len(meta['medaka_feature_decoding'])
         num_classes = len(meta['medaka_label_decoding'])
