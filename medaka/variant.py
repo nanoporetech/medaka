@@ -188,13 +188,15 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
         return ref_info
 
 
-    def decode_variants(self, samples, ref_seq, threshold=0.04):
+    def decode_variants(self, samples, ref_seq, threshold=0.04, multi_label=True):
         """Decode SNPs using a threshold.
 
         :param samples: stream of `medaka.common.Sample` objects for a given contig.
         :param ref_seq: reference sequence.
         :param threshold: threshold below which a secondary call (which would make
                 for a heterozygous call) is deemed insignificant.
+        :param multi_label: Use this option if the model was trained with the multi_label option
+                meaning that label probabilities are independent and do not sum up to 1.
 
         :returns: sorted list of `medaka.vcf.Variant` objects.
         """
@@ -287,7 +289,23 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
                 if major_feat is not None:
                     info.update(dict(zip(self.feature_row_names, major_feat[i])))
 
-                qual = -10 * np.log10(1 - primary_probs[i] - secondary_probs[i])
+                if multi_label:
+                    # label probabilities are independent and not normalised
+                    # so calculate error for each haplotype as 1-p(call)
+                    # average the error so that a similar threshold can be used
+                    # for homozygous and heterozygous SNPs (were one to sum, if
+                    # one assumes that the network can be equally confident at
+                    # calling homozygous and heterozygous loci, the heterozygous
+                    # quals would always have double the uncertainty.
+                    err = 1 - 0.5 * (primary_probs[i] + secondary_probs[i])
+                else:
+                    # ideally one will have almost 0.5 probability in each
+                    # label, with any residual error in the other labels
+                    # (as compared to homozygous loci where one would have
+                    # almost unit probability in a single label
+                    err = 1 - (primary_probs[i] + secondary_probs[i])
+
+                qual = -10 * np.log10(1 - err)
                 alt = [self.label_decoding[l] for l in (primary_labels[i], secondary_labels[i]) if l != ref_base_encoded]
                 gt = '0/1' if len(alt) == 1 else '1/2'  # / => unphased
                 sample = {'GT': gt, 'GQ': qual,}
@@ -375,6 +393,8 @@ class HaploidVariantDecoder(SNPDecoder, metaclass=DecoderRegistrar):
         gap_encoded = self.label_encoding[medaka.common._gap_]
 
         for s in join_chunked_variants(yield_trimmed_consensus_chunks(samples), ref_seq_encoded, gap_encoded):
+
+            #TODO parallelize? one could dispatch each sample s to a different process..
 
             assert s.positions['minor'][0] == 0
             pred_labels = np.argmax(s.label_probs, -1)
