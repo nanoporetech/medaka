@@ -2,13 +2,11 @@ from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 import functools
 import inspect
-import itertools
 import logging
 import os
 from timeit import default_timer as now
 
 import numpy as np
-import pysam
 
 import medaka.common
 import medaka.datastore
@@ -72,7 +70,7 @@ def cat_acc(y_true, y_pred):
 
 
 def run_training(train_name, batcher, model_fp=None,
-                 epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1):
+                 epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1, multi_label=False):
     """Run training."""
     from keras.callbacks import CSVLogger, TensorBoard, EarlyStopping, ReduceLROnPlateau
     from medaka.keras_ext import ModelMetaCheckpoint, SequenceBatcher, BatchQueue
@@ -116,21 +114,37 @@ def run_training(train_name, batcher, model_fp=None,
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
 
-    callbacks = [
-        # Best model according to training set accuracy
-        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model.best.hdf5'),
-                            monitor='cat_acc', **opts),
-        # Best model according to validation set accuracy
-        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model.best.val.hdf5'),
-                        monitor='val_cat_acc', **opts),
-        # Best model according to validation set qscore
-        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model.best.val.qscore.hdf5'),
-                        monitor='val_qscore', **opts),
-        # Checkpoints when training set accuracy improves
-        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model-acc-improvement-{epoch:02d}-{cat_acc:.2f}.hdf5'),
-                        monitor='cat_acc', **opts),
-        ModelMetaCheckpoint(model_details, os.path.join(train_name, 'model-val_acc-improvement-{epoch:02d}-{val_cat_acc:.2f}.hdf5'),
-                        monitor='val_cat_acc', **opts),
+    if multi_label:
+        metrics = ['categorical_accuracy']
+        call_back_metrics = metrics
+        loss = 'binary_crossentropy'
+        logger.info("Using {} loss function for multi-label training".format(loss))
+    else:
+        metrics=[cat_acc, qscore],
+        call_back_metrics = ['cat_acc']
+        if class_weight is not None:
+            loss = weighted_categorical_crossentropy(class_weight)
+            logger.info("Using weighted_categorical_crossentropy loss function")
+        else:
+            loss = 'sparse_categorical_crossentropy'
+            logger.info("Using {} loss function".format(loss))
+
+    model.compile(
+       loss=loss,
+       optimizer='nadam',
+       metrics=metrics,
+    )
+
+    logger.info('Model metrics: {}'.format(model.metrics_names))
+
+    callbacks = []
+    for metric in call_back_metrics:
+        for m in metric, 'val_{}'.format(metric):
+            best_fn = 'model.best.{}.hdf5'.format(m)
+            improv_fn = 'model-' + metric + '-improvement-{epoch:02d}-{' + metric + ':.2f}.hdf5'
+            for fn in best_fn, improv_fn:
+                callbacks.append(ModelMetaCheckpoint(model_details, os.path.join(train_name, fn), monitor=m, **opts))
+    callbacks.extend([
         ## Reduce learning rate when no improvement
         #ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5,
         #    verbose=1, min_delta=0.0001, cooldown=0, min_lr=0),
@@ -143,20 +157,8 @@ def run_training(train_name, batcher, model_fp=None,
         #TensorBoard(log_dir=os.path.join(train_name, 'logs'),
         #            histogram_freq=5, batch_size=100, write_graph=True,
         #            write_grads=True, write_images=True)
-    ]
+    ])
 
-    if class_weight is not None:
-        loss = weighted_categorical_crossentropy(class_weight)
-        logger.info("Using weighted_categorical_crossentropy loss function")
-    else:
-        loss = 'sparse_categorical_crossentropy'
-        logger.info("Using {} loss function".format(loss))
-
-    model.compile(
-       loss=loss,
-       optimizer='nadam',
-       metrics=[cat_acc, qscore],
-    )
 
     if n_mini_epochs == 1:
         logger.info("Not using mini_epochs, an epoch is a full traversal of the training data")
@@ -321,137 +323,31 @@ class TrainBatcher():
         if s.labels is None:
             raise ValueError("Sample {} in {} has no labels.".format(sample_key, sample_file))
         x = s.features
-        # labels can either be unicode strings or (base, length) integer tuples
-        if isinstance(s.labels[0], np.unicode):
-            # TODO: is this ever used now we have dispensed with tview code?
-            y = np.fromiter((label_encoding[l[:min(max_label_len, len(l))]]
-                               for l in s.labels), dtype=int, count=len(s.labels))
+        # s.labels is a structured array with run-length encoded (base, length) labels.
+        # the dimension of the last axis determines the ploidy.
+        ploidy = s.labels.shape[-1]
+        # trim label lengths to max_label_len
+        s.labels['run_length'] = np.minimum(s.labels['run_length'], max_label_len, out=s.labels['run_length'])
+        hap_ys = []
+        for p in range(ploidy):
+            hap_labels = s.labels[:, p]
+            hap_ys.append(np.fromiter((label_encoding[tuple(l)] for l in hap_labels), dtype=int, count=len(hap_labels)))
+
+        if ploidy == 1:
+            y = hap_ys[0].reshape(hap_ys[0].shape + (1,))
+            if not sparse_labels:
+                from keras.utils.np_utils import to_categorical
+                y = to_categorical(y, num_classes=n_classes)
+        elif not sparse_labels:  # multi-hot-encoding, heterozygous loci have >1 non-zero elements
+            y = np.zeros(shape=(len(s.labels), len(label_encoding)), dtype=int)
+            for hap_y in hap_ys:
+                np.put_along_axis(y, hap_y.reshape(-1, 1), 1, axis=1)
         else:
-            y = np.fromiter((label_encoding[tuple((l['base'], min(max_label_len, l['run_length'])))]
-                             for l in s.labels), dtype=int, count=len(s.labels))
-        y = y.reshape(y.shape + (1,))
-        if not sparse_labels:
-            from keras.utils.np_utils import to_categorical
-            y = to_categorical(y, num_classes=n_classes)
+            #TODO one could implement a sparse labeling scheme encoding pairs of labels
+            # either in a phased or unphased manner
+            raise NotImplementedError('Training with ploidy >1 and sparse labels is not implemented.')
+
         return x, y
-
-
-class VarQueue(list):
-
-    @property
-    def last_pos(self):
-        if len(self) == 0:
-            return None
-        else:
-            return self[-1].pos
-
-    def write(self, vcf_fh):
-        if len(self) > 1:
-            are_dels = all(len(x.ref) == 2 for x in self)
-            are_same_ref = len(set(x.chrom for x in self)) == 1
-            if are_dels and are_same_ref:
-                name = self[0].chrom
-                pos = self[0].pos
-                ref = ''.join((x.ref[0] for x in self))
-                ref += self[-1].ref[-1]
-                alt = ref[0]
-
-                merged_var = medaka.vcf.Variant(name, pos, ref, alt, info=info)
-                vcf_fh.write_variant(merged_var)
-            else:
-                raise ValueError('Cannot merge variants: {}.'.format(self))
-        elif len(self) == 1:
-            vcf_fh.write_variant(self[0])
-        del self[:]
-
-
-class VCFChunkWriter(object):
-    def __init__(self, fname, chrom, start, end, reference_fasta, label_decoding):
-        vcf_region_str = '{}:{}-{}'.format(chrom, start, end) #is this correct?
-        self.label_decoding = label_decoding
-        self.logger = medaka.common.get_named_logger('VCFWriter')
-        self.logger.info("Writing variants for {}".format(vcf_region_str))
-
-        vcf_meta = ['region={}'.format(vcf_region_str)]
-        self.writer = medaka.vcf.VCFWriter(fname, meta_info=vcf_meta)
-        self.ref_fasta = pysam.FastaFile(reference_fasta)
-
-    def __enter__(self):
-        self.writer.__enter__()
-        self.ref_fasta.__enter__()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.writer.__exit__(exc_type, exc_val, exc_tb)
-        self.ref_fasta.__exit__(exc_type, exc_val, exc_tb)
-
-    def add_chunk(self, sample, pred):
-        # Write consensus alts to vcf
-        cursor = 0
-        var_queue = list()
-        ref_seq = self.ref_fasta.fetch(sample.ref_name)
-        for pos, grp in itertools.groupby(sample.positions['major']):
-            end = cursor + len(list(grp))
-            alt = ''.join(self.label_decoding[x] for x in pred[cursor:end]).replace(medaka.common._gap_, '')
-            # For simple insertions and deletions in which either
-            #   the REF or one of the ALT alleles would otherwise be
-            #   null/empty, the REF and ALT Strings must include the
-            #   base before the event (which must be reflected in
-            #   the POS field), unless the event occurs at position
-            #   1 on the contig in which case it must include the
-            #   base after the event
-            if alt == '':
-                # deletion
-                if pos == 0:
-                    # the "unless case"
-                    ref = ref_seq[1]
-                    alt = ref_seq[1]
-                else:
-                    # the usual case
-                    pos = pos - 1
-                    ref = ref_seq[pos:pos+2]
-                    alt = ref_seq[pos]
-            else:
-                ref = ref_seq[pos]
-
-            # Merging of variants produced by considering major.{minor} positions
-            # These are of the form:
-            #    X -> Y          - subs
-            #    prev.X -> prev  - deletion
-            #    X -> Xyy..      - insertion
-            # In the second case we may need to merge variants from consecutive
-            # major positions.
-            if alt == ref:
-                self.write(var_queue)
-                var_queue = list()
-            else:
-                var = medaka.vcf.Variant(sample.ref_name, pos, ref, alt)
-                if len(var_queue) == 0 or pos - var_queue[-1].pos == 1:
-                    var_queue.append(var)
-                else:
-                    self.write(var_queue)
-                    var_queue = [var]
-            cursor = end
-        self.write(var_queue)
-
-
-    def write(self, var_queue):
-        if len(var_queue) > 1:
-            are_dels = all(len(x.ref) == 2 for x in var_queue)
-            are_same_ref = len(set(x.chrom for x in var_queue)) == 1
-            if are_dels and are_same_ref:
-                name = var_queue[0].chrom
-                pos = var_queue[0].pos
-                ref = ''.join((x.ref[0] for x in var_queue))
-                ref += var_queue[-1].ref[-1]
-                alt = ref[0]
-
-                merged_var = medaka.vcf.Variant(name, pos, ref, alt)
-                self.writer.write_variant(merged_var)
-            else:
-                raise ValueError('Cannot merge variants: {}.'.format(var_queue))
-        elif len(var_queue) == 1:
-            self.writer.write_variant(var_queue[0])
 
 
 def run_prediction(output, bam, regions, model, model_file, rle_ref,
@@ -596,7 +492,7 @@ def predict(args):
 def process_labels(label_counts, max_label_len=10):
     """Create map from full labels to (encoded) truncated labels.
 
-    :param label_counrs: `Counter` obj of label counts.
+    :param label_counts: `Counter` obj of label counts.
     :param max_label_len: int, maximum label length, longer labels will be truncated.
     :returns:
     :param label_encoding: {label: int encoded label}.
@@ -607,10 +503,7 @@ def process_labels(label_counts, max_label_len=10):
     logger = medaka.common.get_named_logger('Labelling')
 
     old_labels = [k for k in label_counts.keys()]
-    if type(old_labels[0]) == tuple:
-        new_labels = (l[1] * medaka.common.decoding[l[0]].upper() for l in old_labels)
-    else:
-        new_labels = [l for l in old_labels]
+    new_labels = (l[1] * medaka.common.decoding[l[0]].upper() for l in old_labels)
 
     if max_label_len < np.inf:
         new_labels = [l[:max_label_len] for l in new_labels]
@@ -638,7 +531,10 @@ def train(args):
     logger = medaka.common.get_named_logger('Training')
     logger.debug("Loading datasets:\n{}".format('\n'.join(args.features)))
 
-    sparse_labels = not args.balanced_weights
+    if args.balanced_weights or args.multi_label:
+        sparse_labels = False
+    else:
+        sparse_labels = True
 
     args.validation = args.validation_features if args.validation_features is not None else args.validation_split
 
@@ -664,7 +560,7 @@ def train(args):
         run_training(
             train_name, batcher, model_fp=args.model, epochs=args.epochs,
             class_weight=class_weight, n_mini_epochs=args.mini_epochs,
-            threads_io=args.threads_io)
+            threads_io=args.threads_io, multi_label=args.multi_label)
 
     # stop batching threads
     logger.info("Training finished.")

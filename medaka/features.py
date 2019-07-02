@@ -22,7 +22,7 @@ import libmedaka
 def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=12, tag_name=None, tag_value=None, keep_missing=False):
     """Create pileup counts feature array for region.
 
-    :param region: `Region` object
+    :param region: `medaka.common.Region` object
     :param bam: .bam file with alignments.
     :param dtype_prefixes: prefixes for query names which to separate counts.
         If `None` (or of length 1), counts are not split.
@@ -533,7 +533,7 @@ class FeatureEncoder(object):
             return [sample]
 
 
-    def bams_to_training_samples(self, truth_bam, bam, region, reference=None, read_fraction=None):
+    def bams_to_training_samples(self, truth_bam, bam, region, reference=None, read_fraction=None, truth_haplotag=None):
         """Prepare training data chunks.
 
         :param truth_bam: .bam file of truth aligned to ref to generate labels.
@@ -541,6 +541,8 @@ class FeatureEncoder(object):
         :param region: `medaka.common.Region` obj.
             the reference will be parsed.
         :param reference: reference `.fasta`, should correspond to `bam`.
+        :param read_fraction: fraction of reads to use, if `None` use all.
+        :param truth_haplotag: two letter tag name used for grouping truth labels by haplotype.
 
         :returns: tuple of `medaka.common.Sample` objects.
 
@@ -550,29 +552,41 @@ class FeatureEncoder(object):
         """
         ref_rle = self.process_ref_seq(region.ref_name, reference)
 
+        # pick function to get pairs for labels
+        mock_compr = self.max_hp_len > 1 and not self.is_compressed
+
+        if self.is_compressed:
+            aln_to_pairs = medaka.common.yield_compressed_pairs
+        elif mock_compr:
+            aln_to_pairs = medaka.common.get_pairs_with_hp_len
+        else:
+            aln_to_pairs = medaka.common.get_pairs
+
         # filter truth alignments to restrict ourselves to regions of the ref where the truth
         # in unambiguous
-        alignments = medaka.labels.TruthAlignment.bam_to_alignments(truth_bam, region.ref_name, start=region.start, end=region.end)
-        filtered_alignments = medaka.labels.TruthAlignment.filter_alignments(alignments, start=region.start, end=region.end)
-        if len(filtered_alignments) == 0:
-            self.logger.info("Filtering removed all alignments of truth to ref from {}.".format(region))
+        alns = TruthAlignment.bam_to_alignments(truth_bam, region, haplotag=truth_haplotag)
+        if len(alns) == 0:
+            self.logger.info("Filtering and grouping removed all alignments of truth to ref from {}.".format(region))
 
         samples = []
-        for aln in filtered_alignments:
-            mock_compr = self.max_hp_len > 1 and not self.is_compressed
-            truth_pos, truth_labels = aln.get_positions_and_labels(ref_compr_rle=ref_rle, mock_compr=mock_compr,
-                                                                   is_compressed=self.is_compressed, rle_dtype=True)
-            aln_samples = self.bam_to_sample(bam, medaka.common.Region(region.ref_name, aln.start, aln.end),
+        pad = (medaka.common.encoding[medaka.common._gap_], 1)
+        for aln in alns:
+            # truth_labels should be shape (pos, ploidy) and dtype (base, run_length)
+            truth_pos, truth_labels = TruthAlignment.get_positions_and_labels(aln, aln_to_pairs)
+            aln_samples = self.bam_to_sample(bam, medaka.common.Region(region.ref_name, aln[0].start, aln[0].end),
                                              ref_rle, read_fraction=read_fraction)
+            ploidy = truth_labels.shape[-1]
             for sample in aln_samples:
                 # Create labels according to positions in pileup
-                pad = (medaka.common.encoding[medaka.common._gap_], 1) if len(truth_labels.dtype) > 0 else medaka.common.encoding[medaka.common._gap_]
-                padder = itertools.repeat(pad)
-                position_to_label = defaultdict(padder.__next__,
-                                                zip([tuple(p) for p in truth_pos],
-                                                    [a for a in truth_labels]))
-                padded_labels = np.fromiter((position_to_label[tuple(p)] for p in sample.positions),
-                                                dtype=truth_labels.dtype, count=len(sample.positions))
+                padded_labels = np.empty((len(sample.positions), ploidy), dtype=truth_labels.dtype)
+                # fill with pad so that insertions not present in labels have correct gap-label
+                padded_labels.fill(pad)
+                truth_inds = np.where(np.in1d(truth_pos, sample.positions))
+                sample_inds = np.where(np.in1d(sample.positions, truth_pos))
+                assert len(truth_inds[0]) == len(sample_inds[0])
+                assert np.alltrue(truth_pos[truth_inds] == sample.positions[sample_inds])
+
+                padded_labels[sample_inds] = truth_labels[truth_inds]
 
                 sample = sample._asdict()
                 sample['labels'] = padded_labels
@@ -619,9 +633,9 @@ def alphabet_filter(sample_gen, alphabet=None, filter_labels=True, filter_ref_se
 class SampleGenerator(object):
 
     def __init__(self, bam, region, model, rle_ref=None, truth_bam=None,
-                 read_fraction=None, chunk_len=1000, chunk_overlap=200,
-                 tag_name=None, tag_value=None, tag_keep_missing=False,
-                 enable_chunking=True):
+                 truth_haplotag=None, read_fraction=None, chunk_len=1000,
+                 chunk_overlap=200, tag_name=None, tag_value=None,
+                 tag_keep_missing=False, enable_chunking=True):
         """Generate chunked inference (or training) samples.
 
         :param bam: `.bam` containing alignments from which to generate samples.
@@ -629,6 +643,7 @@ class SampleGenerator(object):
         :param model: a medaka model.
         :param truth_bam: a `.bam` containing alignment of truth sequence to
             `reference` sequence. Required only for creating training chunks.
+        :param truth_haplotag: two letter tag name used for grouping truth labels by haplotype.
         :param reference: reference `.fasta`, should correspond to `bam`.
         :param tag_name: two letter tag name by which to filter reads.
         :param tag_value: integer value of tag for reads to keep.
@@ -650,6 +665,7 @@ class SampleGenerator(object):
         self.model = model
         self.rle_ref = rle_ref
         self.truth_bam = truth_bam
+        self.truth_haplotag = truth_haplotag
         self.read_fraction = read_fraction
         self.chunk_len = chunk_len
         self.chunk_overlap = chunk_overlap
@@ -667,7 +683,7 @@ class SampleGenerator(object):
             if self.truth_bam is not None:
                 self._source = self.fencoder.bams_to_training_samples(
                     self.truth_bam, self.bam, self.region, self.rle_ref,
-                    self.read_fraction)
+                    self.read_fraction, truth_haplotag=self.truth_haplotag)
             else:
                 self._source = self.fencoder.bam_to_sample(
                     self.bam, self.region, self.rle_ref, self.read_fraction)
@@ -713,63 +729,6 @@ class SampleGenerator(object):
             yield from alphabet_filter(chunks)
 
 
-    def training_samples(self, max_label_len):
-        """Iterator of (feature, label) pairs for training."""
-        self.logger.info("Maxlabellen: {}".format(max_label_len))
-        if self.truth_bam is None:
-            raise ValueError("Cannot iterate over training pairs when truth bam has not been given.""")
-        label_encoding, label_decoding = get_label_encoding(max_label_len)
-        for s in self.samples:
-            if s.labels is None: # this shouldn't happen
-                raise ValueError("Cannot train without labels.")
-            x = s.features
-            # labels can either be unicode strings or (base, length) integer tuples
-            if isinstance(s.labels[0], np.unicode):
-                y = np.fromiter(
-                    (label_encoding[l[:min(max_label_len, len(l))]] for l in s.labels),
-                    dtype=int, count=len(s.labels))
-            else:
-                y = np.fromiter(
-                    (label_encoding[tuple((l['base'], min(max_label_len, l['run_length'])))]
-                        for l in s.labels),
-                    dtype=int, count=len(s.labels))
-            y = y.reshape(y.shape + (1,))
-            yield x, y
-
-
-def get_label_encoding(max_label_len):
-    """Get label encodings for a given maximum label length.
-
-    :param max_label_len: int, maximum label length.
-
-    :returns: (label_encoding, label_decoding_strs)
-        label_encoding: {(int encoded base, int run length): int label encoding}.
-        label_decoding_strs: list of str of label decodings.
-
-    >>> get_label_encoding(2)
-    ({(5, 1): 0,
-      (5, 2): 1,
-      (6, 1): 2,
-      (6, 2): 3,
-      (7, 1): 4,
-      (7, 2): 5,
-      (8, 1): 6,
-      (8, 2): 7,
-      (0, 1): 8,
-      },
-      ['A', 'AA', 'C', 'CC', 'G', 'GG', 'T', 'TT', '*']
-    )
-
-    """
-    encoded_bases = [medaka.common.encoding[b] for b in medaka.common._alphabet_]
-    label_decoding = [(b, l) for b, l in itertools.product(
-        encoded_bases, range(1, max_label_len + 1))]
-    label_decoding.append((medaka.common.encoding[medaka.common._gap_], 1))  # gaps
-    label_encoding = {t: i for i, t in enumerate(label_decoding)}
-    label_decoding_strs = [l * medaka.common.decoding[b] for (b,l) in label_decoding]
-    return label_encoding, label_decoding_strs
-
-
 def create_samples(args):
     raise NotImplementedError('Creation of unlabelled samples is currently disabled')
 
@@ -778,13 +737,15 @@ def _labelled_samples_worker(args, region):
     logger = medaka.common.get_named_logger('PrepWork')
     logger.info("Processing region {}.".format(region))
     data_gen = SampleGenerator(
-        args.bam, region, args.model, args.rle_ref, truth_bam = args.truth,
+        args.bam, region, args.model, args.rle_ref, truth_bam=args.truth, truth_haplotag=args.truth_haplotag,
         read_fraction=args.read_fraction, chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
     return list(data_gen.samples), region, deepcopy(data_gen.fencoder_args), deepcopy(data_gen.fencoder.decoding)
 
 
 def create_labelled_samples(args):
     logger = medaka.common.get_named_logger('Prepare')
+    if args.chunk_ovlp >= args.chunk_len:
+        raise ValueError('chunk_ovlp {} is not smaller than chunk_len {}'.format(args.chunk_ovlp, args.chunk_len))
     regions = medaka.common.get_regions(args.bam, args.regions)
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))
@@ -813,6 +774,7 @@ def create_labelled_samples(args):
                         ds.write_sample(sample)
                 else:
                     logger.info(fut.exception())
+                    logger.info(fut.result())
                 fut._result = None  # python issue 27144
         no_data = ds.n_samples == 0
 
