@@ -162,6 +162,7 @@ def main():
     fparser.set_defaults(func=feature_gen_dispatch)
     fparser.add_argument('output', help='Output features file.')
     fparser.add_argument('--truth', help='Bam of truth aligned to ref to create features for training.')
+    fparser.add_argument('--truth_haplotag', help='Two-letter tag defining haplotype of alignments for polyploidy labels.')
     fparser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
 
     # Training program
@@ -179,6 +180,7 @@ def main():
     tparser.add_argument('--max_samples', type=int, default=np.inf, help='Only train on max_samples.')
     tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
     tparser.add_argument('--balanced_weights', action='store_true', help='Balance label weights.')
+    tparser.add_argument('--multi_label', action='store_true', help='Multi-classification training.')
     tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
     tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
     tparser.add_argument('--device', type=int, default=0, help='GPU device to use.')
@@ -238,6 +240,7 @@ def main():
     pparser.add_argument('--ref_vcf', default=None, help='Reference vcf to compare to, only used in SNPDecoder.')
     pparser.add_argument('--decoder', default='SNPDecoder', help='Variant decoder.',
                          choices=sorted(medaka.variant.variant_decoders.keys()))
+    pparser.add_argument('--multi_label', action='store_true', help='Multi-classification decoding.')
 
 
     # Tools
