@@ -337,6 +337,15 @@ def main():
 
     args = parser.parse_args()
 
+    # https://github.com/tensorflow/tensorflow/issues/26691
+    # we have local imports of tf generally, but this is pseudo global
+    # however with tf1.14 tensorflow import time looks faster than previous
+    # so we could/should stick to more standard imports
+    import tensorflow as tf
+    import absl.logging
+    logging.root.removeHandler(absl.logging._absl_handler)
+    absl.logging._warn_preinit_stderr = False
+
     logging.basicConfig(format='[%(asctime)s - %(name)s] %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
     logger = logging.getLogger(__package__)
     logger.setLevel(args.log_level)

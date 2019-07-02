@@ -41,9 +41,9 @@ def build_legacy_model(chunk_size, feature_len, num_classes, gru_size=128):
     :returns: `keras.models.Sequential` object.
     """
 
-    from keras.models import Sequential
-    from keras.layers import Dense, GRU
-    from keras.layers.wrappers import Bidirectional
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense, GRU
+    from tensorflow.keras.layers.wrappers import Bidirectional
 
     model = Sequential()
     input_shape=(chunk_size, feature_len)
@@ -71,15 +71,14 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128):
 
     :returns: `keras.models.Sequential` object.
     """
-
-    from keras import backend as K
-    from keras.models import Sequential
-    from keras.layers import Dense, GRU, CuDNNGRU, Bidirectional
+    import tensorflow as tf
+    from tensorflow.keras import backend as K
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense, GRU, CuDNNGRU, Bidirectional
 
     # if we can see a gpu, use CuDNNGRU for speed
     cudnn = False
-    gpus = K.tensorflow_backend._get_available_gpus()
-    if len(gpus) > 0:
+    if tf.test.is_gpu_available(cuda_only=True):
         cudnn = True
 
     logger.info("With cudnn: {}".format(cudnn))

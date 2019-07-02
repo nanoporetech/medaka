@@ -14,8 +14,6 @@ import threading
 import numpy as np
 import pysam
 
-# don't import keras here, as it means a slow import of tensorflow
-#from keras.utils.np_utils import to_categorical
 
 # Codec for converting tview output to ints.
 #TODO: this can likely be renomved

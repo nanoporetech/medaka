@@ -31,7 +31,7 @@ def weighted_categorical_crossentropy(weights):
         loss = weighted_categorical_crossentropy(weights)
         model.compile(loss=loss,optimizer='adam')
     """
-    from keras import backend as K
+    from tensorflow.keras import backend as K
     weights = K.variable(weights)
 
     def loss(y_true, y_pred):
@@ -48,7 +48,7 @@ def weighted_categorical_crossentropy(weights):
 
 
 def qscore(y_true, y_pred):
-    from keras import backend as K
+    from tensorflow.keras import backend as K
     error = K.cast(K.not_equal(
         K.max(y_true, axis=-1), K.cast(K.argmax(y_pred, axis=-1), K.floatx())),
         K.floatx()
@@ -61,7 +61,7 @@ def cat_acc(y_true, y_pred):
     # sparse_categorical_accuracy is broken in keras 2.2.4
     #   https://github.com/keras-team/keras/issues/11348#issuecomment-439969957
     # this is taken from e59570ae
-    from keras import backend as K
+    from tensorflow.keras import backend as K
     # reshape in case it's in shape (num_samples, 1) instead of (num_samples,)
     if K.ndim(y_true) == K.ndim(y_pred):
         y_true = K.squeeze(y_true, -1)
@@ -74,7 +74,7 @@ def cat_acc(y_true, y_pred):
 def run_training(train_name, batcher, model_fp=None,
                  epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1):
     """Run training."""
-    from keras.callbacks import CSVLogger, TensorBoard, EarlyStopping, ReduceLROnPlateau
+    from tensorflow.keras.callbacks import CSVLogger, TensorBoard, EarlyStopping, ReduceLROnPlateau
     from medaka.keras_ext import ModelMetaCheckpoint, SequenceBatcher, BatchQueue
 
     logger = medaka.common.get_named_logger('RunTraining')
@@ -331,7 +331,7 @@ class TrainBatcher():
                              for l in s.labels), dtype=int, count=len(s.labels))
         y = y.reshape(y.shape + (1,))
         if not sparse_labels:
-            from keras.utils.np_utils import to_categorical
+            from tensorflow.keras.utils.np_utils import to_categorical
             y = to_categorical(y, num_classes=n_classes)
         return x, y
 
@@ -523,8 +523,9 @@ def predict(args):
     if logger_level > logging.DEBUG:
         os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
-    from keras.models import load_model
-    from keras import backend as K
+    import tensorflow as tf
+    from tensorflow.keras.models import load_model
+    from tensorflow.keras import backend as K
 
     args.regions = medaka.common.get_regions(args.bam, region_strs=args.regions)
     logger = medaka.common.get_named_logger('Predict')
@@ -537,9 +538,9 @@ def predict(args):
         ds.update_meta(meta)
 
     logger.info("Setting tensorflow threads to {}.".format(args.threads))
-    K.tf.logging.set_verbosity(K.tf.logging.ERROR)
-    K.set_session(K.tf.Session(
-        config=K.tf.ConfigProto(
+    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+    K.set_session(tf.Session(
+        config=tf.ConfigProto(
             intra_op_parallelism_threads=args.threads,
             inter_op_parallelism_threads=args.threads)
     ))
@@ -659,8 +660,8 @@ def train(args):
             for i, l in enumerate(batcher.label_decoding)
     )))
 
-    import tensorflow as tf
-    with tf.device('/gpu:{}'.format(args.device)):
+    import tensorflow as tensorflow
+    with tensorflow.device('/gpu:{}'.format(args.device)):
         run_training(
             train_name, batcher, model_fp=args.model, epochs=args.epochs,
             class_weight=class_weight, n_mini_epochs=args.mini_epochs,

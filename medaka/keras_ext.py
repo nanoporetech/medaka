@@ -7,8 +7,8 @@ import time
 from timeit import default_timer as now
 
 import numpy as np
-from keras.callbacks import ModelCheckpoint
-from keras.utils import Sequence
+from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.utils import Sequence
 
 import medaka.common
 import medaka.datastore
@@ -192,7 +192,7 @@ class BatchQueue(object):
         self.loaded_batches += 1
 
 
-    @medaka.common.threadsafe_generator
+    #@medaka.common.threadsafe_generator
     def yield_batches(self):
         time_between = deque(maxlen=50)
         get_time = deque(maxlen=50)
