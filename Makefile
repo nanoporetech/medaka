@@ -93,7 +93,7 @@ test: install
 
 clean: clean_htslib
 	(${IN_VENV} && python setup.py clean) || echo "Failed to run setup.py clean"
-	rm -rf libhts.a venv build dist/ medaka.egg-info/ __pycache__ medaka.egg-info
+	rm -rf libhts.a libmedaka.abi3.so venv build dist/ medaka.egg-info/ __pycache__ medaka.egg-info
 	find . -name '*.pyc' -delete
 
 
