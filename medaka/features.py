@@ -564,7 +564,7 @@ class FeatureEncoder(object):
 
         # filter truth alignments to restrict ourselves to regions of the ref where the truth
         # in unambiguous
-        alns = TruthAlignment.bam_to_alignments(truth_bam, region, haplotag=truth_haplotag)
+        alns = medaka.labels.TruthAlignment.bam_to_alignments(truth_bam, region, haplotag=truth_haplotag)
         if len(alns) == 0:
             self.logger.info("Filtering and grouping removed all alignments of truth to ref from {}.".format(region))
 
@@ -572,7 +572,7 @@ class FeatureEncoder(object):
         pad = (medaka.common.encoding[medaka.common._gap_], 1)
         for aln in alns:
             # truth_labels should be shape (pos, ploidy) and dtype (base, run_length)
-            truth_pos, truth_labels = TruthAlignment.get_positions_and_labels(aln, aln_to_pairs)
+            truth_pos, truth_labels = medaka.labels.TruthAlignment.get_positions_and_labels(aln, aln_to_pairs)
             aln_samples = self.bam_to_sample(bam, medaka.common.Region(region.ref_name, aln[0].start, aln[0].end),
                                              ref_rle, read_fraction=read_fraction)
             ploidy = truth_labels.shape[-1]
