@@ -18,6 +18,7 @@ model_store = resource_filename(__package__, 'data')
 allowed_models = [
     'r941_trans', 'r941_flip213', 'r941_flip235',
     'r941_min_fast', 'r941_min_high', 'r941_prom_fast', 'r941_prom_high',
+    'r10_min_high',
 ]
 default_model = 'r941_min_high'
 model_dict = {
