@@ -4,8 +4,7 @@ biopython
 cffi
 h5py==2.7.1         # 2.8.0 and 2.9.0 seem to not like keras model writing
 intervaltree
-keras==2.2.4        # fixes some model checkpointing issues
-tensorflow==1.12.2  # comes with keras 2.1.6 which introduced CuDNNGRU
+tensorflow==1.14.0
 numpy==1.16.1       # tensorflow needs numpy>=1.13.3, travis needs this forced
 pysam
 pyyaml==5.1

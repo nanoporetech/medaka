@@ -1,7 +1,7 @@
-from medaka.datastore import DataStore, DataIndex
-from medaka.common import get_named_logger
+import medaka.datastore
+import medaka.common
 
-logger = get_named_logger('ModelLoad')
+logger = medaka.common.get_named_logger('ModelLoad')
 
 
 def load_model(fname, time_steps=None):
@@ -13,7 +13,7 @@ def load_model(fname, time_steps=None):
     ..note:: keras' `load_model` cannot handle CuDNNGRU layers, hence this
         function builds the model then loads the weights.
     """
-    with DataStore(fname) as ds:
+    with medaka.datastore.DataStore(fname) as ds:
         meta = ds.meta
         num_features = len(meta['medaka_feature_decoding'])
         num_classes = len(meta['medaka_label_decoding'])
@@ -41,9 +41,9 @@ def build_legacy_model(chunk_size, feature_len, num_classes, gru_size=128):
     :returns: `keras.models.Sequential` object.
     """
 
-    from keras.models import Sequential
-    from keras.layers import Dense, GRU
-    from keras.layers.wrappers import Bidirectional
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense, GRU
+    from tensorflow.keras.layers.wrappers import Bidirectional
 
     model = Sequential()
     input_shape=(chunk_size, feature_len)
@@ -60,7 +60,7 @@ def build_legacy_model(chunk_size, feature_len, num_classes, gru_size=128):
     return model
 
 
-def build_model(chunk_size, feature_len, num_classes, gru_size=128):
+def build_model(chunk_size, feature_len, num_classes, gru_size=128, classify_activation='softmax'):
     """Builds a bidirectional GRU model. Uses CuDNNGRU for additional
     speed-up on GPU (claimed 7x).
 
@@ -68,18 +68,18 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128):
     :param feature_len: int, number of features for each pileup column.
     :param num_classes: int, number of output class labels.
     :param gru_size: int, size of each GRU layer.
+    :param classify_activation, str, activation to use in classification layer.
 
     :returns: `keras.models.Sequential` object.
     """
-
-    from keras import backend as K
-    from keras.models import Sequential
-    from keras.layers import Dense, GRU, CuDNNGRU, Bidirectional
+    import tensorflow as tf
+    from tensorflow.keras import backend as K
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense, GRU, CuDNNGRU, Bidirectional
 
     # if we can see a gpu, use CuDNNGRU for speed
     cudnn = False
-    gpus = K.tensorflow_backend._get_available_gpus()
-    if len(gpus) > 0:
+    if tf.test.is_gpu_available(cuda_only=True):
         cudnn = True
 
     logger.info("With cudnn: {}".format(cudnn))
@@ -99,7 +99,7 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128):
 
     # see keras #10417 for why we specify input shape
     model.add(Dense(
-        num_classes, activation='softmax', name='classify',
+        num_classes, activation=classify_activation, name='classify',
         input_shape=(chunk_size, 2 * gru_size)
     ))
 

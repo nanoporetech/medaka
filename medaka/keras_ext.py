@@ -7,11 +7,11 @@ import time
 from timeit import default_timer as now
 
 import numpy as np
-from keras.callbacks import ModelCheckpoint 
-from keras.utils import Sequence
+from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.utils import Sequence
 
-from medaka.common import get_named_logger, threadsafe_generator, grouper
-from medaka.datastore import DataStore
+import medaka.common
+import medaka.datastore
 
 # define subclassess here to avoid top-level keras import
 
@@ -24,7 +24,7 @@ class ModelMetaCheckpoint(ModelCheckpoint):
     def on_epoch_end(self, epoch, logs=None):
         super(ModelMetaCheckpoint, self).on_epoch_end(epoch, logs)
         filepath = self.filepath.format(epoch=epoch + 1, **logs)
-        with DataStore(filepath, 'a') as ds:
+        with medaka.datastore.DataStore(filepath, 'a') as ds:
             ds.meta.update(self.medaka_meta)
 
 
@@ -61,7 +61,7 @@ class SequenceBatcher(Sequence):
         self.n_batches = len(self.data) // self.batch_size
         self.data = self.data[:self.n_batches*self.batch_size]
         np.random.shuffle(self.data)
-        self.logger = get_named_logger('{}Batcher'.format(dataset.capitalize()))
+        self.logger = medaka.common.get_named_logger('{}Batcher'.format(dataset.capitalize()))
         self.logger.info(
             '{} batches of {} samples ({}), from {} original.'.format(
             self.n_batches, self.batch_size, len(self.data), original_size
@@ -115,7 +115,7 @@ class BatchQueue(object):
             np.random.seed(seed)
 
         self.name = name
-        self.logger = get_named_logger('{}Batcher'.format(name.capitalize()))
+        self.logger = medaka.common.get_named_logger('{}Batcher'.format(name.capitalize()))
         self.maxsize = maxsize
         self._queue = queue.Queue(maxsize=self.maxsize)
         self.executor = executor
@@ -153,9 +153,9 @@ class BatchQueue(object):
         items = [prep_func(s) for s in samples]
         xs, ys = zip(*items)
         x, y = np.stack(xs), np.stack(ys)
-        get_named_logger(name).debug("Took {:5.3}s to load batch {} (epoch {})".format(now()-t0, batch, epoch))
+        medaka.common.get_named_logger(name).debug("Took {:5.3}s to load batch {} (epoch {})".format(now()-t0, batch, epoch))
         return x, y
- 
+
 
     def _fill_queue_batch(self):
         epoch = 0
@@ -165,7 +165,7 @@ class BatchQueue(object):
         while not self.stopped.is_set():
             batch = 0
             np.random.shuffle(self.samples)
-            for samples in grouper(iter(self.samples), batch_size=self.batch_size):
+            for samples in medaka.common.grouper(iter(self.samples), batch_size=self.batch_size):
                 if self.stopped.is_set(): # the loop is potentially long-running
                     self.logger.info("Batching stopped.")
                     return
@@ -192,7 +192,7 @@ class BatchQueue(object):
         self.loaded_batches += 1
 
 
-    @threadsafe_generator
+    #@medaka.common.threadsafe_generator
     def yield_batches(self):
         time_between = deque(maxlen=50)
         get_time = deque(maxlen=50)
