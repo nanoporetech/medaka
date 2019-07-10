@@ -138,14 +138,13 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
     def __init__(self, meta, threshold=0.04, ref_vcf=None):
         """Class to decode SNPs and deletions from hfds using a threshold
 
-        :param meta: dict containing 'medaka_label_decoding' and 'medaka_feature_decoding'i
+        :param meta: dict containing 'medaka_label_decoding', 'medaka_feature_decoding' and 'medaka_multi_label'
         :param threshold: threshold below which a secondary call (which would make
                 for a heterozygous call) is deemed insignificant.
         :param ref_vcf: input vcf to force evaluation only at these loci, even if we would
                 not otherwise call a SNP there.
         """
         self.logger = medaka.common.get_named_logger('SNPs')
-
 
         self.label_decoding = meta['medaka_label_decoding']
         # include extra bases so we can encode e.g. N's in reference
@@ -156,8 +155,13 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
         # meta['medaka_feature_decoding']
         # which is a tuple (dtype, is_rev, base, base_len)
         # if we have a del, base is None.
-        fmt_feat = lambda x: '{}{}{}'.format(x[0], 'rev' if x[1] else 'fwd', x[3] * (x[2] if x[2] is not None else '-'))
-        self.feature_row_names = [fmt_feat(x) for x in meta['medaka_feature_decoding']]
+        # Wrap in a try except as it might fail with any non-default features
+        try:
+            fmt_feat = lambda x: '{}{}{}'.format(x[0], 'rev' if x[1] else 'fwd', x[3] * (x[2] if x[2] is not None else '-'))
+            self.feature_row_names = [fmt_feat(x) for x in meta['medaka_feature_decoding']]
+        except:
+            self.logger.debug('Could not create feature info for VCF')
+            self.feature_row_names = None
 
         self.logger.debug("Label decoding is:\n{}".format('\n'.join(
             '{}: {}'.format(i, x) for i, x in enumerate(self.label_decoding)
@@ -168,6 +172,15 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
             self.ref_loci = defaultdict(set)
             for v in self.ref_vcf.fetch():
                 self.ref_loci[v.chrom].add(v.pos)
+
+        # if the model was trained with the multi_label option
+        # label probabilities are independent and do not sum up to 1, so we need
+        # to calculate qualties differently
+        if 'medaka_multi_label' in meta:
+            self.multi_label = meta['medaka_multi_label']
+        else:
+            self.multi_label = False
+        self.logger.info('Decoding with multi_label set to {}'.format(self.multi_label))
 
 
     def _get_ref_variant(self, ref_name, pos):
@@ -200,6 +213,7 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
 
         :returns: sorted list of `medaka.vcf.Variant` objects.
         """
+
         # For SNPS, we assume we just want the label probabilities at major positions
         # We need to handle boundary effects simply to make sure we take the best
         # probability (which is furthest from the boundary).
@@ -263,7 +277,7 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
                 if self.ref_vcf is not None:
                     ref_info = self._get_ref_variant(ref_name, major_pos[i])
                     info.update(ref_info)
-                if major_feat is not None:
+                if major_feat is not None and self.feature_row_names is not None:
                     info.update(dict(zip(self.feature_row_names, major_feat[i])))
 
                 qual = -10 * np.log10(1 - primary_probs[i])
@@ -286,10 +300,10 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
                 if self.ref_vcf is not None:
                     ref_info = self._get_ref_variant(ref_name, major_pos[i])
                     info.update(ref_info)
-                if major_feat is not None:
+                if major_feat is not None and self.feature_row_names is not None:
                     info.update(dict(zip(self.feature_row_names, major_feat[i])))
 
-                if multi_label:
+                if self.multi_label:
                     # label probabilities are independent and not normalised
                     # so calculate error for each haplotype as 1-p(call)
                     # average the error so that a similar threshold can be used

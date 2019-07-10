@@ -243,7 +243,6 @@ def main():
                          choices=sorted(medaka.variant.variant_decoders.keys()))
     pparser.add_argument('--multi_label', action='store_true', help='Multi-classification decoding.')
 
-
     # Tools
     toolparser = subparsers.add_parser('tools',
         help='tools sub-command.',
