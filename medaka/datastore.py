@@ -17,7 +17,7 @@ class DataStore(object):
     _sample_path_ = 'samples'
     _groups_ = ('medaka_features_kwargs', 'medaka_model_kwargs', 'medaka_model_name',
                 'medaka_label_decoding', 'medaka_feature_decoding',
-                'medaka_label_counts', 'medaka_samples')
+                'medaka_label_counts', 'medaka_samples', 'medaka_multi_label')
 
     def __init__(self, filename, mode='r', verify_on_close=True):
 

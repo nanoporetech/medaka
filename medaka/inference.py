@@ -12,7 +12,6 @@ import medaka.common
 import medaka.datastore
 import medaka.features
 import medaka.models
-import medaka.vcf
 
 
 def weighted_categorical_crossentropy(weights):
@@ -111,6 +110,7 @@ def run_training(train_name, batcher, model_fp=None,
     model_details['medaka_model_name'] = model_name
     model_details['medaka_model_kwargs'] = model_kwargs
     model_details['medaka_label_decoding'] = batcher.label_decoding
+    model_details['medaka_multi_label'] = multi_label
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
 
