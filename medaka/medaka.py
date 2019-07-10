@@ -10,6 +10,7 @@ import pysam
 import medaka.datastore
 import medaka.features
 import medaka.inference
+import medaka.labels
 import medaka.stitch
 import medaka.variant
 import medaka.vcf
@@ -174,6 +175,8 @@ def main():
     tparser.add_argument('features', nargs='+', help='Paths to training data.')
     tparser.add_argument('--train_name', type=str, default='keras_train', help='Name for training run.')
     tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
+    tparser.add_argument('--label_scheme', default='HaploidLabelScheme', help='Labelling scheme.',
+                         choices=sorted(medaka.labels.label_schemes.keys()))
     tparser.add_argument('--max_label_len', type=int, default=1, help='Maximum label length.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
     tparser.add_argument('--batch_size', type=int, default=200, help='Training batch size.')

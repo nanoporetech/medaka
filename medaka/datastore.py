@@ -116,13 +116,8 @@ class DataStore(object):
                     self.fh['{}/{}/{}'.format(self._sample_path_, sample.name, field)] = data
 
             if sample.labels is not None:
-                if sample.labels.shape[-1] == 1:  # haploid
-                    self.meta['medaka_label_counts'].update([tuple(l) for l in sample.labels[:, 0]])
-                else:
-                    #TODO this is appropriate for multi_label training
-                    # but if we want to explicitely encode diploid labels
-                    # one would have to count pairs of labels.
-                    self.meta['medaka_label_counts'].update([tuple(l) for l in sample.labels.flatten()])
+                # count combinations of labels accross haplotypes
+                self.meta['medaka_label_counts'].update((tuple(tuple(l) for l in row) for row in sample.labels))
             # Do this last so we only add this sample to the index if we have
             # gotten this far
             self.meta['medaka_samples'].add(sample.name)
