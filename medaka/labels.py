@@ -260,3 +260,246 @@ class TruthAlignment(object):
         positions = np.array(positions, dtype=[('major', int), ('minor', int)])
 
         return positions, label_array
+
+
+label_schemes = {}
+
+def register_label_scheme(clsname, cls):
+    """Register a label scheme."""
+    label_schemes[clsname] = cls
+
+
+class LabelSchemeRegistrar(type):
+    """metaclass for registering label schemes"""
+
+    def __new__(cls, clsname, bases, attrs):
+        newclass = super(LabelSchemeRegistrar, cls).__new__(cls, clsname, bases, attrs)
+        register_label_scheme(clsname, newclass)  # register variant decoders
+        return newclass
+
+
+class MultiLabelScheme(metaclass=LabelSchemeRegistrar):
+    """Flatten polyploidal labels into haploid labels for each (RLE) base.
+
+    For heterozygous labels, encoding will be a tuple of max length ploidy
+    matching to single-haplotype labels within a multi-classification scheme
+    for homozgous labels, the encoding will be a single integer.
+            -> e.g. ((A,1), (A,1)) -> 1
+            -> e.g. ((A,1), (T,1)) -> 1, 3
+    """
+    sparse_labels = False
+
+    def __init__(self, label_counts, max_label_len=1):
+        """
+        :param label_counts: `collections.Counter` obj of label counts.
+        :param max_label_len: int, maximum label length, longer labels will be truncated.
+        """
+
+        self.logger = medaka.common.get_named_logger(self.__class__.__name__)
+        self.max_label_len = max_label_len
+        self.ploidy = max(len(l) for l in label_counts.keys())
+        self.label_counts = self._truncate_labels_(label_counts, max_label_len)
+        self.label_encoding, self.decoding, self.decoding_description, self.encoded_counts = self._encoded_labels()
+
+    def log(self):
+        self.logger.info("Label encoding dict is:\n{}".format('\n'.join(
+            '{}: {}'.format(k, v) for k, v in self.label_encoding.items()
+        )))
+        self.logger.info("Encoded labels, descriptions and counts:\n{}".format('\n'.join(
+            '{} ({}): {}'.format(l, self.decoding_description[l], c) for l, c in self.encoded_counts.items()
+        )))
+
+    @staticmethod
+    def _truncate_labels_(label_counts, max_label_len):
+
+        if max_label_len < np.inf:  # truncate runs to max_label_len
+            full_to_trnc =  {full: tuple([(b, min(rl, max_label_len)) for b, rl in full]) for full in label_counts}
+            trnc_counts = collections.Counter()
+            for full, count in label_counts.items():
+                trnc_counts[full_to_trnc[full]] += count
+            return trnc_counts
+        else:
+            return label_counts
+
+
+    def _encoded_labels(self):
+        """Encode labels to integer classifications.
+
+        :returns: (encoding, decoding, decoding_description, encoded_counts)
+            encoding: {label: tuple of int encodings}
+            decoding: decoding[i] is the label decoding (RLE-base tuples of length ploidy) of the i'th encoded label.
+                (in this case ploidy is 1 as we have flattened labels)
+            decoding_description: tuple of descriptions of encoded labels
+            encoded_counts: `collections.Counter` of encoded-labels.
+        """
+        # get unique RLE-bases by squashing/flattening polyploidal labels into a
+        # haploid scheme
+        haploid_labels = list(sorted(set((h for l in self.label_counts for h in l))))
+        haploid_encoding = dict(zip(haploid_labels, range(len(haploid_labels))))
+        label_encoding = {}
+        encoded_counts = collections.Counter()
+        for raw, raw_count in self.label_counts.items():
+            # get encoded label(s)
+            # we don't sort here as we want to be able to pull out encodings
+            # based on raw labels without any extra downstream processing
+            encoded = tuple([haploid_encoding[l] for l in raw])
+            label_encoding[raw] = encoded
+            # for now independently count each encoded label
+            # i.e. how many times do we see A vs C
+            # so they slot into existing balanced weights code
+            # however might want to look into balancing weights based on
+            # counts of combinations of labels (i.e. how often do we see a
+            # C/G vs A/A.
+            for e in encoded:
+                encoded_counts[e] += raw_count
+
+        # here decoding is simply the haploid labels
+        decoding = tuple((l[1] * medaka.common.decoding[l[0]].upper() for l in haploid_labels))
+        suffix = 'haploid' if self.sparse_labels else 'flattened'
+        decoding_descr = tuple(['{} {}'.format(d, suffix) for d in decoding])
+
+        return label_encoding, decoding, decoding_descr, encoded_counts
+
+
+    @property
+    def balancing_weights(self):
+        raise NotImplemented()
+
+
+class HaploidLabelScheme(MultiLabelScheme):
+    """Encode haploid labels for each (RLE) base.
+
+        -> e.g. ((A,1),)  -> 1
+    """
+    sparse_labels = True
+
+    def __init__(self, label_counts, max_label_len=1):
+        super().__init__(label_counts, max_label_len=max_label_len)
+        if self.ploidy > 1:
+            raise ValueError('The {} should not be used with ploidy {}'.format(self.__class__.__name__, self.ploidy))
+
+    @property
+    def balancing_weights(self):
+        n_labels = sum(self.encoded_counts.values())
+        n_classes = len(self.encoded_counts)
+        class_weight = {k: float(n_labels)/(n_classes * count) for (k, count) in self.encoded_counts.items()}
+        class_weight_ar = np.array([class_weight[c] for c in sorted(class_weight.keys())])
+
+        self.logger.info("Label weights are:\n{}".format('\n'.join(
+            '{} ({}) {} (w. {:9.6f})'.format(i, self.decoding_description[i], self.encoded_counts[i], class_weight[i])
+                for i in sorted([v[0] for v in self.label_encoding.values()])
+        )))
+
+        return class_weight_ar
+
+
+class BaseZygosityLabelScheme(MultiLabelScheme):
+    """Creating distinct unphased encodings for homozygous and heterozygous RLE-bases.
+
+    For heterozygous labels, encoding will be a tuple of max length ploidy
+    matching to single-haplotype labels within a multi-classification scheme
+    for homozgous labels, the encoding will be a single integer.
+            -> e.g. ((A,1), (A,1)) -> 1  (homozygous A)
+            -> e.g. ((A,1), (T,1)) -> 6, 9  (heterozygous A, heterozygous T)
+            -> e.g. ((T,1), (A,1)) -> 6, 9  (heterozygous A, heterozygous T)
+    """
+    sparse_labels = False
+
+    def _encoded_labels(self):
+        """Encode labels to integer classifications.
+
+        :returns: (encoding, decoding, encoded_counts)
+            encoding: {label: tuple of int encodings}
+            decoding: decoding[i] is the label decoding (RLE-base tuples of length ploidy) of the i'th encoded label.
+                (in this case ploidy is 1 as we have flattened labels)
+            encoded_counts: `collections.Counter` of encoded-label combinations.
+        """
+
+        labels = []
+        label_encoding = {}
+        encoded_counts = collections.Counter()
+
+        for raw, raw_count in self.label_counts.items():
+            is_het = len(set(raw)) > 1
+            inds = []  # which classifications this raw label applies to
+            for rle_base in raw:
+                is_het_label = (is_het, *rle_base)
+                if is_het_label not in labels:
+                    labels.append(is_het_label)
+                ind = labels.index(is_het_label)
+                inds.append(labels.index(is_het_label))
+                # for now independently count each encoded label
+                # i.e. how many times do we see A vs C
+                # so they slot into existing balanced weights code
+                # however might want to look into balancing weights based on
+                # counts of combinations of labels (i.e. how often do we see a
+                # C/G vs A/A.
+                encoded_counts[ind] += raw_count
+            label_encoding[raw] = tuple(inds)
+
+        # decode homozygous as upper case, heterozygous as lower case
+        decoding = []
+        decoding_descr = []
+        for is_het, base, run_len in labels:
+            base_str = medaka.common.decoding[base]
+            base_str = base_str.lower() if is_het else base_str.upper()
+            decoding.append(run_len * base_str)
+            decoding_descr.append('{} {}'.format('heterozygous' if is_het else 'homozygous', decoding[-1]))
+
+        return label_encoding, decoding, decoding_descr, encoded_counts
+
+
+class FactoredBaseZygosityLabelScheme(MultiLabelScheme):
+    """Flatten polyploidal labels into haploid labels for each (RLE) base with an additinal is_heterozygous label.
+
+    For heterozygous labels, encoding will be a tuple of max length ploidy + 1
+    matching to single-haplotype labels within a multi-classification scheme
+    for homozgous labels, the encoding will be a single integer.
+            -> e.g. ((A,1), (A,1)) -> 1  (A)
+            -> e.g. ((A,1), (T,1)) -> 1, 4, 5  (A, T, heterozygous)
+            -> e.g. ((T,1), (A,1)) -> 1, 4, 5  (A, T, heterozygous)
+    """
+    sparse_labels = False
+
+    def _encoded_labels(self):
+        """Encode labels to integer classifications.
+
+        :returns: (encoding, decoding, encoded_counts)
+            encoding: {label: tuple of int encodings}
+            decoding: decoding[i] is the label decoding (RLE-base tuples of length ploidy) of the i'th encoded label.
+                (in this case ploidy is 1 as we have flattened labels)
+            encoded_counts: `collections.Counter` of encoded-label combinations.
+        """
+
+        labels = []
+        label_encoding = {}
+        encoded_counts = collections.Counter()
+
+        for raw, raw_count in self.label_counts.items():
+            is_het = len(set(raw)) > 1
+            inds = []  # which classifications this raw label applies to
+            for rle_base in raw:
+                is_het_label = (is_het, *rle_base)
+                if is_het_label not in labels:
+                    labels.append(is_het_label)
+                ind = labels.index(is_het_label)
+                inds.append(labels.index(is_het_label))
+                # for now independently count each encoded label
+                # i.e. how many times do we see A vs C
+                # so they slot into existing balanced weights code
+                # however might want to look into balancing weights based on
+                # counts of combinations of labels (i.e. how often do we see a
+                # C/G vs A/A.
+                encoded_counts[ind] += raw_count
+            label_encoding[raw] = tuple(inds)
+
+        # decode homozygous as upper case, heterozygous as lower case
+        decoding = []
+        decoding_descr = []
+        for is_het, base, run_len in labels:
+            base_str = medaka.common.decoding[base]
+            base_str = base_str.lower() if is_het else base_str.upper()
+            decoding.append(run_len * base_str)
+            decoding_descr.append('{} {}'.format('heterozygous' if is_het else 'homozygous', decoding[-1]))
+
+        return label_encoding, decoding, decoding_descr, encoded_counts
