@@ -9,6 +9,10 @@ done < <(medaka tools list_models) # Available models on first line, default on 
 MODEL=${modeldata[1]##* }
 SNPMODEL=${MODEL}
 
+function follow_link {
+  python -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' $1
+}
+
 OUTPUT="medaka_variant"
 THREADS=1
 THRESHOLD=0.04
@@ -57,8 +61,8 @@ $(basename "$0") [-h] -i <fastx>
 while getopts ':hi::f:r:o:m:s:v:T:t:b:d' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
-    i  ) iflag=true; CALLS2REF=$(readlink -f $OPTARG);;
-    f  ) fflag=true; REF=$(readlink -f $OPTARG);;
+    i  ) iflag=true; CALLS2REF=$(follow_link $OPTARG);;
+    f  ) fflag=true; REF=$(follow_link $OPTARG);;
     r  ) REGIONS="$OPTARG";;
     o  ) OUTPUT=$OPTARG;;
     m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
