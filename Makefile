@@ -1,7 +1,7 @@
 .PHONY: docs clean_samtools wheels sdist
 
 # Builds a cache of binaries which can just be copied for CI
-BINARIES=samtools minimap2 tabix bgzip
+BINARIES=samtools minimap2 tabix bgzip spoa racon
 BINCACHEDIR=bincache
 $(BINCACHEDIR):
 	mkdir -p $(BINCACHEDIR)
@@ -56,6 +56,34 @@ $(BINCACHEDIR)/minimap2: | $(BINCACHEDIR)
 	tar -xvf minimap2-2.11_x64-linux.tar.bz2
 	cp minimap2-2.11_x64-linux/minimap2 $@
 	rm -rf minimap2-2.11_x64-linux.tar.bz2 minimap2-2.11_x64-linux
+
+
+SPOAVER=3.0.0
+$(BINCACHEDIR)/spoa: | $(BINCACHEDIR)
+	@echo Making $(@F)
+	cd submodules; \
+		curl -L -o spoa-v${SPOAVER}.tar.gz https://github.com/rvaser/spoa/releases/download/${SPOAVER}/spoa-v${SPOAVER}.tar.gz; \
+		tar -xzf spoa-v${SPOAVER}.tar.gz; \
+		cd spoa-v${SPOAVER}; \
+		mkdir build; \
+		cd build; \
+		cmake -DCMAKE_BUILD_TYPE=Release -Dspoa_build_executable=ON ..; \
+		make;
+	cp submodules/spoa-v${SPOAVER}/build/bin/$(@F) $@
+
+
+RACONVER=1.3.1
+$(BINCACHEDIR)/racon: | $(BINCACHEDIR)
+	@echo Making $(@F)
+	@echo GCC is $(GCC)
+	if [ ! -e submodules/racon-v${RACONVER}.tar.gz ]; then \
+	  cd submodules; \
+	  wget https://github.com/isovic/racon/releases/download/${RACONVER}/racon-v${RACONVER}.tar.gz; \
+	  tar -xzf racon-v${RACONVER}.tar.gz; \
+	fi
+	cd submodules/racon-v${RACONVER} && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release ..
+	cd submodules/racon-v${RACONVER}/build && make
+	cp submodules/racon-v${RACONVER}/build/bin/racon $@
 
 
 $(BINCACHEDIR)/vcf2fasta: | $(BINCACHEDIR)
