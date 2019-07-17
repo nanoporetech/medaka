@@ -13,6 +13,7 @@ import medaka.inference
 import medaka.stitch
 import medaka.variant
 import medaka.vcf
+import medaka.smolecule
 
 model_store = resource_filename(__package__, 'data')
 allowed_models = [
@@ -93,16 +94,15 @@ def _model_arg():
     return parser
 
 
-def _chunking_feature_args():
+def _chunking_feature_args(batch_size=200, chunk_len=10000, chunk_ovlp=1000):
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False,
         parents=[_model_arg()],
     )
-    parser.add_argument('bam', help='Input alignments.', action=CheckBam)
-    parser.add_argument('--batch_size', type=int, default=200, help='Inference batch size.')
+    parser.add_argument('--batch_size', type=int, default=batch_size, help='Inference batch size.')
     parser.add_argument('--regions', default=None, nargs='+', help='Genomic regions to analyse.')
-    parser.add_argument('--chunk_len', type=int, default=10000, help='Chunk length of samples.')
-    parser.add_argument('--chunk_ovlp', type=int, default=1000, help='Overlap of chunks.')
+    parser.add_argument('--chunk_len', type=int, default=chunk_len, help='Chunk length of samples.')
+    parser.add_argument('--chunk_ovlp', type=int, default=chunk_ovlp, help='Overlap of chunks.')
     parser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
         nargs=2, metavar=('lower', 'upper'))
     parser.add_argument('--rle_ref', default=None, help='Encoded reference file (required only for some model types.')
@@ -161,6 +161,7 @@ def main():
         parents=[_log_level(), _chunking_feature_args()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     fparser.set_defaults(func=feature_gen_dispatch)
+    fparser.add_argument('bam', help='Input alignments.', action=CheckBam)
     fparser.add_argument('output', help='Output features file.')
     fparser.add_argument('--truth', help='Bam of truth aligned to ref to create features for training.')
     fparser.add_argument('--truth_haplotag', help='Two-letter tag defining haplotype of alignments for polyploidy labels.')
@@ -195,6 +196,7 @@ def main():
         help='Run inference from a trained model and alignments.',
         parents=[_log_level(), _chunking_feature_args()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    cparser.add_argument('bam', help='Input alignments.', action=CheckBam)
     cparser.set_defaults(func=medaka.inference.predict)
     cparser.add_argument('output', help='Output file.')
     cparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
@@ -206,6 +208,20 @@ def main():
     tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
     tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
+
+    # Consensus from single-molecules with subreads
+    smparser = subparsers.add_parser('smolecule',
+        help='Create consensus sequences from single-molecule reads.',
+        parents=[_log_level(), _chunking_feature_args(batch_size=200, chunk_len=1000, chunk_ovlp=500)],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    smparser.add_argument('fasta', nargs='+', help='Single-molecule reads, one file per read.')
+    smparser.set_defaults(func=medaka.smolecule.main)
+    smparser.add_argument('output', help='Output directory.')
+    smparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
+    smparser.add_argument('--check_output', action='store_true', default=False,
+            help='Verify integrity of output file after inference.')
+    smparser.add_argument('--save_features', action='store_true', default=False,
+            help='Save features with consensus probabilities.')
 
     # Consensus from features input
     cfparser = subparsers.add_parser('consensus_from_features',
