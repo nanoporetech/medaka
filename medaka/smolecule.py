@@ -8,6 +8,7 @@ import tempfile
 from timeit import default_timer as now
 
 import mappy
+import numpy as np
 import parasail
 import pysam
 
@@ -103,6 +104,8 @@ class Read(object):
         self._orient = None
         # has initialize() been run (i.e. are the above filled in)
         self._initialized = False
+        # has a consensus been run
+        self.consensus_run = False
 
 
     def initialize(self):
@@ -130,7 +133,7 @@ class Read(object):
 
 
     @classmethod
-    def multi_from_fastx(cls, fastx, take_all=False, read_id=None):
+    def multi_from_fastx(cls, fastx, take_all=False, read_id=None, depth_filter=1, length_filter=0):
         """Create multiple `Read`s from a fasta/q file, assuming subreads
         are grouped by read and named with <read_id>_<subread_id>.
 
@@ -139,8 +142,12 @@ class Read(object):
             `Read`.
         :param read_id: name of `Read`. Only used for `take_all == True`. If
             not given the basename of the input file is used.
+        :param depth_filter: require reads to have at least this many subreads.
+        :param length_filter: require reads to have a median subread length above
+            this value.
 
         """
+        depth_filter = max(1, depth_filter)
         if take_all and read_id is None:
             read_id = os.path.splitext(os.path.basename(fastx))[0]
         else:
@@ -151,15 +158,19 @@ class Read(object):
                 if not take_all:
                     cur_read_id = entry.name.split("_")[0]
                     if cur_read_id != read_id:
-                        if len(subreads) > 0:
-                            yield cls(read_id, subreads)
+                        if len(subreads) >= depth_filter:
+                            med_length = np.median([len(x.seq) for x in subreads])
+                            if med_length > length_filter:
+                                yield cls(read_id, subreads)
                         read_id = cur_read_id
                         subreads = []
                 if len(entry.sequence) > 0:
                     subreads.append(Subread(entry.name, entry.sequence))
 
-            if len(subreads) > 0:
-                yield cls(read_id, subreads)
+            if len(subreads) >= depth_filter:
+                med_length = np.median([len(x.seq) for x in subreads])
+                if med_length > length_filter:
+                    yield cls(read_id, subreads)
 
 
     @property
@@ -197,6 +208,7 @@ class Read(object):
                 raise ValueError('Unrecognised method: {}.'.format(method))
         self.consensus = consensus_seq
         self._alignments_valid = False
+        self.consensus_run = True
         return consensus_seq
 
 
@@ -210,9 +222,12 @@ class Read(object):
 
     def _run_racon(self, fasta):
         tname = 'consensus_{}'.format(self.name)
+        file_ext = 'sam' # paf route is not enabled since mappy no faster
+        source = self._alignments
         if not self._alignments_valid:
             self._alignments = self.align_to_template(self.consensus, tname)
             self._alignments_valid = True
+            source = self._alignments
 
         header = {
             'HD': {'VN': 1.0},
@@ -222,19 +237,26 @@ class Read(object):
             }]
         }
         with tempfile.TemporaryDirectory() as tmpdir:
-            sam = os.path.join(tmpdir, 'racon_in.sam')
             ref_fasta = os.path.join(tmpdir, 'racon_ref.fasta')
             with open(ref_fasta, 'w') as fh:
                 fh.write(">{}\n{}\n".format(tname, self.consensus))
-            write_bam(sam, [self._alignments], header, bam=False)
+
+            overlaps = os.path.join(tmpdir, 'racon_in.{}'.format(file_ext))
+            if file_ext == 'sam':
+                write_bam(overlaps, [self._alignments], header, bam=False)
+            else: #paf
+                with open(overlaps, 'w') as fh:
+                    for src in source:
+                        fh.write('{}\n'.format(src))
+
             opts = ['-m', '8', '-x', '-6', '-g', '-8']
             try:
                 out = subprocess.check_output(
-                    ['racon', fasta, sam, ref_fasta] + opts,
+                    ['racon', fasta, overlaps, ref_fasta] + opts,
                     stderr=subprocess.PIPE
                 )
             except subprocess.CalledProcessError as e:
-                print("RACON FAILED")
+                print("RACON FAILED", file_ext)
                 print(e.stdout)
                 print(e.stderr)
                 print(e.cmd)
@@ -293,35 +315,44 @@ class Read(object):
         return alignments
 
 
-    def mappy_to_template(self, template, template_name):
-        """Align subreads to a template sequence using minimap..
+    def mappy_to_template(self, template, template_name, align=True):
+        """Align subreads to a template sequence using minimap.
 
         :param template: sequence to which to align subreads.
         :param template_name: name of template sequence.
+        :param align: retrieve cigar string (else produce paf)
 
         :returns: `Alignment` tuples.
 
         """
+        # align False requires forked minimap2, and isn't much faster for
+        # a small number of sequences due to index construction time.
+        align = True
         alignments = []
-        with tempfile.NamedTemporaryFile('w', suffix='.fasta') as fh:
-            fh.write(">{}\n{}\n".format(template_name, template))
-            fh.flush()
-            aligner = mappy.Aligner(fh.name, preset='map-ont')
-            for sr in self.subreads:
-                try:
-                    hit = next(aligner.map(sr.seq))
-                except StopIteration:
-                    continue
-                else:
-                    flag = 0 if hit.strand == 1 else 16
-                    seq = sr.seq if hit.strand == 1 else reverse_complement(sr.seq)
+        aligner = mappy.Aligner(seq=template, preset='map-ont')
+        for sr in self.subreads:
+            try:
+                hit = next(aligner.map(sr.seq))
+            except StopIteration:
+                continue
+            else:
+                flag = 0 if hit.strand == 1 else 16
+                seq = sr.seq if hit.strand == 1 else reverse_complement(sr.seq)
+                if align:
                     clip = ['' if x == 0 else '{}S'.format(x) for x in (hit.q_st, len(sr.seq) - hit.q_en)]
                     if hit.strand == -1:
                         clip = clip[::-1]
                     cigstr = ''.join((clip[0], hit.cigar_str, clip[1]))
                     aln = Alignment(template_name, sr.name, flag, hit.r_st, seq, cigstr)
-                    alignments.append(aln)
-                    hit = None
+                else:
+                    # return paf string
+                    aln = '\t'.join(str(x) for x in (
+                        sr.name, len(sr.seq), hit.q_st, hit.q_en, '+' if hit.strand == +1 else '-', template_name, hit.ctg_len,
+                        hit.r_st, hit.r_en, hit.mlen, hit.blen, hit.mapq,
+                        'tp:A:P','ts:A:.','cg:Z:'+hit.cigar_str
+                    ))
+                alignments.append(aln)
+                hit = None
         return alignments
 
 
@@ -411,7 +442,7 @@ def main(args):
         reads = _multi_file_reader()
     else:
         logger.info("Given one input file, subreads are assumed to be grouped by read.")
-        reads = Read.multi_from_fastx(args.fasta[0])
+        reads = Read.multi_from_fastx(args.fasta[0], depth_filter=args.depth, length_filter=args.length)
 
     logger.info("Running pre-medaka POA consensus for all reads.")
     t0 = now()
