@@ -217,6 +217,8 @@ def main():
     smparser.add_argument('fasta', nargs='+', help='Single-molecule reads, one file per read.')
     smparser.set_defaults(func=medaka.smolecule.main)
     smparser.add_argument('output', help='Output directory.')
+    smparser.add_argument('--depth', type=int, default=3, help='Minimum subread count.')
+    smparser.add_argument('--length', type=int, default=400, help='Minimum median subread length.')
     smparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
     smparser.add_argument('--check_output', action='store_true', default=False,
             help='Verify integrity of output file after inference.')
