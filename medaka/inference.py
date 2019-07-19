@@ -120,8 +120,8 @@ def run_training(train_name, batcher, model_fp=None,
         loss = 'binary_crossentropy'
         logger.info("Using {} loss function for multi-label training".format(loss))
     else:
-        metrics=[cat_acc, qscore],
-        call_back_metrics = ['cat_acc']
+        metrics=[cat_acc, qscore]
+        call_back_metrics = {'cat_acc': cat_acc}
         if class_weight is not None:
             loss = weighted_categorical_crossentropy(class_weight)
             logger.info("Using weighted_categorical_crossentropy loss function")
