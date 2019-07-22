@@ -17,7 +17,8 @@ class DataStore(object):
     _sample_path_ = 'samples'
     _groups_ = ('medaka_features_kwargs', 'medaka_model_kwargs', 'medaka_model_name',
                 'medaka_label_decoding', 'medaka_feature_decoding',
-                'medaka_label_counts', 'medaka_samples', 'medaka_multi_label')
+                'medaka_label_counts', 'medaka_samples', 'medaka_multi_label',
+                'medaka_label_description', 'medaka_label_scheme')
 
     def __init__(self, filename, mode='r', verify_on_close=True):
 
@@ -116,13 +117,10 @@ class DataStore(object):
                     self.fh['{}/{}/{}'.format(self._sample_path_, sample.name, field)] = data
 
             if sample.labels is not None:
-                if sample.labels.shape[-1] == 1:  # haploid
-                    self.meta['medaka_label_counts'].update([tuple(l) for l in sample.labels[:, 0]])
-                else:
-                    #TODO this is appropriate for multi_label training
-                    # but if we want to explicitely encode diploid labels
-                    # one would have to count pairs of labels.
-                    self.meta['medaka_label_counts'].update([tuple(l) for l in sample.labels.flatten()])
+                # count combinations of labels accross haplotypes
+                # cast nd.array to tuple of label tuples
+                # use tolist to convert from np types to python types
+                self.meta['medaka_label_counts'].update(map(tuple, sample.labels.tolist()))
             # Do this last so we only add this sample to the index if we have
             # gotten this far
             self.meta['medaka_samples'].add(sample.name)
@@ -205,8 +203,7 @@ class DataIndex(object):
             self.meta = ds.meta
 
         c_grp = 'medaka_label_counts'
-        if c_grp in self.meta:
-            self.meta[c_grp] = Counter()
+        self.meta[c_grp] = Counter()
 
         if 'medaka_samples' in self.meta:
             del self.meta['medaka_samples']
@@ -221,10 +218,11 @@ class DataIndex(object):
                     meta = future.result()
                     if 'medaka_samples' in meta:
                         self.samples.extend([(s, f) for s in meta['medaka_samples']])
+                        if c_grp in meta:
+                            self.meta[c_grp].update(meta[c_grp])
                     else:
                         self.logger.info('Could not find samples in {}'.format(f))
 
-                    self.meta[c_grp].update(meta[c_grp])
                 except Exception as exc:
                     self.logger.info('Could not load meta from {}'.format(f))
                 else:
