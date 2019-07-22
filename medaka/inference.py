@@ -1,4 +1,3 @@
-from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 import functools
 import inspect
@@ -11,37 +10,8 @@ import numpy as np
 import medaka.common
 import medaka.datastore
 import medaka.features
+import medaka.labels
 import medaka.models
-
-
-def weighted_categorical_crossentropy(weights):
-    """
-    A weighted version of keras.objectives.categorical_crossentropy
-    @url: https://gist.github.com/wassname/ce364fddfc8a025bfab4348cf5de852d
-    @author: wassname
-
-    Variables:
-        weights: numpy array of shape (C,) where C is the number of classes
-
-    Usage:
-        weights = np.array([0.5,2,10]) # Class one at 0.5, class 2 twice the normal weights, class 3 10x.
-        loss = weighted_categorical_crossentropy(weights)
-        model.compile(loss=loss,optimizer='adam')
-    """
-    from tensorflow.keras import backend as K
-    weights = K.variable(weights)
-
-    def loss(y_true, y_pred):
-        # scale predictions so that the class probas of each sample sum to 1
-        y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
-        # clip to prevent NaN's and Inf's
-        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
-        # calc
-        loss = y_true * K.log(y_pred) * weights
-        loss = -K.sum(loss, -1)
-        return loss
-
-    return loss
 
 
 def qscore(y_true, y_pred):
@@ -90,7 +60,7 @@ def run_training(train_name, batcher, model_fp=None,
 
     opt_str = '\n'.join(['{}: {}'.format(k,v) for k, v in model_kwargs.items()])
     logger.info('Building {} model with: \n{}'.format(model_name, opt_str))
-    num_classes = len(batcher.label_counts)
+    num_classes = len(batcher.label_scheme.label_decoding)
     timesteps, feat_dim = batcher.feature_shape
     model = medaka.models.model_builders[model_name](timesteps, feat_dim, num_classes, **model_kwargs)
 
@@ -109,13 +79,16 @@ def run_training(train_name, batcher, model_fp=None,
 
     model_details['medaka_model_name'] = model_name
     model_details['medaka_model_kwargs'] = model_kwargs
-    model_details['medaka_label_decoding'] = batcher.label_decoding
     model_details['medaka_multi_label'] = multi_label
+    model_details['medaka_label_decoding'] = batcher.label_scheme.label_decoding
+    model_details['medaka_label_description'] = batcher.label_scheme.label_description
+    model_details['medaka_label_counts'] = batcher.label_scheme.label_counts
+    model_details['medaka_label_scheme'] = batcher.label_scheme.__class__.__name__
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
 
     if multi_label:
-        metrics = ['categorical_accuracy']
+        metrics = ['binary_accuracy']
         call_back_metrics = metrics
         loss = 'binary_crossentropy'
         logger.info("Using {} loss function for multi-label training".format(loss))
@@ -169,11 +142,7 @@ def run_training(train_name, batcher, model_fp=None,
     with ProcessPoolExecutor(threads_io) as executor:
         logger.info("Starting data queues.")
         prep_function = functools.partial(
-            batcher.sample_to_x_y_bq_worker,
-            max_label_len=batcher.max_label_len,
-            label_encoding=batcher.label_encoding,
-            sparse_labels=batcher.sparse_labels,
-            n_classes=batcher.n_classes
+            batcher.sample_to_x_y_bq_worker, label_scheme=batcher.label_scheme
         )
         # TODO: should take mini_epochs into account here
         train_queue = BatchQueue(
@@ -211,17 +180,18 @@ def run_training(train_name, batcher, model_fp=None,
 
 
 class TrainBatcher():
-    def __init__(self, features, max_label_len, validation=0.2, seed=0, sparse_labels=True, batch_size=500, threads=1):
+    def __init__(self, features, label_scheme_cls, max_label_len, validation=0.2, seed=0, batch_size=500, threads=1):
         """
         Class to server up batches of training / validation data.
 
         :param features: iterable of str, training feature files.
+        :param label_scheme_cls, LabellingScheme class.
         :param max_label_len: int, maximum label length, longer labels will be truncated.
         :param validation: float, fraction of batches to use for validation, or
                 iterable of str, validation feature files.
         :param seed: int, random seed for separation of batches into training/validation.
-        :param sparse_labels: bool, create sparse labels.
-
+        :param batch_size: int, number of samples per batch.
+        :param threads: int, number of threads to use for preparing batches.
         """
         self.logger = medaka.common.get_named_logger('TrainBatcher')
 
@@ -229,13 +199,14 @@ class TrainBatcher():
         self.max_label_len = max_label_len
         self.validation = validation
         self.seed = seed
-        self.sparse_labels = sparse_labels
+        self.sparse_labels = label_scheme_cls.sparse_labels
         self.batch_size = batch_size
 
         di = medaka.datastore.DataIndex(self.features, threads=threads)
         self.samples = di.samples.copy()
         self.meta = di.meta.copy()
         self.label_counts = self.meta['medaka_label_counts']
+        self.label_scheme = label_scheme_cls(self.label_counts, max_label_len=self.max_label_len)
 
         # check sample size using first batch
         test_sample, test_fname = self.samples[0]
@@ -268,12 +239,6 @@ class TrainBatcher():
                                     len(self.valid_samples) * self.feature_shape[0],
                                     'validation'))
 
-        self.n_classes = len(self.label_counts)
-
-        # get label encoding, given max_label_len
-        self.logger.info("Max label length: {}".format(self.max_label_len if self.max_label_len is not None else 'inf'))
-        self.label_encoding, self.label_decoding, self.label_counts = process_labels(self.label_counts, max_label_len=self.max_label_len)
-
 
     def sample_to_x_y(self, sample):
         """Convert a `medaka.common.Sample` object into an x,y tuple for training.
@@ -283,9 +248,7 @@ class TrainBatcher():
         :returns: (np.ndarray of inputs, np.ndarray of labels)
 
         """
-        return self.sample_to_x_y_bq_worker(
-            sample, self.max_label_len, self.label_encoding,
-            self.sparse_labels, self.n_classes)
+        return self.sample_to_x_y_bq_worker(sample, self.label_scheme)
 
 
     def samples_to_batch(self, samples):
@@ -304,15 +267,11 @@ class TrainBatcher():
 
 
     @staticmethod
-    def sample_to_x_y_bq_worker(sample, max_label_len, label_encoding, sparse_labels, n_classes):
+    def sample_to_x_y_bq_worker(sample, label_scheme):
         """Convert a `medaka.common.Sample` object into an x,y tuple for training.
 
         :param sample: (filename, sample key)
-        :param max_label_len: int, maximum label length, longer labels will be truncated.
-        :param label_encoding: {label: int encoded label}.
-        :param sparse_labels: bool, create sparse labels.
-        :param n_classes: int, number of label classes.
-
+        :param label_scheme: `LabellingScheme` obj
         :returns: (np.ndarray of inputs, np.ndarray of labels)
 
         """
@@ -323,29 +282,25 @@ class TrainBatcher():
         if s.labels is None:
             raise ValueError("Sample {} in {} has no labels.".format(sample_key, sample_file))
         x = s.features
-        # s.labels is a structured array with run-length encoded (base, length) labels.
-        # the dimension of the last axis determines the ploidy.
-        ploidy = s.labels.shape[-1]
-        # trim label lengths to max_label_len
-        s.labels['run_length'] = np.minimum(s.labels['run_length'], max_label_len, out=s.labels['run_length'])
-        hap_ys = []
-        for p in range(ploidy):
-            hap_labels = s.labels[:, p]
-            hap_ys.append(np.fromiter((label_encoding[tuple(l)] for l in hap_labels), dtype=int, count=len(hap_labels)))
 
-        if ploidy == 1:
-            y = hap_ys[0].reshape(hap_ys[0].shape + (1,))
-            if not sparse_labels:
-                from tensorflow.keras.utils.np_utils import to_categorical
-                y = to_categorical(y, num_classes=n_classes)
-        elif not sparse_labels:  # multi-hot-encoding, heterozygous loci have >1 non-zero elements
-            y = np.zeros(shape=(len(s.labels), len(label_encoding)), dtype=int)
-            for hap_y in hap_ys:
-                np.put_along_axis(y, hap_y.reshape(-1, 1), 1, axis=1)
+        # trim label lengths to max_label_len
+        s.labels['run_length'] = np.minimum(s.labels['run_length'], label_scheme.max_label_len, out=s.labels['run_length'])
+
+        if label_scheme.sparse_labels:
+            # label encoding values are tuples of int labels, but for sparse labels
+            # there will only be one, so take first one.
+            # need to use tolist() to convert numpy dtypes to python dtypes
+            int_tups = (label_scheme.label_encoding[tuple(l)][0] for l in s.labels.tolist())
+            y = np.fromiter(int_tups, dtype=int, count=len(s.labels)).reshape(-1, 1)
+
         else:
-            #TODO one could implement a sparse labeling scheme encoding pairs of labels
-            # either in a phased or unphased manner
-            raise NotImplementedError('Training with ploidy >1 and sparse labels is not implemented.')
+            y = np.zeros(shape=(len(s.labels), len(label_scheme.label_decoding)), dtype=int)
+            encoded = (label_scheme.label_encoding[tuple(l)] for l in s.labels.tolist())
+            # TODO can this be implemented more efficiently up, e.g. converting
+            # this to sparse array in scipy / numpy then to non-sparse array?
+            for row_ind, col_inds in enumerate(encoded):
+                for col_ind in col_inds:
+                    y[row_ind, col_ind] = 1
 
         return x, y
 
@@ -490,40 +445,6 @@ def predict(args):
             pass
 
 
-def process_labels(label_counts, max_label_len=10):
-    """Create map from full labels to (encoded) truncated labels.
-
-    :param label_counts: `Counter` obj of label counts.
-    :param max_label_len: int, maximum label length, longer labels will be truncated.
-    :returns:
-    :param label_encoding: {label: int encoded label}.
-    :param sparse_labels: bool, create sparse labels.
-    :param n_classes: int, number of label classes.
-    :returns: ({label: int encoding}, [label decodings], `Counter` of truncated counts).
-    """
-    logger = medaka.common.get_named_logger('Labelling')
-
-    old_labels = [k for k in label_counts.keys()]
-    new_labels = (l[1] * medaka.common.decoding[l[0]].upper() for l in old_labels)
-
-    if max_label_len < np.inf:
-        new_labels = [l[:max_label_len] for l in new_labels]
-
-    old_to_new = dict(zip(old_labels, new_labels))
-    label_decoding = list(sorted(set(new_labels)))
-    label_encoding = { l: label_decoding.index(old_to_new[l]) for l in old_labels}
-    logger.info("Label encoding dict is:\n{}".format('\n'.join(
-        '{}: {}'.format(k, v) for k, v in label_encoding.items()
-    )))
-
-    new_counts = Counter()
-    for l in old_labels:
-        new_counts[label_encoding[l]] += label_counts[l]
-    logger.info("New label counts {}".format(new_counts))
-
-    return label_encoding, label_decoding, new_counts
-
-
 def train(args):
     """Training program."""
     train_name = args.train_name
@@ -532,35 +453,18 @@ def train(args):
     logger = medaka.common.get_named_logger('Training')
     logger.debug("Loading datasets:\n{}".format('\n'.join(args.features)))
 
-    if args.balanced_weights or args.multi_label:
-        sparse_labels = False
-    else:
-        sparse_labels = True
-
     args.validation = args.validation_features if args.validation_features is not None else args.validation_split
 
-    batcher = TrainBatcher(args.features, args.max_label_len, args.validation,
-                           args.seed, sparse_labels, args.batch_size, threads=args.threads_io)
+    label_scheme_cls = medaka.labels.label_schemes[args.label_scheme]
+    batcher = TrainBatcher(args.features, label_scheme_cls, args.max_label_len, args.validation,
+                           args.seed, args.batch_size, threads=args.threads_io)
 
-    if args.balanced_weights:
-        n_labels = sum(batcher.label_counts.values())
-        n_classes = len(batcher.label_counts)
-        class_weight = {k: float(n_labels)/(n_classes * count) for (k, count) in batcher.label_counts.items()}
-        class_weight = np.array([class_weight[c] for c in sorted(class_weight.keys())])
-    else:
-        class_weight = None
 
-    h = lambda d, i: d[i] if d is not None else 1
-    logger.info("Label statistics are:\n{}".format('\n'.join(
-        '{} ({}) {} (w. {:9.6f})'.format(i, l, batcher.label_counts[i], h(class_weight, i))
-            for i, l in enumerate(batcher.label_decoding)
-    )))
-
-    import tensorflow as tensorflow
-    with tensorflow.device('/gpu:{}'.format(args.device)):
+    import tensorflow as tf
+    with tf.device('/gpu:{}'.format(args.device)):
         run_training(
             train_name, batcher, model_fp=args.model, epochs=args.epochs,
-            class_weight=class_weight, n_mini_epochs=args.mini_epochs,
+            n_mini_epochs=args.mini_epochs,
             threads_io=args.threads_io, multi_label=args.multi_label)
 
     # stop batching threads
