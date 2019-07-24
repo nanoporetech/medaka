@@ -12,16 +12,12 @@ def load_model(fname, time_steps=None):
 
     ..note:: keras' `load_model` cannot handle CuDNNGRU layers, hence this
         function builds the model then loads the weights.
+
     """
     with medaka.datastore.DataStore(fname) as ds:
         meta = ds.meta
         num_features = len(meta['medaka_feature_decoding'])
         num_classes = len(meta['medaka_label_decoding'])
-        try:
-            num_dtypes = len(meta['medaka_features_kwargs']['dtypes'])
-        except KeyError:
-            num_dtypes = 1
-        num_features *= num_dtypes
     build_model = model_builders[meta['medaka_model_name']]
 
     logger.info("Building model (steps, features, classes): ({}, {}, {})".format(
@@ -38,7 +34,9 @@ def build_legacy_model(chunk_size, feature_len, num_classes, gru_size=128):
     :param feature_len: int, number of features for each pileup column.
     :param num_classes: int, number of output class labels.
     :param gru_size: int, size of each GRU layer.
+
     :returns: `keras.models.Sequential` object.
+
     """
 
     from tensorflow.keras.models import Sequential
@@ -68,9 +66,10 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, classify_act
     :param feature_len: int, number of features for each pileup column.
     :param num_classes: int, number of output class labels.
     :param gru_size: int, size of each GRU layer.
-    :param classify_activation, str, activation to use in classification layer.
+    :param classify_activation: str, activation to use in classification layer.
 
     :returns: `keras.models.Sequential` object.
+
     """
     import tensorflow as tf
     from tensorflow.keras import backend as K

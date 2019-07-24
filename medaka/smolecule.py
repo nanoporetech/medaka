@@ -134,7 +134,7 @@ class Read(object):
 
     @classmethod
     def multi_from_fastx(cls, fastx, take_all=False, read_id=None, depth_filter=1, length_filter=0):
-        """Create multiple `Read`s from a fasta/q file, assuming subreads
+        """Create multiple `Read` s from a fasta/q file, assuming subreads
         are grouped by read and named with <read_id>_<subread_id>.
 
         :param fastx: input file path.
@@ -267,7 +267,7 @@ class Read(object):
     def orient_subreads(self):
         """Find orientation of subreads with respect to consensus sequence.
 
-        :returns: `Alignment`s of subreads to consensus.
+        :returns: `Alignment` s of subreads to consensus.
 
         """
         # TODO: use a profile here

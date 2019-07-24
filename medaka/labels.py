@@ -380,9 +380,11 @@ class FactoredBaseZygosityLabelScheme(BaseLabelScheme):
     For heterozygous labels, encoding will be a tuple of max length ploidy + 1
     matching to single-haplotype labels within a multi-classification scheme.
     For homozygous labels, the encoding will be a tuple of length 2.
-            -> e.g. ((A,1), (A,1)) -> 1, 5  (A, homozygous)
-            -> e.g. ((A,1), (T,1)) -> 1, 4, 6  (A, T, heterozygous)
-            -> e.g. ((T,1), (A,1)) -> 1, 4, 6  (A, T, heterozygous)
+
+        -> e.g. ((A,1), (A,1)) -> 1, 5  (A, homozygous)
+        -> e.g. ((A,1), (T,1)) -> 1, 4, 6  (A, T, heterozygous)
+        -> e.g. ((T,1), (A,1)) -> 1, 4, 6  (A, T, heterozygous)
+
     """
     sparse_labels = False
     _description_suffix_ = 'multi-label factored base & zygosity'

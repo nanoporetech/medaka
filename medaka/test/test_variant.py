@@ -279,13 +279,6 @@ class TestSNPDecoder(unittest.TestCase):
         s, ref_seq_encoded = sample_from_labels(ref_labels, pri_labels, secondary_labels=sec_labels,
                                primary_prob=primary_prob, secondary_prob=secondary_prob)
 
-        decoder = SNPDecoder(_meta_)
-        variants = list(decoder.decode_variants(iter([s]),
-                                                ref_seq=ref_labels.replace(medaka.common._gap_, ''),
-                                                threshold=secondary_prob)
-                                                )
-        variants = sorted(variants, key=lambda x: x.pos)
-
         qual_homo = -10 * np.log10(1 - primary_prob)
         qual_hetero = -10 * np.log10(1 - (primary_prob + secondary_prob))
 
@@ -312,17 +305,14 @@ class TestSNPDecoder(unittest.TestCase):
 
 
         # Using a threshold equal to the secondary_prob we should get heterozygous calls
-        variants = sorted(decoder.decode_variants(iter([s]),
-                                                ref_seq=ref_labels.replace(medaka.common._gap_, ''),
-                                                threshold=secondary_prob),
-                          key=lambda x: x.pos)
+        decoder = SNPDecoder(_meta_, threshold=secondary_prob)
+        variants = decoder.decode_variants(iter([s]), ref_seq=ref_labels.replace(medaka.common._gap_, ''))
+        variants = sorted(variants, key=lambda x: x.pos)
 
         # If we increase the threshold, we should only get only homozyous calls
-        variants_prim = sorted(decoder.decode_variants(iter([s]),
-                                                       ref_seq=ref_labels.replace(medaka.common._gap_, ''),
-                                                       threshold=2*secondary_prob),
-                               key=lambda x: x.pos)
-
+        decoder = SNPDecoder(_meta_, threshold=2*secondary_prob)
+        variants_prim = decoder.decode_variants(iter([s]), ref_seq=ref_labels.replace(medaka.common._gap_, ''))
+        variants_prim = sorted(variants_prim, key=lambda x: x.pos)
         self.assertEqual(len(variants), len(pos_ref_alt_gt))
         self.assertEqual(len(variants_prim), len(pos_ref_alt_gt_prim))
 
