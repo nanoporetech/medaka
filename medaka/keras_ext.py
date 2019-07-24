@@ -16,8 +16,9 @@ import medaka.datastore
 # define subclassess here to avoid top-level keras import
 
 class ModelMetaCheckpoint(ModelCheckpoint):
-    """Custom ModelCheckpoint to add medaka-specific metadata to model files"""
+
     def __init__(self, medaka_meta, *args, **kwargs):
+        """Custom ModelCheckpoint to add medaka-specific metadata to model files."""
         super(ModelMetaCheckpoint, self).__init__(*args, **kwargs)
         self.medaka_meta = medaka_meta
 

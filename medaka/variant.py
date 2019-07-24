@@ -1,6 +1,8 @@
-from collections import defaultdict
+import abc
+import collections
 import inspect
 import itertools
+import operator
 
 import numpy as np
 import pysam
@@ -17,7 +19,8 @@ __max_qscore__ = 9999
 
 def register_variant_decoder(clsname, cls):
     """Register a variant decoder."""
-    variant_decoders[clsname] = cls
+    if clsname != 'BaseDecoder':
+        variant_decoders[clsname] = cls
 
 
 class DecoderRegistrar(type):
@@ -132,23 +135,23 @@ def join_chunked_variants(gen, ref_seq_encoded, gap_encoded):
         raise ValueError('Reached end of generator at {} without is_last_in_contig being True'.format(s.name))
 
 
-class SNPDecoder(object, metaclass=DecoderRegistrar):
-    """Class to decode diploid SNPs and deletions using a threshold"""
+class Meta(abc.ABC, DecoderRegistrar):
+    pass
 
-    def __init__(self, meta, threshold=0.04, ref_vcf=None):
-        """Class to decode SNPs and deletions from hfds using a threshold
 
+class BaseDecoder(metaclass=Meta):
+    """Abstract base class to decode diploid SNPs"""
+
+    def __init__(self, meta, ref_vcf=None):
+        """
         :param meta: dict containing 'medaka_label_decoding', 'medaka_feature_decoding' and 'medaka_multi_label'
-        :param threshold: threshold below which a secondary call (which would make
-                for a heterozygous call) is deemed insignificant.
         :param ref_vcf: input vcf to force evaluation only at these loci, even if we would
                 not otherwise call a SNP there.
         """
-        self.logger = medaka.common.get_named_logger('SNPs')
+        self.logger = medaka.common.get_named_logger(self.__class__.__name__)
 
         self.label_decoding = meta['medaka_label_decoding']
-        # include extra bases so we can encode e.g. N's in reference
-        self.label_encoding = {label: ind for ind, label in enumerate(self.label_decoding + list(medaka.common._extra_bases_))}
+        self.augmented_label_encoding = self._label_encoding_with_extra_bases()
 
         # to be able to add feature date to the VCF info fields, we need a label
         # for each feature row, which we can get from
@@ -169,7 +172,7 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
 
         self.ref_vcf = medaka.vcf.VCFReader(ref_vcf) if ref_vcf is not None else None
         if self.ref_vcf is not None:
-            self.ref_loci = defaultdict(set)
+            self.ref_loci = collections.defaultdict(set)
             for v in self.ref_vcf.fetch():
                 self.ref_loci[v.chrom].add(v.pos)
 
@@ -181,6 +184,51 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
         else:
             self.multi_label = False
         self.logger.info('Decoding with multi_label set to {}'.format(self.multi_label))
+
+
+    def _label_encoding_with_extra_bases(self):
+        """Get map from label decodings (eg. 'A') to int labels with extra bases so we can encode e.g. reference N's.
+        """
+        # include extra bases so we can encode e.g. N's in reference and create
+        # our own label encoding rather than use that in the meta, as
+        # meta['medaka_label_encoding'] could map from pairs of raw labels to
+        # one or more encoded labels while we want a simple map from
+        # label_decoding (eg. 'A') to int label classification.
+
+        # This is used to encode the reference with the (augmented) medaka
+        # labels once per reference contig, and this encoded ref is compared to
+        # the consensus calls in each sample chunk to check for variants. This
+        # is more efficient than having to convert every sample chunk to str
+        # arrays to compare with a reference string array
+        return {label: ind for ind, label in enumerate(
+                itertools.chain(self.label_decoding, medaka.common._extra_bases_))}
+
+
+    @abc.abstractmethod
+    def decode_variants(self, samples, ref_seq):
+        """Abstract method to decode variants.
+
+        :param samples: stream of `medaka.common.Sample` objects for a given contig.
+        :param ref_seq: reference sequence.
+
+        :returns: sorted list of `medaka.vcf.Variant` objects.
+        """
+
+
+class SNPDecoder(BaseDecoder):
+    """Class to decode SNPs using a threshold"""
+
+
+    def __init__(self, meta, threshold=0.04, ref_vcf=None):
+        """
+        :param meta: dict containing 'medaka_label_decoding', 'medaka_feature_decoding' and 'medaka_multi_label'
+        :param threshold: threshold below which a secondary call (which would make
+                for a heterozygous call) is deemed insignificant.
+        :param ref_vcf: input vcf to force evaluation only at these loci, even if we would
+                not otherwise call a SNP there.
+        """
+        super().__init__(meta, ref_vcf=ref_vcf)
+        self.threshold = threshold
 
 
     def _get_ref_variant(self, ref_name, pos):
@@ -201,17 +249,206 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
         return ref_info
 
 
-    def decode_variants(self, samples, ref_seq, threshold=0.04, multi_label=True):
-        """Decode SNPs using a threshold.
+    def _process_sample(self, s, ref_seq):
+
+        #TODO one could refactor this to use specialised VariantSample classes that
+        # inherit from medaka.common.Sample and implement methods like this
+
+        data = self._process_sample_probs(s, ref_seq)
+        homozygous_snp_inds, heterozygous_snp_inds = self._get_hom_het_snp_inds_(data)
+
+        return homozygous_snp_inds, heterozygous_snp_inds, data
+
+
+    def _preprocess_sample_probs(self, s):
+        """Preprocess sample label probabilities
+        :param s: `medaka.common.Sample` instance
+        :returns: dict containing sample fields"""
+        #TODO one could refactor this to use specialised VariantSample classes that
+        # inherit from medaka.common.Sample and implement methods like this
+        data = s._asdict()
+        return data
+
+
+    def _process_sample_probs(self, s, ref_seq):
+
+        #TODO one could refactor this to use specialised VariantSample classes that
+        # inherit from medaka.common.Sample and implement methods like this
+
+        data = self._preprocess_sample_probs(s)
+
+        # for snps, we discard minor positions (insertions)
+        data = self._discard_minor(data)
+
+        data['ref_seq_encoded'] = np.fromiter(
+            (self.augmented_label_encoding[ref_seq[i]] for i in data['positions']['major']),
+            int, count=len(data['positions'])
+        )
+        sorted_prob_inds = np.argsort(data['label_probs'], -1)
+        sorted_probs = np.take_along_axis(data['label_probs'], sorted_prob_inds, axis=-1)
+        data['primary_labels'] = sorted_prob_inds[:, -1]
+        data['secondary_labels'] = sorted_prob_inds[:, -2]
+        data['primary_probs'] = sorted_probs[:, -1]
+        data['secondary_probs'] = sorted_probs[:, -2]
+
+        # we'll want to skip positions where ref is not a label (*ATCG)
+        data['is_ref_valid_label'] = np.isin(data['ref_seq_encoded'], np.arange(len(self.label_decoding)))
+
+        data['is_primary_diff_to_ref'] = np.not_equal(data['primary_labels'], data['ref_seq_encoded'])
+        data['is_secondary_diff_to_ref'] = np.not_equal(data['secondary_labels'], data['ref_seq_encoded'])
+        data['is_primary_not_del'] = data['primary_labels'] != self.augmented_label_encoding[medaka.common._gap_]
+        data['is_secondary_del'] = data['secondary_labels'] == self.augmented_label_encoding[medaka.common._gap_]
+
+        return data
+
+
+    def _discard_minor(self, data):
+        """Discard minor positions (insertions) from processed sample data (modifies data in-place)
+
+        :param data: dict of `medaka.common.Sample._fields` containing at least sample positions array.
+        :returns data: dict in which all arrays have had minor positions removed. Non-array fields will be unchanged.
+        """
+
+        #TODO one could refactor this to use specialised VariantSample classes that
+        # inherit from medaka.common.Sample and implement methods like this
+
+        major_inds = np.where(data['positions']['minor'] == 0)
+
+        for field in data.keys():
+            if data[field] is not None and isinstance(data[field], np.ndarray):
+                data[field] = data[field][major_inds]
+        return data
+
+
+    def _get_hom_het_snp_inds_(self, data):
+        """Get indices of homozygous and heterozygous SNPs using a threshold"""
+
+        #TODO one could refactor this to use specialised VariantSample classes that
+        # inherit from medaka.common.Sample and implement methods like this
+
+        # for homozygous SNP max_prob_label not in {ref, del} and
+        # (2nd_max_prob < threshold or 2nd_max_prob_label is del)
+        # for heterozygous SNP 2nd_max_prob > threshold and del not in {max_prob_label, 2nd_prob_label}
+        # this catches both SNPs where the genotype contains the
+        # reference, and where both copies are mutated.
+
+        is_secondary_prob_lt_thresh = data['secondary_probs'] < self.threshold
+        is_not_secondary_call = np.logical_or(data['is_secondary_del'], is_secondary_prob_lt_thresh)
+
+        is_homozygous_snp = np.logical_and.reduce([
+            data['is_primary_diff_to_ref'], data['is_primary_not_del'],
+            is_not_secondary_call, data['is_ref_valid_label']
+        ])
+        homozygous_snp_inds = np.where(is_homozygous_snp)[0]  # to get indices in 0th axis
+
+        # heterozygous SNPs
+        is_secondary_prob_ge_thresh = np.logical_not(is_secondary_prob_lt_thresh)
+        is_secondary_not_del = np.logical_not(data['is_secondary_del'])
+        is_heterozygous_snp = np.logical_and.reduce([
+            is_secondary_prob_ge_thresh, is_secondary_not_del,
+            data['is_primary_not_del'], data['is_ref_valid_label']
+        ])
+        heterozygous_snp_inds = np.where(is_heterozygous_snp)[0]  # to get indices in 0th axis
+
+        return homozygous_snp_inds, heterozygous_snp_inds
+
+
+    def _get_variant_data(self, data, i):
+        pos = data['positions']['major'][i]
+        ref_base_encoded = data['ref_seq_encoded'][i]
+        info = {'ref_prob': data['label_probs'][i][ref_base_encoded],
+                'primary_prob': data['primary_probs'][i],
+                'primary_label': self.label_decoding[data['primary_labels'][i]],
+                'secondary_prob': data['secondary_probs'][i],
+                'secondary_label': self.label_decoding[data['secondary_labels'][i]],
+                }
+        if self.ref_vcf is not None:
+            ref_info = self._get_ref_variant(data['ref_name'], pos)
+            info.update(ref_info)
+        if data['features'] is not None and self.feature_row_names is not None:
+            info.update(dict(zip(self.feature_row_names, data['features'][i])))
+
+        ref = self.label_decoding[ref_base_encoded]
+
+        return pos, ref, info
+
+
+    def _yield_homozygous_snps(self, homozygous_snp_inds, data, called_loci):
+
+        for i in homozygous_snp_inds:
+            pos, ref, info = self._get_variant_data(data, i)
+            alt = self.label_decoding[data['primary_labels'][i]]
+
+            qual = -10 * np.log10(1 - data['primary_probs'][i])
+            sample = {'GT': '1/1', 'GQ': qual,}
+            called_loci.add(pos)
+            yield medaka.vcf.Variant(data['ref_name'], pos, ref, alt,
+                                     filter='PASS', info=info, qual=qual,
+                                     sample_dict=sample)
+
+
+    def _yield_heterozygous_snps(self, heterozygous_snp_inds, data, called_loci):
+
+        for i in heterozygous_snp_inds:
+            pos, ref, info = self._get_variant_data(data, i)
+            if self.multi_label:
+                # label probabilities are independent and not normalised
+                # so calculate error for each haplotype as 1-p(call)
+                # average the error so that a similar threshold can be used
+                # for homozygous and heterozygous SNPs (were one to sum, if
+                # one assumes that the network can be equally confident at
+                # calling homozygous and heterozygous loci, the heterozygous
+                # quals would always have double the uncertainty.
+                err = 1 - 0.5 * (data['primary_probs'][i] + data['secondary_probs'][i])
+            else:
+                # ideally one will have almost 0.5 probability in each
+                # label, with any residual error in the other labels
+                # (as compared to homozygous loci where one would have
+                # almost unit probability in a single label
+                err = 1 - (data['primary_probs'][i] + data['secondary_probs'][i])
+
+            qual = -10 * np.log10(err)
+            ref_base_encoded = data['ref_seq_encoded'][i]
+            alt = [self.label_decoding[l] for l in
+                   (data['primary_labels'][i], data['secondary_labels'][i]) if l != ref_base_encoded]
+            gt = '0/1' if len(alt) == 1 else '1/2'  # / => unphased
+            sample = {'GT': gt, 'GQ': qual,}
+            called_loci.add(pos)
+            yield medaka.vcf.Variant(data['ref_name'], pos, ref, alt=alt,
+                                     filter='PASS', info=info, qual=qual,
+                                     sample_dict=sample)
+
+
+    def _yield_reference_snps(self, missing_snp_inds, data, called_loci):
+
+        for i in missing_snp_inds:
+            pos = data['positions']['major'][i]
+            ref_base_encoded = data['ref_seq_encoded'][i]
+            info = {'ref_prob': data['label_probs'][i][ref_base_encoded],
+                    'primary_prob': data['primary_probs'][i],
+                    'primary_label': self.label_decoding[data['primary_labels'][i]],
+                    'secondary_prob': data['secondary_probs'][i],
+                    'secondary_label': self.label_decoding[data['secondary_labels'][i]],
+                    }
+            ref_info = self._get_ref_variant(ref_name, data['positions']['major'][i])
+            info.update(ref_info)
+            if data['features'] is not None:
+                info.update(dict(zip(self.feature_row_names, data['features'][i])))
+            qual = -10 * np.log10(1 - data['primary_probs'][i])
+            sample = {'GT': 0, 'GQ': qual,}
+            yield medaka.vcf.Variant(ref_name, pos,
+                                        self.label_decoding[ref_base_encoded],
+                                        alt='.', filter='PASS', info=info,
+                                        qual=qual, sample_dict=sample)
+
+
+    def decode_variants(self, samples, ref_seq):
+        """Decode SNPs.
 
         :param samples: stream of `medaka.common.Sample` objects for a given contig.
         :param ref_seq: reference sequence.
-        :param threshold: threshold below which a secondary call (which would make
-                for a heterozygous call) is deemed insignificant.
-        :param multi_label: Use this option if the model was trained with the multi_label option
-                meaning that label probabilities are independent and do not sum up to 1.
 
-        :returns: sorted list of `medaka.vcf.Variant` objects.
+        :yields: `medaka.vcf.Variant` objects.
         """
 
         # For SNPS, we assume we just want the label probabilities at major positions
@@ -222,140 +459,22 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
         for s, _ in yield_trimmed_consensus_chunks(samples):
             ref_name = s.ref_name if ref_name is None else ref_name
             assert ref_name == s.ref_name
-            pos = s.positions
-            probs = s.label_probs
-            # discard minor positions (insertions)
-            major_inds = np.where(pos['minor'] == 0)
-            major_pos = pos[major_inds]['major']
-            major_probs = probs[major_inds]
-            major_feat = s.features[major_inds] if s.features is not None else None
 
-            # for homozygous SNP max_prob_label not in {ref, del} and
-            # (2nd_max_prob < threshold or 2nd_max_prob_label is del)
-            # for heterozygous SNP 2nd_max_prob > threshold and del not in {max_prob_label, 2nd_prob_label}
-            # this catches both SNPs where the genotype contains the
-            # reference, and where both copies are mutated.
-
-            ref_seq_encoded = np.fromiter((self.label_encoding[ref_seq[i]] for i in major_pos), int, count=len(major_pos))
-            sorted_prob_inds = np.argsort(major_probs, -1)
-            sorted_probs = np.take_along_axis(major_probs, sorted_prob_inds, axis=-1)
-            primary_labels = sorted_prob_inds[:, -1]
-            secondary_labels = sorted_prob_inds[:, -2]
-            primary_probs = sorted_probs[:, -1]
-            secondary_probs = sorted_probs[:, -2]
-            # skip positions where ref is not a label (ATGC)
-            is_ref_valid_label = np.isin(ref_seq_encoded, np.arange(len(self.label_decoding)))
-
-            # homozygous SNPs
-            is_primary_diff_to_ref = np.not_equal(primary_labels, ref_seq_encoded)
-            is_primary_not_del = primary_labels != self.label_encoding[medaka.common._gap_]
-            is_secondary_del = secondary_labels == self.label_encoding[medaka.common._gap_]
-            is_secondary_prob_lt_thresh = secondary_probs < threshold
-            is_not_secondary_call = np.logical_or(is_secondary_del, is_secondary_prob_lt_thresh)
-
-            is_homozygous_snp = np.logical_and.reduce(
-                [is_primary_diff_to_ref, is_primary_not_del, is_not_secondary_call, is_ref_valid_label]
-            )
-            homozygous_snp_inds = np.where(is_homozygous_snp)
-
-            # heterozygous SNPs
-            is_secondary_prob_ge_thresh = np.logical_not(is_secondary_prob_lt_thresh)
-            is_secondary_not_del = secondary_labels != self.label_encoding[medaka.common._gap_]
-
-            is_heterozygous_snp = np.logical_and.reduce(
-                [is_secondary_prob_ge_thresh, is_secondary_not_del, is_primary_not_del, is_ref_valid_label]
-            )
-            heterozygous_snp_inds = np.where(is_heterozygous_snp)
-            for i in homozygous_snp_inds[0]:
-                ref_base_encoded = ref_seq_encoded[i]
-                info = {'ref_prob': major_probs[i][ref_base_encoded],
-                        'primary_prob': primary_probs[i],
-                        'primary_label': self.label_decoding[primary_labels[i]],
-                        'secondary_prob': secondary_probs[i],
-                        'secondary_label': self.label_decoding[secondary_labels[i]],
-                        }
-                if self.ref_vcf is not None:
-                    ref_info = self._get_ref_variant(ref_name, major_pos[i])
-                    info.update(ref_info)
-                if major_feat is not None and self.feature_row_names is not None:
-                    info.update(dict(zip(self.feature_row_names, major_feat[i])))
-
-                qual = -10 * np.log10(1 - primary_probs[i])
-                sample = {'GT': '1/1', 'GQ': qual,}
-                called_loci.add(major_pos[i])
-                yield medaka.vcf.Variant(ref_name, major_pos[i],
-                                         self.label_decoding[ref_base_encoded],
-                                         alt=self.label_decoding[primary_labels[i]],
-                                         filter='PASS', info=info, qual=qual,
-                                         sample_dict=sample)
-
-            for i in heterozygous_snp_inds[0]:
-                ref_base_encoded = ref_seq_encoded[i]
-                info = {'ref_prob': major_probs[i][ref_base_encoded],
-                        'primary_prob': primary_probs[i],
-                        'primary_label': self.label_decoding[primary_labels[i]],
-                        'secondary_prob': secondary_probs[i],
-                        'secondary_label': self.label_decoding[secondary_labels[i]]
-                        }
-                if self.ref_vcf is not None:
-                    ref_info = self._get_ref_variant(ref_name, major_pos[i])
-                    info.update(ref_info)
-                if major_feat is not None and self.feature_row_names is not None:
-                    info.update(dict(zip(self.feature_row_names, major_feat[i])))
-
-                if self.multi_label:
-                    # label probabilities are independent and not normalised
-                    # so calculate error for each haplotype as 1-p(call)
-                    # average the error so that a similar threshold can be used
-                    # for homozygous and heterozygous SNPs (were one to sum, if
-                    # one assumes that the network can be equally confident at
-                    # calling homozygous and heterozygous loci, the heterozygous
-                    # quals would always have double the uncertainty.
-                    err = 1 - 0.5 * (primary_probs[i] + secondary_probs[i])
-                else:
-                    # ideally one will have almost 0.5 probability in each
-                    # label, with any residual error in the other labels
-                    # (as compared to homozygous loci where one would have
-                    # almost unit probability in a single label
-                    err = 1 - (primary_probs[i] + secondary_probs[i])
-
-                qual = -10 * np.log10(1 - err)
-                alt = [self.label_decoding[l] for l in (primary_labels[i], secondary_labels[i]) if l != ref_base_encoded]
-                gt = '0/1' if len(alt) == 1 else '1/2'  # / => unphased
-                sample = {'GT': gt, 'GQ': qual,}
-                called_loci.add(major_pos[i])
-                yield medaka.vcf.Variant(ref_name, major_pos[i],
-                                         self.label_decoding[ref_base_encoded],
-                                         alt=alt, filter='PASS', info=info,
-                                         qual=qual, sample_dict=sample)
+            homozygous_snp_inds, heterozygous_snp_inds, data = self._process_sample(s, ref_seq)
+            yield from self._yield_homozygous_snps(homozygous_snp_inds, data, called_loci)
+            yield from self._yield_heterozygous_snps(heterozygous_snp_inds, data, called_loci)
 
             if self.ref_vcf is not None:
                 # if we provided a vcf, check which positions are missing
+                major_pos = data['positions']['major']
                 missing_loci = self.ref_loci[ref_name] - called_loci
                 missing_loci_in_chunk = missing_loci.intersection(major_pos)
                 missing_loci_in_chunk = np.fromiter(missing_loci_in_chunk, int,
                                                     count=len(missing_loci_in_chunk))
                 is_missing = np.isin(major_pos, missing_loci_in_chunk)
-                missing_snp_inds = np.where(is_missing)
+                missing_snp_inds = np.where(is_missing)[0]
+                yield from self._yield_reference_snps(missing_snp_inds, data)
 
-                for i in missing_snp_inds[0]:
-                    ref_base_encoded = ref_seq_encoded[i]
-                    info = {'ref_prob': major_probs[i][ref_base_encoded],
-                            'primary_prob': primary_probs[i],
-                            'primary_label': self.label_decoding[primary_labels[i]],
-                            'secondary_prob': secondary_probs[i],
-                            'secondary_label': self.label_decoding[secondary_labels[i]],
-                            }
-                    ref_info = self._get_ref_variant(ref_name, major_pos[i])
-                    info.update(ref_info)
-                    if major_feat is not None:
-                        info.update(dict(zip(self.feature_row_names, major_feat[i])))
-                    qual = -10 * np.log10(1 - primary_probs[i])
-                    sample = {'GT': 0, 'GQ': qual,}
-                    yield medaka.vcf.Variant(ref_name, major_pos[i],
-                                             self.label_decoding[ref_base_encoded],
-                                             alt='.', filter='PASS', info=info,
-                                             qual=qual, sample_dict=sample)
 
     @property
     def meta_info(self):
@@ -369,6 +488,80 @@ class SNPDecoder(object, metaclass=DecoderRegistrar):
             medaka.vcf.MetaInfo('FORMAT', 'GQ', 1, 'Float', 'Medaka genotype quality score'),
         ]
         return m
+
+
+class FactoredBaseZygositySNPDecoder(SNPDecoder):
+    """Class to decode SNPs and deletions using factored base and zygosity labels."""
+    _heterozygous_label_decoding_ = 'heterozygous'
+    _homozygous_label_decoding_ = 'homozygous'
+
+    def __init__(self, meta, ref_vcf=None):
+        """
+        :param meta: dict containing 'medaka_label_decoding', 'medaka_feature_decoding' and 'medaka_multi_label'
+        :param ref_vcf: input vcf to force evaluation only at these loci, even if we would
+                not otherwise call a SNP there.
+        """
+        super().__init__(meta, ref_vcf=ref_vcf)
+
+        # tuple of labels e.g. ('*', 'A', 'AA', 'C', 'G', 'T', 'homozygous', 'heterozygous')
+        decoding = meta['medaka_label_decoding']
+        # indices of zygosity labels
+        self._zygosity_labels_ = (decoding.index(self._homozygous_label_decoding_),
+                                  decoding.index(self._heterozygous_label_decoding_))
+        # indices of base labels
+        self._base_labels_ = tuple(set(range(len(decoding))) - set(self._zygosity_labels_))
+
+        # create label_decoding and label_encoding only for base labels
+        self.label_decoding = operator.itemgetter(*self._base_labels_)(decoding)
+        self.augmented_label_encoding = self._label_encoding_with_extra_bases()
+        # create zygosity label decoding
+        self.label_decoding_zygosity = operator.itemgetter(*self._zygosity_labels_)(decoding)
+
+
+    def _preprocess_sample_probs(self, s):
+        """Preprocess sample label probabilities to split out zygosity labels from base labels"""
+
+        #TODO one could refactor this to use specialised VariantSample classes that
+        # inherit from medaka.common.Sample and implement methods like this
+
+        data = s._asdict()
+
+        data['zygosity_probs'] = s.label_probs[:, self._zygosity_labels_]
+        # replace label_probs with just base labels
+        data['label_probs'] = s.label_probs[:, self._base_labels_]
+
+        # add a is_heterozygous field
+        heterozygous_label = self.label_decoding_zygosity.index(self._heterozygous_label_decoding_)
+        predicted_zygosity_label = np.argmax(data['zygosity_probs'], axis=1)
+        data['is_heterozygous'] = predicted_zygosity_label == heterozygous_label
+
+        return data
+
+
+    def _get_hom_het_snp_inds_(self, data):
+        """Get indices of homozygous and heterozygous SNPs using zygosity labels"""
+
+        #TODO one could refactor this to use specialised VariantSample classes that
+        # inherit from medaka.common.Sample and implement methods like this
+
+        is_heterozygous_snp = np.logical_and.reduce([
+            data['is_ref_valid_label'],
+            data['is_heterozygous'],
+            np.logical_or(data['is_primary_diff_to_ref'], data['is_secondary_diff_to_ref']),
+            np.logical_and(data['is_primary_not_del'], np.logical_not(data['is_secondary_del'])),
+        ])
+
+        is_homozygous_snp = np.logical_and.reduce([
+            data['is_ref_valid_label'],
+            data['is_primary_not_del'],
+            np.logical_not(data['is_heterozygous']),
+            data['is_primary_diff_to_ref'],
+        ])
+
+        heterozygous_snp_inds = np.where(is_heterozygous_snp)[0]
+        homozygous_snp_inds = np.where(is_homozygous_snp)[0]
+
+        return homozygous_snp_inds, heterozygous_snp_inds
 
 
 def parse_regions(regions):
@@ -388,7 +581,7 @@ def parse_regions(regions):
     return tuple(ref_names)
 
 
-class HaploidVariantDecoder(SNPDecoder, metaclass=DecoderRegistrar):
+class HaploidVariantDecoder(SNPDecoder):
     """Class to decode haploid variants (snps and indels)."""
 
     def decode_variants(self, samples, ref_seq):
@@ -402,9 +595,9 @@ class HaploidVariantDecoder(SNPDecoder, metaclass=DecoderRegistrar):
         :returns: sorted list of `medaka.vcf.Variant` objects.
         """
 
-        ref_seq_encoded = np.fromiter((self.label_encoding[b] for b in ref_seq), int, count=len(ref_seq))
+        ref_seq_encoded = np.fromiter((self.augmented_label_encoding[b] for b in ref_seq), int, count=len(ref_seq))
 
-        gap_encoded = self.label_encoding[medaka.common._gap_]
+        gap_encoded = self.augmented_label_encoding[medaka.common._gap_]
 
         for s in join_chunked_variants(yield_trimmed_consensus_chunks(samples), ref_seq_encoded, gap_encoded):
 
@@ -512,7 +705,7 @@ class HaploidVariantDecoder(SNPDecoder, metaclass=DecoderRegistrar):
 
 
 def variants_from_hdf(args):
-    """Entry point for variant calling from hdf consensus probability files."""
+    """Entry point for variant calling from HDF5 consensus probability files."""
     index = medaka.datastore.DataIndex(args.inputs)
     if args.regions is not None:
         ref_names = parse_regions(args.regions)
@@ -520,10 +713,12 @@ def variants_from_hdf(args):
         ref_names = medaka.common.loose_version_sort(index.index.keys())
 
     decoder_cls = variant_decoders[args.decoder]
-    decoder = decoder_cls(index.meta, ref_vcf=args.ref_vcf)
 
-    opts = inspect.signature(decoder.decode_variants).parameters.keys()
-    opts = {k:getattr(args, k) for k in opts if k not in  {'self', 'samples', 'ref_seq'}}
+    opts = inspect.signature(decoder_cls.__init__).parameters.keys()
+    opts = {k:getattr(args, k) for k in opts if k not in  {'self', 'meta', 'ref_vcf'}}
+
+    decoder = decoder_cls(index.meta, ref_vcf=args.ref_vcf, **opts)
+
     logger = medaka.common.get_named_logger('Variants')
 
     with medaka.vcf.VCFWriter(args.output, 'w', version='4.1', contigs=ref_names,
@@ -532,5 +727,5 @@ def variants_from_hdf(args):
             logger.info("Processing {}.".format(ref_name))
             ref_seq = pysam.FastaFile(args.ref_fasta).fetch(reference=ref_name)
             samples = index.yield_from_feature_files([ref_name])
-            variants = decoder.decode_variants(samples, ref_seq, **opts)
+            variants = decoder.decode_variants(samples, ref_seq)
             vcf_writer.write_variants(variants, sort=True)
