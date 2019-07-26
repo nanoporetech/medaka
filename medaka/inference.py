@@ -42,7 +42,7 @@ def run_training(train_name, batcher, model_fp=None,
                  epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1, multi_label=False):
     """Run training."""
     from tensorflow.keras.callbacks import CSVLogger, TensorBoard, EarlyStopping, ReduceLROnPlateau
-    from medaka.keras_ext import ModelMetaCheckpoint, SequenceBatcher, BatchQueue
+    from medaka.keras_ext import ModelMetaCheckpoint, SequenceBatcher
 
     logger = medaka.common.get_named_logger('RunTraining')
 
@@ -138,45 +138,14 @@ def run_training(train_name, batcher, model_fp=None,
     else:
         logger.info("Using mini_epochs, an epoch is a traversal of 1/{} of the training data".format(n_mini_epochs))
 
-
-    with ProcessPoolExecutor(threads_io) as executor:
-        logger.info("Starting data queues.")
-        prep_function = functools.partial(
-            batcher.sample_to_x_y_bq_worker, label_scheme=batcher.label_scheme
-        )
-        # TODO: should take mini_epochs into account here
-        train_queue = BatchQueue(
-            batcher.train_samples, prep_function, batcher.batch_size, executor,
-            seed=batcher.seed, name='Train', maxsize=100
-        )
-        valid_queue = BatchQueue(
-            batcher.valid_samples, prep_function, batcher.batch_size, executor,
-            seed=batcher.seed, name='Valid', maxsize=100
-        )
-
-        # run training
-        logger.info("Starting training.")
-        model.fit_generator(
-            generator=train_queue.yield_batches(), steps_per_epoch=train_queue.n_batches // n_mini_epochs,
-            validation_data=valid_queue.yield_batches(), validation_steps=valid_queue.n_batches,
-            max_queue_size=2*threads_io, workers=1, use_multiprocessing=False,
-            epochs=epochs,
-            callbacks=callbacks,
-            class_weight=class_weight,
-        )
-        logger.info("Training finished.")
-        train_queue.stop()
-        valid_queue.stop()
-
-    #TODO: understand why this is buggy (occasionally hangs during validation)
-    #model.fit_generator(
-    #    SequenceBatcher(batcher, mini_epochs=n_mini_epochs),
-    #    validation_data=SequenceBatcher(batcher, 'validation'),
-    #    max_queue_size=2*threads_io, workers=threads_io, use_multiprocessing=True,
-    #    epochs=epochs,
-    #    callbacks=callbacks,
-    #    class_weight=class_weight,
-    #)
+    model.fit_generator(
+        SequenceBatcher(batcher, mini_epochs=n_mini_epochs),
+        validation_data=SequenceBatcher(batcher, 'validation'),
+        max_queue_size=2*threads_io, workers=threads_io, use_multiprocessing=True,
+        epochs=epochs,
+        callbacks=callbacks,
+        class_weight=class_weight,
+    )
 
 
 class TrainBatcher():
