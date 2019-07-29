@@ -6,8 +6,6 @@ Model
 * Add support for R10 basecaller
 * Add diploid multi-labelling
 * Upgrade to tensorflow 1.14.0
-* Fix lack of curl in dependencies
-* Fix some typos and missing module prefix
 
 
 v0.7.1
