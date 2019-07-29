@@ -1,7 +1,13 @@
 
+v0.8.1
+------
+Patch release
+
+* Patch import of loading of older models
+
 v0.8.0
 ------
-Model
+Model release and development release
 
 * Add support for R10 basecaller
 * Add diploid multi-labelling
