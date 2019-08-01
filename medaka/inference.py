@@ -274,8 +274,8 @@ class TrainBatcher():
         return x, y
 
 
-def run_prediction(output, bam, regions, model, model_file, rle_ref,
-        read_fraction, chunk_len, chunk_ovlp, batch_size=200,
+def run_prediction(output, bam, regions, model, model_file,
+        chunk_len, chunk_ovlp, batch_size=200,
         save_features=False, tag_name=None, tag_value=None,
         tag_keep_missing=False, enable_chunking=True):
     """Inference worker."""
@@ -288,7 +288,7 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
         #   (they hold the feature vector in memory until they die)
         for region in regions:
             data_gen = medaka.features.SampleGenerator(
-                bam, region, model_file, rle_ref, read_fraction,
+                bam, region, model_file,
                 chunk_len=chunk_len, chunk_overlap=chunk_ovlp,
                 tag_name=tag_name, tag_value=tag_value,
                 tag_keep_missing=tag_keep_missing,
@@ -380,7 +380,7 @@ def predict(args):
     model = medaka.models.load_model(args.model, time_steps=args.chunk_len)
     # the returned regions are those where the pileup width is smaller than chunk_len
     remainder_regions = run_prediction(
-        args.output, args.bam, regions, model, args.model, args.rle_ref, args.read_fraction,
+        args.output, args.bam, regions, model, args.model,
         args.chunk_len, args.chunk_ovlp,
         batch_size=args.batch_size, save_features=args.save_features,
         tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing
@@ -394,7 +394,7 @@ def predict(args):
         model = medaka.models.load_model(args.model, time_steps=None)
         for region in remainder_regions:
             new_remainders = run_prediction(
-                args.output, args.bam, [region[0]], model, args.model, args.rle_ref, args.read_fraction,
+                args.output, args.bam, [region[0]], model, args.model,
                 args.chunk_len, args.chunk_ovlp, # these won't be used
                 batch_size=args.batch_size, save_features=args.save_features,
                 tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing,
