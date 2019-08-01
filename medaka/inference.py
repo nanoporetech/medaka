@@ -39,9 +39,11 @@ def cat_acc(y_true, y_pred):
 
 
 def run_training(train_name, batcher, model_fp=None,
-                 epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1, multi_label=False):
+                 epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1, multi_label=False,
+                 optimizer='rmsprop', optim_args=None):
     """Run training."""
     from tensorflow.keras.callbacks import CSVLogger, TensorBoard, EarlyStopping, ReduceLROnPlateau
+    from tensorflow.keras import optimizers
     from medaka.keras_ext import ModelMetaCheckpoint, SequenceBatcher
 
     logger = medaka.common.get_named_logger('RunTraining')
@@ -102,9 +104,20 @@ def run_training(train_name, batcher, model_fp=None,
             loss = 'sparse_categorical_crossentropy'
             logger.info("Using {} loss function".format(loss))
 
+    if optimizer == 'nadam':
+        if optim_args is None:
+            # defaults from docs as of 01/09/2019
+            optim_args = {'lr':0.002, 'beta_1':0.9, 'beta_2':0.999, 'epsilon':None, 'schedule_decay':0.004}
+        optimizer = optimizers.Nadam(optim_args)
+    elif optimizer == 'rmsprop':
+        if optim_args is None:
+            optim_args = {'lr':0.001, 'rho':0.9, 'epsilon':None, 'decay':0.0}
+        optimizer = optimizers.RMSprop(optim_args)
+    else:
+        raise ValueError('Unknown optimizer: {}'.format(optimizer))
     model.compile(
        loss=loss,
-       optimizer='nadam',
+       optimizer=optimizer,
        metrics=metrics,
     )
 
@@ -434,7 +447,8 @@ def train(args):
         run_training(
             train_name, batcher, model_fp=args.model, epochs=args.epochs,
             n_mini_epochs=args.mini_epochs,
-            threads_io=args.threads_io, multi_label=args.multi_label)
+            threads_io=args.threads_io, multi_label=args.multi_label,
+            optimizer=args.optimizer, optim_args=args.optim_args)
 
     # stop batching threads
     logger.info("Training finished.")

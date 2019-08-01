@@ -41,7 +41,7 @@ def build_legacy_model(chunk_size, feature_len, num_classes, gru_size=128):
 
     from tensorflow.keras.models import Sequential
     from tensorflow.keras.layers import Dense, GRU
-    from tensorflow.keras.layers.wrappers import Bidirectional
+    from tensorflow.keras.layers import Bidirectional
 
     model = Sequential()
     input_shape=(chunk_size, feature_len)
