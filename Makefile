@@ -124,6 +124,14 @@ clean: clean_htslib
 	rm -rf libhts.a libmedaka.abi3.so venv build dist/ medaka.egg-info/ __pycache__ medaka.egg-info
 	find . -name '*.pyc' -delete
 
+pileup: libhts.a
+	mkdir -p test_prog
+	gcc -pthread -pg -g -Wall -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -std=c99 -msse3 -O3 \
+		-Isrc -Isubmodules/samtools-1.9/htslib-1.9 \
+		src/medaka_counts.c libhts.a \
+		-lz -llzma -lbz2 -lpthread -lcurl -lcrypto \
+		-o $(@) -std=c99 -msse3 -O3
+
 
 wheels:
 	docker run -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/build-wheels.sh
