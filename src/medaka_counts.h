@@ -1,5 +1,7 @@
 // medaka-style feature data
 typedef struct {
+    size_t buffer_cols;
+    size_t num_dtypes;
     size_t n_cols;
     size_t *counts;
     size_t *major;
@@ -28,6 +30,7 @@ static size_t num2countbase[32] = {
 /** Constructs a pileup data structure.
  *
  *  @param n_cols number of pileup columns.
+ *  @param buffer_cols number of pileup columns for which to allocate memory
  *  @param num_dtypes number of datatypes in pileup.
  *  @see destroy_plp_data
  *  @returns a plp_data pointer.
@@ -35,7 +38,16 @@ static size_t num2countbase[32] = {
  *  The return value can be freed with destroy_plp_data.
  *
  */
-plp_data create_plp_data(size_t n_cols, size_t num_dtypes);
+plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes);
+
+
+/** Enlarge the internal buffers of a pileup data structure.
+ *
+ *  @param pileup a plp_data pointer.
+ *  @param buffer_cols number of pileup columns for which to allocate memory
+ *
+ */
+void enlarge_plp_data(plp_data pileup, size_t buffer_cols);
 
 
 /** Destroys a pileup data structure.
