@@ -136,6 +136,15 @@ def print_all_models(args):
     print('Default:', default_model)
 
 
+class StoreDict(argparse.Action):
+     def __call__(self, parser, namespace, values, option_string=None):
+         my_dict = {}
+         for kv in values.split(","):
+             k,v = kv.split("=")
+             my_dict[k] = v
+         setattr(namespace, self.dest, my_dict)
+
+
 def main():
     from medaka import __version__
     parser = argparse.ArgumentParser('medaka',
@@ -188,6 +197,8 @@ def main():
     tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
     tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
     tparser.add_argument('--device', type=int, default=0, help='GPU device to use.')
+    tparser.add_argument('--optimizer', type=str, default='rmsprop', choices=['nadam','rmsprop'], help='Optimizer to use.')
+    tparser.add_argument('--optim_args', action=StoreDict, default=None, metavar="KEY1=VAL1,KEY2=VAL2...", help="Optimizer key-word arguments.")
 
     vgrp = tparser.add_mutually_exclusive_group()
     vgrp.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
