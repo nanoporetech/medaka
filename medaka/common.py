@@ -664,7 +664,7 @@ def background_generator(generator, max_size, daemon=True):
     # yield results concurrently whilst filling queue
     while have_data.is_set():
         try:
-            res = results.get(timeout=1)
+            res = results.get(timeout=0.1)
         except queue.Empty:
             if not have_data.is_set():
                break

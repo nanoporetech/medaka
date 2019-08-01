@@ -286,7 +286,7 @@ class TrainBatcher():
 
         return x, y
 
-
+@profile
 def run_prediction(output, bam, regions, model, model_file, rle_ref,
         read_fraction, chunk_len, chunk_ovlp, batch_size=200,
         save_features=False, tag_name=None, tag_value=None,
@@ -309,7 +309,7 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
             yield from data_gen.samples
             remainder_regions.extend(data_gen._quarantined)
     batches = medaka.common.background_generator(
-        medaka.common.grouper(sample_gen(), batch_size), 10
+        medaka.common.grouper(sample_gen(), batch_size), 100
     )
 
     total_region_mbases = sum(r.size for r in regions) / 1e6
@@ -320,7 +320,7 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
 
         t0 = now()
         tlast = t0
-        for data in batches:
+        for b, data in enumerate(batches):
             x_data = np.stack([x.features for x in data])
             class_probs = model.predict_on_batch(x_data)
             # calculate bases done taking into account overlap
@@ -345,7 +345,10 @@ def run_prediction(output, bam, regions, model, model_file, rle_ref,
                 sample_d['label_probs'] = prob
                 sample_d['features'] = feat if save_features else None
                 ds.write_sample(medaka.common.Sample(**sample_d))
+            if b > 10:
+                break
 
+    remainder_regions=[]
     logger.info("All done, {} remainder regions.".format(len(remainder_regions)))
     return remainder_regions
 
