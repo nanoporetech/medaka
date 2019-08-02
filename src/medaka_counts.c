@@ -320,7 +320,8 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
                         base_j += 16;
                     }
                     base_i = num2countbase[base_j];
-                    pileup->counts[major_col + dtype_featlen * j + featlen * dtype + base_i] += 1;
+                    if (base_i != -1) //not an ambiguity code
+                        pileup->counts[major_col + dtype_featlen * j + featlen * dtype + base_i] += 1;
                 }
             }
         }
