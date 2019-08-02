@@ -10,7 +10,7 @@ typedef struct {
 
 typedef _plp_data *plp_data; 
 
-
+/*
 // medaka-style base encoding
 static const char plp_bases[] = "XacgtACGTdD";
 static const size_t featlen = 11; // len of the above
@@ -24,6 +24,22 @@ static size_t num2countbase[32] = {
  8, 0, 0, 0, 0, 0, 0, 0,
  0, 1, 2, 0, 3, 0, 0, 0,
  4, 0, 0, 0, 0, 0, 0, 0,
+};
+*/
+
+// medaka-style base encoding
+static const char plp_bases[] = "acgtACGTdD";
+static const size_t featlen = 10; // len of the above
+static const size_t fwd_del = 9; // position of D
+static const size_t rev_del = 8;  // position of d
+
+
+// convert 16bit IUPAC (+16 for strand) to plp_bases index
+static int num2countbase[32] = {
+ -1,  4,  5, -1,  6, -1, -1, -1,
+  7, -1, -1, -1, -1, -1, -1, -1,
+ -1,  0,  1, -1,  2, -1, -1, -1,
+  3, -1, -1, -1, -1, -1, -1, -1,
 }; 
 
 

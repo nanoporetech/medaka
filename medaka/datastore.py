@@ -95,7 +95,7 @@ class DataStore(object):
         self._meta = self.meta
         self._meta.update(meta)
 
-    @profile
+
     def write_sample(self, sample):
         """Write sample to hdf, ensuring a sample is not written twice and maintaining
         a count of labels seen.
