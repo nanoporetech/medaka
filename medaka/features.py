@@ -93,7 +93,7 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
     _results = list()
     for counts, positions in results:
         move = np.ediff1d(positions['major'])
-        gaps = np.where(move > 2)[0] + 1
+        gaps = np.where(move > 1)[0] + 1
         if len(gaps) == 0:
             _results.append((counts, positions))
         else:
