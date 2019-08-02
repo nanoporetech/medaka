@@ -51,6 +51,8 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
     else:
         tag_name = ffi.new("char[2]", tag_name.encode())
 
+    featlen = lib.featlen
+
     def _process_region(reg):
         # htslib start is 1-based, medaka.common.Region object is 0-based
         region_str = '{}:{}-{}'.format(reg.ref_name, reg.start + 1, reg.end)
@@ -62,7 +64,6 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
 
         # TODO: this should ALL probably not be hardcoded. Counts should return
         # all information needed about how to reconstruct the array
-        featlen = lib.featlen
         size_sizet = np.dtype(np.uintp).itemsize
         np_counts = np.frombuffer(ffi.buffer(
             counts.counts, size_sizet * counts.n_cols * featlen * num_dtypes),
