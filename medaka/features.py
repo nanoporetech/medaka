@@ -91,7 +91,7 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
         _results = list()
         for counts, positions in executor.map(_process_region, regions):
             move = np.ediff1d(positions['major'])
-            gaps = np.where(move > 2)[0] + 1
+            gaps = np.where(move > 1)[0] + 1
             if len(gaps) == 0:
                 _results.append((counts, positions))
             else:
@@ -102,6 +102,7 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
                     start = i
                 _results.append((counts[start:], positions[start:]))
         results = _results
+
 
     # Second pass: stitch abutting chunks together, anything not neighbouring
     # is kept separate whether it came from the same chunk originally or not
