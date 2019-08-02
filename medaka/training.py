@@ -1,17 +1,10 @@
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-import functools
 import inspect
-import logging
 import os
-import queue
-import threading
-from timeit import default_timer as now
 
 import numpy as np
 
 import medaka.common
 import medaka.datastore
-import medaka.features
 import medaka.labels
 import medaka.models
 
@@ -269,7 +262,6 @@ class TrainBatcher():
         :returns: (np.ndarray of inputs, np.ndarray of labels)
 
         """
-        t0 = now()
         items = [self.sample_to_x_y(s) for s in samples]
         xs, ys = zip(*items)
         x, y = np.stack(xs), np.stack(ys)
