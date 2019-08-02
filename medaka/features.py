@@ -35,23 +35,21 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
     ffi, lib = libmedaka.ffi, libmedaka.lib
     logger = medaka.common.get_named_logger('PileUp')
 
-    num_dtypes, dtypes = 1, ffi.NULL
-    if isinstance(dtype_prefixes, str):
-        dtype_prefixes = [dtype_prefixes]
-    if dtype_prefixes is not None and len(dtype_prefixes) > 1:
+    if dtype_prefixes is None or isinstance(dtype_prefixes, str) or len(dtype_prefixes) == 1:
+        num_dtypes, dtypes = 1, ffi.NULL
+    else:
         num_dtypes = len(dtype_prefixes)
         _dtypes = [ffi.new("char[]", d.encode()) for d in dtype_prefixes]
         dtypes = ffi.new("char *[]", _dtypes)
+
     if tag_name is None:
         tag_name = ffi.new("char[2]", "".encode())
         tag_value = 0
         keep_missing = False
+    elif len(tag_name) != 2:
+        raise ValueError("'tag_name' must be a length-2 string.")
     else:
-        if len(tag_name) > 2:
-            raise ValueError("'tag_value' must be a length-2 string.")
         tag_name = ffi.new("char[2]", tag_name.encode())
-
-    featlen = lib.featlen
 
     def _process_region(reg):
         # htslib start is 1-based, medaka.common.Region object is 0-based
@@ -62,6 +60,9 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
             tag_name, tag_value, keep_missing
         )
 
+        # TODO: this should ALL probably not be hardcoded. Counts should return
+        # all information needed about how to reconstruct the array
+        featlen = lib.featlen
         size_sizet = np.dtype(np.uintp).itemsize
         np_counts = np.frombuffer(ffi.buffer(
             counts.counts, size_sizet * counts.n_cols * featlen * num_dtypes),
@@ -93,7 +94,7 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
     _results = list()
     for counts, positions in results:
         move = np.ediff1d(positions['major'])
-        gaps = np.where(move > 2)[0] + 1
+        gaps = np.where(move > 1)[0] + 1
         if len(gaps) == 0:
             _results.append((counts, positions))
         else:
@@ -178,14 +179,14 @@ class FeatureEncoder(object):
         for dtype in self.dtypes:
             # dtype, rev/fwd, base/gap
             read_decoding += [
-                (dtype,) + k
-                for k in itertools.product((True, False), medaka.common._alphabet_)
+                (dtype,) + (direction, base)
+                for (direction, base) in itertools.product((True, False), medaka.common._alphabet_)
             ]
             # forward and reverse gaps
             read_decoding += [(dtype, True, None), (dtype, False, None)]
-        self.encoding = OrderedDict(((a, i) for i, a in enumerate(self.decoding)))
+        self.encoding = OrderedDict(((a, i) for i, a in enumerate(read_decoding)))
         self.logger.debug("Feature decoding is:\n{}".format('\n'.join(
-            '{}: {}'.format(i, x) for i, x in enumerate(self.decoding)
+            '{}: {}'.format(i, x) for i, x in enumerate(read_decoding)
         )))
 
 
@@ -199,7 +200,7 @@ class FeatureEncoder(object):
         """
         return {
             (dt, strand):
-                [self.encoding[k] for k in self.encoding.keys()
+                [v for k, v in self.encoding.items()
                     if k[0] == dt and strand == k[1]]
                 for dt, strand in itertools.product(self.dtypes, (True, False))
         }
@@ -583,4 +584,3 @@ def compress(args):
 
     if args.output is not None:
         fh.close()
-
