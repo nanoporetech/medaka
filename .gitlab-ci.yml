@@ -1,0 +1,36 @@
+image: $IMAGE
+
+stages:
+    - build
+
+before_script:
+    - apt-get update -qq && apt-get install -y -qq
+      gcc make cmake curl wget
+      python3-all-dev python-virtualenv
+      zlib1g-dev libbz2-dev liblzma-dev libncurses5-dev libcurl4-gnutls-dev
+      libssl-dev libffi-dev
+
+runtest:
+    stage: build
+    script:
+        - make test
+
+.many-linux: &many-linux-def
+  image: quay.io/pypa/manylinux1_x86_64
+  stage: build
+  before_script:
+      - echo "Nothing to do in before_script"
+  artifacts:
+      paths:
+          - wheelhouse/*.whl
+
+many-linux-5:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 5
+
+many-linux-6:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 6
+

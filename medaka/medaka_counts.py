@@ -22,7 +22,7 @@ def main():
 
     args = parser.parse_args()
 
-    region = Region.from_string(args.region)
+    region = medaka.common.Region.from_string(args.region)
 
     kwargs={
         'log_min': None,
@@ -52,7 +52,7 @@ def main():
 
             print("###########################################################")
             print(kwargs)
-            encoder = FeatureEncoder(**kwargs)
+            encoder = medaka.features.FeatureEncoder(**kwargs)
 
             # C-style
             t2=now()
