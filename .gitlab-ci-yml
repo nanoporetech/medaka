@@ -1,0 +1,22 @@
+image: $IMAGE
+
+stages:
+  - test
+  - deploy
+
+
+before_script:
+  - apt-get update -qq && apt-get install -y -qq gcc zlib1g-dev libbz2-dev liblzma-dev libffi-dev libncurses5-dev libcurl4-gnutls-dev libssl-dev curl make wget python3-all-dev python-virtualenv
+
+
+sdist:
+  stage: test
+  script:
+    -make test
+
+
+many-linux:
+  stage: deploy
+  script:
+    - docker run -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/build-wheels.sh 
+
