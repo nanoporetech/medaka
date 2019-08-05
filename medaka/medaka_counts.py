@@ -19,19 +19,9 @@ def main():
     parser.add_argument('--print', action='store_true', help='print counts.')
     parser.add_argument('--dtypes', nargs='+', help='perform a multi-datatype tests.')
     parser.add_argument('--norm', nargs='+', help='additional normalisation tests. (total, fwd_rev)')
-
     args = parser.parse_args()
-
     region = medaka.common.Region.from_string(args.region)
-
-    kwargs={
-        'log_min': None,
-        'max_hp_len': 1,
-        'is_compressed': False,
-        'consensus_as_ref': False,
-        'ref_mode': None,
-        'with_depth': False,
-    }
+    kwargs={}
 
     def _print(samples):
        if args.print:

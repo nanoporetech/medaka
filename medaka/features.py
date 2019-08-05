@@ -190,6 +190,7 @@ class FeatureEncoder(object):
             indices (a list over all bases)
 
         """
+        #TODO: should be defined along with self.encoding (is it just read_decoding from __init__)?
         return {
             (dt, strand):
                 [v for k, v in self.encoding.items()
