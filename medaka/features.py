@@ -381,18 +381,21 @@ class SampleGenerator(object):
         self.logger = medaka.common.get_named_logger("Sampler")
         self.sample_type = "training" if truth_bam is not None else "consensus"
         self.logger.info("Initializing sampler for {} of region {}.".format(self.sample_type, region))
+
+        #TODO: this will need changing when we switch to simply saving a class
         with medaka.datastore.DataStore(model) as ds:
             self.fencoder_args = ds.meta['medaka_features_kwargs']
+        dtypes = ('',) if 'dtypes' not in self.fencoder_args else self.fencoder_args['dtypes']
         self.fencoder = FeatureEncoder(
+            normalise=self.fencoder_args['normalise'], dtypes=dtypes,
             tag_name=tag_name, tag_value=tag_value, tag_keep_missing=tag_keep_missing,
-            **self.fencoder_args)
+            )
 
         self.bam = bam
         self.region = region
         self.model = model
         self.truth_bam = truth_bam
         self.truth_haplotag = truth_haplotag
-        self.read_fraction = read_fraction
         self.chunk_len = chunk_len
         self.chunk_overlap = chunk_overlap
         self.enable_chunking = enable_chunking
