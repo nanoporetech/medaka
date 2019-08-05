@@ -134,7 +134,7 @@ pileup: libhts.a
 
 
 wheels:
-	docker run -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/build-wheels.sh
+	docker run -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/build-wheels.sh /io 5 6
 
 
 build: pypi_build/bin/activate
