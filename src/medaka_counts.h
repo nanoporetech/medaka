@@ -1,5 +1,7 @@
 // medaka-style feature data
 typedef struct {
+    size_t buffer_cols;
+    size_t num_dtypes;
     size_t n_cols;
     size_t *counts;
     size_t *major;
@@ -8,7 +10,7 @@ typedef struct {
 
 typedef _plp_data *plp_data; 
 
-
+/*
 // medaka-style base encoding
 static const char plp_bases[] = "XacgtACGTdD";
 static const size_t featlen = 11; // len of the above
@@ -22,12 +24,29 @@ static size_t num2countbase[32] = {
  8, 0, 0, 0, 0, 0, 0, 0,
  0, 1, 2, 0, 3, 0, 0, 0,
  4, 0, 0, 0, 0, 0, 0, 0,
+};
+*/
+
+// medaka-style base encoding
+static const char plp_bases[] = "acgtACGTdD";
+static const size_t featlen = 10; // len of the above
+static const size_t fwd_del = 9; // position of D
+static const size_t rev_del = 8;  // position of d
+
+
+// convert 16bit IUPAC (+16 for strand) to plp_bases index
+static int num2countbase[32] = {
+ -1,  4,  5, -1,  6, -1, -1, -1,
+  7, -1, -1, -1, -1, -1, -1, -1,
+ -1,  0,  1, -1,  2, -1, -1, -1,
+  3, -1, -1, -1, -1, -1, -1, -1,
 }; 
 
 
 /** Constructs a pileup data structure.
  *
  *  @param n_cols number of pileup columns.
+ *  @param buffer_cols number of pileup columns for which to allocate memory
  *  @param num_dtypes number of datatypes in pileup.
  *  @see destroy_plp_data
  *  @returns a plp_data pointer.
@@ -35,7 +54,16 @@ static size_t num2countbase[32] = {
  *  The return value can be freed with destroy_plp_data.
  *
  */
-plp_data create_plp_data(size_t n_cols, size_t num_dtypes);
+plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes);
+
+
+/** Enlarge the internal buffers of a pileup data structure.
+ *
+ *  @param pileup a plp_data pointer.
+ *  @param buffer_cols number of pileup columns for which to allocate memory
+ *
+ */
+void enlarge_plp_data(plp_data pileup, size_t buffer_cols);
 
 
 /** Destroys a pileup data structure.

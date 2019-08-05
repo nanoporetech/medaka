@@ -9,12 +9,14 @@ import pysam
 
 import medaka.datastore
 import medaka.features
-import medaka.inference
 import medaka.labels
+import medaka.prediction
+import medaka.smolecule
 import medaka.stitch
+import medaka.training
 import medaka.variant
 import medaka.vcf
-import medaka.smolecule
+
 
 model_store = resource_filename(__package__, 'data')
 allowed_models = [
@@ -135,6 +137,15 @@ def print_all_models(args):
     print('Default:', default_model)
 
 
+class StoreDict(argparse.Action):
+     def __call__(self, parser, namespace, values, option_string=None):
+         my_dict = {}
+         for kv in values.split(","):
+             k,v = kv.split("=")
+             my_dict[k] = v
+         setattr(namespace, self.dest, my_dict)
+
+
 def main():
     from medaka import __version__
     parser = argparse.ArgumentParser('medaka',
@@ -172,7 +183,7 @@ def main():
         help='Train a model from features.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    tparser.set_defaults(func=medaka.inference.train)
+    tparser.set_defaults(func=medaka.training.train)
     tparser.add_argument('features', nargs='+', help='Paths to training data.')
     tparser.add_argument('--train_name', type=str, default='keras_train', help='Name for training run.')
     tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
@@ -187,6 +198,8 @@ def main():
     tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
     tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
     tparser.add_argument('--device', type=int, default=0, help='GPU device to use.')
+    tparser.add_argument('--optimizer', type=str, default='rmsprop', choices=['nadam','rmsprop'], help='Optimizer to use.')
+    tparser.add_argument('--optim_args', action=StoreDict, default=None, metavar="KEY1=VAL1,KEY2=VAL2...", help="Optimizer key-word arguments.")
 
     vgrp = tparser.add_mutually_exclusive_group()
     vgrp.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
@@ -198,7 +211,7 @@ def main():
         parents=[_log_level(), _chunking_feature_args()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cparser.add_argument('bam', help='Input alignments.', action=CheckBam)
-    cparser.set_defaults(func=medaka.inference.predict)
+    cparser.set_defaults(func=medaka.prediction.predict)
     cparser.add_argument('output', help='Output file.')
     cparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
     cparser.add_argument('--check_output', action='store_true', default=False,

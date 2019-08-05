@@ -1,15 +1,10 @@
-from concurrent.futures import ProcessPoolExecutor
-import functools
 import inspect
-import logging
 import os
-from timeit import default_timer as now
 
 import numpy as np
 
 import medaka.common
 import medaka.datastore
-import medaka.features
 import medaka.labels
 import medaka.models
 
@@ -38,10 +33,38 @@ def cat_acc(y_true, y_pred):
     return K.cast(K.equal(y_true, y_pred_labels), K.floatx())
 
 
+def train(args):
+    """Training program."""
+    train_name = args.train_name
+    medaka.common.mkdir_p(train_name, info='Results will be overwritten.')
+
+    logger = medaka.common.get_named_logger('Training')
+    logger.debug("Loading datasets:\n{}".format('\n'.join(args.features)))
+
+    args.validation = args.validation_features if args.validation_features is not None else args.validation_split
+
+    label_scheme_cls = medaka.labels.label_schemes[args.label_scheme]
+    batcher = TrainBatcher(args.features, label_scheme_cls, args.max_label_len, args.validation,
+                           args.seed, args.batch_size, threads=args.threads_io)
+
+    import tensorflow as tf
+    with tf.device('/gpu:{}'.format(args.device)):
+        run_training(
+            train_name, batcher, model_fp=args.model, epochs=args.epochs,
+            n_mini_epochs=args.mini_epochs,
+            threads_io=args.threads_io, multi_label=args.multi_label,
+            optimizer=args.optimizer, optim_args=args.optim_args)
+
+    # stop batching threads
+    logger.info("Training finished.")
+
+
 def run_training(train_name, batcher, model_fp=None,
-                 epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1, multi_label=False):
+                 epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1, multi_label=False,
+                 optimizer='rmsprop', optim_args=None):
     """Run training."""
     from tensorflow.keras.callbacks import CSVLogger, TensorBoard, EarlyStopping, ReduceLROnPlateau
+    from tensorflow.keras import optimizers
     from medaka.keras_ext import ModelMetaCheckpoint, SequenceBatcher
 
     logger = medaka.common.get_named_logger('RunTraining')
@@ -102,9 +125,20 @@ def run_training(train_name, batcher, model_fp=None,
             loss = 'sparse_categorical_crossentropy'
             logger.info("Using {} loss function".format(loss))
 
+    if optimizer == 'nadam':
+        if optim_args is None:
+            # defaults from docs as of 01/09/2019
+            optim_args = {'lr':0.002, 'beta_1':0.9, 'beta_2':0.999, 'epsilon':None, 'schedule_decay':0.004}
+        optimizer = optimizers.Nadam(optim_args)
+    elif optimizer == 'rmsprop':
+        if optim_args is None:
+            optim_args = {'lr':0.001, 'rho':0.9, 'epsilon':None, 'decay':0.0}
+        optimizer = optimizers.RMSprop(optim_args)
+    else:
+        raise ValueError('Unknown optimizer: {}'.format(optimizer))
     model.compile(
        loss=loss,
-       optimizer='nadam',
+       optimizer=optimizer,
        metrics=metrics,
     )
 
@@ -228,7 +262,6 @@ class TrainBatcher():
         :returns: (np.ndarray of inputs, np.ndarray of labels)
 
         """
-        t0 = now()
         items = [self.sample_to_x_y(s) for s in samples]
         xs, ys = zip(*items)
         x, y = np.stack(xs), np.stack(ys)
@@ -272,169 +305,3 @@ class TrainBatcher():
                     y[row_ind, col_ind] = 1
 
         return x, y
-
-
-def run_prediction(output, bam, regions, model, model_file,
-        chunk_len, chunk_ovlp, batch_size=200,
-        save_features=False, tag_name=None, tag_value=None,
-        tag_keep_missing=False, enable_chunking=True):
-    """Inference worker."""
-
-    logger = medaka.common.get_named_logger('PWorker')
-
-    remainder_regions = list()
-    def sample_gen():
-        # chain all samples whilst dispensing with generators when done
-        #   (they hold the feature vector in memory until they die)
-        for region in regions:
-            data_gen = medaka.features.SampleGenerator(
-                bam, region, model_file,
-                chunk_len=chunk_len, chunk_overlap=chunk_ovlp,
-                tag_name=tag_name, tag_value=tag_value,
-                tag_keep_missing=tag_keep_missing,
-                enable_chunking=enable_chunking)
-            yield from data_gen.samples
-            remainder_regions.extend(data_gen._quarantined)
-    batches = medaka.common.background_generator(
-        medaka.common.grouper(sample_gen(), batch_size), 10
-    )
-
-    total_region_mbases = sum(r.size for r in regions) / 1e6
-    logger.info("Running inference for {:.1f}M draft bases.".format(total_region_mbases))
-
-    with medaka.datastore.DataStore(output, 'a', verify_on_close=False) as ds:
-        mbases_done = 0
-
-        t0 = now()
-        tlast = t0
-        for data in batches:
-            x_data = np.stack([x.features for x in data])
-            class_probs = model.predict_on_batch(x_data)
-            # calculate bases done taking into account overlap
-            new_bases = 0
-            for x in data:
-                if chunk_ovlp < x.size:
-                    new_bases += x.last_pos[0] - x._get_pos(chunk_ovlp)[0]
-                else:
-                    new_bases += x.span
-            mbases_done += new_bases / 1e6
-            mbases_done = min(mbases_done, total_region_mbases)  # just to avoid funny log msg
-            t1 = now()
-            if t1 - tlast > 10:
-                tlast = t1
-                msg = '{:.1%} Done ({:.1f}/{:.1f} Mbases) in {:.1f}s'
-                logger.info(msg.format(mbases_done / total_region_mbases, mbases_done, total_region_mbases, t1 - t0))
-
-            best = np.argmax(class_probs, -1)
-            for sample, prob, pred, feat in zip(data, class_probs, best, x_data):
-                # write out positions and predictions for later analysis
-                sample_d = sample._asdict()
-                sample_d['label_probs'] = prob
-                sample_d['features'] = feat if save_features else None
-                ds.write_sample(medaka.common.Sample(**sample_d))
-
-    logger.info("All done, {} remainder regions.".format(len(remainder_regions)))
-    return remainder_regions
-
-
-def predict(args):
-    """Inference program."""
-    logger_level = logging.getLogger(__package__).level
-    if logger_level > logging.DEBUG:
-        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-
-    import tensorflow as tf
-    from tensorflow.keras.models import load_model
-    from tensorflow.keras import backend as K
-
-    args.regions = medaka.common.get_regions(args.bam, region_strs=args.regions)
-    logger = medaka.common.get_named_logger('Predict')
-    logger.info('Processing region(s): {}'.format(' '.join(str(r) for r in args.regions)))
-
-    # write class names to output
-    with medaka.datastore.DataStore(args.model) as ds:
-        meta = ds.meta
-    with medaka.datastore.DataStore(args.output, 'w', verify_on_close=False) as ds:
-        ds.update_meta(meta)
-
-    logger.info("Setting tensorflow threads to {}.".format(args.threads))
-    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
-    K.set_session(tf.Session(
-        config=tf.ConfigProto(
-            intra_op_parallelism_threads=args.threads,
-            inter_op_parallelism_threads=args.threads)
-    ))
-
-    # Split overly long regions to maximum size so as to not create
-    #   massive feature matrices
-    MAX_REGION_SIZE = int(1e6)  # 1Mb
-    regions = []
-    for region in args.regions:
-        if region.size > MAX_REGION_SIZE:
-            regs = region.split(MAX_REGION_SIZE, args.chunk_ovlp)
-        else:
-            regs = [region]
-        regions.extend(regs)
-
-    logger.info("Processing {} long region(s) with batching.".format(len(regions)))
-    model = medaka.models.load_model(args.model, time_steps=args.chunk_len)
-    # the returned regions are those where the pileup width is smaller than chunk_len
-    remainder_regions = run_prediction(
-        args.output, args.bam, regions, model, args.model,
-        args.chunk_len, args.chunk_ovlp,
-        batch_size=args.batch_size, save_features=args.save_features,
-        tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing
-    )
-
-    # short/remainder regions: just do things without chunking. We can do this
-    # here because we now have the size of all pileups (and know they are small).
-    # TODO: can we avoid calculating pileups twice whilst controlling memory?
-    if len(remainder_regions) > 0:
-        logger.info("Processing {} short region(s).".format(len(remainder_regions)))
-        model = medaka.models.load_model(args.model, time_steps=None)
-        for region in remainder_regions:
-            new_remainders = run_prediction(
-                args.output, args.bam, [region[0]], model, args.model,
-                args.chunk_len, args.chunk_ovlp, # these won't be used
-                batch_size=args.batch_size, save_features=args.save_features,
-                tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing,
-                enable_chunking=False
-            )
-            if len(new_remainders) > 0:
-                # shouldn't get here
-                ignored = [x[0] for x in new_remainders]
-                n_ignored = len(ignored)
-                logger.warning("{} regions were not processed: {}.".format(n_ignored, ignored))
-
-    logger.info("Finished processing all regions.")
-
-    if args.check_output:
-        logger.info("Validating and finalising output data.")
-        with medaka.datastore.DataStore(args.output, 'a') as ds:
-            pass
-
-
-def train(args):
-    """Training program."""
-    train_name = args.train_name
-    medaka.common.mkdir_p(train_name, info='Results will be overwritten.')
-
-    logger = medaka.common.get_named_logger('Training')
-    logger.debug("Loading datasets:\n{}".format('\n'.join(args.features)))
-
-    args.validation = args.validation_features if args.validation_features is not None else args.validation_split
-
-    label_scheme_cls = medaka.labels.label_schemes[args.label_scheme]
-    batcher = TrainBatcher(args.features, label_scheme_cls, args.max_label_len, args.validation,
-                           args.seed, args.batch_size, threads=args.threads_io)
-
-
-    import tensorflow as tf
-    with tf.device('/gpu:{}'.format(args.device)):
-        run_training(
-            train_name, batcher, model_fp=args.model, epochs=args.epochs,
-            n_mini_epochs=args.mini_epochs,
-            threads_io=args.threads_io, multi_label=args.multi_label)
-
-    # stop batching threads
-    logger.info("Training finished.")

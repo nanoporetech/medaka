@@ -1,5 +1,5 @@
 from collections import Counter, defaultdict, OrderedDict
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 import numpy as np
 import yaml
@@ -33,6 +33,8 @@ class DataStore(object):
 
         self._meta = None
 
+        self.write_executor = ThreadPoolExecutor(1)
+
 
     def __enter__(self):
 
@@ -49,6 +51,7 @@ class DataStore(object):
             else:
                 self.logger.debug("Skipping validation on close.")
             self._write_metadata(self.meta)
+            self.write_executor.shutdown(wait=True)
         self.fh.close()
 
 
@@ -114,7 +117,8 @@ class DataStore(object):
                     data = getattr(sample, field)
                     if isinstance(data, np.ndarray) and isinstance(data[0], np.unicode):
                         data = np.char.encode(data)
-                    self.fh['{}/{}/{}'.format(self._sample_path_, sample.name, field)] = data
+                    location = '{}/{}/{}'.format(self._sample_path_, sample.name, field)
+                    self.write_executor.submit(self._write, location, data)
 
             if sample.labels is not None:
                 # count combinations of labels accross haplotypes
@@ -126,6 +130,10 @@ class DataStore(object):
             self.meta['medaka_samples'].add(sample.name)
         else:
             self.logger.debug('Not writing {} as it is present already'.format(sample.name))
+
+
+    def _write(self, location, data):
+        self.fh[location] = data
 
 
     def load_sample(self, key):

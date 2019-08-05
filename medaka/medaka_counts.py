@@ -22,7 +22,7 @@ def main():
 
     args = parser.parse_args()
 
-    region = medaka.common.Region.from_string(args.region)
+    region = Region.from_string(args.region)
 
     kwargs={
         'log_min': None,
@@ -52,31 +52,22 @@ def main():
 
             print("###########################################################")
             print(kwargs)
-            encoder = medaka.features.FeatureEncoder(**kwargs)
-
-            # py-style
-            t0=now()
-            samples = encoder.bam_to_sample(args.bam, region, force_py=True)[0]
-            t1=now()
-            if not samples.is_empty:
-                print(samples.features.shape)
-                _print(samples)
-            else:
-                print("Samples is empty")
-            print("---------------------")
+            encoder = FeatureEncoder(**kwargs)
 
             # C-style
             t2=now()
-            samples = encoder.bam_to_sample(args.bam, region)[0]
-            t3=now()
-            if not samples.is_empty:
-                print(samples.features.shape)
-                _print(samples)
+            try:
+                samples = encoder.bam_to_sample(args.bam, region)[0]
+            except Exception as e:
+                print("Couldn't create samples: {}".format(e))
             else:
-                print("Samples is empty")
-
-            print("pysam time:", t1 - t0)
-            print("hts time:", t3 - t2)
+                t3=now()
+                if not samples.is_empty:
+                    print(samples.features.shape)
+                    _print(samples)
+                else:
+                    print("Samples is empty")
+                print("hts time:", t3 - t2)
 
 
 if __name__ == '__main__':

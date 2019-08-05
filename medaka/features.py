@@ -3,7 +3,7 @@ import concurrent.futures
 from copy import deepcopy
 import inspect
 import itertools
-from functools import partial
+import functools
 from multiprocessing import Pool
 import os
 import sys
@@ -19,7 +19,7 @@ import medaka.labels
 import libmedaka
 
 
-def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=12, tag_name=None, tag_value=None, keep_missing=False):
+def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=8, tag_name=None, tag_value=None, keep_missing=False):
     """Create pileup counts feature array for region.
 
     :param region: `medaka.common.Region` object
@@ -50,7 +50,6 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
         if len(tag_name) > 2:
             raise ValueError("'tag_value' must be a length-2 string.")
         tag_name = ffi.new("char[2]", tag_name.encode())
-
     featlen = lib.featlen
 
     def _process_region(reg):
@@ -85,39 +84,32 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
 
     # split large regions for performance
     regions = region.split(region_split)
+    results = None
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-        results = list(executor.map(_process_region, regions))
+        # First pass: need to check for discontinuities within chunks,
+        # these show up as >2 changes in the major coordinate
+        _results = list()
+        for counts, positions in executor.map(_process_region, regions):
+            move = np.ediff1d(positions['major'])
+            gaps = np.where(move > 1)[0] + 1
+            if len(gaps) == 0:
+                _results.append((counts, positions))
+            else:
+                logger.info("Splitting discontiguous pileup region.")
+                start = 0
+                for i in gaps:
+                    _results.append((counts[start:i], positions[start:i]))
+                    start = i
+                _results.append((counts[start:], positions[start:]))
+        results = _results
 
-    # First pass: need to check for discontinuities within chunks,
-    # these show up as >2 changes in the major coordinate
-    _results = list()
-    for counts, positions in results:
-        move = np.ediff1d(positions['major'])
-        gaps = np.where(move > 2)[0] + 1
-        if len(gaps) == 0:
-            _results.append((counts, positions))
-        else:
-            logger.info("Splitting discontiguous pileup region.")
-            start = 0
-            for i in gaps:
-                _results.append((counts[start:i], positions[start:i]))
-                start = i
-            _results.append((counts[start:], positions[start:]))
-    results = _results
 
     # Second pass: stitch abutting chunks together, anything not neighbouring
     # is kept separate whether it came from the same chunk originally or not
-
     def _finalize_chunk(c_buf, p_buf):
         chunk_counts = np.concatenate(c_buf)
         chunk_positions = np.concatenate(p_buf)
-        # get rid of 'first' counts row for each datatype (counts of
-        # alternative bases)
-        mask = np.ones(chunk_counts.shape[1], dtype=bool)
-        mask[[x * featlen for x in range(0, num_dtypes)]] = False
-        chunk_counts = chunk_counts[:, mask]
         return chunk_counts, chunk_positions
-
     counts_buffer, positions_buffer = list(), list()
     chunk_results = list()
     last = None
@@ -438,9 +430,10 @@ class SampleGenerator(object):
 
     @property
     def samples(self):
-        """Iterator over chunked samples."""
+        """List of (possibly) chunked samples."""
         self._fill_features()
         self._quarantined = list()
+        all_data = []
         for source in self._source:
             if source.is_empty:
                 continue
@@ -458,7 +451,8 @@ class SampleGenerator(object):
                     self.chunk_len, self.chunk_overlap))
                 chunks = source.chunks(chunk_len=self.chunk_len, overlap=self.chunk_overlap)
             self.logger.info("Pileup for {} is of width {}".format(source.name, source.size))
-            yield from alphabet_filter(chunks)
+            all_data.extend(alphabet_filter(chunks))
+        return all_data
 
 
 def create_samples(args):
