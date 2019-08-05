@@ -108,7 +108,6 @@ def _chunking_feature_args(batch_size=200, chunk_len=10000, chunk_ovlp=1000):
     parser.add_argument('--chunk_ovlp', type=int, default=chunk_ovlp, help='Overlap of chunks.')
     parser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
         nargs=2, metavar=('lower', 'upper'))
-    parser.add_argument('--rle_ref', default=None, help='Encoded reference file (required only for some model types.')
     return parser
 
 
@@ -247,7 +246,6 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cfparser.add_argument('features', nargs='+', help='Pregenerated features (from medaka features).')
     cfparser.add_argument('--model', action=ResolveModel, default=default_model, help='Model definition.')
-    cfparser.add_argument('--ref_rle', default=None, help='Encoded reference file (required only for some model types.')
 
     # Post-processing of consensus outputs
     sparser = subparsers.add_parser('stitch',
@@ -391,8 +389,7 @@ def main():
         # display help if given `medaka tools (--help)`
         toolparser.print_help()
     else:
-        #TODO: do common argument validation here: e.g. rle_ref being present if
-        #      required by model
+        #TODO: do common argument validation here
         args.func(args)
 
 

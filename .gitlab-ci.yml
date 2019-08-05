@@ -13,7 +13,7 @@ before_script:
 runtest:
     stage: build
     script:
-        - make test
+        - make -j 4 test
 
 .many-linux: &many-linux-def
   image: quay.io/pypa/manylinux1_x86_64
@@ -23,6 +23,8 @@ runtest:
   artifacts:
       paths:
           - wheelhouse/*.whl
+  only:
+      - tags
 
 many-linux-5:
     <<: *many-linux-def
