@@ -115,9 +115,9 @@ install: venv scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINAR
 
 
 test: install
-	${IN_VENV} && pip install nose
-	${IN_VENV} && python setup.py nosetests
-	${IN_VENV} medaka_counts --print medaka/test/data/test_reads.bam Consensus_Consensus_Consensus_Consensus_utg000001l:10000-10010
+	${IN_VENV} && pip install pytest
+	${IN_VENV} && pytest medaka --doctest-modules
+	${IN_VENV} && medaka_counts medaka/test/data/test_reads.bam Consensus_Consensus_Consensus_Consensus_utg000001l:10000-10010 --print
 
 
 clean: clean_htslib

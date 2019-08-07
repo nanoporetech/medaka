@@ -83,7 +83,7 @@ setup(
     long_description=__long_description__,
     long_description_content_type=__long_description_content_type__,
     python_requires='>=3.5.*,<3.7',
-    packages=find_packages(),
+    packages=find_packages(exclude=['*.test', '*.test.*', 'test.*', 'test']),
     package_data={
         __pkg_name__:[os.path.join('data','*.hdf5')],
     },
