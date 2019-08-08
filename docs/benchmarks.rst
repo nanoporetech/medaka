@@ -6,8 +6,8 @@ Benchmarks
 The following demonstrates the utility of Medaka's neural network in forming an
 improved consensus from a pileup of reads.
 
-Results were obtained using the default model provided with ``medaka``. This model
-was trained using data obtained from E.coli, S.cerevisaie and H.sapiens samples.
+Results were obtained using the default models provided with ``medaka``. These models
+were trained using data obtained from E.coli, S.cerevisiae and H.sapiens samples.
 
 Error statistics were calculated using the `pomoxis
 <https://github.com/nanoporetech/pomoxis>`_ program ``assess_assembly`` after
@@ -19,14 +19,18 @@ Comparison of `medaka` and `nanopolish`
 ---------------------------------------
 
 In this comparison the ``medaka`` E.coli :doc:`walkthrough` dataset was used.
-These data were not used to train the model.  Basecalling was performed using
+These data were not used to train the model. Basecalling was performed using
 ``Guppy v2.2.1``; both the older transducer and the newer flip-flop algorithm
 were used for comparison. Basecalled reads were trimmed using `porechop
 <https://github.com/rrwick/Porechop>`_ to remove adapters, and assembly was
 performed using `canu v1.8 <https://github.com/marbl/canu>`_. The assembly was
 corrected using `racon v1.3.1 <https://github.com/isovic/racon>`_ before being passed
-to ``medaka`` or ``nanopolish``.  `nanopolish v0.10.1
+to ``medaka`` or ``nanopolish``. `nanopolish v0.10.1
 <https://github.com/jts/nanopolish>`_ was run using :code:`--fix-homopolymers` option.
+
+The workflow used here includes four iterations of ``racon``. This should not be viewed as optimal for all
+datasets, see :ref:`draftorigin` for further details.
+
 
 +-----------------+----------------------------------------+----------------------------------------+
 |                 | **flipflop**                           | **transducer**                         |

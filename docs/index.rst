@@ -62,6 +62,7 @@ Table of contents
    benchmarks
    snp
    walkthrough
+   draft_origin
    development
    future
    
