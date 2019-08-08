@@ -1,4 +1,11 @@
 
+v0.8.2
+------
+
+Documentation release
+
+* Clarify suggested workflows in documentation.
+
 v0.8.1
 ------
 Patch release

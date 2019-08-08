@@ -88,6 +88,7 @@ Medaka can be installed from its source quite easily on most systems.
  > Before installing medaka it may be required to install some
  > prerequisite libraries, best installed by a package manager. On Ubuntu
  > theses are:
+ > * bzip2
  > * gcc
  > * zlib1g-dev
  > * libbz2-dev
@@ -128,10 +129,12 @@ GPU-powered `medaka` can be configured with:
     sed -i 's/tensorflow/tensorflow-gpu/' requirements.txt
     make install
 
-However, note that The `tensorflow-gpu` GPU package is compiled against a
-specific version of the NVIDIA CUDA library; users are directed to the 
+However, note that The ``tensorflow-gpu`` GPU package is compiled against
+specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the 
 [tensorflow installation](https://www.tensorflow.org/install/gpu) pages
-for further information.
+for further information. cuDNN can be obtained from the
+[cuDNN Archive](https://developer.nvidia.com/rdp/cudnn-archive), whilst CUDA
+from the [CUDA Toolkit Archive](https://developer.nvidia.com/cuda-toolkit-archive).
 
 
 Usage
@@ -157,7 +160,7 @@ will be saved to `${OUTDIR}/consensus.fasta`.
 Models
 ------
 
-It is crucially important to specify the correct model, `-m` in the
+For best results it is important to specify the correct model, `-m` in the
 above, according to the basecaller used. Allowed values can be found by
 running `medaka tools list\_models`.
 
@@ -184,13 +187,10 @@ iteratively with:
 
 Processing a draft sequence from alternative sources (e.g. the output of
 [canu](https://github.com/marbl/canu) or
-[wtdbg2](https://github.com/ruanjue/wtdbg2)) may lead to poorer results
-even when the draft is of a superior quality than that obtained from `racon`.
+[wtdbg2](https://github.com/ruanjue/wtdbg2)) may lead to different results.
 
-The [walkthrough](https://nanoporetech.github.io/medaka/walkthrough.html#walkthrough)
-outlines one recommended workflow rapid construction of a draft for input into
-`medaka`. A second approach would be to run `canu` followed by `racon` applied
-twice iteratively before entry into `medaka`.
+The [documentation](https://nanoporetech.github.io/medaka/draft_origin.html)
+provides a discussion and some guidance on how to obtain a draft sequence.
 
 
 Acknowledgements

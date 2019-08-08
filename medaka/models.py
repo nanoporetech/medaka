@@ -68,9 +68,10 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, classify_act
     :param feature_len: int, number of features for each pileup column.
     :param num_classes: int, number of output class labels.
     :param gru_size: int, size of each GRU layer.
-    :param classify_activation, str, activation to use in classification layer.
+    :param classify_activation: str, activation to use in classification layer.
 
     :returns: `keras.models.Sequential` object.
+
     """
     import tensorflow as tf
     from tensorflow.keras import backend as K
