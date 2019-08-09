@@ -41,7 +41,7 @@ def parasail_to_sam(result, seq):
 
     first = first_cigar(cigstr)
     prefix = ''.join(first)
-    rstart = 0
+    rstart = result.cigar.beg_ref
     cliplen = result.cigar.beg_query
     clip = '' if cliplen == 0 else '{}S'.format(cliplen)
     if first[1] == 'I':
@@ -276,8 +276,8 @@ class Read(object):
         alignments = []
         for sr in self.subreads:
             rc_seq = reverse_complement(sr.seq)
-            result_fwd = parasail.sw_trace_striped_16(sr.seq, self.consensus, 8, 4, parasail.pam100)
-            result_rev = parasail.sw_trace_striped_16(rc_seq, self.consensus, 8, 4, parasail.pam100)
+            result_fwd = parasail.sw_trace_striped_16(sr.seq, self.consensus, 8, 4, parasail.dnafull)
+            result_rev = parasail.sw_trace_striped_16(rc_seq, self.consensus, 8, 4, parasail.dnafull)
             is_fwd = result_fwd.score > result_rev.score
             self._orient.append(is_fwd)
             result = result_fwd if is_fwd else result_rev
