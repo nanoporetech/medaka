@@ -104,6 +104,21 @@ for further information. cuDNN can be obtained from the
 `cuDNN Archive <https://developer.nvidia.com/rdp/cudnn-archive>`_, whilst CUDA
 from the `CUDA Toolkit Archive <https://developer.nvidia.com/cuda-toolkit-archive>`_.
 
+Depending on your GPU, ``medaka`` may show out of memory errors when running.
+To avoid these the inference batch size can be reduced from the default
+value by setting the ``-b`` option when running ``medaka_consensus``. A value
+``-b 100`` is suitable for 11Gb GPUs.
+
+For users with RTX series GPUs it may be required to additionally set an
+environment variable to have ``medaka`` run without failure:
+
+.. code-block:: bash
+
+    export TF_FORCE_GPU_ALLOW_GROWTH=true
+
+In this situation a further reduction in batch size may be required.
+
+
 .. _sequence_correction:
 
 Sequence correction
