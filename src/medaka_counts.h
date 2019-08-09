@@ -1,31 +1,16 @@
+
 // medaka-style feature data
-typedef struct {
+typedef struct _plp_data {
     size_t buffer_cols;
     size_t num_dtypes;
     size_t n_cols;
-    size_t *counts;
+    size_t *matrix;
     size_t *major;
     size_t *minor;
 } _plp_data;
 
 typedef _plp_data *plp_data; 
 
-/*
-// medaka-style base encoding
-static const char plp_bases[] = "XacgtACGTdD";
-static const size_t featlen = 11; // len of the above
-static const size_t fwd_del = 10; // position of D
-static const size_t rev_del = 9;  // position of d
-
-
-// convert 16bit IUPAC (+16 for strand) to plp_bases index
-static size_t num2countbase[32] = {
- 0, 5, 6, 0, 7, 0, 0, 0,
- 8, 0, 0, 0, 0, 0, 0, 0,
- 0, 1, 2, 0, 3, 0, 0, 0,
- 4, 0, 0, 0, 0, 0, 0, 0,
-};
-*/
 
 // medaka-style base encoding
 static const char plp_bases[] = "acgtACGTdD";
@@ -35,7 +20,7 @@ static const size_t rev_del = 8;  // position of d
 
 
 // convert 16bit IUPAC (+16 for strand) to plp_bases index
-static int num2countbase[32] = {
+static const int num2countbase[32] = {
  -1,  4,  5, -1,  6, -1, -1, -1,
   7, -1, -1, -1, -1, -1, -1, -1,
  -1,  0,  1, -1,  2, -1, -1, -1,
@@ -85,7 +70,6 @@ void destroy_plp_data(plp_data data);
  */
 void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[]);
 
-
 /** Generates medaka-style feature data in a region of a bam.
  *  
  *  @param region 1-based region string.
@@ -110,3 +94,4 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[]);
  *
  */ 
 plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[], const char tag_name[2], const int tag_value, const _Bool keep_missing); 
+

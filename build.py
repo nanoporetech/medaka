@@ -13,18 +13,24 @@ src_dir='src'
 ffibuilder = FFI()
 ffibuilder.set_source("libmedaka",
     r"""
+    #include "medaka_bamiter.h"
+    #include "medaka_common.h"
     #include "medaka_counts.h"
     """,
     libraries=libraries,
     library_dirs=library_dirs,
     include_dirs=[src_dir, htslib_dir],
-    sources=[os.path.join(src_dir, 'medaka_counts.c')],
+    sources=[os.path.join(src_dir, x) for x in ('medaka_bamiter.c', 'medaka_common.c', 'medaka_counts.c')],
     extra_compile_args=['-std=c99', '-msse3', '-O3'],
     extra_objects=['libhts.a']
 )
 
-with open(os.path.join(src_dir, 'medaka_counts.h'), 'r') as fh:
-    ffibuilder.cdef(fh.read())
+cdef = []
+for header in ('medaka_counts.h',):
+    with open(os.path.join(src_dir, header), 'r') as fh:
+        cdef.append(fh.read())
+
+ffibuilder.cdef('\n\n'.join(cdef))
 
 
 if __name__ == "__main__":

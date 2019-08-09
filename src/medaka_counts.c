@@ -3,77 +3,15 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
 #include "htslib/sam.h"
 
+#include "medaka_bamiter.h"
+#include "medaka_common.h"
 #include "medaka_counts.h"
 
 #define bam1_seq(b) ((b)->data + (b)->core.n_cigar*4 + (b)->core.l_qname)
 #define bam1_seqi(s, i) (bam_seqi((s), (i)))
 #define bam_nt16_rev_table seq_nt16_str
-
-inline int max ( int a, int b ) { return a > b ? a : b; }
-inline int min ( int a, int b ) { return a < b ? a : b; }
-
-
-/** Allocates zero-initialised memory with a message on failure.
- *
- *  @param num number of elements to allocate.
- *  @param size size of each element.
- *  @param msg message to describe allocation on failure.
- *  @returns pointer to allocated memory
- *
- */
-void *xalloc(size_t num, size_t size, char* msg){
-    void *res = calloc(num, size);
-    if (res == NULL){
-        fprintf(stderr, "Failed to allocate mem for %s\n", msg);
-        exit(1);
-    }
-    return res;
-}
-
-
-/** Reallocates memory with a message on failure.
- *
- *  @param ptr pointer to realloc.
- *  @param size size of each element.
- *  @param msg message to describe allocation on failure.
- *  @returns pointer to allocated memory
- *
- */
-void *xrealloc(void *ptr, size_t size, char* msg){
-    void *res = realloc(ptr, size);
-    if (res == NULL){
-        fprintf(stderr, "Failed to reallocate mem for %s\n", msg);
-        exit(1);
-    }
-    return res;
-}
-
-
-/** Retrieves a substring.
- *
- *  @param string input string.
- *  @param postion start position of substring.
- *  @param length length of substring required.
- *  @returns string pointer.
- *
- */
-char *substring(char *string, int position, int length) {
-   char *ptr;
-   size_t i;
-
-   ptr = malloc(length + 1);
-
-   for (i = 0 ; i < length ; i++) {
-      *(ptr + i) = *(string + position);
-      string++;
-   }
-
-   *(ptr + i) = '\0';
-   return ptr;
-}
 
 
 /** Constructs a pileup data structure.
@@ -92,7 +30,7 @@ plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes) {
     data->buffer_cols = buffer_cols;
     data->num_dtypes = num_dtypes;
     data->n_cols = n_cols;
-    data->counts = xalloc(featlen * num_dtypes * buffer_cols, sizeof(size_t), "count");
+    data->matrix = xalloc(featlen * num_dtypes * buffer_cols, sizeof(size_t), "matrix");
     data->major = xalloc(buffer_cols, sizeof(size_t), "major");
     data->minor = xalloc(buffer_cols, sizeof(size_t), "minor");
     return data;
@@ -109,12 +47,12 @@ void enlarge_plp_data(plp_data pileup, size_t buffer_cols) {
     assert(buffer_cols > pileup->buffer_cols);
     size_t old_size = featlen * pileup->num_dtypes * pileup->buffer_cols;
     size_t new_size = featlen * pileup->num_dtypes * buffer_cols;
-    pileup->counts = xrealloc(pileup->counts, new_size * sizeof(size_t), "counts");
+    pileup->matrix = xrealloc(pileup->matrix, new_size * sizeof(size_t), "matrix");
     pileup->major = xrealloc(pileup->major, buffer_cols * sizeof(size_t), "major");
     pileup->minor = xrealloc(pileup->minor, buffer_cols * sizeof(size_t), "minor");
-    // zero out new part of counts
+    // zero out new part of matrix
     for (size_t i = old_size; i < new_size; ++i) {
-        pileup->counts[i] = 0;
+        pileup->matrix[i] = 0;
     }
     pileup->buffer_cols = buffer_cols;
 }
@@ -127,55 +65,45 @@ void enlarge_plp_data(plp_data pileup, size_t buffer_cols) {
  *
  */
 void destroy_plp_data(plp_data data) {
-    free(data->counts);
+    free(data->matrix);
     free(data->major);
     free(data->minor);
     free(data);
 }
 
 
-// parameters for bam iteration
-typedef struct {
-    htsFile *fp;
-    bam_hdr_t *hdr;
-    hts_itr_t *iter;
-    int min_mapQ;
-    char tag_name[2];
-    int tag_value;
-    bool keep_missing;
-} mplp_data;
-
-
-// iterator for reading bam
-static int read_bam(void *data, bam1_t *b) {
-    mplp_data *aux = (mplp_data*) data;
-    uint8_t *tag;
-    bool check_tag = (strcmp(aux->tag_name, "") != 0);
-    int ret;
-    while (1) {
-        ret = aux->iter ? sam_itr_next(aux->fp, aux->iter, b) : sam_read1(aux->fp, aux->hdr, b);
-        if (ret<0) break;
-        // only take primary alignments
-        if (b->core.flag & (BAM_FUNMAP | BAM_FSECONDARY | BAM_FSUPPLEMENTARY | BAM_FQCFAIL | BAM_FDUP)) continue;
-        // filter by mapping quality
-        if ((int)b->core.qual < aux->min_mapQ) continue;
-        // filter by tag
-        if (check_tag) {
-            tag = bam_aux_get((const bam1_t*) b, aux->tag_name);
-            if (tag == NULL){ // tag isn't present or is currupt
-                if (aux->keep_missing) {
-                    break;
-                } else {
-                    continue;
-                }
+/** Prints a pileup data structure.
+ *
+ *  @param pileup a pileup structure.
+ *  @param num_dtypes number of datatypes in the pileup.
+ *  @param dtypes datatype prefix strings.
+ *  @returns void
+ *
+ */
+void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[]){
+    fprintf(stdout, "pos\tins\t");
+    if (num_dtypes > 1) {
+        for (size_t i = 0; i < num_dtypes; ++i) {
+            for (size_t j = 0; j < featlen; ++j){
+                fprintf(stdout, "%s.%c\t", dtypes[i], plp_bases[j]);
             }
-            int tag_value = bam_aux2i(tag);
-            if (errno == EINVAL) continue; // tag was not integer
-            if (tag_value != aux->tag_value) continue;
         }
-        break;
+    } else {
+        for (size_t j = 0; j < featlen; ++j){
+            fprintf(stdout, "%c\t", plp_bases[j]);
+        }
     }
-    return ret;
+    fprintf(stdout, "depth\n");
+    for (size_t j = 0; j < pileup->n_cols; ++j) {
+        int s = 0;
+        fprintf(stdout, "%zu\t%zu\t", pileup->major[j], pileup->minor[j]);
+        for (size_t i = 0; i < num_dtypes * featlen; ++i){
+            size_t c = pileup->matrix[j * num_dtypes * featlen + i];
+            s += c;
+            fprintf(stdout, "%zu\t", c);
+        }
+        fprintf(stdout, "%d\n", s);
+    }
 }
 
 
@@ -185,7 +113,7 @@ static int read_bam(void *data, bam1_t *b) {
  *  @param bam_file input aligment file.
  *  @param num_dtypes number of datatypes in bam.
  *  @param dtypes prefixes on query names indicating datatype.
- *  @returns a pileup counts data pointer.
+ *  @returns a pileup data pointer.
  *
  *  The return value can be freed with destroy_plp_data.
  *
@@ -310,7 +238,7 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
             if (p->is_del) {
                 base_i = bam_is_rev(p->b) ? rev_del : fwd_del;
                 //base = plp_bases[base_i]; 
-                pileup->counts[major_col + featlen * dtype + base_i] += 1;
+                pileup->matrix[major_col + featlen * dtype + base_i] += 1;
             } else { // handle pos and any following ins
                 int max_j = p->indel > 0 ? p->indel : 0;
                 for (int j = 0; j <= max_j; ++j){
@@ -321,7 +249,7 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
                     }
                     base_i = num2countbase[base_j];
                     if (base_i != -1) //not an ambiguity code
-                        pileup->counts[major_col + dtype_featlen * j + featlen * dtype + base_i] += 1;
+                        pileup->matrix[major_col + dtype_featlen * j + featlen * dtype + base_i] += 1;
                 }
             }
         }
@@ -343,40 +271,6 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
     return pileup;
 }
 
-
-/** Prints a pileup data structure.
- *
- *  @param pileup a pileup counts structure.
- *  @param num_dtypes number of datatypes in the pileup.
- *  @param dtypes datatype prefix strings.
- *  @returns void
- *
- */
-void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[]){
-    fprintf(stdout, "pos\tins\t");
-    if (num_dtypes > 1) {
-        for (size_t i = 0; i < num_dtypes; ++i) {
-            for (size_t j = 0; j < featlen; ++j){
-                fprintf(stdout, "%s.%c\t", dtypes[i], plp_bases[j]);
-            }
-        }
-    } else {
-        for (size_t j = 0; j < featlen; ++j){
-            fprintf(stdout, "%c\t", plp_bases[j]);
-        }
-    }
-    fprintf(stdout, "depth\n");
-    for (size_t j = 0; j < pileup->n_cols; ++j) {
-        int s = 0;
-        fprintf(stdout, "%zu\t%zu\t", pileup->major[j], pileup->minor[j]);
-        for (size_t i = 0; i < num_dtypes * featlen; ++i){
-            size_t c = pileup->counts[j * num_dtypes * featlen + i];
-            s += c;
-            fprintf(stdout, "%zu\t", c);
-        }
-        fprintf(stdout, "%d\n", s);
-    }
-}
 
 // Demonstrates usage
 int main(int argc, char *argv[]) {
@@ -400,7 +294,7 @@ int main(int argc, char *argv[]) {
     plp_data pileup = calculate_pileup(
         reg, bam_file, num_dtypes, dtypes,
         tag_name, tag_value, keep_missing);
-    //print_pileup_data(pileup, num_dtypes, dtypes);
+    print_pileup_data(pileup, num_dtypes, dtypes);
     fprintf(stdout, "pileup is length %zu, with buffer of %zu columns\n", pileup->n_cols, pileup->buffer_cols);
     destroy_plp_data(pileup);
     exit(0); 
