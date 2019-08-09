@@ -130,13 +130,13 @@ within the medaka environment, else they will need to be provided by the user.
     OUTDIR=medaka_consensus
     medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r94
 
-The variables `BASECALLS`, `DRAFT`, and `OUTDIR` in the above should be set
-appropriately. When `medaka_consensus` has finished running, the consensus
-will be saved to `${OUTDIR}/consensus.fasta`.
+The variables ``BASECALLS``, ``DRAFT``, and ``OUTDIR`` in the above should be set
+appropriately. When ``medaka_consensus`` has finished running, the consensus
+will be saved to ``${OUTDIR}/consensus.fasta``.
 
 .. warning::
 
-    For best results it is important to specify the correct model, ``-m`` in the
+    For best results it is recommended to specify the correct model, ``-m`` in the
     above, according to the basecaller used. Allowed values can be found by
     running ``medaka tools list\_models``.
     
@@ -195,7 +195,7 @@ So in summary something like this is possible:
 
 It is not recommended to specify a value of ``--threads`` greater than 8 for
 ``medaka consensus`` since the compute scaling efficiency is poor beyond this.
-Note also than ``medaka consensus`` may been seen to use resource equivalent to
+Note also that ``medaka consensus`` may been seen to use resource equivalent to
 ``<threads> + 4`` as an additional 4 threads are used for reading and preparing
 input data.
 
