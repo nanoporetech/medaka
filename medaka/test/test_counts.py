@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import unittest
-from medaka.features import FeatureEncoder, pileup_counts
+from medaka.features import CountsFeatureEncoder, pileup_counts
 from medaka.common import Region
 
 __reads_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'test_reads.bam')
@@ -17,7 +17,7 @@ class CountsTest(unittest.TestCase):
 
         # py-style
         kwargs = {'normalise': None}
-        encoder = FeatureEncoder(**kwargs)
+        encoder = CountsFeatureEncoder(**kwargs)
         sample = encoder.bam_to_sample(__reads_bam__, __region__)
         sample = sample[0]
         assert tuple(sample.positions.shape) == (81730,)

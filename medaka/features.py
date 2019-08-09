@@ -1,3 +1,4 @@
+import abc
 from collections import defaultdict, Counter, OrderedDict
 import concurrent.futures
 from copy import deepcopy
@@ -19,6 +20,93 @@ import medaka.labels
 import libmedaka
 
 
+def __plp_data_to_numpy(plp_data, n_rows):
+    """Copy the feature matrix and alignment column names from a
+    `plp_data` structure returned from C library function calls.
+
+    :param plp_data: a cffi proxy to a `plp_data*` pointer
+    :param nrows: the number of rows in the plp_data.matrix (the number
+        of elements in the feature per pileup column).
+
+    :returns: pileup counts numpy array, reference positions
+
+    """
+    ffi, lib = libmedaka.ffi, libmedaka.lib
+    size_sizet = np.dtype(np.uintp).itemsize
+    np_counts = np.frombuffer(ffi.buffer(
+        plp_data.matrix, size_sizet * plp_data.n_cols * n_rows),
+        dtype=np.uintp
+    ).reshape(plp_data.n_cols, n_rows).copy()
+
+    positions = np.empty(plp_data.n_cols, dtype=[('major', int), ('minor', int)])
+    np.copyto(positions['major'],
+        np.frombuffer(ffi.buffer(
+        plp_data.major, size_sizet * plp_data.n_cols),
+        dtype=np.uintp
+    ))
+    np.copyto(positions['minor'],
+        np.frombuffer(ffi.buffer(
+        plp_data.minor, size_sizet * plp_data.n_cols),
+        dtype=np.uintp
+    ))
+    return np_counts, positions
+
+
+def __enforce_pileup_chunk_contiguity(pileups):
+    """Split and join ordered pileup chunks to ensure contiguity.
+
+    :param pileups: iterable of (counts, pileups) as constructed by
+        `__plp_data_to_numpy`.
+
+    :returns: a list of reconstituted (counts, pileups) where discontinuities
+        in the inputs cause breaks and abutting inputs are joined.
+
+    """
+    split_results = list()
+    # First pass: need to check for discontinuities within chunks,
+    # these show up as >1 changes in the major coordinate
+    for counts, positions in pileups:
+        move = np.ediff1d(positions['major'])
+        gaps = np.where(move > 1)[0] + 1
+        if len(gaps) == 0:
+            split_results.append((counts, positions))
+        else:
+            start = 0
+            for i in gaps:
+                split_results.append((counts[start:i], positions[start:i]))
+                start = i
+            split_results.append((counts[start:], positions[start:]))
+
+    # Second pass: stitch abutting chunks together, anything not neighbouring
+    # is kept separate whether it came from the same chunk originally or not
+    def _finalize_chunk(c_buf, p_buf):
+        chunk_counts = np.concatenate(c_buf)
+        chunk_positions = np.concatenate(p_buf)
+        return chunk_counts, chunk_positions
+
+    counts_buffer, positions_buffer = list(), list()
+    chunk_results = list()
+    last = None
+    for counts, positions in split_results:
+        if len(positions) == 0:
+            continue
+        first = positions['major'][0]
+        if len(counts_buffer) == 0 or first - last == 1:
+            # new or contiguous
+            counts_buffer.append(counts)
+            positions_buffer.append(positions)
+            last = positions['major'][-1]
+        else:
+            # discontinuity
+            chunk_results.append(_finalize_chunk(counts_buffer, positions_buffer))
+            counts_buffer = [counts]
+            positions_buffer = [positions]
+            last = positions['major'][-1]
+    if len(counts_buffer) != 0:
+        chunk_results.append(_finalize_chunk(counts_buffer, positions_buffer))
+    return chunk_results
+
+
 def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=8, tag_name=None, tag_value=None, keep_missing=False):
     """Create pileup counts feature array for region.
 
@@ -26,6 +114,8 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
     :param bam: .bam file with alignments.
     :param dtype_prefixes: prefixes for query names which to separate counts.
         If `None` (or of length 1), counts are not split.
+    :param region_split: largest region to process in single thread.
+    :param workers: worker threads for calculating pileup.
     :param tag_name: two letter tag name by which to filter reads.
     :param tag_value: integer value of tag for reads to keep.
     :param keep_missing: whether to keep reads when tag is missing.
@@ -60,84 +150,108 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
             region_str.encode(), bam.encode(), num_dtypes, dtypes,
             tag_name, tag_value, keep_missing
         )
-
-        # TODO: this should ALL probably not be hardcoded. Counts should return
-        # all information needed about how to reconstruct the array
-        size_sizet = np.dtype(np.uintp).itemsize
-        np_counts = np.frombuffer(ffi.buffer(
-            counts.counts, size_sizet * counts.n_cols * featlen * num_dtypes),
-            dtype=np.uintp
-        ).reshape(counts.n_cols, featlen * num_dtypes).copy()
-
-        positions = np.empty(counts.n_cols, dtype=[('major', int), ('minor', int)])
-        np.copyto(positions['major'],
-            np.frombuffer(ffi.buffer(
-            counts.major, size_sizet * counts.n_cols),
-            dtype=np.uintp
-        ))
-        np.copyto(positions['minor'],
-            np.frombuffer(ffi.buffer(
-            counts.minor, size_sizet * counts.n_cols),
-            dtype=np.uintp
-        ))
+        np_counts, positions = __plp_data_to_numpy(counts, featlen * num_dtypes)
 
         lib.destroy_plp_data(counts)
         return np_counts, positions
 
     # split large regions for performance
     regions = region.split(region_split)
-    results = None
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-        # First pass: need to check for discontinuities within chunks,
-        # these show up as >2 changes in the major coordinate
-        _results = list()
-        for counts, positions in executor.map(_process_region, regions):
-            move = np.ediff1d(positions['major'])
-            gaps = np.where(move > 1)[0] + 1
-            if len(gaps) == 0:
-                _results.append((counts, positions))
-            else:
-                logger.info("Splitting discontiguous pileup region.")
-                start = 0
-                for i in gaps:
-                    _results.append((counts[start:i], positions[start:i]))
-                    start = i
-                _results.append((counts[start:], positions[start:]))
-        results = _results
-
-    # Second pass: stitch abutting chunks together, anything not neighbouring
-    # is kept separate whether it came from the same chunk originally or not
-    def _finalize_chunk(c_buf, p_buf):
-        chunk_counts = np.concatenate(c_buf)
-        chunk_positions = np.concatenate(p_buf)
-        return chunk_counts, chunk_positions
-    counts_buffer, positions_buffer = list(), list()
-    chunk_results = list()
-    last = None
-    for counts, positions in results:
-        if len(positions) == 0:
-            continue
-        first = positions['major'][0]
-        if len(counts_buffer) == 0 or first - last == 1:
-            # new or contiguous
-            counts_buffer.append(counts)
-            positions_buffer.append(positions)
-            last = positions['major'][-1]
-        else:
-            # discontinuity
-            chunk_results.append(_finalize_chunk(counts_buffer, positions_buffer))
-            counts_buffer = [counts]
-            positions_buffer = [positions]
-            last = positions['major'][-1]
-    if len(counts_buffer) != 0:
-        chunk_results.append(_finalize_chunk(counts_buffer, positions_buffer))
+        results = executor.map(_process_region, regions)
+        chunk_results = __enforce_pileup_chunk_contiguity(results)
 
     return chunk_results
 
 
-class FeatureEncoder(object):
-    _norm_modes_ = ['total', 'fwd_rev', None]
+def pileup_counts_norm_indices(dtypes):
+    """Calculates (per-datatype, per-read-orientation) locations of bases in
+    `pileup_counts` output for the purpose of various normalization
+    strategies.
 
+    e.g. For two datatype the feature vector is counts of bases:
+    (acgtACGTdDacgtACGTdD), i.e. the first datatype followed by
+    the second, and where lowercase denotes reverse reads and the
+    base ordering is defined in the library consts `plp_bases`. The
+    resultant dictionary contains entries such as:
+    (datatype1, False):[4,5,6,7,9], for the datatype1 forward bases.
+
+    :param dtypes: list of datatype names.
+
+    :returns: a dictionary of the form
+        `{(datatype, is_rev): [base1_index, base2_index, ...]}`.
+    """
+    ffi, lib = libmedaka.ffi, libmedaka.lib
+    plp_bases = lib.plp_bases
+    featlen = lib.featlen
+
+    indices = defaultdict(list)
+    codes = ffi.string(plp_bases).decode()
+    assert len(codes) == featlen
+    # from the C code:
+    #     pileup->matrix[major_col + dtype_featlen * j + featlen * dtype + base_i] += 1
+    # where j is the insert index, so feature is ordered: datatype > base
+    for dti, dt in enumerate(dtypes):
+        for base_i, code in enumerate(codes):
+            is_rev = code.islower()
+            indices[dt, is_rev].append(base_i + dti * len(codes))
+    return dict(indices)
+
+
+class BaseFeatureEncoder(abc.ABC):
+
+    @abc.abstractmethod
+    def __init__(*args, **kwargs):
+        # This is expected to be defined in all derived classes
+        pass
+
+    @abc.abstractmethod
+    def _pileup_function(self, region, reads_bam):
+        # Called to create pileup matrix and position arrays
+        pass
+
+    @abc.abstractmethod
+    def _post_process_pileup(self, matrix, positions, region):
+        # A chance to mutate the output of pileup_function
+        pass
+
+    @abc.abstractmethod
+    def bams_to_training_samples(self, truth_bam, bam, region, reference=None, truth_haplotag=None):
+        # Create labelled samples, should internally call bam_to_sample
+        #TODO: should be moved outside this class?
+        pass
+
+    # this shouldn't be overridden
+    def bam_to_sample(self, reads_bam, region):
+        """Converts a section of an alignment pileup to a sample.
+
+        :param reads_bam: (sorted indexed) bam with read alignment to reference
+        :param region: `medaka.common.Region` object with ref_name, start and end attributes.
+
+        :returns: `medaka.common.Sample` object
+
+        """
+        pileups = self._pileup_function(region, reads_bam)
+        samples = list()
+        for counts, positions in pileups:
+            if len(counts) == 0:
+                msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
+                self.logger.warning(msg)
+                samples.append(
+                    medaka.common.Sample(
+                        ref_name=region.ref_name, features=None,
+                        labels=None, ref_seq=None,
+                        postions=positions, label_probs=None
+                    )
+                )
+                continue
+            samples.append(self._post_process_pileup(counts, positions, region))
+        return samples
+
+
+class CountsFeatureEncoder(BaseFeatureEncoder):
+    _norm_modes_ = ['total', 'fwd_rev', None]
+    feature_dtype = np.float32
 
     def __init__(self,
             normalise:str='total', dtypes=('',),
@@ -153,8 +267,8 @@ class FeatureEncoder(object):
         """
         self.logger = medaka.common.get_named_logger('Feature')
         self.normalise = normalise
-        self.feature_dtype = np.float32
         self.dtypes = dtypes
+        self.feature_indices = pileup_counts_norm_indices(self.dtypes)
         self.tag_name = tag_name
         self.tag_value = tag_value
         self.tag_keep_missing = tag_keep_missing
@@ -162,113 +276,60 @@ class FeatureEncoder(object):
         if self.normalise not in self._norm_modes_:
             raise ValueError('normalise={} is not one of {}'.format(self.normalise, self._norm_modes_))
 
-        opts = inspect.signature(FeatureEncoder.__init__).parameters.keys()
+        #TODO: refactor/remove/move to base class.
+        opts = inspect.signature(CountsFeatureEncoder.__init__).parameters.keys()
         opts = {k:getattr(self, k) for k in opts if k != 'self'}
         self.logger.debug("Creating features with: {}".format(opts))
 
-        #TODO: this is defined by the C-code, it should be obtained from there
-        read_decoding = []
-        for dtype in self.dtypes:
-            # dtype, rev/fwd, base/gap
-            read_decoding += [
-                (dtype,) + (direction, base)
-                for (direction, base) in itertools.product((True, False), medaka.common._alphabet_)
-            ]
-            # forward and reverse gaps
-            read_decoding += [(dtype, True, None), (dtype, False, None)]
-        self.encoding = OrderedDict(((a, i) for i, a in enumerate(read_decoding)))
-        self.logger.debug("Feature decoding is:\n{}".format('\n'.join(
-            '{}: {}'.format(i, x) for i, x in enumerate(read_decoding)
-        )))
 
-
-    @property
-    def feature_indices(self):
-        """Location of feature vector components.
-
-        :returns: dictionary mapping read data type and strand to feature vector
-            indices (a list over all bases)
-
-        """
-        #TODO: should be defined along with self.encoding (is it just read_decoding from __init__)?
-        return {
-            (dt, strand):
-                [v for k, v in self.encoding.items()
-                    if k[0] == dt and strand == k[1]]
-                for dt, strand in itertools.product(self.dtypes, (True, False))
-        }
-
-
-    def bam_to_sample(self, reads_bam, region):
-        """Converts a section of an alignment pileup (as shown
-        by e.g. samtools tview) to a base frequency feature array
-
-        :param reads_bam: (sorted indexed) bam with read alignment to reference
-        :param region: `medaka.common.Region` object with ref_name, start and end attributes.
-        :param start: starting position within reference
-        :param end: ending position within reference
-
-        :returns: `medaka.common.Sample` object
-
-        """
-        pileup = pileup_counts(
-            region, reads_bam, dtype_prefixes=self.dtypes,
+    def _pileup_function(self, region, bam):
+        return pileup_counts(
+            region, bam,
+            dtype_prefixes=self.dtypes,
             tag_name=self.tag_name, tag_value=self.tag_value,
-            keep_missing=self.tag_keep_missing
-        )
-        samples = list()
-        for counts, positions in pileup:
-            if len(counts) == 0:
-                msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
-                self.logger.warning(msg)
-                samples.append(
-                    medaka.common.Sample(
-                        ref_name=region.ref_name, features=None,
-                        labels=None, ref_seq=None,
-                        postions=positions, label_probs=None
-                    )
-                )
-                continue
+            keep_missing=self.tag_keep_missing)
 
-            start, end = positions['major'][0], positions['major'][-1]
-            if start != region.start or end + 1 != region.end: # TODO investigate off-by-one
-                self.logger.warning(
-                    'Pileup counts do not span requested region, requested {}, '
-                    'received {}-{}.'.format(region, start, end)
-                )
 
-            # find the position index for parent major position of all minor positions
-            minor_inds = np.where(positions['minor'] > 0)
-            major_pos_at_minor_inds = positions['major'][minor_inds]
-            major_ind_at_minor_inds = np.searchsorted(positions['major'], major_pos_at_minor_inds, side='left')
+    def _post_process_pileup(self, counts, positions, region):
+        # Normalise produced counts using chosen method.
 
-            depth = np.sum(counts, axis=1)
-            depth[minor_inds] = depth[major_ind_at_minor_inds]
-
-            if self.normalise == 'total':
-                # normalize counts by total depth at major position, since the
-                # counts include deletions this is a count of spanning reads
-                feature_array = counts / np.maximum(1, depth).reshape((-1, 1)) # max just to avoid div error
-            elif self.normalise == 'fwd_rev':
-                # normalize forward and reverse and by dtype
-                feature_array = np.empty_like(counts, dtype=float)
-                for (dt, is_rev), inds in self.feature_indices.items():
-                    dt_depth = np.sum(counts[:, inds], axis=1)
-                    dt_depth[minor_inds] = dt_depth[major_ind_at_minor_inds]
-                    feature_array[: , inds] = counts[:, inds] / np.maximum(1, dt_depth).reshape((-1, 1)) # max just to avoid div error
-            else:
-                feature_array = counts
-
-            feature_array = feature_array.astype(self.feature_dtype)
-
-            sample = medaka.common.Sample(
-                ref_name=region.ref_name, features=feature_array,
-                labels=None, ref_seq=None,
-                positions=positions, label_probs=None
+        start, end = positions['major'][0], positions['major'][-1]
+        if start != region.start or end + 1 != region.end: # TODO investigate off-by-one
+            self.logger.warning(
+                'Pileup counts do not span requested region, requested {}, '
+                'received {}-{}.'.format(region, start, end)
             )
-            samples.append(sample)
-            self.logger.info('Processed {} (median depth {})'.format(sample.name, np.median(depth)))
-        return samples
+
+        # find the position index for parent major position of all minor positions
+        minor_inds = np.where(positions['minor'] > 0)
+        major_pos_at_minor_inds = positions['major'][minor_inds]
+        major_ind_at_minor_inds = np.searchsorted(positions['major'], major_pos_at_minor_inds, side='left')
+
+        depth = np.sum(counts, axis=1)
+        depth[minor_inds] = depth[major_ind_at_minor_inds]
+
+        if self.normalise == 'total':
+            # normalize counts by total depth at major position, since the
+            # counts include deletions this is a count of spanning reads
+            feature_array = counts / np.maximum(1, depth).reshape((-1, 1)) # max just to avoid div error
+        elif self.normalise == 'fwd_rev':
+            # normalize forward and reverse and by dtype
+            feature_array = np.empty_like(counts, dtype=self.feature_dtype)
+            for (dt, is_rev), inds in self.feature_indices.items():
+                dt_depth = np.sum(counts[:, inds], axis=1)
+                dt_depth[minor_inds] = dt_depth[major_ind_at_minor_inds]
+                feature_array[: , inds] = counts[:, inds] / np.maximum(1, dt_depth).reshape((-1, 1)) # max just to avoid div error
+        else:
+            feature_array = counts
+        feature_array = feature_array.astype(self.feature_dtype)
+
+        sample = medaka.common.Sample(
+            ref_name=region.ref_name, features=feature_array,
+            labels=None, ref_seq=None,
+            positions=positions, label_probs=None
+        )
+        self.logger.info('Processed {} (median depth {})'.format(sample.name, np.median(depth)))
+        return sample
 
 
     def bams_to_training_samples(self, truth_bam, bam, region, reference=None, truth_haplotag=None):
@@ -386,7 +447,7 @@ class SampleGenerator(object):
         with medaka.datastore.DataStore(model) as ds:
             self.fencoder_args = ds.meta['medaka_features_kwargs']
         dtypes = ('',) if 'dtypes' not in self.fencoder_args else self.fencoder_args['dtypes']
-        self.fencoder = FeatureEncoder(
+        self.fencoder = CountsFeatureEncoder(
             normalise=self.fencoder_args['normalise'], dtypes=dtypes,
             tag_name=tag_name, tag_value=tag_value, tag_keep_missing=tag_keep_missing,
             )

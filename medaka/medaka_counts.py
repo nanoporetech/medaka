@@ -42,7 +42,7 @@ def main():
 
             print("###########################################################")
             print(kwargs)
-            encoder = medaka.features.FeatureEncoder(**kwargs)
+            encoder = medaka.features.CountsFeatureEncoder(**kwargs)
 
             # C-style
             t2=now()
