@@ -1,3 +1,6 @@
+
+.. _walkthrough:
+
 Walkthrough
 ===========
 
@@ -33,11 +36,10 @@ Technologies' reads:
 
 The extracted archive contains also all the intermediate output files that
 are created during the process below. Any step may be skipped by simply copying
-the requisite subfolder from the `${DATA}` directory into the `${WALKTHROUGH}`
+the requisite subfolder from the ``${DATA}`` directory into the ``${WALKTHROUGH}``
 directory.
 
-The necessary software can be sourced using the same process as described in
-:ref:`creating_software_env`, namely:
+The necessary software can be sourced using:
 
 .. code-block:: bash
 
@@ -64,7 +66,7 @@ Creating a Draft Assembly
 
 A draft assembly can be formed from the provided basecalls using the 
 `miniasm <https://github.com/lh3/miniasm>`_ and
-`racon <https://github.com/isovic/racon>`_ based pipeline from `pomoxis`.
+`racon <https://github.com/isovic/racon>`_ based pipeline from ``pomoxis``.
 Alternatively one could use `canu <https://github.com/marbl/canu>`_ at this step.
 
 .. code-block:: bash
@@ -75,12 +77,12 @@ Alternatively one could use `canu <https://github.com/marbl/canu>`_ at this step
     source ${POMOXIS}
     mini_assemble -i ${BASECALLS} -o draft_assm -p assm -t ${NPROC}
 
-This will create a draft assembly at `draft_assm/assm_final.fa`. The
-`mini_assemble` script has two useful options not used here:
+This will create a draft assembly at ``draft_assm/assm_final.fa``. The
+``mini_assemble`` script has two useful options not used here:
 
-    * specifying `-c` will run `porechop <https://github.com/rrwick/Porechop>`_
+    * specifying ``-c`` will run `porechop <https://github.com/rrwick/Porechop>`_
       on the reads to first trim sequencing adapters and,
-    * specifying `-e 10` will perform error correction on the longest 10% of
+    * specifying ``-e 10`` will perform error correction on the longest 10% of
       reads prior to assembly (similar to the strategy of canu).
 
 Both these steps can improve the assembly quality at the expense of speed.
@@ -100,7 +102,7 @@ Polishing a Consensus
 ----------------------
 
 After performing all steps up to :ref:`basecalling_and_draft_assembly`, the
-following commands can be run to yield a consensus using `medaka`'s default
+following commands can be run to yield a consensus using ``medaka``'s default
 model. This model was trained using data obtained from E.coli, S.cerevisaie,
 and H.sapiens samples. 
 
@@ -113,9 +115,9 @@ and H.sapiens samples.
     medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${CONSENSUS} -t ${NPROC}
 
 To polish an assembly using another model, use
-the `-m` option to specify the filepath of the model. 
+the ``-m`` option to specify the filepath of the model.
 
-Alignment statistics can be calculated using the `assess_assembly` program from
+Alignment statistics can be calculated using the ``assess_assembly`` program from
 pomoxis: 
 
 .. code-block:: bash
@@ -164,8 +166,8 @@ is performed in chunks.
 
 These raw alignments must now be converted into features for input into a neural
 network. To reduce any IO bottlenecks during training, the training data can be
-written to the `HDF5` file in batches using the `-\\-batch_size` option. The option
-`-\\-read_fraction` is used to randomly subsample reads which has the effect of
+written to the ``HDF5`` file in batches using the ``-\\-batch_size`` option. The option
+``-\\-read_fraction`` is used to randomly subsample reads which has the effect of
 making the resultant model more robust to variations in pileup depth when the
 model is used to make predictions.
 
@@ -181,7 +183,7 @@ model is used to make predictions.
     MODEL_FEAT_OPT=medaka/medaka/data/medaka_model.hdf5
     medaka features ${CALLS2DRAFT}.bam ${TRAINFEATURES} --truth ${TRUTH2DRAFT}.bam --threads ${NPROC} --region ${REFNAME}:-${TRAINEND} --batch_size ${BATCHSIZE} --read_fraction ${FRACTION} --chunk_len 1000 --chunk_ovlp 0 --model ${MODEL_FEAT_OPT} --max_label_len 1
 
-Now everything is in place to train a consensus network with `medaka train`:
+Now everything is in place to train a consensus network with ``medaka train``:
 
 .. code-block:: bash
 
@@ -195,13 +197,13 @@ During training, models are regularly checkpointed so that training may be
 easily resumed if interrupted. At the end of training, we have a number of
 output models including in particular:
 
-    * `model.best.hdf5`: model with the best accuracy over the training set  
-    * `model.best.val.hdf5`: model with the best accuracy over the validation set
+    * ``model.best.hdf5``: model with the best accuracy over the training set  
+    * ``model.best.val.hdf5``: model with the best accuracy over the validation set
 
 Other ancilliary output are also produced. 
 
-To use a model run `medaka_consensus`, specifying the full absolute path to
-the model using the `-m` option:
+To use a model run ``medaka_consensus``, specifying the full absolute path to
+the model using the ``-m`` option:
 
 .. code-block:: bash
 
