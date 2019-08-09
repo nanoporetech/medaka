@@ -4,11 +4,12 @@ import medaka.common
 logger = medaka.common.get_named_logger('ModelLoad')
 
 
-def load_model(fname, time_steps=None):
+def load_model(fname, time_steps=None, allow_cudnn=True):
     """Load a model from an .hdf file.
 
     :param fname: .hdf file containing model.
     :param time_steps: number of time points in RNN, `None` for dynamic.
+    :param allow_cudnn: allow use of CuDNN optimizations.
 
     ..note:: keras' `load_model` cannot handle CuDNNGRU layers, hence this
         function builds the model then loads the weights.
@@ -22,17 +23,18 @@ def load_model(fname, time_steps=None):
 
     logger.info("Building model (steps, features, classes): ({}, {}, {})".format(
         time_steps, num_features, num_classes))
-    model = build_model(time_steps, num_features, num_classes, **meta['medaka_model_kwargs'])
+    model = build_model(time_steps, num_features, num_classes, allow_cudnn, **meta['medaka_model_kwargs'])
     logger.info("Loading weights from {}".format(fname))
     model.load_weights(fname)
     return model
 
 
-def build_legacy_model(chunk_size, feature_len, num_classes, gru_size=128):
+def build_legacy_model(chunk_size, feature_len, num_classes, allow_cudnn, gru_size=128):
     """Builds a bidirectional GRU model
     :param chunk_size: int, number of pileup columns in a sample.
     :param feature_len: int, number of features for each pileup column.
     :param num_classes: int, number of output class labels.
+    :param allow_cuddn: bool, unused (for compatibility with `build_model`)
     :param gru_size: int, size of each GRU layer.
 
     :returns: `keras.models.Sequential` object.
@@ -58,7 +60,7 @@ def build_legacy_model(chunk_size, feature_len, num_classes, gru_size=128):
     return model
 
 
-def build_model(chunk_size, feature_len, num_classes, gru_size=128, classify_activation='softmax'):
+def build_model(chunk_size, feature_len, num_classes, allow_cudnn, gru_size=128, classify_activation='softmax'):
     """Builds a bidirectional GRU model. Uses CuDNNGRU for additional
     speed-up on GPU (claimed 7x).
 
@@ -67,6 +69,7 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, classify_act
     :param num_classes: int, number of output class labels.
     :param gru_size: int, size of each GRU layer.
     :param classify_activation: str, activation to use in classification layer.
+    :param disable_cudnn: bool, override opt-in to cudnn when using a GPU.
 
     :returns: `keras.models.Sequential` object.
 
@@ -76,12 +79,11 @@ def build_model(chunk_size, feature_len, num_classes, gru_size=128, classify_act
     from tensorflow.keras.models import Sequential
     from tensorflow.keras.layers import Dense, GRU, CuDNNGRU, Bidirectional
 
-    # if we can see a gpu, use CuDNNGRU for speed
+    # Determine whether to use CuDNNGRU or not
     cudnn = False
-    if tf.test.is_gpu_available(cuda_only=True):
+    if tf.test.is_gpu_available(cuda_only=True) and allow_cudnn:
         cudnn = True
-
-    logger.info("With cudnn: {}".format(cudnn))
+    logger.info("Building model with cudnn optimization: {}".format(cudnn))
 
     model = Sequential()
     input_shape=(chunk_size, feature_len)

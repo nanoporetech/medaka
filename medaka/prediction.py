@@ -97,6 +97,14 @@ def predict(args):
             intra_op_parallelism_threads=args.threads,
             inter_op_parallelism_threads=args.threads)
     ))
+    if tf.test.is_gpu_available(cuda_only=True):
+        logger.info("Found a GPU.")
+        logger.info(
+            "If cuDNN errors are observed, try setting the environment "
+            "variable `TF_FORCE_GPU_ALLOW_GROWTH=true`. To explicitely "
+            "disable use of cuDNN use the commandline option "
+            "`--disable_cudnn. If OOM (out of memory) errors are found "
+            "please reduce batch size.")
 
     # Split overly long regions to maximum size so as to not create
     #   massive feature matrices
@@ -110,7 +118,7 @@ def predict(args):
         regions.extend(regs)
 
     logger.info("Processing {} long region(s) with batching.".format(len(regions)))
-    model = medaka.models.load_model(args.model, time_steps=args.chunk_len)
+    model = medaka.models.load_model(args.model, time_steps=args.chunk_len, allow_cudnn=args.allow_cudnn)
     # the returned regions are those where the pileup width is smaller than chunk_len
     remainder_regions = run_prediction(
         args.output, args.bam, regions, model, args.model,
@@ -124,7 +132,7 @@ def predict(args):
     # TODO: can we avoid calculating pileups twice whilst controlling memory?
     if len(remainder_regions) > 0:
         logger.info("Processing {} short region(s).".format(len(remainder_regions)))
-        model = medaka.models.load_model(args.model, time_steps=None)
+        model = medaka.models.load_model(args.model, time_steps=None, allow_cudnn=args.allow_cudnn)
         for region in remainder_regions:
             new_remainders = run_prediction(
                 args.output, args.bam, [region[0]], model, args.model,

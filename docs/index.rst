@@ -51,6 +51,10 @@ We thank `Joanna Pineda <https://github.com/jopineda>`_ and
 which aided greatly development of the optimised feature generation code,
 and for testing the version 0.4 release candidates.
 
+We thank `Devin Drown <https://github.com/devindrown>`_ for
+`working through <https://github.com/nanoporetech/medaka/issues/70`_
+use of ``medaka`` with his RTX 2080 GPU.
+
 
 Table of contents
 -----------------

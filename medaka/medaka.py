@@ -93,7 +93,10 @@ def _model_arg():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
     parser.add_argument('--model', action=ResolveModel, default=model_dict[default_model],
-                        help='Model definition, default is equivalent to {}.'.format(default_model))
+            help='Model definition, default is equivalent to {}.'.format(default_model))
+    parser.add_argument('--allow_cudnn', dest='allow_cudnn', default=True, action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--disable_cudnn', dest='allow_cudnn', default=False, action='store_false',
+            help='Disable use of cuDNN model layers.')
     return parser
 
 
