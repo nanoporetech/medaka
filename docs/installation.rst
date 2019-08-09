@@ -4,6 +4,10 @@
 Getting Started
 ===============
 
+
+Installation Methods
+--------------------
+
 Medaka can be installed in one of several ways.
 
 **Installation with conda**
@@ -60,7 +64,7 @@ Medaka can be installed from its source quite easily on most systems.
     prerequisite libraries, best installed by a package manager. On Ubuntu
     theses are:
     
-    gcc zlib1g-dev libbz2-dev liblzma-dev libffi-dev libncurses5-dev
+    bzip2 gcc zlib1g-dev libbz2-dev liblzma-dev libffi-dev libncurses5-dev
     libcurl4-gnutls-dev libssl-dev curl make wget python3-all-dev python-virtualenv
 
 A Makefile is provided to fetch, compile and install all direct dependencies
@@ -93,10 +97,12 @@ GPU-powered ``medaka`` can be configured with:
     sed -i 's/tensorflow/tensorflow-gpu/' requirements.txt
     make install
 
-However, note that The ``tensorflow-gpu`` GPU package is compiled against a
-specific version of the NVIDIA CUDA library; users are directed to the 
+However, note that The ``tensorflow-gpu`` GPU package is compiled against
+specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the 
 `tensorflow installation <https://www.tensorflow.org/install/gpu>`_ pages
-for further information.
+for further information. cuDNN can be obtained from the
+`cuDNN Archive <https://developer.nvidia.com/rdp/cudnn-archive>`_, whilst CUDA
+from the `CUDA Toolkit Archive <https://developer.nvidia.com/cuda-toolkit-archive>`_.
 
 .. _sequence_correction:
 
@@ -107,7 +113,11 @@ After installing the software (see :ref:`installation`), `medaka` can be run
 using its default settings through the `medaka_consensus` program. An
 assembly in `.fasta` format and basecalls in `.fasta` or `.fastq` format are
 required (see :ref:`basecalling_and_draft_assembly` for an detailed example
-of one method of obtaining these). The program uses both `samtools` and `minimap2`.
+of one method of obtaining these). More details and background can be found in
+:ref:`draftorigin`.
+
+
+The program uses both `samtools` and `minimap2`.
 If medaka has been installed using the from-source method these will be present
 within the medaka environment, else they will need to be provided by the user.
 
@@ -120,13 +130,13 @@ within the medaka environment, else they will need to be provided by the user.
     OUTDIR=medaka_consensus
     medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r94
 
-The variables `BASECALLS`, `DRAFT`, and `OUTDIR` in the above should be set
-appropriately. When `medaka_consensus` has finished running, the consensus
-will be saved to `${OUTDIR}/consensus.fasta`.
+The variables ``BASECALLS``, ``DRAFT``, and ``OUTDIR`` in the above should be set
+appropriately. When ``medaka_consensus`` has finished running, the consensus
+will be saved to ``${OUTDIR}/consensus.fasta``.
 
 .. warning::
 
-    It is crucially important to specify the correct model, ``-m`` in the
+    For best results it is recommended to specify the correct model, ``-m`` in the
     above, according to the basecaller used. Allowed values can be found by
     running ``medaka tools list\_models``.
     
@@ -185,70 +195,7 @@ So in summary something like this is possible:
 
 It is not recommended to specify a value of ``--threads`` greater than 8 for
 ``medaka consensus`` since the compute scaling efficiency is poor beyond this.
-Note also than ``medaka consensus`` may been seen to use resource equivalent to
+Note also that ``medaka consensus`` may been seen to use resource equivalent to
 ``<threads> + 4`` as an additional 4 threads are used for reading and preparing
 input data.
 
-Improving parallelism
-~~~~~~~~~~~~~~~~~~~~~
-
-The ``medaka_consensus`` program is good for simple datasets but perhaps not
-optimal for running large datasets at scale. examples. A higher level of
-parallelism can be achieved by running independently the component steps
-of ``medaka_consensus``. The program performs three tasks:
-
-1. alignment or reads to input assembly (via ``mini_align`` which is a thin
-   veil over ``minimap2``)
-2. running of consensus algorithm across assembly regions
-   (``medaka consensus``, note no underscore!)
-3. aggregation of the results of 2. to create consensus sequences
-   (``medaka stitch``)
-
-The three steps are discrete, and can be split apart an run independently. In
-most cases, Step 2. is the bottleneck and can be trivially parallelized. The
-``medaka consensus program`` can be supplied a ``--regions``
-argument which will restrict its action to particular assembly sequences from
-the ``.bam`` file output in Step 1. Therefore individual jobs can be run for batches
-of assembly sequences simultaneously. In the final step, ``medaka stitch``
-can take as input one or more of the ``.hdf`` files output by Step 2.
-
-So in summary something like this is possible:
-
-.. code-block:: bash
-
-    # align reads to assembly
-    mini_align -i basecalls.fasta -r assembly.fasta -P -m \
-        -p calls_to_draft.bam -t <threads>
-    # run lots of jobs like this, change model as appropriate
-    mkdir results
-    medaka consensus calls_to_draft.bam results/contigs1-4.hdf \
-        --model r941_flip235 --batch 200 --threads 8 \
-        --region contig1 contig2 contig3 contig4
-    ...
-    # wait for jobs, then collate results
-    medaka stitch results/*.hdf polished.assembly.fasta
-
-It is not recommended to specify a value of ``--threads`` greater than 8 for
-``medaka consensus`` since the compute scaling efficiency is poor beyond this.
-Note also than ``medaka consensus`` may been seen to use resource equivalent to
-``<threads> + 4`` as an additional 4 threads are used for reading and preparing
-input data.
-
-Origin of the draft sequence
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Medaka has been trained to correct draft sequences processed through
-`racon <https://github.com/isovic/racon>`_), specifically `racon` run four times
-iteratively with:
-
-    racon -m 8 -x -6 -g -8 -w 500 ...
-
-Processing a draft sequence from alternative sources (e.g. the output of
-`canu <https://github.com/marbl/canu>`_ or
-`wtdbg2 <https://github.com/ruanjue/wtdbg2>`_) may lead to poorer results
-even when the draft is of a superior quality than that obtained from `racon`.
-
-The [walkthrough](https://nanoporetech.github.io/medaka/walkthrough.html#walkthrough)
-outlines one recommended workflow rapid construction of a draft for input into
-`medaka`. A second approach would be to run `canu` followed by `racon` applied
-twice iteratively before entry into `medaka`.

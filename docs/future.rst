@@ -52,6 +52,6 @@ data; this is the focus of current research. Further it may be possible that
 such an approach need not be iterative: a single pass on the inputs could be
 performed to achieve results in quicker time.
 
-Nevertheless researchers may find medaka useful as a method to generate
-quickly sufficiently accurate consensus sequences in many use cases; see the
+Nevertheless researchers should find medaka useful as a method to generate
+quickly accurate consensus sequences in many use cases; see the
 :ref:`Benchmarks` page for more details.
