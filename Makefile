@@ -61,10 +61,14 @@ $(BINCACHEDIR)/minimap2: | $(BINCACHEDIR)
 SPOAVER=3.0.0
 $(BINCACHEDIR)/spoa: | $(BINCACHEDIR)
 	@echo Making $(@F)
-	cd submodules; \
+	if [ ! -e submodules/spoa-v${SPOAVER}.tar.gz ]; then \
+	  cd submodules; \
 		curl -L -o spoa-v${SPOAVER}.tar.gz https://github.com/rvaser/spoa/releases/download/${SPOAVER}/spoa-v${SPOAVER}.tar.gz; \
 		tar -xzf spoa-v${SPOAVER}.tar.gz; \
+	fi
+	cd submodules; \
 		cd spoa-v${SPOAVER}; \
+		rm -rf build; \
 		mkdir build; \
 		cd build; \
 		cmake -DCMAKE_BUILD_TYPE=Release -Dspoa_build_executable=ON ..; \
@@ -78,11 +82,15 @@ $(BINCACHEDIR)/racon: | $(BINCACHEDIR)
 	@echo GCC is $(GCC)
 	if [ ! -e submodules/racon-v${RACONVER}.tar.gz ]; then \
 	  cd submodules; \
-	  wget https://github.com/isovic/racon/releases/download/${RACONVER}/racon-v${RACONVER}.tar.gz; \
+	  curl -L -o racon-v${RACONVER}.tar.gz https://github.com/isovic/racon/releases/download/${RACONVER}/racon-v${RACONVER}.tar.gz; \
 	  tar -xzf racon-v${RACONVER}.tar.gz; \
 	fi
-	cd submodules/racon-v${RACONVER} && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release ..
-	cd submodules/racon-v${RACONVER}/build && make
+	cd submodules/racon-v${RACONVER}; \
+		rm -rf build; \
+		mkdir build; \
+		cd build; \
+		cmake -DCMAKE_BUILD_TYPE=Release ..; \
+		make;
 	cp submodules/racon-v${RACONVER}/build/bin/racon $@
 
 
@@ -114,7 +122,7 @@ install: venv scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINAR
 	${IN_VENV} && MEDAKA_BINARIES=1 python setup.py install
 
 
-test: install
+test: install docs
 	${IN_VENV} && pip install pytest
 	${IN_VENV} && pytest medaka --doctest-modules
 	${IN_VENV} && medaka_counts medaka/test/data/test_reads.bam Consensus_Consensus_Consensus_Consensus_utg000001l:10000-10010 --print
