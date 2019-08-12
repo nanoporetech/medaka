@@ -9,6 +9,7 @@ import pysam
 
 import medaka.common
 import medaka.datastore
+import medaka.rle
 import medaka.vcf
 
 variant_decoders = {}
@@ -617,7 +618,7 @@ class HaploidVariantDecoder(SNPDecoder):
             is_diff = pred_labels != ref_labels
             both_gap = np.logical_and(pred_labels == gap_encoded, ref_labels == gap_encoded)
             is_var = np.logical_or(is_diff, both_gap)
-            runs = medaka.common.rle(is_var)
+            runs = medaka.rle.rle(is_var)
             var_runs = runs[np.where(runs['value'])]
             # TODO: optionally load in var_runs from an input vcf -
             # we can then decode quals for what medaka had, the ref and input alt

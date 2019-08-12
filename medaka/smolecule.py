@@ -58,26 +58,6 @@ def parasail_to_sam(result, seq):
     new_cigstr = ''.join((pre, mid, suf))
     return rstart, new_cigstr
 
-
-comp = {
-    'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C', 'X': 'X', 'N': 'N',
-    'a': 't', 't': 'a', 'c': 'g', 'g': 'c', 'x': 'x', 'n': 'n',
-    #'-': '-'
-}
-comp_trans = str.maketrans(''.join(comp.keys()), ''.join(comp.values()))
-
-
-def reverse_complement(seq):
-    """Reverse complement sequence.
-
-    :param: input sequence string.
-
-    :returns: reverse-complemented string.
-
-    """
-    return seq.translate(comp_trans)[::-1]
-
-
 spoa='spoa'
 Subread = namedtuple('Subread', 'name seq')
 Alignment = namedtuple('Alignment', 'rname qname flag rstart seq cigar')
@@ -194,7 +174,7 @@ class Read(object):
                 fh.write(">{}\n{}\n".format('additional', additional_seq))
             for orient, subread in zip(self._orient, self.subreads):
                 if method == 'spoa':
-                    seq = subread.seq if orient else reverse_complement(subread.seq)
+                    seq = subread.seq if orient else medaka.common.reverse_complement(subread.seq)
                 else:
                     seq = subread.seq
                 fh.write(">{}\n{}\n".format(subread.name, seq))
@@ -275,7 +255,7 @@ class Read(object):
         self._orient = []
         alignments = []
         for sr in self.subreads:
-            rc_seq = reverse_complement(sr.seq)
+            rc_seq = medaka.common.reverse_complement(sr.seq)
             result_fwd = parasail.sw_trace_striped_16(sr.seq, self.consensus, 8, 4, parasail.dnafull)
             result_rev = parasail.sw_trace_striped_16(rc_seq, self.consensus, 8, 4, parasail.dnafull)
             is_fwd = result_fwd.score > result_rev.score
@@ -303,7 +283,7 @@ class Read(object):
         """
         alignments = []
         for orient, sr in zip(self._orient, self.subreads):
-            seq = sr.seq if orient else reverse_complement(sr.seq)
+            seq = sr.seq if orient else medaka.common.reverse_complement(sr.seq)
             result = parasail.sw_trace_striped_16(seq, template, 8, 4, parasail.pam100)
             if result.cigar.beg_ref >= result.end_ref or result.cigar.beg_query >= result.end_query:
                 # unsure why this can happen
@@ -337,7 +317,7 @@ class Read(object):
                 continue
             else:
                 flag = 0 if hit.strand == 1 else 16
-                seq = sr.seq if hit.strand == 1 else reverse_complement(sr.seq)
+                seq = sr.seq if hit.strand == 1 else medaka.common.reverse_complement(sr.seq)
                 if align:
                     clip = ['' if x == 0 else '{}S'.format(x) for x in (hit.q_st, len(sr.seq) - hit.q_en)]
                     if hit.strand == -1:
