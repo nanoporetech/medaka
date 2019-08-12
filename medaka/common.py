@@ -442,14 +442,6 @@ def get_regions(bam, region_strs=None):
     return regions
 
 
-def lengths_to_rle(lengths):
-    runs = np.empty(len(lengths), dtype=[('start', int), ('length', int)])
-    runs['length'][:] = lengths
-    runs['start'][0] = 0
-    runs['start'][1:] = np.cumsum(lengths)[:-1]
-    return runs
-
-
 def get_pairs(aln):
     """Return generator of pairs.
 
@@ -464,73 +456,6 @@ def get_pairs(aln):
     return pairs
 
 
-def seq_to_hp_lens(seq):
-    """Return array of HP lengths for every position in the sequence
-
-    :param seq: str, sequence
-    :returns: `np.ndarray` containing HP lengths (the same length as seq).
-    """
-    q_rle = rle(np.fromiter(seq, dtype='U1', count=len(seq)), low_mem=True)
-    # get rle encoding for every position (so we can slice with qb instead of
-    # searching)
-    qlens = np.repeat(q_rle['length'], q_rle['length'])
-    return qlens
-
-
-def get_pairs_with_hp_len(aln, ref_seq=None):
-    """Return generator of pairs in which the qbase is not just the base,
-    but is decorated with extra information. E.g. an A which is part of a basecalled
-    6mer HP would be AAAAAA.
-
-    :param aln: `pysam.AlignedSegment` object.
-    :param ref_seq: str containing reference sequence or result of
-        `seq_to_hp_lens` (ref_seq), or None
-
-    :yields: `ComprAlignPos` objects.
-    """
-    seq = aln.query_sequence
-    qlens = seq_to_hp_lens(seq)
-
-    h = lambda ar, i, alt: ar[i] if i is not None else alt
-
-    if ref_seq is not None:
-        rlens = seq_to_hp_lens(ref_seq) if isinstance(ref_seq, str) else ref_seq
-        h_rlen = h
-    else:
-        rlens = None
-        h_rlen = lambda ar, i, alt: None
-
-    for qp, rp, rb in aln.get_aligned_pairs(with_seq=True):
-        a = ComprAlignPos(qpos=qp, qbase=h(seq, qp, None), qlen=h(qlens, qp, 1),
-                          rpos=rp, rbase=rb, rlen=h_rlen(rlens, rp, 1))
-        yield a
-
-
-def yield_compressed_pairs(aln, ref_rle=None):
-    """Yield ComprAlignPos objects for aligned pairs of an AlignedSegment.
-
-    :param aln: pysam AlignedSegment.
-    :param ref_rle: structured array with columns 'start' and 'length' encoding ref.
-    :yields: `ComprAlignPos` objects.
-    """
-    seq = aln.query_sequence
-    qlens = aln.query_qualities
-    if qlens is None:
-        raise ValueError('Found an alignment without qscores, try filter to only primary alignments.')
-    qrle = lengths_to_rle(qlens)
-    # define helpers
-    h = lambda ar, i, alt: ar[i] if i is not None else alt
-    if ref_rle is None:
-        h_ref_rle = lambda ar, i , alt: None
-    else:
-        h_ref_rle = lambda ar, i , alt: h(ar['length'], i, alt)
-
-    for qp, rp, rb in aln.get_aligned_pairs(with_seq=True):
-        a = ComprAlignPos(qpos=qp, qbase=h(seq, qp, None), qlen=h(qlens, qp, 1),
-                          rpos=rp, rbase=rb, rlen=h_ref_rle(ref_rle, rp, 1))
-        yield a
-
-
 def segment_limits(start, end, segment_len=20000, overlap_len=1000):
     """Generate segments of a range [0, end_point].
 
@@ -543,35 +468,6 @@ def segment_limits(start, end, segment_len=20000, overlap_len=1000):
     """
     for n in range(start, end, segment_len):
         yield max(start, n - overlap_len), min(n + segment_len, end - 1)
-
-
-def rle(array, low_mem=False):
-    """Calculate a run length encoding (rle), of an input vector.
-
-    :param array: 1D input array.
-    :param low_mem: use a lower memory implementation
-
-    returns: structured array with fields `start`, `length`, and `value`.
-    """
-    if len(array.shape) != 1:
-        raise TypeError("Input array must be one dimensional.")
-    dtype = [('length', int), ('start', int), ('value', array.dtype)]
-
-    if not low_mem:
-        pos = np.where(np.diff(array) != 0)[0]
-        pos = np.concatenate(([0], pos+1, [len(array)]))
-        return np.fromiter(
-            ((stop - start, start, array[start]) for (stop, start) in zip(pos[1:], pos[:-1])),
-            dtype, count=len(pos) - 1,
-        )
-    else:
-        def _gen():
-            start = 0
-            for key, group in itertools.groupby(array):
-                length = sum(1 for x in group)
-                yield length, start, key
-                start += length
-        return np.fromiter(_gen(), dtype=dtype)
 
 
 def sliding_window(a, window=3, step=1, axis=0):
@@ -658,6 +554,26 @@ def loose_version_sort(it, key=None):
     return result
 
 
+comp = {
+    'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C', 'X': 'X', 'N': 'N',
+    'a': 't', 't': 'a', 'c': 'g', 'g': 'c', 'x': 'x', 'n': 'n',
+    #'-': '-'
+}
+comp_trans = str.maketrans(''.join(comp.keys()), ''.join(comp.values()))
+
+
+def reverse_complement(seq):
+    """Reverse complement sequence.
+
+    :param: input sequence string.
+
+    :returns: reverse-complemented string.
+
+    """
+    return seq.translate(comp_trans)[::-1]
+
+
 if __name__ == "__main__":
     import doctest
     doctest.testmod()
+

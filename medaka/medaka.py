@@ -11,6 +11,7 @@ import medaka.datastore
 import medaka.features
 import medaka.labels
 import medaka.prediction
+import medaka.rle
 import medaka.smolecule
 import medaka.stitch
 import medaka.training
@@ -160,14 +161,30 @@ def main():
         version='%(prog)s {}'.format(__version__))
 
     # Transformation of sequence data
-    #TODO: is this needed?
-    #pparser = subparsers.add_parser('compress',
-    #    help='Transform basecalls and draft assemblies.',
-    #    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    #pparser.set_defaults(func=compress)
-    #pparser.add_argument('input', help='.fasta/fastq file.')
-    #pparser.add_argument('--output', default=None, help='Output file, default it stdout.')
-    #pparser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
+    pparser = subparsers.add_parser('compress_basecalls',
+        help='Transform basecalls and draft assemblies.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    pparser.set_defaults(func=medaka.rle.compress_basecalls)
+    pparser.add_argument('input', help='.fasta/fastq file.')
+    pparser.add_argument('--output', default=None, help='Output file, default it stdout.')
+    pparser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
+
+
+    # Compress bam file_ext
+    rparser = subparsers.add_parser('compress_bam',
+        help='Compress an alignment into RLE form. ',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    rparser.set_defaults(func=medaka.rle.compress_bam)
+    rparser.add_argument('bam_input', help='Bam file to compress.')
+    rparser.add_argument('bam_output', help='Output bam file.')
+    rparser.add_argument('ref_fname',
+                         help='Reference fasta file used for `bam_input`.')
+    rparser.add_argument('--threads', type=int, default=1,
+                         help='Number of threads for parallel execution.')
+    rparser.add_argument('--regions', default=None, nargs='+',
+                         help='Genomic regions to analyse.')
 
     # Creation of feature files
     fparser = subparsers.add_parser('features',
