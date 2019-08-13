@@ -122,9 +122,11 @@ install: venv scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINAR
 	${IN_VENV} && MEDAKA_BINARIES=1 python setup.py install
 
 
-test: install docs
-	${IN_VENV} && pip install pytest
-	${IN_VENV} && pytest medaka --doctest-modules
+test: install
+	${IN_VENV} && pip install pytest pytest-cov
+	${IN_VENV} && pytest medaka --doctest-modules \
+		--cov=medaka --cov-report html --cov-report term \
+		--cov-fail-under=60
 	${IN_VENV} && medaka_counts medaka/test/data/test_reads.bam Consensus_Consensus_Consensus_Consensus_utg000001l:10000-10010 --print
 
 
