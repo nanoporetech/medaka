@@ -133,7 +133,7 @@ class DataStore(object):
 
 
     def _write(self, location, data):
-        self.fh[location] = data
+        self.fh.create_dataset(location, data=data, compression='gzip', compression_opts=1)
 
 
     def load_sample(self, key):
