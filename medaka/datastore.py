@@ -32,9 +32,8 @@ class DataStore(object):
         self.logger = medaka.common.get_named_logger('DataStore')
 
         self._meta = None
-
         self.write_executor = ThreadPoolExecutor(1)
-
+        self.write_futures = []
 
     def __enter__(self):
 
@@ -118,7 +117,7 @@ class DataStore(object):
                     if isinstance(data, np.ndarray) and isinstance(data[0], np.unicode):
                         data = np.char.encode(data)
                     location = '{}/{}/{}'.format(self._sample_path_, sample.name, field)
-                    self.write_executor.submit(self._write, location, data)
+                    self.write_futures.append(self.write_executor.submit(self._write, location, data))
 
             if sample.labels is not None:
                 # count combinations of labels accross haplotypes
@@ -133,7 +132,11 @@ class DataStore(object):
 
 
     def _write(self, location, data):
-        self.fh.create_dataset(location, data=data, compression='gzip', compression_opts=1)
+        # compress numpy arrays else write as is (scalars can't be compressed)
+        if isinstance(data, np.ndarray):
+            self.fh.create_dataset(location, data=data, compression='gzip', compression_opts=1)
+        else:
+            self.fh[location] = data
 
 
     def load_sample(self, key):
