@@ -1,6 +1,6 @@
 from collections import Counter, defaultdict, OrderedDict
 from concurrent.futures import \
-    ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+    as_completed, ProcessPoolExecutor, ThreadPoolExecutor
 import warnings
 
 import numpy as np

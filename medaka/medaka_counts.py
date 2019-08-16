@@ -4,8 +4,8 @@ from timeit import default_timer as now
 
 import numpy as np
 
-import medaka.features
 import medaka.common
+import medaka.features
 
 
 def main():

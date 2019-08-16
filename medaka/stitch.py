@@ -3,7 +3,7 @@ from itertools import chain
 import numpy as np
 
 import medaka.common
-from medaka.common import Sample, Region
+from medaka.common import Region, Sample
 import medaka.datastore
 
 

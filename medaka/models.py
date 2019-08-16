@@ -1,5 +1,5 @@
-import medaka.datastore
 import medaka.common
+import medaka.datastore
 
 logger = medaka.common.get_named_logger('ModelLoad')
 

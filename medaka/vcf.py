@@ -1,6 +1,6 @@
-from copy import deepcopy
 import collections
 import contextlib
+from copy import deepcopy
 import itertools
 import os
 from threading import Lock
