@@ -292,7 +292,7 @@ class Read(object):
             else:
                 seq = medaka.common.reverse_complement(sr.seq)
             result = parasail.sw_trace_striped_16(
-                seq, template, 8, 4, parasail.pam100)
+                seq, template, 8, 4, parasail.dnafull)
             if result.cigar.beg_ref >= result.end_ref or \
                     result.cigar.beg_query >= result.end_query:
                 # unsure why this can happen
