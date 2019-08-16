@@ -77,7 +77,7 @@ def report_binaries():
             good = versions[prog] >= required_version[prog]
         print('  '.join((
             str(x).ljust(width)
-            for x in (prog, versions[prog], required_version[prog], good)
+            for x in (prog, versions[prog], required_version[prog], good))))
         )))
         all_good &= good
     if not all_good:
