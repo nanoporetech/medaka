@@ -206,7 +206,6 @@ class DataLoader(object):
         # process multiple regions at a time, up to a maximum to limit memory
         # use. Note that the number of workers also serves as a memory
         # limit when data is being consumed as fast as it is produced.
-        # produced
         regions = iter(self.regions)
         futures = dict()
         submitted = True
