@@ -178,7 +178,7 @@ class Read(object):
                     if orient:
                         seq = subread.seq
                     else:
-                        medaka.common.reverse_complement(subread.seq)
+                        seq = medaka.common.reverse_complement(subread.seq)
                 else:
                     seq = subread.seq
                 fh.write(">{}\n{}\n".format(subread.name, seq))
