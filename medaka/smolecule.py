@@ -328,7 +328,7 @@ class Read(object):
                 if hit.strand == 1:
                     seq = sr.seq
                 else:
-                    medaka.common.reverse_complement(sr.seq)
+                    seq = medaka.common.reverse_complement(sr.seq)
                 if align:
                     clip = [
                         '' if x == 0 else '{}S'.format(x)
