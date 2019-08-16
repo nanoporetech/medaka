@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import re
 import subprocess
-import sys
 import tempfile
 from timeit import default_timer as now
 
@@ -110,7 +109,7 @@ class Read(object):
         """
         try:
             read = next(cls.multi_from_fastx(fastx, take_all=True))
-        except Exception as e:
+        except Exception:
             raise IOError("Could not create Read from file {}.".format(fastx))
         return read
 
@@ -170,7 +169,6 @@ class Read(object):
     def poa_consensus(self, additional_seq=None, method='racon'):
         """Create a consensus sequence for the read."""
         self.initialize()
-        spoa_seq = None
         with tempfile.NamedTemporaryFile(
                 'w', suffix='.fasta', delete=False) as fh:
             if additional_seq is not None:
@@ -431,7 +429,7 @@ def main(args):
         for fname in args.fasta:
             try:
                 yield Read.from_fastx(fname)
-            except Exception as e:
+            except Exception:
                 pass
 
     if len(args.fasta) > 1:

@@ -15,7 +15,7 @@ def check_minimap2_version():
             return None
         # 2.11-r797
         version = LooseVersion(proc.stdout.decode().split('-')[0])
-    except Exception as e:
+    except Exception:
         return None
 
     return version
@@ -30,7 +30,7 @@ def check_htslib_tool_version(tool, pos=2):
         first_line = proc.stdout.decode().split("\n", 1)[0]
         version = first_line.split()[pos]
         version = LooseVersion(version)
-    except Exception as e:
+    except Exception:
         return None
 
     return version
@@ -63,7 +63,6 @@ def report_binaries():
     if a bad version is found.
 
     """
-    fail = False
     versions = {prog: get_version[prog]() for prog in required_version.keys()}
 
     width = 9

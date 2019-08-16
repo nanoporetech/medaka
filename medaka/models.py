@@ -83,7 +83,6 @@ def build_model(
 
     """
     import tensorflow as tf
-    from tensorflow.keras import backend as K
     from tensorflow.keras.models import Sequential
     from tensorflow.keras.layers import Dense, GRU, CuDNNGRU, Bidirectional
 

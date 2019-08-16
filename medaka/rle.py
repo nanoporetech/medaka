@@ -2,6 +2,7 @@ import array
 import concurrent.futures
 import functools
 import itertools
+from multiprocessing import Pool
 import re
 import sys
 from timeit import default_timer as now
@@ -314,7 +315,6 @@ def compress_basecalls(args):
 
 def compress_bam(args):
     """Compress a bam alignment file into an RLE system of reference """
-    logger = medaka.common.get_named_logger('Compress_bam')
     _compress_bam(
         args.bam_input, args.bam_output, args.ref_fname,
         threads=args.threads, regions=args.regions)

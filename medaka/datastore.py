@@ -253,8 +253,7 @@ class DataIndex(object):
                     else:
                         self.logger.info(
                             'Could not find samples in {}'.format(f))
-
-                except Exception as exc:
+                except Exception:
                     self.logger.info('Could not load meta from {}'.format(f))
                 else:
                     self.logger.info(
