@@ -3,6 +3,7 @@ from itertools import chain
 import numpy as np
 
 import medaka.common
+from medala.common import Sample, Region
 import medaka.datastore
 
 
@@ -13,12 +14,13 @@ def write_fasta(filename, contigs):
 
 
 def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
-    """Decode and join overlapping label probabilities from hdf to assemble complete sequence
+    """Decode and join overlapping label probabilities from hdf
+    to assemble complete sequence
 
     :param probs_hdfs: iterable of hdf filepaths.
     :ref_names: iterable of ref_names to limit stitching to.
-    :returns: list of (contig_name, sequence)
 
+    :returns: list of (contig_name, sequence)
     """
     logger = medaka.common.get_named_logger('Stitch')
 
@@ -32,19 +34,21 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
     if regions is None:
         ref_names = index.index.keys()
     else:
-        #TODO: respect entire region specification
+        # TODO: respect entire region specification
         ref_names = list()
-        for region in (medaka.common.Region.from_string(r) for r in regions):
+        for region in (Region.from_string(r) for r in regions):
             if region.start is None or region.end is None:
                 logger.warning("Ignoring start:end for '{}'.".format(region))
             ref_names.append(region.ref_name)
 
-    get_pos = lambda s, i: '{}.{}'.format(s.positions[i]['major'] + 1, s.positions[i]['minor'])
+    def get_pos(s, i):
+        return '{}.{}'.format(
+            s.positions[i]['major'] + 1, s.positions[i]['minor'])
     ref_assemblies = []
     for ref_name in ref_names:
         logger.info("Processing {}.".format(ref_name))
         data_gen = index.yield_from_feature_files(ref_names=(ref_name,))
-        seq=''
+        seq_parts = list()
         s1 = next(data_gen)
         start = get_pos(s1, 0)
         start_1_ind = None
@@ -67,17 +71,20 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
                     end_1_ind, start_2_ind = None, None
                 else:
                     try:
-                        end_1_ind, start_2_ind = medaka.common.Sample.overlap_indices(s1, s2)
+                        end_1_ind, start_2_ind = Sample.overlap_indices(s1, s2)
                     except medaka.common.OverlapException as e:
-                        logger.info("Unhandled overlap type whilst stitching chunks.")
+                        logger.info(
+                            "Unhandled overlap type whilst stitching chunks.")
                         raise(e)
 
             best = np.argmax(s1.label_probs[start_1_ind:end_1_ind], -1)
-            seq += ''.join([label_decoding[x] for x in best]).replace(medaka.common._gap_, '')
+            new_seq = ''.join([label_decoding[x] for x in best])
+            new_seq.replace(medaka.common._gap_, '')
+            seq_parts.append(new_seq)
             if end_1_ind is None:
                 key = '{}:{}-{}'.format(s1.ref_name, start, get_pos(s1, -1))
-                ref_assemblies.append((key, seq))
-                seq = ''
+                ref_assemblies.append((key, ''.join(seq_parts)))
+                seq_parts = list()
                 if s2 is not None and start_2_ind is None:
                     msg = 'There is no overlap betwen {} and {}'
                     logger.info(msg.format(s1_name, s2_name))
