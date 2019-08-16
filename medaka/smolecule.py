@@ -290,7 +290,7 @@ class Read(object):
             if orient:
                 seq = sr.seq
             else:
-                medaka.common.reverse_complement(sr.seq)
+                seq = medaka.common.reverse_complement(sr.seq)
             result = parasail.sw_trace_striped_16(
                 seq, template, 8, 4, parasail.pam100)
             if result.cigar.beg_ref >= result.end_ref or \
