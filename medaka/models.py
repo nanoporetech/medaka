@@ -1,5 +1,5 @@
-import medaka.datastore
 import medaka.common
+import medaka.datastore
 
 logger = medaka.common.get_named_logger('ModelLoad')
 
@@ -21,15 +21,19 @@ def load_model(fname, time_steps=None, allow_cudnn=True):
         num_classes = len(meta['medaka_label_decoding'])
     build_model = model_builders[meta['medaka_model_name']]
 
-    logger.info("Building model (steps, features, classes): ({}, {}, {})".format(
-        time_steps, num_features, num_classes))
-    model = build_model(time_steps, num_features, num_classes, allow_cudnn, **meta['medaka_model_kwargs'])
+    logger.info(
+        "Building model (steps, features, classes): "
+        "({}, {}, {})".format(time_steps, num_features, num_classes))
+    model = build_model(
+        time_steps, num_features, num_classes, allow_cudnn,
+        **meta['medaka_model_kwargs'])
     logger.info("Loading weights from {}".format(fname))
     model.load_weights(fname)
     return model
 
 
-def build_legacy_model(chunk_size, feature_len, num_classes, allow_cudnn, gru_size=128):
+def build_legacy_model(
+        chunk_size, feature_len, num_classes, allow_cudnn, gru_size=128):
     """Builds a bidirectional GRU model
     :param chunk_size: int, number of pileup columns in a sample.
     :param feature_len: int, number of features for each pileup column.
@@ -46,10 +50,12 @@ def build_legacy_model(chunk_size, feature_len, num_classes, allow_cudnn, gru_si
     from tensorflow.keras.layers import Bidirectional
 
     model = Sequential()
-    input_shape=(chunk_size, feature_len)
+    input_shape = (chunk_size, feature_len)
     for i in [1, 2]:
         name = 'gru{}'.format(i)
-        gru = GRU(gru_size, activation='tanh', return_sequences=True, name=name)
+        gru = GRU(
+            gru_size, activation='tanh',
+            return_sequences=True, name=name)
         model.add(Bidirectional(gru, input_shape=input_shape))
 
     # see keras #10417 for why we specify input shape
@@ -60,7 +66,9 @@ def build_legacy_model(chunk_size, feature_len, num_classes, allow_cudnn, gru_si
     return model
 
 
-def build_model(chunk_size, feature_len, num_classes, allow_cudnn, gru_size=128, classify_activation='softmax'):
+def build_model(
+        chunk_size, feature_len, num_classes, allow_cudnn,
+        gru_size=128, classify_activation='softmax'):
     """Builds a bidirectional GRU model. Uses CuDNNGRU for additional
     speed-up on GPU (claimed 7x).
 
@@ -75,7 +83,6 @@ def build_model(chunk_size, feature_len, num_classes, allow_cudnn, gru_size=128,
 
     """
     import tensorflow as tf
-    from tensorflow.keras import backend as K
     from tensorflow.keras.models import Sequential
     from tensorflow.keras.layers import Dense, GRU, CuDNNGRU, Bidirectional
 
@@ -86,7 +93,7 @@ def build_model(chunk_size, feature_len, num_classes, allow_cudnn, gru_size=128,
     logger.info("Building model with cudnn optimization: {}".format(cudnn))
 
     model = Sequential()
-    input_shape=(chunk_size, feature_len)
+    input_shape = (chunk_size, feature_len)
     for i in [1, 2]:
         name = 'gru{}'.format(i)
         # Options here are to be mutually compatible: train with CuDNNGRU
@@ -95,7 +102,9 @@ def build_model(chunk_size, feature_len, num_classes, allow_cudnn, gru_size=128,
         if cudnn:
             gru = CuDNNGRU(gru_size, return_sequences=True, name=name)
         else:
-            gru = GRU(gru_size, reset_after=True, recurrent_activation='sigmoid', return_sequences=True, name=name)
+            gru = GRU(
+                gru_size, reset_after=True, recurrent_activation='sigmoid',
+                return_sequences=True, name=name)
         model.add(Bidirectional(gru, input_shape=input_shape))
 
     # see keras #10417 for why we specify input shape
@@ -105,6 +114,7 @@ def build_model(chunk_size, feature_len, num_classes, allow_cudnn, gru_size=128,
     ))
 
     return model
+
 
 model_builders = {
     'two_layer_bidirectional_CuDNNGRU': build_model,

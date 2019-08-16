@@ -283,7 +283,7 @@ class Sample(_Sample):
         :param chunk_len: chunk length (number of columns)
         :param overlap: overlap length.
 
-        :yields: chunked :py:class:`Sample` instances.
+        :yields: chunked `Sample` instances.
         """
         # TODO - could refactor this to use Sample.slice?
         chunker = functools.partial(sliding_window,

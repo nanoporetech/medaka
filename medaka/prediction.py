@@ -1,4 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed, ThreadPoolExecutor
 import logging
 import os
 import queue
@@ -12,6 +12,7 @@ import medaka.datastore
 import medaka.features
 import medaka.labels
 import medaka.models
+
 
 def run_prediction(
         output, bam, regions, model, model_file,
@@ -32,7 +33,9 @@ def run_prediction(
     batches = medaka.common.grouper(loader, batch_size)
 
     total_region_mbases = sum(r.size for r in regions) / 1e6
-    logger.info("Running inference for {:.1f}M draft bases.".format(total_region_mbases))
+    logger.info(
+        "Running inference for {:.1f}M draft bases.".format(
+            total_region_mbases))
 
     with medaka.datastore.DataStore(output, 'a', verify_on_close=False) as ds:
         mbases_done = 0
@@ -51,12 +54,15 @@ def run_prediction(
                 else:
                     new_bases += x.span
             mbases_done += new_bases / 1e6
-            mbases_done = min(mbases_done, total_region_mbases)  # just to avoid funny log msg
+            # just to avoid funny log msg...
+            mbases_done = min(mbases_done, total_region_mbases)
             t1 = now()
             if t1 - tlast > 10:
                 tlast = t1
                 msg = '{:.1%} Done ({:.1f}/{:.1f} Mbases) in {:.1f}s'
-                logger.info(msg.format(mbases_done / total_region_mbases, mbases_done, total_region_mbases, t1 - t0))
+                logger.info(msg.format(
+                    mbases_done / total_region_mbases, mbases_done,
+                    total_region_mbases, t1 - t0))
 
             for sample, prob, feat in zip(data, class_probs, x_data):
                 # write out positions and predictions for later analysis
@@ -66,7 +72,8 @@ def run_prediction(
                 ds.write_sample(medaka.common.Sample(**sample_d))
 
     remainder_regions = loader.remainders
-    logger.info("All done, {} remainder regions.".format(len(remainder_regions)))
+    logger.info("All done, {} remainder regions.".format(
+        len(remainder_regions)))
     return remainder_regions
 
 
@@ -77,17 +84,19 @@ def predict(args):
         os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
     import tensorflow as tf
-    from tensorflow.keras.models import load_model
     from tensorflow.keras import backend as K
 
-    args.regions = medaka.common.get_regions(args.bam, region_strs=args.regions)
+    args.regions = medaka.common.get_regions(
+        args.bam, region_strs=args.regions)
     logger = medaka.common.get_named_logger('Predict')
-    logger.info('Processing region(s): {}'.format(' '.join(str(r) for r in args.regions)))
+    logger.info('Processing region(s): {}'.format(
+        ' '.join(str(r) for r in args.regions)))
 
     # write class names to output
     with medaka.datastore.DataStore(args.model) as ds:
         meta = ds.meta
-    with medaka.datastore.DataStore(args.output, 'w', verify_on_close=False) as ds:
+    with medaka.datastore.DataStore(
+            args.output, 'w', verify_on_close=False) as ds:
         ds.update_meta(meta)
 
     logger.info("Setting tensorflow threads to {}.".format(args.threads))
@@ -117,35 +126,44 @@ def predict(args):
             regs = [region]
         regions.extend(regs)
 
-    logger.info("Processing {} long region(s) with batching.".format(len(regions)))
-    model = medaka.models.load_model(args.model, time_steps=args.chunk_len, allow_cudnn=args.allow_cudnn)
-    # the returned regions are those where the pileup width is smaller than chunk_len
+    logger.info("Processing {} long region(s) with batching.".format(
+        len(regions)))
+    model = medaka.models.load_model(
+        args.model, time_steps=args.chunk_len, allow_cudnn=args.allow_cudnn)
+    # the returned regions are those where the pileup width is smaller than
+    # chunk_len
     remainder_regions = run_prediction(
         args.output, args.bam, regions, model, args.model,
         args.chunk_len, args.chunk_ovlp,
         batch_size=args.batch_size, save_features=args.save_features,
-        tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing
+        tag_name=args.tag_name, tag_value=args.tag_value,
+        tag_keep_missing=args.tag_keep_missing
     )
 
     # short/remainder regions: just do things without chunking. We can do this
-    # here because we now have the size of all pileups (and know they are small).
+    # here because we now have the size of all pileups (and know they are
+    # small).
     # TODO: can we avoid calculating pileups twice whilst controlling memory?
     if len(remainder_regions) > 0:
-        logger.info("Processing {} short region(s).".format(len(remainder_regions)))
-        model = medaka.models.load_model(args.model, time_steps=None, allow_cudnn=args.allow_cudnn)
+        logger.info("Processing {} short region(s).".format(
+            len(remainder_regions)))
+        model = medaka.models.load_model(
+            args.model, time_steps=None, allow_cudnn=args.allow_cudnn)
         for region in remainder_regions:
             new_remainders = run_prediction(
                 args.output, args.bam, [region[0]], model, args.model,
-                args.chunk_len, args.chunk_ovlp, # these won't be used
+                args.chunk_len, args.chunk_ovlp,  # these won't be used
                 batch_size=args.batch_size, save_features=args.save_features,
-                tag_name=args.tag_name, tag_value=args.tag_value, tag_keep_missing=args.tag_keep_missing,
+                tag_name=args.tag_name, tag_value=args.tag_value,
+                tag_keep_missing=args.tag_keep_missing,
                 enable_chunking=False
             )
             if len(new_remainders) > 0:
                 # shouldn't get here
                 ignored = [x[0] for x in new_remainders]
                 n_ignored = len(ignored)
-                logger.warning("{} regions were not processed: {}.".format(n_ignored, ignored))
+                logger.warning("{} regions were not processed: {}.".format(
+                    n_ignored, ignored))
 
     logger.info("Finished processing all regions.")
 
@@ -174,21 +192,20 @@ class DataLoader(object):
         self.thread.daemon = True
         self.thread.start()
 
-
     def _fill_serial(self):
         # process one region at a time
         for region in self.regions:
-            samples, remain = self._run_region(self.bam, region, *self.args, **self.kwargs)
+            samples, remain = self._run_region(
+                self.bam, region, *self.args, **self.kwargs)
             for sample in samples:
                 self.results.put(sample)
             self.remainders.extend(remain)
         self.have_data.clear()
 
-
     def _fill_parallel(self):
-        # process multiple regions at a time, up to a maximum to limit memory use
-        # note that the number of workers also provides some memory limiting in the
-        # case that data is being consumed as fast as it is produced
+        # process multiple regions at a time, up to a maximum to limit memory
+        # use. Note that the number of workers also serves as a memory
+        # limit when data is being consumed as fast as it is produced.
         regions = iter(self.regions)
         futures = dict()
         submitted = True
@@ -206,7 +223,8 @@ class DataLoader(object):
                 if len(futures) < self.region_cache_size:
                     self.logger.debug("Submitting {}.".format(submit_reg))
                     futures[str(submit_reg)] = executor.submit(
-                        self._run_region, self.bam, submit_reg, *self.args, **self.kwargs)
+                        self._run_region, self.bam, submit_reg,
+                        *self.args, **self.kwargs)
                     submitted = True
                 else:
                     submitted = False
@@ -225,11 +243,16 @@ class DataLoader(object):
                 if now() - t0 > cache_check_interval:
                     t0 = now()
                     if self.results.qsize() < 0.5 * self.sample_cache_size:
-                        self.logger.debug("Expanding region cache from {},".format(self.region_cache_size))
+                        self.logger.debug(
+                            "Expanding region cache from {},".format(
+                                self.region_cache_size))
                         self.region_cache_size += 1
                     elif self.results.qsize() > 0.9 * self.sample_cache_size:
-                        self.logger.debug("Reducing region cache from {},".format(self.region_cache_size))
-                        self.region_cache_size = max(min_region_cache, self.region_cache_size - 1)
+                        self.logger.debug(
+                            "Reducing region cache from {},".format(
+                                self.region_cache_size))
+                        self.region_cache_size = max(
+                            min_region_cache, self.region_cache_size - 1)
                     else:
                         self.logger.debug("Region cache is good size.")
             # collect remaining futures
@@ -241,17 +264,14 @@ class DataLoader(object):
         # signal everything has been processed
         self.have_data.clear()
 
-
     @staticmethod
     def _run_region(bam, region, *args, **kwargs):
         data_gen = medaka.features.SampleGenerator(
             bam, region, *args, **kwargs)
         return data_gen.samples, data_gen._quarantined
 
-
     def __iter__(self):
         return self
-
 
     def __next__(self):
         while self.have_data.is_set():
@@ -259,12 +279,10 @@ class DataLoader(object):
                 res = self.results.get(timeout=0.1)
             except queue.Empty:
                 if not self.have_data.is_set():
-                   break
+                    break
             else:
                 return res
 
         if not self.results.empty():
             return self.results.get()
         raise StopIteration
-
-

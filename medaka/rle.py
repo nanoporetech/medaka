@@ -2,6 +2,7 @@ import array
 import concurrent.futures
 import functools
 import itertools
+from multiprocessing import Pool
 import re
 import sys
 from timeit import default_timer as now
@@ -12,6 +13,7 @@ import pysam
 
 import medaka.common
 import medaka.smolecule
+
 
 def rle(iterable, low_mem=False):
     """Calculate a run length encoding (rle), of an input iterable.
@@ -35,8 +37,9 @@ def rle(iterable, low_mem=False):
         pos = np.where(array[:-1] != array[1:])[0]
         pos = np.concatenate(([0], pos+1, [len(array)]))
 
-        return np.fromiter(
-            ((stop - start, start, array[start]) for (stop, start) in zip(pos[1:], pos[:-1])),
+        return np.fromiter((
+            (end - start, start, array[start])
+            for (start, end) in zip(pos[:-1], pos[1:])),
             dtype, count=len(pos) - 1,)
     else:
         def _gen():
@@ -63,17 +66,20 @@ class RLEConverter(object):
     def coord_full_to_compact(self, coord):
         """Map string index from basecall to encoded string.
 
-        :param coord: array_like, full coordinate(s) position to be converted to compact
+        :param coord: array_like, full coordinate(s) position to be converted
+            to compact
 
         :returns: numpy.ndarray of coordinates
         """
 
-        return np.searchsorted(self.rle_conversion['start'], coord, 'right') - 1
+        return np.searchsorted(
+            self.rle_conversion['start'], coord, 'right') - 1
 
     def coord_compact_to_full(self, coord):
         """Map from encoded index to full basecall index.
 
-        :param coord: array_like, compact coordinate(s) to be converted to full basecall
+        :param coord: array_like, compact coordinate(s) to be converted to
+            full basecall
 
         :returns: numpy.ndarray of coordinates
         """
@@ -86,6 +92,7 @@ def parasail_alignment(query, ref):
     rstart, cigar = medaka.smolecule.parasail_to_sam(result, query)
 
     return rstart, cigar
+
 
 def add_extra_clipping(cigar, start_clipped, end_clipped):
     """Add extra soft clipping to begining and end of cigar string.
@@ -129,18 +136,25 @@ def add_extra_clipping(cigar, start_clipped, end_clipped):
     return ''.join((head, body, tail))
 
 
-def initialise_alignment(query_name, reference_id, reference_start, query_sequence ,
-                         cigarstring, flag, mapping_quality=60, query_qualities=None):
-    """Create a `Pysam.AlignedSegment object.
+def initialise_alignment(
+        query_name, reference_id, reference_start,
+        query_sequence, cigarstring, flag, mapping_quality=60,
+        query_qualities=None):
+    """Create a `Pysam.AlignedSegment` object.
 
     :param query_name: name of the query sequence
     :param reference_id: index to the reference name
-    :param reference_start: 0-based index of first leftmost reference coordinate
+    :param reference_start: 0-based index of first leftmost reference
+        coordinate
     :param query_sequence: read sequence bases, including those soft clipped
-    :param cigarstring: cigar string representing the alignment of query and reference
-    :param flag: bitwise flag representing some properties of the alignment (see SAM format)
-    :param mapping_quality: optional quality of the mapping or query to reference
-    :param query_qualities: optional base qualities of the query, including soft-clipped ones!
+    :param cigarstring: cigar string representing the alignment of query
+        and reference
+    :param flag: bitwise flag representing some properties of the alignment
+        (see SAM format)
+    :param mapping_quality: optional quality of the mapping or query to
+        reference
+    :param query_qualities: optional base qualities of the query, including
+        soft-clipped ones!
 
     :returns: `pysam.AlignedSegment` object
     """
@@ -156,6 +170,7 @@ def initialise_alignment(query_name, reference_id, reference_start, query_sequen
         a.query_qualities = query_qualities
 
     return a
+
 
 def _compress_alignment(alignment, ref_rle):
     logger = medaka.common.get_named_logger('Compress_bam')
@@ -188,7 +203,8 @@ def _compress_alignment(alignment, ref_rle):
     # return it to the full compact query
     extra_start_clip = q_compact_start
     extra_end_clip = len(query_rle.compact_basecall) - q_compact_end
-    corrected_cigar = add_extra_clipping(cigar, extra_start_clip, extra_end_clip)
+    corrected_cigar = add_extra_clipping(
+        cigar, extra_start_clip, extra_end_clip)
     rstart += r_compact_start
 
     # Create alignment object
@@ -216,18 +232,20 @@ def _compress_bam(bam_input, bam_output, ref_fname, regions=None, threads=1):
     ref_fasta = pysam.FastaFile(ref_fname)
 
     with pysam.AlignmentFile(bam_input, 'r') as alignments_bam:
-        with pysam.AlignmentFile(bam_output, 'wb', header=alignments_bam.header) as output:
+        with pysam.AlignmentFile(
+                bam_output, 'wb', header=alignments_bam.header) as output:
             for region in regions:
                 bam_current = alignments_bam.fetch(
                     reference=region.ref_name,
                     start=region.start,
                     end=region.end)
                 ref_sequence = ref_fasta.fetch(region.ref_name)
-                ref_rle =  RLEConverter(ref_sequence)
+                ref_rle = RLEConverter(ref_sequence)
                 func = functools.partial(
                     _compress_alignment,
                     ref_rle=ref_rle)
-                with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+                with concurrent.futures.ThreadPoolExecutor(
+                        max_workers=threads) as executor:
                     for chunk in medaka.common.grouper(bam_current, 100):
                         for new_alignment in executor.map(func, chunk):
                             if new_alignment is not None:
@@ -235,7 +253,8 @@ def _compress_bam(bam_input, bam_output, ref_fname, regions=None, threads=1):
 
 
 def compress_seq(read):
-    """Compress homopolymers within a basecall, encoding their lengths in qscores.
+    """Compress homopolymers within a basecall, encoding their lengths
+    in qscores.
 
     :param read: `pysam FastxRecord` object.
 
@@ -244,14 +263,16 @@ def compress_seq(read):
     logger = medaka.common.get_named_logger('Compress_basecalls')
 
     # Phred qscores `!"#$%&`...
-    scores = ''.join(chr(x) for x in range(33,127))
+    scores = ''.join(chr(x) for x in range(33, 127))
 
     rle_compressed = RLEConverter(read.sequence)
 
     # we can only encode up to a homopolymer length 93
     inds = np.where(rle_compressed.homop_length >= len(scores))[0]
     if len(inds) > 0:
-        logger.warning('Some homopolymers in {} are longer than the longest supported length\n'.format(read.name))
+        logger.warning(
+            "Some homopolymers in {} are longer than the longest "
+            "supported length\n".format(read.name))
         rle_compressed.homop_length[inds] = len(scores) - 1
 
     coded_lengths = ''.join([scores[x] for x in rle_compressed.homop_length])
@@ -282,7 +303,8 @@ def compress_basecalls(args):
         fh = open(args.output, 'w')
 
     for read in compressed:
-        fh.write('@{}\n{}\n{}\n'.format(read.name, read.comment, read.sequence))
+        fh.write('@{}\n{}\n{}\n'.format(
+            read.name, read.comment, read.sequence))
         fh.write('{}\n{}\n'.format('+', read.quality))
     t1 = now()
     logger.info('Compressing {} took {:.3f}s.'.format(args.input, t1 - t0))
@@ -293,7 +315,6 @@ def compress_basecalls(args):
 
 def compress_bam(args):
     """Compress a bam alignment file into an RLE system of reference """
-    logger = medaka.common.get_named_logger('Compress_bam')
     _compress_bam(
         args.bam_input, args.bam_output, args.ref_fname,
         threads=args.threads, regions=args.regions)
