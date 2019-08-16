@@ -123,7 +123,7 @@ class TruthAlignment(object):
             which could occur by independently chunking each haplotype
             by chunking the draft and aligning to both haplotypes, then
             chunking both haplotypes according to draft-chunks, then realining
-            haplotype chunks to back to the draft - this should minimize
+            haplotype chunks back to the draft - this should minimize
             staggering of truth alignments and hence the number of labels
             discarded.
 
