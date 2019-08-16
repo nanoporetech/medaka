@@ -370,7 +370,7 @@ def write_bam(fname, alignments, header, bam=True):
 
 def _read_worker(read, align=True):
     read.initialize()
-    if read.nseqs > 2:  # skip if theres only one subread
+    if read.nseqs > 2:  # skip if there is only one subread
         for it in range(2):
             read.poa_consensus(method='racon')
     aligns = None
