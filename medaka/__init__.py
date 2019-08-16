@@ -78,7 +78,6 @@ def report_binaries():
         print('  '.join((
             str(x).ljust(width)
             for x in (prog, versions[prog], required_version[prog], good))))
-        )))
         all_good &= good
     if not all_good:
         os._exit(1)
