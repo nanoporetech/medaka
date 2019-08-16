@@ -131,7 +131,6 @@ test: install
 	${IN_VENV} && flake8 medaka --exclude \
 		medaka/test/,medaka/variant.py,medaka/features.py,medaka/medaka.py,medaka/common.py,labels.py \
 		--statistics
-	${IN_VENV} && medaka_counts medaka/test/data/test_reads.bam Consensus_Consensus_Consensus_Consensus_utg000001l:10000-10010 --print
 
 
 clean: clean_htslib
