@@ -79,7 +79,7 @@ def stitch_from_probs(probs_hdfs, regions=None, model_yml=None):
 
             best = np.argmax(s1.label_probs[start_1_ind:end_1_ind], -1)
             new_seq = ''.join([label_decoding[x] for x in best])
-            new_seq.replace(medaka.common._gap_, '')
+            new_seq = new_seq.replace(medaka.common._gap_, '')
             seq_parts.append(new_seq)
             if end_1_ind is None:
                 key = '{}:{}-{}'.format(s1.ref_name, start, get_pos(s1, -1))
