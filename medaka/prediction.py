@@ -204,9 +204,8 @@ class DataLoader(object):
 
     def _fill_parallel(self):
         # process multiple regions at a time, up to a maximum to limit memory
-        # use note that the number of workers also provides some memory
-        # limiting in the case that data is being consumed as fast as it is
-        # produced
+        # use. Note that the number of workers also serves as a memory
+        # limit when data is being consumed as fast as it is produced.
         regions = iter(self.regions)
         futures = dict()
         submitted = True

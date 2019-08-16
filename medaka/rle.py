@@ -38,8 +38,8 @@ def rle(iterable, low_mem=False):
         pos = np.concatenate(([0], pos+1, [len(array)]))
 
         return np.fromiter((
-            (stop - start, start, array[start])
-            for (stop, start) in zip(pos[1:], pos[:-1])),
+            (end - start, start, array[start])
+            for (start, end) in zip(pos[:-1], pos[1:])),
             dtype, count=len(pos) - 1,)
     else:
         def _gen():
