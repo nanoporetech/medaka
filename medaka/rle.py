@@ -140,7 +140,7 @@ def initialise_alignment(
         query_name, reference_id, reference_start,
         query_sequence, cigarstring, flag, mapping_quality=60,
         query_qualities=None):
-    """Create a `Pysam.AlignedSegment object.
+    """Create a `Pysam.AlignedSegment` object.
 
     :param query_name: name of the query sequence
     :param reference_id: index to the reference name

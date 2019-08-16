@@ -116,18 +116,19 @@ class TruthAlignment(object):
     def _group_and_trim_by_haplotype(alignments):
         """Group alignments by haplotype tag and trim to common genomic window.
         :param alignments: {haplotype: [`TruthAlignment` objs]}
+
+        .. note::
+
+            We should avoid the situation of staggered alignments
+            which could occur by independently chunking each haplotype
+            by chunking the draft and aligning to both haplotypes, then
+            chunking both haplotypes according to draft-chunks, then realining
+            haplotype chunks to back to the draft - this should minimize
+            staggering of truth alignments and hence the number of labels
+            discarded.
+
         :returns: list of tuples where each tuple contains `TruthAlignment` objs
             for each haplotype trimmed to common genomic window.
-
-        .. note:: We should avoid the situation of staggered alignments
-             which could occur by independently chunking each haplotype
-             by chunking the draft and aligning to both haplotypes, then
-             chunking both haplotypes according to draft-chunks, then realining
-             haplotype chunks to back to the draft - this should minimize
-             staggering of truth alignments and hence the number of labels
-             discarded.
-             -------------  ----------
-                     --------------
         """
         haplotypes = sorted(list(alignments.keys()))
         if len(haplotypes) == 1:  # haploid

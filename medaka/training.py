@@ -209,7 +209,7 @@ class TrainBatcher():
         Class to server up batches of training / validation data.
 
         :param features: iterable of str, training feature files.
-        :param label_scheme_cls, LabellingScheme class.
+        :param label_scheme_cls: LabellingScheme class.
         :param max_label_len: int, maximum label length, longer labels will be
             truncated.
         :param validation: float, fraction of batches to use for validation, or
@@ -218,6 +218,7 @@ class TrainBatcher():
             training/validation.
         :param batch_size: int, number of samples per batch.
         :param threads: int, number of threads to use for preparing batches.
+
         """
         self.logger = medaka.common.get_named_logger('TrainBatcher')
 
@@ -274,7 +275,8 @@ class TrainBatcher():
             'validation'))
 
     def sample_to_x_y(self, sample):
-        """Convert a `medaka.common.Sample` object into an x,y tuple for training.
+        """Convert a `medaka.common.Sample` object into an x,y tuple for
+        training.
 
         :param sample: (filename, sample key)
 
@@ -299,7 +301,8 @@ class TrainBatcher():
 
     @staticmethod
     def sample_to_x_y_bq_worker(sample, label_scheme):
-        """Convert a `medaka.common.Sample` object into an x,y tuple for training.
+        """Convert a `medaka.common.Sample` object into an x,y tuple for
+        training.
 
         :param sample: (filename, sample key)
         :param label_scheme: `LabellingScheme` obj
