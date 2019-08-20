@@ -531,7 +531,7 @@ def _labelled_samples_worker(args, region):
     data_gen = SampleGenerator(
         args.bam, region, args.model, truth_bam=args.truth, truth_haplotag=args.truth_haplotag,
         chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
-    return list(data_gen.samples), region, deepcopy(data_gen.fencoder_args), deepcopy(data_gen.fencoder.decoding)
+    return list(data_gen.samples), region
 
 
 def create_labelled_samples(args):
@@ -560,7 +560,7 @@ def create_labelled_samples(args):
             futures = [executor.submit(_labelled_samples_worker, args, reg) for reg in regions]
             for fut in concurrent.futures.as_completed(futures):
                 if fut.exception() is None:
-                    samples, region, fencoder_args, fencoder_decoder = fut.result()
+                    samples, region = fut.result()
                     logger.info("Writing {} samples for region {}".format(len(samples), region))
                     for sample in samples:
                         ds.write_sample(sample)
