@@ -1,17 +1,24 @@
+import abc
 import collections
+from copy import copy
 import itertools
+from operator import attrgetter
+
 import intervaltree
 import numpy as np
 import pysam
-from copy import copy
-from operator import attrgetter
+import tensorflow.keras.utils
 
 import medaka.common
+import medaka.rle
+import medaka.vcf
 
 
 class TruthAlignment(object):
+
     def __init__(self, alignment):
-        """Create a TruthAlignment oblist from a `pysam.libcalignedsegment.AlignedSegment` object.
+        """Create a TruthAlignment oblist from a
+        `pysam.libcalignedsegment.AlignedSegment` object.
 
         :param alignment: `pysam.libcalignedsegment.AlignedSegment` object.
         """
@@ -23,7 +30,8 @@ class TruthAlignment(object):
         self.logger = medaka.common.get_named_logger('TruthAlign')
 
     def _get_overlap_with(self, other):
-        first, second = sorted((self, other), key=attrgetter('aln.reference_start'))
+        first, second = sorted((self, other),
+                               key=attrgetter('aln.reference_start'))
         overlap = first.aln.reference_end > second.aln.reference_start
         if overlap:
             # return positions of start and end of overlapping region
@@ -32,46 +40,56 @@ class TruthAlignment(object):
             return None
 
     @staticmethod
-    def _filter_alignments(alignments, region, min_length=1000, length_ratio=2.0, overlap_fraction=0.5):
+    def _filter_alignments(alignments, region, min_length=1000,
+                           length_ratio=2.0, overlap_fraction=0.5):
         """Filter alignments to yield only segments suitable for training.
 
         :param alignments: iterable of `TruthAlignment` objects.
-        :param region: `medaka.common.Region` obj. all alignments will be trimmed to this region.
+        :param region: `medaka.common.Region` obj. all alignments will be
+            trimmed to this region.
         :param min_length: int, minimum length of alignment segment.
-        :param length_ratio: float, in cases of overlap, ratio of longer segment / shorter segment
+        :param length_ratio: float, in cases of overlap, ratio of
+            longer segment / shorter segment
             above which the longer segment is assumed to be more reliable.
-        :param overlap_fraction: float, length_ratio: float, in cases of overlap, fraction of
-            shorter segment overlapping with the longer segment above which the segments are
-            considered highly overlapping.
+        :param overlap_fraction: float, length_ratio: float, in cases of
+            overlap, fraction of shorter segment overlapping with the longer
+            segment above which the segments are considered highly overlapping.
         :returns: list of `TruthAlignment` objects
 
         """
-        filtered_alignments = [copy(a) for a in alignments]  # don't want to modify original alignments
+        # don't want to modify original alignments
+        filtered_alignments = [copy(a) for a in alignments]
         for al_i, al_j in itertools.combinations(filtered_alignments, 2):
-            first, second = sorted((al_i, al_j), key=attrgetter('aln.reference_start'))
+            first, second = sorted((al_i, al_j),
+                                   key=attrgetter('aln.reference_start'))
             overlap = first._get_overlap_with(second)
             if overlap is None:
                 continue
             ovlp_start, ovlp_end = overlap
-            shorter, longer = sorted((al_i, al_j), key=attrgetter('aln.reference_length'))
-            length_ratio_ij = longer.aln.reference_length / shorter.aln.reference_length
-            overlap_fraction_ij = (ovlp_end - ovlp_start) / shorter.aln.reference_length
+            shorter, longer = sorted((al_i, al_j),
+                                     key=attrgetter('aln.reference_length'))
+            length_ratio_ij = (longer.aln.reference_length /
+                               shorter.aln.reference_length)
+            overlap_fraction_ij = ((ovlp_end - ovlp_start) /
+                                   shorter.aln.reference_length)
             # 4 cases
-            if length_ratio_ij < length_ratio:  # we don't trust one more than the other
+            # we don't trust one more than the other
+            if length_ratio_ij < length_ratio:
                 if overlap_fraction_ij >= overlap_fraction:
-                    # 1) they overlap a lot; we have significant ambiguity, discard both
+                    # 1) large overlap; significant ambiguity, discard both
                     shorter.is_kept = False
                     longer.is_kept = False
                 else:
-                    # 2) they overlap a little; just trim overlapping portions of both alignments
+                    # 2) small overlap; trim overlapping portions of alignments
                     first.end = ovlp_start
                     second.start = ovlp_end
             else:  # we trust the longer one more than the shorter one
                 if overlap_fraction_ij >= overlap_fraction:
-                    # 3) they overlap a lot; discard shorter alignment
+                    # 3) large overlap; discard shorter alignment
                     shorter.is_kept = False
                 else:
-                    # 4) they overlap a little; trim overlapping portion of shorter alignment
+                    # 4) small overlap; trim overlapping portion of
+                    # shorter alignment
                     second.start = ovlp_end
 
         # trim starts and ends if needed
@@ -83,26 +101,30 @@ class TruthAlignment(object):
                     al.end = min(region.end, al.end)
         # do filtering
         filtered_alignments = [al for al in filtered_alignments
-                               if (al.is_kept and al.end - al.start >= min_length)]
+                               if (al.is_kept and
+                                   al.end - al.start >= min_length)]
         filtered_alignments.sort(key=attrgetter('start'))
         return filtered_alignments
-
 
     @staticmethod
     def bam_to_alignments(truth_bam, region, haplotag=None):
         """Get processed truth alignments
 
-        :param truth_bam: (sorted indexed) bam with true sequence aligned to reference
+        :param truth_bam: (sorted indexed) bam with true sequence
+            aligned to reference
         :param region: `medaka.common.Region` obj,
-            (all alignments with any overlap with the interval start:end will be retrieved)
-        :param haplotag: bam tag specifying which haplotype the alignment belongs to (for multi-ploidy labels)
-        :returns: list of tuples where each tuple contains `TruthAlignment` objs
+            (all alignments with any overlap with the interval
+            start:end will be retrieved)
+        :param haplotag: bam tag specifying which haplotype the alignment
+            belongs to (for polyploid labels)
+        :returns: list of tuples where each tuple contains `TruthAlignment`
             for each haplotype trimmed to common genomic window.
         """
         algns = TruthAlignment._load_alignments(truth_bam, region, haplotag)
-        # filter truth alignments to restrict ourselves to regions of the ref where the truth
-        # in unambiguous in each haplotype
-        algns = {h: TruthAlignment._filter_alignments(h_algns, region=region) for h, h_algns in algns.items()}
+        # filter truth alignments to restrict ourselves to regions of the
+        # ref where the truth is unambiguous in each haplotype
+        algns = {h: TruthAlignment._filter_alignments(h_algns, region=region)
+                 for h, h_algns in algns.items()}
         # Group truth alignments from the haplotypes by genomic window and trim
         # to common genomic range
         if len(algns) == 0:
@@ -111,25 +133,24 @@ class TruthAlignment(object):
             grouped = TruthAlignment._group_and_trim_by_haplotype(algns)
             return grouped
 
-
     @staticmethod
     def _group_and_trim_by_haplotype(alignments):
         """Group alignments by haplotype tag and trim to common genomic window.
-        :param alignments: {haplotype: [`TruthAlignment` objs]}
 
-        .. note::
-
-            We should avoid the situation of staggered alignments
-            which could occur by independently chunking each haplotype
-            by chunking the draft and aligning to both haplotypes, then
-            chunking both haplotypes according to draft-chunks, then realigning
-            haplotype chunks back to the draft - this should minimize
-            staggering of truth alignments and hence the number of labels
-            discarded.
-
-        :returns: list of tuples where each tuple contains `TruthAlignment` objs
+        :param alignments: {haplotype: [`TruthAlignment`]}
+        :returns: list of tuples where each tuple contains `TruthAlignment`
             for each haplotype trimmed to common genomic window.
+
+        .. note:: We should avoid the situation of staggered alignments
+             which could occur by independently chunking each haplotype
+             by chunking the draft and aligning to both haplotypes, then
+             chunking both haplotypes according to draft-chunks, then realining
+             haplotype chunks to back to the draft - this should minimize
+             staggering of truth alignments and hence the number of labels
+             discarded.
         """
+
+        logger = medaka.common.get_named_logger("Group_and_trim")
         haplotypes = sorted(list(alignments.keys()))
         if len(haplotypes) == 1:  # haploid
             grouped = [(a,) for a in alignments[haplotypes[0]]]
@@ -137,7 +158,9 @@ class TruthAlignment(object):
             # create interval trees for other haplotypes
             trees = {}
             for h in haplotypes[1:]:
-                trees[h] = intervaltree.IntervalTree([intervaltree.Interval(a.start, a.end, a) for a in alignments[h]])
+                trees[h] = intervaltree.IntervalTree(
+                    [intervaltree.Interval(a.start, a.end, a)
+                        for a in alignments[h]])
             # loop over alignments in first haplotype and find overlapping
             # alignments in other haplotypes. If there are multiple overlapping
             # alignments, take the one with the longest overlap.
@@ -147,43 +170,54 @@ class TruthAlignment(object):
                 common_start, common_end = a.start, a.end
                 for h, tree in trees.items():
                     h_algns = list(tree.overlap(common_start, common_end))
-                    if len(h_algns) == 0:  # no alignments on this haplotype, skip this alignment
+                    # no alignments on this haplotype, skip this alignment
+                    if len(h_algns) == 0:
                         break
-                    elif len(h_algns) > 1:  # find most overlapping alignment
-                        ovlps = [min(common_end, o.end) - max(common_start, o.begin)]
+                    # find most overlapping alignment
+                    elif len(h_algns) > 1:
+                        ovlps = [min(common_end, o.end)
+                                 - max(common_start, o.begin)
+                                 for o in h_algns]
                         h_algn = h_algns[np.argmax(ovlps)].data
-                    elif len(h_algns) == 1:  # keep this alignment
+                    # keep this alignment
+                    elif len(h_algns) == 1:
                         h_algn = h_algns[0].data
 
                     common_start = max(common_start, h_algn.start)
                     common_end = min(common_end, h_algn.end)
                     group.append(h_algn)
-                if len(group) != len(haplotypes):  # skip this group
-                    msg = 'Skipping {}:{}-{} as some haplotypes have no alignments'
-                    self.logger.info(msg.format(a.alignment.ref_name, a.start, a.end))
+                # skip this group
+                if len(group) != len(haplotypes):
+                    msg = 'Skipping {}:{}-{}; missing alignment for haplotype'
+                    logger.info(msg.format(a.alignment.ref_name,
+                                           a.start, a.end))
                     continue
-                else:  # trim all alignments to common start/end
+                else:
+                    # trim all alignments to common start/end
                     for i in group:
                         i.start = common_start
                         i.end = common_end
                     grouped.append(tuple(group))
         return grouped
 
-
     @staticmethod
     def _load_alignments(truth_bam, region, haplotag=None):
-        """Create list of TruthAlignment objects from a bam of Truth aligned to ref.
+        """Create list of `TruthAlignment` s from a bam with true sequence(s)
+        aligned to a reference.
 
-        :param truth_bam: (sorted indexed) bam with true sequence aligned to reference
-        :param region: `medaka.common.Region` obj
-        :param haplotag: bam tag specifying which haplotype the alignment belongs to (for multi-ploidy labels)
+        :param truth_bam: (sorted indexed) bam with true sequence(s) aligned
+            to reference
+        :param region: `medaka.common.Region`
+        :param haplotag: bam tag specifying which haplotype the alignment
+            belongs to (for polyploid labels)
 
-        :returns: {haplotype: [`TruthAlignment` objs]}
+        :returns: {haplotype: [`TruthAlignment`]}
 
         """
         alignments = collections.defaultdict(list)
         with pysam.AlignmentFile(truth_bam, 'rb') as bamfile:
-            aln_reads = bamfile.fetch(reference=region.ref_name, start=region.start, end=region.end)
+            aln_reads = bamfile.fetch(reference=region.ref_name,
+                                      start=region.start, end=region.end)
             for r in aln_reads:
                 if (r.is_unmapped or r.is_secondary):
                     continue
@@ -194,16 +228,18 @@ class TruthAlignment(object):
         logger = medaka.common.get_named_logger("TruthAlign")
         for hap in alignments.keys():
             alignments[hap].sort(key=attrgetter('start'))
-            logger.info("Retrieved {} alignments for haplotype {}.".format(len(alignments[hap]), hap))
+            logger.info("Retrieved {} alignments for haplotype {}.".format(
+                len(alignments[hap]), hap))
         return alignments
-
 
     @staticmethod
     def get_positions_and_labels(h_algns, aln_to_pairs):
         """Create labels and positions array.
 
-        :param h_algns: tuple of alignments for each haplotype spanning the same genomic range.
-        :param aln_to_pairs: callable, that gets aligned pairs from an `AlignedSegment` obj.
+        :param h_algns: tuple of alignments for each haplotype spanning
+            the same genomic range.
+        :param aln_to_pairs: callable, that gets aligned pairs from an
+            `AlignedSegment` obj.
         :returns: tuple(positions, encoded_label_array)
 
             - positions: numpy structured array with 'ref_major'
@@ -213,22 +249,26 @@ class TruthAlignment(object):
             - encoded_label_array: numpy array, with shape (pos, ploidy) and
                            dtype [('base, int), ('run_length', int)]
         """
+        # TODO remove and use LabelScheme._alignments_to_labels instead
         logger = medaka.common.get_named_logger('Labels')
         # ensure all provided alignments have the same start end
-        if max(len(set((a.end for a in h_algns))), len(set((a.start for a in h_algns)))) != 1:
-            raise ValueError('Alignments must be trimmed to common genomic region')
+        if max(len(set((a.end for a in h_algns))),
+               len(set((a.start for a in h_algns)))) != 1:
+            raise ValueError('Alignments must be trimmed to \
+                common genomic region')
 
         start = h_algns[0].start
         end = h_algns[0].end
 
         pos2label_haps = []
-        pad = (medaka.common.encoding[medaka.common._gap_], 1)
+
+        def pad():
+            return (medaka.common.encoding[medaka.common._gap_], 1)
 
         for aln in h_algns:
             pairs = aln_to_pairs(aln.aln)
             # pad labels with encoded gap
-            padder = lambda: pad
-            pos2label = collections.defaultdict(padder)
+            pos2label = collections.defaultdict(pad)
             ins_count = 0
             for pair in itertools.dropwhile(lambda x: (x.rpos is None)
                                             or (x.rpos < start), pairs):
@@ -240,7 +280,8 @@ class TruthAlignment(object):
                     ins_count = 0
                     current_pos = pair.rpos
                 pos = (current_pos, ins_count)
-                label = pair.qbase.upper() if pair.qbase else medaka.common._gap_
+                label = pair.qbase.upper() if pair.qbase \
+                    else medaka.common._gap_
                 if label == 'N':
                     logger.info('Found {} at pos {}'.format(label, pos))
                 label = (medaka.common.encoding[label], pair.qlen)
@@ -249,177 +290,998 @@ class TruthAlignment(object):
             pos2label_haps.append(pos2label)
 
         # get positions common to all haplotypes
-        positions = sorted(set(itertools.chain(*[p.keys() for p in pos2label_haps])))
+        positions = sorted(set(itertools.chain(*[p.keys()
+                               for p in pos2label_haps])))
         # create label array
         dtype = [('base', int), ('run_length', int)]
         ploidy = len(pos2label_haps)
         label_array = np.empty(shape=(len(positions), ploidy), dtype=dtype)
         # fill with pad so that insertions present on only one haplotype have
         # correct gap-label on other haplotype(s)
-        label_array.fill(pad)
+        label_array.fill(medaka.common.encoding[medaka.common._gap_])
 
         for h, pos2label in enumerate(pos2label_haps):
-            label_array[:, h] = np.fromiter((pos2label[p] for p in positions), dtype=dtype, count=len(positions))
+            label_array[:, h] = np.fromiter((pos2label[p] for p in positions),
+                                            dtype=dtype, count=len(positions))
 
         positions = np.array(positions, dtype=[('major', int), ('minor', int)])
 
         return positions, label_array
 
 
-label_schemes = {}
-
-def register_label_scheme(clsname, cls):
-    """Register a label scheme."""
-    if clsname != 'BaseLabelScheme':
-        # do not register the base class (we don't want it to appear on the
-        # command line as label scheme to choose)
-        label_schemes[clsname] = cls
+label_schemes = dict()
 
 
 class LabelSchemeRegistrar(type):
-    """metaclass for registering label schemes"""
+    """Class for registering label schemes.
+    """
 
     def __new__(cls, clsname, bases, attrs):
-        newclass = super(LabelSchemeRegistrar, cls).__new__(cls, clsname, bases, attrs)
-        register_label_scheme(clsname, newclass)  # register variant decoders
+        newclass = super(LabelSchemeRegistrar, cls).__new__(
+            cls, clsname, bases, attrs)
+        cls.register_label_scheme(clsname, newclass)
         return newclass
 
-# this could be an abstract base class, but that seemed to interfere with the
-# LabelSchemeRegistrar
-class BaseLabelScheme(metaclass=LabelSchemeRegistrar):
+    def register_label_scheme(clsname, cls):
+        # do not display base class as command line option
+        if clsname != 'BaseLabelScheme':
+            label_schemes[clsname] = cls
+
+
+class LabelSchemeMeta(abc.ABC, LabelSchemeRegistrar):
+    pass
+
+
+class BaseLabelScheme(metaclass=LabelSchemeMeta):
     """Base class for labelling schemes.
+
+    Labels are 'truth' or 'y' vectors used to train models.
+    Models aim to predict a label (y) from a feature (X).
+
+    A LabelScheme contains all logic for creating label vectors
+    from a source of truth (typically an alignment of true reference
+    sequence(s) to a draft sequence).
+
+    A LabelScheme class also contains all logic for converting the
+    model output into useful output (usually  a consensus
+    sequence or a set of variant calls).
+
+    Encoding (conversion of truth alignments to training vectors):
+
+    The public method is `self.encode`.
+    These private methods must be implemented.
+
+        - `_alignment_to_pairs` (called by _alignment_to_labels)
+        - `_alignment_to_labels`
+        - `_labels_to_encoded_labels`
+        - `_encoded_labels_to_training_vectors`
+
+    Decoding (interpretation of network outputs):
+
+    For SNP calling, the public method is `self.decode_snps`
+    This private method must be implemented.
+
+        - `_prob_to_snp` (for SNP decoding)
+
+    Public methods may also be defined for other types of decoding.
+
+    For example, the concrete HaploidLabelScheme defines:
+
+        - `decode_consensus`
+        - `decode_variants`
+
     """
-    sparse_labels = False
 
+    # default set of symbols used throughout all LabelSchemes
+    symbols = '*ACGT'
 
-    def __init__(self, label_counts, max_label_len=1):
-        """
-        :param label_counts: `collections.Counter` obj of label counts.
-        :param max_label_len: int, maximum label length, longer labels will be truncated.
-        """
-
-        self.max_label_len = max_label_len
-        self.ploidy = max(len(l) for l in label_counts)
-        self._truncated_input_counts_ = self._truncate_labels_(label_counts, max_label_len)
-        self.label_encoding, self.label_decoding, self.label_description, self.label_counts = self._process_labels_()
-        self.log()
-
-
-    def log(self):
-        logger = medaka.common.get_named_logger(self.__class__.__name__)
-        logger.info("Label encoding dict is:\n{}".format('\n'.join(
-            '{}: {}'.format(k, v) for k, v in self.label_encoding.items()
-        )))
-        logger.info("Encoded labels, descriptions and counts:\n{}".format('\n'.join(
-            '{} ({}): {}'.format(l, self.label_description[l], c) for l, c in self.label_counts.items()
-        )))
-
+    @abc.abstractproperty
+    def n_elements(self):
+        # number of elements per genomic position provided
+        # by truth alignment (synonymous with ploidy)
+        return 1
 
     @staticmethod
-    def _truncate_labels_(label_counts, max_label_len):
+    def _singleton(it):
+        """Iterable contains one unique element.
 
-        if max_label_len < np.inf:  # truncate runs to max_label_len
-            full_to_trnc =  {full: tuple((b, min(rl, max_label_len)) for b, rl in full) for full in label_counts}
-            trnc_counts = collections.Counter()
-            for full, count in label_counts.items():
-                trnc_counts[full_to_trnc[full]] += count
-            return trnc_counts
+        :param it: iterable
+
+        :returns: bool, iterable contains one unique element
+        """
+        return len(set(it)) == 1
+
+    @staticmethod
+    def _phred(err, cap=70.0):
+        """Calculate phred quality score.
+
+        :param err: float, error probability
+        :param cap: float, maximum q score (prevent inf)
+
+        :returns: float, phred quality score
+        """
+        # add smallest positive usable number to err to avoid
+        # RuntimeWarning: divide by zero encountered in log10
+        err += np.finfo(float).tiny
+        q = -10 * np.log10(err)
+        return min(q, cap)
+
+    @abc.abstractmethod
+    def _alignment_to_pairs(self, aln):
+        """Convert `pysam.AlignedSegment` to aligned pairs.
+        """
+
+    @abc.abstractmethod
+    def _alignments_to_labels(self, truth_alns):
+        """Convert truth alignment(s) to an array of labels.
+        A label is a tuple of self.symbols of length self.n_elements
+        e.g. ('A','C') where n_elements = 2.
+
+        :param truth_alns: tuple of `pysam.AlignedSegment` s
+
+        :returns: np.ndarray of label tuples, dtype=object
+        """
+
+    @abc.abstractmethod
+    def _labels_to_encoded_labels(self, label_array):
+        """Convert array of labels to an array of integer (tuple)
+        encoded labels.
+
+        The logic of many to one mappings, where multiple labels
+        map to a common integer encoding is specified here.
+
+        :param label_array: np.ndarray of label tuples, dtype=object
+
+        :returns: np.ndarray of integer (tuples)
+        """
+
+    @abc.abstractmethod
+    def _encoded_labels_to_training_vectors(self, enc_labels):
+        """Convert integer (tuple) encoded labels to truth vectors
+        (e.g. one-hot encoded truth vectors) that represent the truth
+        for comparison with network output logits in
+        e.g. metric(truth, pred) or loss(truth, pred)) functions.
+
+        :param enc_labels: np.ndarray of integer (tuples)
+
+        :returns: np.ndarray of training vectors
+        """
+
+    def alignments_to_labels(self, truth_alns):
+        """Convert truth alignment(s) to nd.array of labels.
+
+        :param truth_alns: tuple of `AlignedSegment` s for each haplotype
+            spanning the same genomic range
+
+        :returns: tuple(positions, label_array)
+
+            - positions: numpy structured array with 'major'
+              (reference position index) and 'minor'
+              (trailing insertion index) fields.
+
+            - label_array: numpy array of self.n_elements tuples
+
+        """
+        # ensure all alignments have same start and end
+        if not (self._singleton(a.start for a in truth_alns) or
+                not self._singleton(a.end for a in truth_alns)):
+
+            raise ValueError('Alignments must have identical \
+                genomic start and end.')
+
+        # list of dicts mapping position to symbol for haplotypes
+        pos_maps = list()
+
+        for aln in truth_alns:
+            pairs = self._alignment_to_pairs(aln.aln)
+            # default to gap on lookup
+            pos_to_symbol = collections.defaultdict(lambda: '*')
+            ins_count = 0
+            for pair in itertools.dropwhile(
+                lambda x: (x.rpos is None)
+                    or (x.rpos < aln.start), pairs):
+
+                if pair.rpos is not None and pair.rpos >= aln.end:
+                    break
+                if pair.rpos is None:
+                    ins_count += 1
+                else:
+                    ins_count = 0
+                    current_pos = pair.rpos
+
+                pos = (current_pos, ins_count)
+                symbol = pair.qbase.upper() if pair.qbase else '*'
+                pos_to_symbol[pos] = symbol
+
+            pos_maps.append(pos_to_symbol)
+
+        # get ordered positions present in any haplotype mapping
+        positions = sorted(set(itertools.chain.from_iterable(
+            h.keys() for h in pos_maps)))
+
+        # n_element tuples of symbols from haplotypes
+        labels = [tuple(h[pos] for h in pos_maps)
+                  for pos in positions]
+        label_array = np.array(labels, dtype=object)
+        positions = np.array(positions,
+                             dtype=[('major', int), ('minor', int)])
+
+        return (positions, label_array)
+
+    @abc.abstractproperty
+    def _encoding(self):
+        """A dictionary mapping from label tuple to integer (tuple).
+        This property is accessed by methods that are responsible
+        for encoding. Also, it can be written to file in order to
+        log the encoding scheme used.
+        """
+
+    @property
+    def _decoding(self):
+        """A dictionary mapping from integer (tuple) to label tuple.
+        Inverse of encoding.
+        """
+        return {v: k for k, v in self._encoding.items()}
+
+    @property
+    def _unitary_encoding(self):
+        """A dictionary mapping from all symbol 1-tuples to integers.
+        """
+        return {v: k for k, v in enumerate(self._unitary_labels())}
+
+    @property
+    def _unitary_decoding(self):
+        """A dictionary mapping from integers to all symbol 1-tuples.
+        """
+        return {v: k for k, v in self._unitary_encoding.items()}
+
+    def encode(self, truth_alns):
+        """Convert truth alignment(s) to nd.array of integer-encoded network
+        training vectors.
+
+        :param truth_alns: tuple of `pysam.AlignedSegment` s for each haplotype
+            spanning the same genomic range
+
+        :returns: tuple(positions, training_vectors)
+
+            - positions: numpy structured array with 'major'
+              (reference position index) and 'minor'
+              (trailing insertion index) fields.
+
+            - training_vectors: nd.array of training vectors
+
+        """
+
+        positions, labels = self._alignments_to_labels(truth_alns)
+        encoded = self._labels_to_encoded_labels(labels)
+        training_vectors = self._encoded_labels_to_training_vectors(encoded)
+
+        return positions, training_vectors
+
+    def _unitary_labels(self):
+        """All symbol 1-tuples.
+        """
+        return tuple((s,) for s in self.symbols)
+
+    def _unordered_label_combinations(self):
+        """Generate all combinations of n_elements tuples where
+        order is ignored. ('A','T') == ('T','A').
+        """
+        return tuple(itertools.combinations_with_replacement(
+            self.symbols, self.n_elements))
+
+    def _decode_snps(self, sample, threshold=0.04):
+        """Convert network output in sample to a set of
+        medaka.vcf.Variants recording SNPs but NOT indels.
+
+        :param sample: medaka.common.Sample
+        :param threshold: threshold for acceptance of secondary call.
+
+        :returns: list of medaka.vcf.Variant objects for SNPs
+        """
+
+        self.secondary_threshold = threshold
+        ref_name = sample.ref_name
+        pos = sample.positions
+        probs = sample.label_probs
+
+        if self.ref_vcf is not None:
+            # process (all) loci in ref_vcf
+            loci = {v.pos for v in self.ref_vcf.fetch(
+                ref_name=ref_name, start=sample.first_pos,
+                end=sample.end_pos)}
+
+            snps = []
+            for i in range(len(probs)):
+                reference_symbol = self.ref_seq[pos['major'][i]]
+                # insertions are ignored
+                # ref_symbol must be in standard set
+                if not all((pos['major'][i] in loci,
+                            pos['minor'][i] == 0,
+                            reference_symbol in self.symbols)):
+                    continue
+
+                snp = self._prob_to_snp(probs[i],
+                                        pos['major'][i],
+                                        ref_name,
+                                        reference_symbol,
+                                        return_all=True)
+                snps.append(snp)
+
         else:
-            return label_counts
+            # process all loci but only retain variant loci
+            snps = []
+            for i in range(len(probs)):
+                reference_symbol = self.ref_seq[pos['major'][i]]
+                if not all((pos['minor'][i] == 0,
+                            reference_symbol in self.symbols)):
+                    continue
 
+                snp = self._prob_to_snp(probs[i],
+                                        pos['major'][i],
+                                        ref_name,
+                                        reference_symbol)
+                if snp is not None:
+                    snps.append(snp)
 
-    def _process_labels_(self):
-        pass
+        return snps
+
+    def decode_snps(self, sample, ref_seq, ref_vcf=None):
+        """Decode network outputs to medaka.vcf.Variant objects
+        recording SNPs. Optionally, SNPs are returned at ALL
+        loci specified in suplied ref_vcf.
+
+        :param sample: medaka.common.Sample
+        :param ref_seq: str, reference sequence
+        :param ref_vcf: VCF file
+
+        :returns: list of medaka.vcf.Variant objects
+
+        """
+
+        self.ref_seq = ref_seq
+        self.ref_vcf = medaka.vcf.VCFReader(ref_vcf) \
+            if ref_vcf else None
+
+        return self._decode_snps(sample)
+
+    @abc.abstractmethod
+    def _prob_to_snp(self, network_output, pos, ref_name,
+                     ref_symbol, return_all=False):
+        """Convert the network output for a single locus
+        to a medaka.common.Variant.
+
+        This method contains all logic for converting network
+        output into SNP Variants.
+
+        :param network_output: np.ndarray of class probabilites
+            for a single locus
+        :param pos: genomic index
+        :param ref_name: reference name
+        :param ref_symbol: the symbol at ref_seq[pos]
+        :param return_all: return a medaka.vcf.Variant even if
+            there is no SNP at the locus.
+
+        :returns: medaka.vcf.Variant
+        """
 
 
 class HaploidLabelScheme(BaseLabelScheme):
-    """Encode haploid labels for each (RLE) base.
+    """A single-element label per genomic position.
 
-        -> e.g. ((A,1),)  -> 1
+    Unitary symbols map to integers, which map to one-hot encoded
+    training vectors.
+
+    Encoding ('A',) -> 1 -> [0, 1, 0, 0, 0]
+
+    Consensus decoding is simple argmax.
+    [[0.02, 0.9, 0.02, 0.01, 0.05], [0.01, 0.02, 0.01, 0.9, 0.05]] -> "AG"
+
+    SNP and variant (SNP + indel) decoding utilises a hard threshold to define
+    secondary calls.
     """
-    sparse_labels = True
-    _description_suffix_ = 'haploid'
 
-    def __init__(self, label_counts, max_label_len=1):
-        super().__init__(label_counts, max_label_len=max_label_len)
-        if self.ploidy > 1:
-            raise ValueError('The {} should not be used with ploidy {}'.format(self.__class__.__name__, self.ploidy))
+    @property
+    def n_elements(self):
+        return 1
 
+    @property
+    def _encoding(self):
+        return self._unitary_encoding
 
-    def _process_labels_(self):
-        """Encode labels to integer classifications.
-
-        :returns: (encoding, decoding, decoding_description, encoded_counts)
-            encoding: {label: tuple of int encodings}
-            decoding: decoding[i] is the label decoding (RLE-base tuples of length 1) of the i'th encoded label.
-            decoding_description: tuple of descriptions of encoded labels
-            encoded_counts: `collections.Counter` of encoded-labels.
+    def _alignment_to_pairs(self, aln):
+        """Convert `pysam.AlignedSegment` to aligned pairs.
         """
-        # get unique RLE-bases
-        unique_labels = sorted(set(itertools.chain.from_iterable(self._truncated_input_counts_)))
-        haploid_encoding = dict(zip(unique_labels, range(len(unique_labels))))
-        label_encoding = {}
-        encoded_counts = collections.Counter()
-        for raw, raw_count in self._truncated_input_counts_.items():
-            # get encoded label(s)
-            encoded = haploid_encoding[raw[0]]
-            # the encoded label must be a tuple so encodings look the same as
-            # those created by other label schemes.
-            label_encoding[raw] = (encoded,)
-            encoded_counts[encoded] += raw_count
+        return medaka.common.get_pairs(aln)
 
-        # here decoding is simply the haploid labels
-        decoding = tuple((l[1] * medaka.common.decoding[l[0]].upper() for l in unique_labels))
-        decoding_descr = tuple(['{} {}'.format(d, self._description_suffix_) for d in decoding])
+    def _alignments_to_labels(self, truth_alns):
+        """Convert truth alignments to an array of labels.
+        """
+        n_haps = len(truth_alns)
+        if not n_haps == 1:
+            raise ValueError('{} haplotypes were passed '.format(n_haps) +
+                             'to a haploid LabelScheme')
+        return self.alignments_to_labels(truth_alns)
 
-        return label_encoding, decoding, decoding_descr, encoded_counts
+    def _labels_to_encoded_labels(self, label_array):
+        """Convert array of labels to an array of integer (tuple)
+        encoded labels.
+        """
+        return np.fromiter((self._encoding[tuple(i)]
+                            for i in label_array), dtype=int)
+
+    def _encoded_labels_to_training_vectors(self, enc_labels):
+        """Convert integer (tuple) encoded labels to truth vectors
+        (e.g. one-hot encoded truth vectors) that represent the truth
+        for comparison with network output logits in
+        e.g. metric(truth, pred) or loss(truth, pred)) functions.
+        """
+        return tensorflow.keras.utils.to_categorical(enc_labels)
+
+    def _prob_to_snp(self, network_output, pos, ref_name,
+                     ref_symbol, return_all=False):
+        """Convert the networkout output for a single locus
+        to a medaka.common.Variant.
+
+        A threshold is used to define significant secondary calls
+        allowing the prediciton of homozygous and heterozygous
+        diploid calls.
+
+        Where a significant secondary call is a deletion, the
+        SNP is considered homozygous in the primary call.
+        """
+
+        secondary_call, primary_call = (self._decoding[p][0]
+                                        for p in np.argsort(
+                                            network_output)[-2:])
+
+        secondary_prob, primary_prob = np.sort(network_output)[-2:]
+        ref_prob = network_output[self._encoding[(ref_symbol,)]]
+
+        info = {'ref_prob': ref_prob,
+                'primary_prob': primary_prob,
+                'primary_call': primary_call,
+                'secondary_prob': secondary_prob,
+                'secondary_call': secondary_call}
+
+        # logical tests
+        primary_is_reference = primary_call == ref_symbol
+        primary_is_deletion = primary_call == '*'
+        secondary_is_deletion = secondary_call == '*'
+        secondary_exceeds_threshold = (secondary_prob >=
+                                       self.secondary_threshold)
+
+        # homozygous snp
+        if all((not primary_is_reference,
+                not primary_is_deletion,
+                not secondary_exceeds_threshold)):
+
+            alt = primary_call
+            qual = self._phred(1 - primary_prob)
+            genotype = {'GT': '1/1', 'GQ': qual}
+            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
+                                      alt, filter='PASS', info=info,
+                                      qual=qual, sample_dict=genotype)
+
+        # heterozygous, no deletions
+        elif all((not primary_is_deletion,
+                  not secondary_is_deletion,
+                  secondary_exceeds_threshold)):
+
+            err = 1 - (primary_prob + secondary_prob)
+            qual = self._phred(err)
+            # filtering by list comp maintains order
+            alt = [c for c in [primary_call, secondary_call]
+                   if not c == ref_symbol]
+            gt = '0/1' if len(alt) == 1 else '1/2'
+            genotype = {'GT': gt, 'GQ': qual}
+
+            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
+                                      alt, filter='PASS', info=info,
+                                      qual=qual, sample_dict=genotype)
+
+        # heterozygous, secondary deletion
+        elif all((not primary_is_reference,
+                  not primary_is_deletion,
+                  secondary_is_deletion,
+                  secondary_exceeds_threshold)):
+
+            alt = primary_call
+            qual = self._phred(1 - primary_prob)
+            genotype = {'GT': '1/1', 'GQ': qual}
+            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
+                                      alt, filter='PASS', info=info,
+                                      qual=qual, sample_dict=genotype)
+
+        # no snp at this location
+        else:
+            if not return_all:
+                return None
+            else:
+                # return variant even though it is not a snp
+                qual = self._phred(1 - primary_prob)
+                genotype = {'GT': 0, 'GQ': qual}
+                return medaka.vcf.Variant(ref_name, pos, ref_symbol,
+                                          alt='.', filter='PASS', info=info,
+                                          qual=qual, sample_dict=genotype)
+
+    def decode_variants(self, sample, ref_seq):
+        """Convert network output in sample to a set of `medaka.vcf.Variant` s
+        recording SNPs and indels. We return a heterozygous SNP if the
+        secondary probability exceeds a hard threshold.
+
+        Multi-base or otherwise complex variants will be decoded in their
+        entirety.
+
+        :param sample: medaka.common.Sample
+        :param ref_seq: str, reference sequence
+
+        :returns: list of medaka.vcf.Variant objects
+        """
+
+        pos = sample.positions
+        probs = sample.label_probs
+
+        assert sample.positions['minor'][0] == 0
+
+        # array of symbols retaining gaps
+        predicted = np.fromiter((self._decoding[p][0]
+                                for p in np.argmax(probs, -1)),
+                                dtype='|U1', count=len(probs))
+
+        # get reference sequence with insertions marked as '*'
+        def get_symbol(p):
+            return ref_seq[p['major']] if p['minor'] == 0 else '*'
+
+        reference = np.fromiter((get_symbol(p) for p in pos),
+                                dtype='|U1', count=len(pos))
+
+        # find variants by looking for runs of labels which differ.
+        # If both labels are gap, we don't want to consider this a
+        # match so as to avoid splitting up long insertions if
+        # there happens to be a gap label in ref and pred.
+        mismatch = predicted != reference
+        both_gap = np.logical_and(predicted == '*',
+                                  reference == '*')
+        is_variant = np.logical_or(mismatch, both_gap)
+
+        # medaka.common.rle requires numeric input
+        runs = medaka.rle.rle(is_variant)
+
+        variant_runs = runs[np.where(runs['value'])]
+
+        variants = []
+        for run in variant_runs:
+            start = run['start']
+            end = start + run['length']
+            # if call or ref starts with gap, pad left
+            # (or right if we are at start of genome).
+            pad_right = False
+            while ((not pad_right and
+                    (reference[start] == '*' or
+                     predicted[start] == '*'))
+                   or
+                   (pad_right and
+                    (reference[end] == '*' or
+                     predicted[end] == '*'))):
+
+                if tuple(pos[start]) == (0, 0) or pad_right:
+                    end += 1
+                    # avoid getting stuck in loop if there is a run
+                    # of dels at start of ref
+                    pad_right = True
+                else:
+                    assert start != 0
+                    start -= 1
+
+            var_ref_with_gaps = ''.join(s for s in reference[start:end])
+            var_ref = var_ref_with_gaps.replace('*', '')
+
+            var_pred_with_gaps = ''.join(s for s in predicted[start:end])
+            var_pred = var_pred_with_gaps.replace('*', '')
+
+            if var_ref == var_pred:
+                # not a variant
+                continue
+
+            var_probs = probs[start:end]
+
+            var_ref_encoded = (self._encoding[(s,)]
+                               for s in var_ref_with_gaps)
+            var_pred_encoded = (self._encoding[(s,)]
+                                for s in var_pred_with_gaps)
+
+            ref_probs = np.array([var_probs[i, j]
+                                 for i, j in enumerate(var_ref_encoded)])
+            pred_probs = np.array([var_probs[i, j]
+                                  for i, j in enumerate(var_pred_encoded)])
+
+            ref_quals = [self._phred(1 - p) for p in ref_probs]
+            pred_quals = [self._phred(1 - p) for p in pred_probs]
+
+            def qfmt(q):
+                return '{:.3f}'.format(q)
+
+            info = {'ref_seq': var_ref_with_gaps,
+                    'pred_seq': var_pred_with_gaps,
+                    'pred_qs': ','.join((qfmt(q) for q in pred_quals)),
+                    'ref_qs': ','.join((qfmt(q) for q in ref_quals)),
+                    'pred_q': qfmt(sum(pred_quals)),
+                    'ref_q': qfmt(sum(ref_quals)),
+                    'n_cols': len(pred_quals)}
+
+            # log likelihood ratio
+            qual = qfmt(sum(pred_quals) - sum(ref_quals))
+            genotype = {'GT': '1/1', 'GQ': qual}
+
+            variant = medaka.vcf.Variant(sample.ref_name,
+                                         pos['major'][start],
+                                         var_ref, alt=var_pred,
+                                         filter='PASS', info=info,
+                                         qual=qual, sample_dict=genotype)
+            variant = variant.trim()
+            variants.append(variant)
+
+        return variants
+
+    def decode_consensus(self, sample):
+        """Convert network output to consensus sequence by argmax
+           decoding.
+
+        :param: medaka.common.Sample
+
+        :returns: str, consensus sequence
+        """
+        # most probable class
+        mp = np.argmax(sample.label_probs, -1)
+        seq = ''.join([self._decoding[x][0]
+                       for x in mp])
+        # delete gap symbol from sequence
+        seq = seq.replace('*', '')
+        return seq
 
 
-class FactoredBaseZygosityLabelScheme(BaseLabelScheme):
-    """Flatten polyploid labels to haploid labels for each (RLE) base with additional homozygous and heterozygous labels.
+class DiploidLabelScheme(BaseLabelScheme):
+    """This LabelScheme defines a two-element label per genomic position.
+    Each label maps to an integer, and we make a direct diploid call.
+    A categorical crossentropy loss is appropriate.
 
-    For heterozygous labels, encoding will be a tuple of max length ploidy + 1
-    matching to single-haplotype labels within a multi-classification scheme.
-    For homozygous labels, the encoding will be a tuple of length 2.
+    Encoding: ('A', 'C') -> 6 -> [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0].
 
-        -> e.g. ((A,1), (A,1)) -> 1, 5  (A, homozygous)
-        -> e.g. ((A,1), (T,1)) -> 1, 4, 6  (A, T, heterozygous)
-        -> e.g. ((T,1), (A,1)) -> 1, 4, 6  (A, T, heterozygous)
+    SNP decoding: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0] -> ('A', 'C')
+    (network output is not constrained to be 0 or 1, but for simplicity
+    we show the argmax probability as 1 and all others as 0)
 
+    Depending on the reference, this may result in a homozygous or
+    heterozygous SNP call.
+
+    Where reference is ('A',), we output ref='A', alt=['C'], GT='0/1'
+    Where reference is ('T',), we output ref='T' alt=['A', 'C'], GT='1/2'
+
+    When predicion is homozygous e.g. ('A', 'A'):
+    Where reference is ('T',), we output ref='T', alt=['A'], GT='1/1'
+
+    When the prediction contains a gap symbol e.g. ('A', '*'):
+    Where reference is ('T',), we output ref='T', alt=['A'], GT='1/1'
     """
-    sparse_labels = False
-    _description_suffix_ = 'multi-label factored base & zygosity'
+
+    def __init__(self):
+        super().__init__()
+
+    @property
+    def n_elements(self):
+        return 2
+
+    @property
+    def _encoding(self):
+        return {v: k for k, v in enumerate(
+            self._unordered_label_combinations())}
+
+    def _alignment_to_pairs(self, aln):
+        """Convert `pysam.AlignedSegment` to
+           aligned pairs.
+        """
+        return medaka.common.get_pairs(aln)
+
+    def _alignments_to_labels(self, truth_alns):
+        """Convert truth alignments to an array of labels.
+        """
+        n_haps = len(truth_alns)
+        if not n_haps == 2:
+            raise ValueError('{} haplotypes were passed '.format(n_haps) +
+                             'to a diploid LabelScheme')
+        return self.alignments_to_labels(truth_alns)
+
+    def _labels_to_encoded_labels(self, label_array):
+        """Convert array of labels to an array of integer (tuple)
+        encoded labels.
+        """
+        return np.fromiter((self._encoding[tuple(sorted(i))]
+                           for i in label_array), dtype=int)
+
+    def _encoded_labels_to_training_vectors(self, enc_labels):
+        """Convert integer (tuple) encoded labels to truth vectors
+        (e.g. one-hot encoded truth vectors) that represent the truth
+        for comparison with network output logits in
+        e.g. metric(truth, pred) or loss(truth, pred)) functions.
+        """
+        return tensorflow.keras.utils.to_categorical(enc_labels)
+
+    def _prob_to_snp(self, network_output, pos, ref_name,
+                     ref_symbol, return_all=False):
+        """Convert the networkout output for a single locus
+        to a medaka.common.Variant.
+        """
+
+        call = self._decoding[np.argmax(network_output)]
+        prob = np.max(network_output)
+        qual = self._phred(1 - prob)
+        # probability of homozygous reference
+        ref_prob = network_output[
+            self._encoding[(ref_symbol, ref_symbol)]]
+
+        info = {'ref_prob': ref_prob,
+                'prob': prob,
+                'call': call}
+
+        # logical tests
+        is_reference = call == (ref_symbol, ref_symbol)
+        contains_deletion = '*' in call
+        contains_nonref = len([s for s in call if
+                               s is not ref_symbol and
+                               s != '*']) > 0
+        is_het = not self._singleton(call)
+
+        # homozygous non-reference
+        if all((not is_reference,
+                not is_het,
+                not contains_deletion)):
+
+            alt = call[0]
+            genotype = {'GT': '1/1', 'GQ': qual}
+            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
+                                      alt, filter='PASS', info=info,
+                                      qual=qual, sample_dict=genotype)
+
+        # heterozygous, no deletions
+        elif all((is_het,
+                  not contains_deletion)):
+
+            alt = [s for s in call if s is not ref_symbol]
+            gt = '0/1' if len(alt) == 1 else '1/2'
+            genotype = {'GT': gt, 'GQ': qual}
+
+            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
+                                      alt, filter='PASS', info=info,
+                                      qual=qual, sample_dict=genotype)
+
+        # heterozygous, one deletion
+        elif all((is_het,
+                  contains_nonref,
+                  contains_deletion)):
+
+            alt = [s for s in call if s != '*']
+            gt = '1/1'
+            genotype = {'GT': gt, 'GQ': qual}
+
+            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
+                                      alt, filter='PASS', info=info,
+                                      qual=qual, sample_dict=genotype)
+
+        # no snp at this location
+        else:
+            if not return_all:
+                return None
+            else:
+                # return variant even though it is not a snp
+                genotype = {'GT': 0, 'GQ': qual}
+                return medaka.vcf.Variant(ref_name, pos, ref_symbol,
+                                          alt='.', filter='PASS', info=info,
+                                          qual=qual, sample_dict=genotype)
 
 
-    def _process_labels_(self):
-        is_het_to_label = {False: 'homozygous', True: 'heterozygous'}
-        # get unique RLE-bases by squashing/flattening polyploidal labels to a
-        # flattened scheme
-        flat_labels = sorted(set((h for l in self._truncated_input_counts_ for h in l)))
-        # here decoding is simply the haploid labels
-        decoding = [l[1] * medaka.common.decoding[l[0]].upper() for l in flat_labels]
-        # add an extra label for is_het
-        flat_labels.extend(is_het_to_label.keys())
-        decoding.extend(is_het_to_label.values())
-        haploid_encoding = dict(zip(flat_labels, range(len(flat_labels))))
-        label_encoding = {}
-        encoded_counts = collections.Counter()
-        for raw, raw_count in self._truncated_input_counts_.items():
-            # get encoded label(s)
-            # we don't sort here as we want to be able to pull out encodings
-            # based on raw labels without any extra downstream processing
-            encoded = [haploid_encoding[l] for l in raw]
-            is_het = len(set(raw)) > 1
-            encoded.append(haploid_encoding[is_het])
-            label_encoding[raw] = tuple(set(encoded))
-            # for now independently count each encoded label
-            # i.e. how many times do we see A vs C
-            # however might want to look into balancing weights based on
-            # counts of combinations of labels (i.e. how often do we see a
-            # C/G vs A/A.
-            for e in encoded:
-                encoded_counts[e] += raw_count
+class DiploidZygosityLabelScheme(BaseLabelScheme):
 
-        decoding_descr = ['{} {}'.format(d, self._description_suffix_) for d in decoding]
+    """ This LabelScheme defines a two-element label per genomic position,
+    plus a third element explicitly indicating heterozygosity.
 
-        return label_encoding, tuple(decoding), tuple(decoding_descr), encoded_counts
+    Each symbol in the diploid label is encoded as a unitary symbol, exactly
+    as it is in the HaploidLabelScheme, i.e. ('A',) maps to 1.
+    The third element of the integer encoding is set to 1 when the label is
+    heterozygous, or 0 where the label is homozygous.
+
+    Encoding: ('A', 'C') -> ((1, 2), 1)
+              ('G', 'G') -> ((3, 3), 0)
+
+    The training vector encoding is multi-hot. For example, to encode
+    ('A', C') at a locus, three elements of the training vectors representing
+    'A', 'C' and 'is_heterogygous' are set to 1.
+
+    ('A', 'C') -> ((1, 2), 1) -> [0, 1, 1, 0, 0, 1]
+
+    During inference, we predict the probability of each base existing
+    independently, and also (independently) the probability of the locus
+    being heterozygous. A binary crossentropy loss is appropriate.
+    The output vector will not sum to 1.
+
+    Importantly, during inference, there may be an is_heterozygous
+    prediction > 0.5 which conflicts with independent predictions of which
+    (how many) symbols are present (which symbols have independent
+    probabilities > 0.5. In this case, the is_heterozygous call dominates
+    and we return the top two most probable bases.
+
+    SNP decoding:
+
+    [0, 0.6, 0.7, 0, 0, 0.8] -> ('C', 'A') (in order of most probable)
+
+    Depending on the reference, this may result in a homozygous or
+    heterozygous SNP call.
+
+    Where reference is ('A',), we output ref='A', alt=['C'], GT='0/1'
+    Where reference is ('T',), we output ref='T' alt=['A', 'C'], GT='1/2'
+
+    When predicion is homozygous e.g. ('A', 'A'):
+    Where reference is ('T',), we output ref='T', alt=['A'], GT='1/1'
+
+    When the prediction contains a gap symbol e.g. ('A', '*'):
+    Where reference is ('T',), we output ref='T', alt=['A'], GT='1/1'
+
+    If the is_heterozygous had been < 0.5, this would alter the call.
+    [0, 0,6, 0.7, 0, 0, 0.4] -> ('C', 'C')
+    """
+
+    @property
+    def n_elements(self):
+        return 2
+
+    def _is_het(self, l):
+        return 1 if not self._singleton(l) else 0
+
+    @property
+    def _encoding(self):
+        # (symbol, symbol, zygosity) encoding.
+        # ('C', 'G'): ((2, 3), (1,))
+
+        # diploid labels
+        dl = self._unordered_label_combinations()
+        # haploid encoding
+        he = self._unitary_encoding
+
+        encoding = dict()
+
+        for label in dl:
+            symbols = (tuple(symbol,) for symbol in label)
+            encoded_symbols = tuple(
+                he[symbol] for symbol in symbols)
+            encoded_zygosity = (self._is_het(label),)
+            encoding[label] = tuple(
+                [encoded_symbols, encoded_zygosity])
+
+        return encoding
+
+    def _alignment_to_pairs(self, aln):
+        """Convert `pysam.AlignedSegment` to
+           aligned pairs.
+        """
+        return medaka.common.get_pairs(aln)
+
+    def _alignments_to_labels(self, truth_alns):
+        """Convert truth alignments to an array of labels.
+        """
+        return self.alignments_to_labels(truth_alns)
+
+    def _labels_to_encoded_labels(self, label_array):
+        """Convert array of labels to an array of integer (tuple)
+        encoded labels.
+        """
+        return np.array([self._encoding[tuple(sorted(i))]
+                        for i in label_array], dtype=object)
+
+    def _encoded_labels_to_training_vectors(self, enc_labels):
+        """Convert integer (tuple) encoded labels to truth vectors
+        (e.g. one-hot encoded truth vectors) that represent the truth
+        for comparison with network output logits in
+        e.g. metric(truth, pred) or loss(truth, pred)) functions.
+        """
+        # ('C', 'G') -> ((2, 3), 1) -> [0, 0, 1, 1, 0, 1]
+        # C and G are set to 1, and het is set to 1.
+        n_class = len(self.symbols) + 1
+        vectors = np.zeros((len(enc_labels), n_class))
+        for i, l in enumerate(enc_labels):
+            symbols, het = l
+            for s in symbols:
+                vectors[i, s] = 1
+            vectors[i, -1] = het[0]
+
+        return vectors
+
+    def _prob_to_snp(self, network_output, pos, ref_name,
+                     ref_symbol, return_all=False):
+        """Convert the networkout output for a single locus
+        to a medaka.common.Variant.
+        """
+
+        # where probability of heterozygosity > 0.5,
+        # we make a heterozygous call, taking the two most
+        # probable symbols.
+
+        het_prob = network_output[-1]
+        symbol_probs = network_output[:-1]
+
+        is_het = het_prob > 0.5
+
+        secondary_call, primary_call = (self._unitary_decoding[i][0]
+                                        for i in np.argsort(symbol_probs)[-2:])
+        secondary_prob, primary_prob = np.sort(symbol_probs)[-2:]
+
+        ref_prob = symbol_probs[self._unitary_encoding[(ref_symbol,)]]
+
+        if not is_het:
+            call = tuple((primary_call, primary_call))
+        else:
+            call = tuple((primary_call, secondary_call))
+
+        info = {'ref_prob': ref_prob,
+                'primary_prob': primary_prob,
+                'primary_call': primary_call,
+                'secondary_prob': secondary_prob,
+                'secondary_call': secondary_call}
+
+        # logical tests
+        is_reference = call == (ref_symbol, ref_symbol)
+        contains_deletion = '*' in call
+        contains_nonref = len([s for s in call if
+                               s is not ref_symbol and
+                               s != '*']) > 0
+
+        # homozygous
+        if all((not is_reference,
+                not is_het,
+                not contains_deletion)):
+
+            qual = self._phred(1 - primary_prob)
+            alt = call[0]
+            genotype = {'GT': '1/1', 'GQ': qual}
+            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
+                                      alt, filter='PASS', info=info,
+                                      qual=qual, sample_dict=genotype)
+
+        # heterozygous, no deletions
+        elif all((is_het,
+                  not contains_deletion)):
+
+            err = 1 - 0.5 * (primary_prob + secondary_prob)
+            qual = self._phred(err)
+            alt = [s for s in call if s is not ref_symbol]
+            gt = '0/1' if len(alt) == 1 else '1/2'
+            genotype = {'GT': gt, 'GQ': qual}
+
+            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
+                                      alt, filter='PASS', info=info,
+                                      qual=qual, sample_dict=genotype)
+
+        # heterozygous, one deletion
+        elif all((is_het,
+                  contains_nonref,
+                  contains_deletion)):
+
+            qual = self._phred(1 - primary_prob)
+            alt = [s for s in call if s != '*']
+            gt = '1/1'
+            genotype = {'GT': gt, 'GQ': qual}
+
+            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
+                                      alt, filter='PASS', info=info,
+                                      qual=qual, sample_dict=genotype)
+
+        # no snp at this location
+        else:
+            if not return_all:
+                return None
+            else:
+                qual = ref_prob
+                # return variant even though it is not a snp
+                genotype = {'GT': 0, 'GQ': qual}
+                return medaka.vcf.Variant(ref_name, pos, ref_symbol,
+                                          alt='.', filter='PASS', info=info,
+                                          qual=qual, sample_dict=genotype)
