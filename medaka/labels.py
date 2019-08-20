@@ -521,7 +521,11 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         """A dictionary mapping from integer (tuple) to label tuple.
         Inverse of encoding.
         """
-        return {v: k for k, v in self._encoding.items()}
+        try:
+            return self.__decoding
+        except AttributeError:
+            self.__decoding = {v: k for k, v in self._encoding.items()}
+            return self.__decoding
 
     @property
     def _unitary_encoding(self):
@@ -933,9 +937,9 @@ class HaploidLabelScheme(BaseLabelScheme):
         :returns: str, consensus sequence
         """
         # most probable class
+        decode = self._decoding  # property access is slow
         mp = np.argmax(sample.label_probs, -1)
-        seq = ''.join([self._decoding[x][0]
-                       for x in mp])
+        seq = ''.join([decode[x][0] for x in mp])
         # delete gap symbol from sequence
         seq = seq.replace('*', '')
         return seq
