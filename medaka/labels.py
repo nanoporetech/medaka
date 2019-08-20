@@ -669,6 +669,25 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         :returns: medaka.vcf.Variant
         """
 
+    @property
+    def snp_metainfo(self):
+
+        MI = medaka.vcf.MetaInfo
+        m = [MI('INFO', 'ref_prob', 1, 'Float',
+                'Medaka probability for reference allele'),
+             MI('INFO', 'primary_prob', 1, 'String',
+                'Medaka probability of primary call'),
+             MI('INFO', 'primary_call', 1, 'String',
+                'Medaka primary call'),
+             MI('INFO', 'secondary_prob', 1, 'Float',
+                'Medaka probability of secondary call'),
+             MI('INFO', 'secondary_call', 1, 'String',
+                'Medaka secondary call'),
+             MI('FORMAT', 'GT', 1, 'String', 'Medaka genotype'),
+             MI('FORMAT', 'GQ', 1, 'Float', 'Medaka genotype quality score')]
+
+        return m
+
 
 class HaploidLabelScheme(BaseLabelScheme):
     """A single-element label per genomic position.
@@ -928,6 +947,31 @@ class HaploidLabelScheme(BaseLabelScheme):
 
         return variants
 
+    @property
+    def variant_metainfo(self):
+
+        MI = medaka.vcf.MetaInfo
+        m = [MI('INFO', 'ref_seq', 1, 'String',
+                'Medaka reference sequence'),
+             MI('INFO', 'pred_seq', 1, 'String',
+                'Medaka predicted sequence'),
+             MI('INFO', 'pred_qs', '.', 'Float',
+                'Medaka quality score for prediction'),
+             MI('INFO', 'ref_qs', '.', 'Float',
+                'Medaka quality score for reference'),
+             MI('INFO', 'pred_q', 1, 'Float',
+                'Medaka per position quality score for prediction'),
+             MI('INFO', 'ref_q', 1, 'Float',
+                'Medaka per position quality score for reference'),
+             MI('INFO', 'n_cols', 1, 'Integer',
+                'Number of medaka pileup columns in variant call'),
+             MI('FORMAT', 'GT', 1, 'String',
+                'Medaka genotype.'),
+             MI('FORMAT', 'GQ', 1, 'Float',
+                'Medaka genotype quality score')]
+
+        return m
+
     def decode_consensus(self, sample):
         """Convert network output to consensus sequence by argmax
            decoding.
@@ -1082,6 +1126,19 @@ class DiploidLabelScheme(BaseLabelScheme):
                 return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                           alt='.', filter='PASS', info=info,
                                           qual=qual, sample_dict=genotype)
+
+    @property
+    def snp_metainfo(self):
+
+        MI = medaka.vcf.MetaInfo
+        m = [MI('INFO', 'ref_prob', 1, 'Float',
+                'Medaka probability of reference'),
+             MI('INFO', 'prob', 1, 'Float', 'Medaka probability of variant'),
+             MI('INFO', 'call', 1, 'Float', 'Medaka variant call'),
+             MI('FORMAT', 'GT', 1, 'String', 'Medaka genotype'),
+             MI('FORMAT', 'GQ', 1, 'Float', 'Medaka genotype quality score')]
+
+        return m
 
 
 class DiploidZygosityLabelScheme(BaseLabelScheme):
