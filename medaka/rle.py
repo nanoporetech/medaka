@@ -3,6 +3,7 @@ import concurrent.futures
 import functools
 import itertools
 from multiprocessing import Pool
+import os
 import re
 import sys
 from timeit import default_timer as now
@@ -232,8 +233,9 @@ def _compress_bam(bam_input, bam_output, ref_fname, regions=None, threads=1):
     ref_fasta = pysam.FastaFile(ref_fname)
 
     with pysam.AlignmentFile(bam_input, 'r') as alignments_bam:
+        tmp_output = '{}.tmp'.format(bam_output)
         with pysam.AlignmentFile(
-                bam_output, 'wb', header=alignments_bam.header) as output:
+                tmp_output, 'wb', header=alignments_bam.header) as output:
             for region in regions:
                 bam_current = alignments_bam.fetch(
                     reference=region.ref_name,
@@ -250,6 +252,10 @@ def _compress_bam(bam_input, bam_output, ref_fname, regions=None, threads=1):
                         for new_alignment in executor.map(func, chunk):
                             if new_alignment is not None:
                                 output.write(new_alignment)
+
+        pysam.sort("-o", bam_output, tmp_output)
+        os.remove(tmp_output)
+        pysam.index(bam_output)
 
 
 def compress_seq(read):

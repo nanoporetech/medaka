@@ -128,8 +128,9 @@ test: install
 		--cov=medaka --cov-report html --cov-report term \
 		--cov-fail-under=60
 	# TODO: add these exclusions back in after outstanding PRs
-	${IN_VENV} && flake8 medaka --import-order-style google --application-import-names medaka --exclude \
-		medaka/test/,medaka/features.py,medaka/medaka.py,medaka/common.py,medaka/variant.py \
+	${IN_VENV} && flake8 medaka --import-order-style google \
+	    --application-import-names medaka,libmedaka \
+	    --exclude medaka/test/,medaka/medaka.py,medaka/common.py,medaka/variant.py \
 		--statistics
 
 
