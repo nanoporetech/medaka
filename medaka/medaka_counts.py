@@ -1,3 +1,4 @@
+"""Simple test/demonstration program of pileup counting."""
 import argparse
 import logging
 from timeit import default_timer as now
@@ -9,7 +10,7 @@ import medaka.features
 
 
 def main():
-    # Entry point for testing/checking
+    """Entry point for pileup counting program."""
     logging.basicConfig(
         format='[%(asctime)s - %(name)s] %(message)s',
         datefmt='%H:%M:%S', level=logging.INFO)

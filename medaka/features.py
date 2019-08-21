@@ -1,3 +1,4 @@
+"""Creation of neural network input features."""
 import abc
 from collections import defaultdict
 import concurrent.futures
@@ -15,7 +16,9 @@ import medaka.labels
 
 
 def __plp_data_to_numpy(plp_data, n_rows):
-    """Copy the feature matrix and alignment column names from a
+    """Create numpy representation of feature data.
+
+    Copy the feature matrix and alignment column names from a
     `plp_data` structure returned from C library function calls.
 
     :param plp_data: a cffi proxy to a `plp_data*` pointer
@@ -163,7 +166,9 @@ def pileup_counts(
 
 
 def pileup_counts_norm_indices(dtypes, num_qstrat=1):
-    """Calculates (per-datatype, per-read-orientation) locations of bases in
+    """Calculate feature vector normalization groups.
+
+    Calculates (per-datatype, per-read-orientation) locations of bases in
     `pileup_counts` output for the purpose of various normalization
     strategies.
 
@@ -204,9 +209,11 @@ def pileup_counts_norm_indices(dtypes, num_qstrat=1):
 
 
 class BaseFeatureEncoder(abc.ABC):
+    """Base class for creation of feature arrays from a `.bam` file."""
 
     @abc.abstractmethod
     def __init__(*args, **kwargs):
+        """Initialize feature encoder."""
         # This is expected to be defined in all derived classes
         pass
 
@@ -223,14 +230,13 @@ class BaseFeatureEncoder(abc.ABC):
     @abc.abstractmethod
     def bams_to_training_samples(
             self, truth_bam, bam, region, reference=None, truth_haplotag=None):
-        # Create labelled samples, should internally call bam_to_sample
-
+        """Create labelled samples, should internally call bam_to_sample."""
         # TODO: should be moved outside this class?
         pass
 
     # this shouldn't be overridden
     def bam_to_sample(self, reads_bam, region):
-        """Converts a section of an alignment pileup to a sample.
+        """Convert a section of an alignment pileup to a sample.
 
         :param reads_bam: (sorted indexed) bam with read alignment to reference
         :param region: `medaka.common.Region` object with ref_name, start and
@@ -261,13 +267,15 @@ class BaseFeatureEncoder(abc.ABC):
 
 
 class CountsFeatureEncoder(BaseFeatureEncoder):
+    """Create a pileup array of counts of observed bases."""
+
     _norm_modes_ = ['total', 'fwd_rev', None]
     feature_dtype = np.float32
 
     def __init__(
             self, normalise='total', dtypes=('',),
             tag_name=None, tag_value=None, tag_keep_missing=False):
-        """Class to generate neural network input features.
+        """Initialize creation of neural network input features.
 
         :param normalise: str, how to normalise the data.
         :param dtypes: iterable of str, read id prefixes of distinct data types
@@ -413,6 +421,11 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
 
 
 class HardRLEFeatureEncoder(CountsFeatureEncoder):
+    """Create a pileup array of counts of observed bases.
+
+    Counts are segregated according to run lengths stored in the quality
+    information of reads.
+    """
 
     def __init__(
             self, normalise='total', dtypes=('', ), tag_name=None,
@@ -445,8 +458,7 @@ class HardRLEFeatureEncoder(CountsFeatureEncoder):
 
 def alphabet_filter(
         sample_gen, alphabet=None, filter_labels=True, filter_ref_seq=True):
-    """Skip chunks in which labels and/or ref_seq contain bases not
-        in `alphabet`.
+    """Filter chunks in which labels and/or ref_seq contain bad bases.
 
     :param sample_gen: generator of `medaka.common.Sample` named tuples.
     :param alphabet: set of str of allowed bases. If None, automatically
@@ -487,6 +499,7 @@ def alphabet_filter(
 
 
 class SampleGenerator(object):
+    """Orchestration of neural network inputs with chunking."""
 
     def __init__(self, bam, region, model, truth_bam=None,
                  truth_haplotag=None, chunk_len=1000,
@@ -598,6 +611,7 @@ class SampleGenerator(object):
 
 
 def create_samples(args):
+    """Load samples from file."""
     raise NotImplementedError(
         'Creation of unlabelled samples is currently disabled')
 
@@ -614,6 +628,7 @@ def _labelled_samples_worker(args, region):
 
 
 def create_labelled_samples(args):
+    """Entry point for creation of training (labelled) samples."""
     logger = medaka.common.get_named_logger('Prepare')
     if args.chunk_ovlp >= args.chunk_len:
         raise ValueError(

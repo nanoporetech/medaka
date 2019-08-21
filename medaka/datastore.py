@@ -1,3 +1,4 @@
+"""Storing of training and inference data to file."""
 from collections import Counter, defaultdict, OrderedDict
 from concurrent.futures import \
     as_completed, ProcessPoolExecutor, ThreadPoolExecutor
@@ -14,7 +15,8 @@ with warnings.catch_warnings():
 
 
 class DataStore(object):
-    """Class to read/write to a data file"""
+    """Read and write data to .hdf files."""
+
     _sample_path_ = 'samples'
     _groups_ = (
         'medaka_features_kwargs', 'medaka_model_kwargs', 'medaka_model_name',
@@ -23,7 +25,14 @@ class DataStore(object):
         'medaka_label_description', 'medaka_label_scheme')
 
     def __init__(self, filename, mode='r', verify_on_close=True):
+        """Initialize a datastore.
 
+        :param filename: file to open.
+        :param mode: file opening mode ('r', 'w', 'a').
+        :param verify_on_close: on file close, check that all samples logged
+            as being stored in file have a corresponding group within the
+            `.hdf`."
+        """
         self.filename = filename
         self.mode = mode
         self.verify_on_close = verify_on_close
@@ -38,13 +47,13 @@ class DataStore(object):
         self.write_futures = []
 
     def __enter__(self):
-
+        """Create filehandle."""
         self.fh = h5py.File(self.filename, self.mode)
 
         return self
 
     def __exit__(self, *args):
-
+        """Verify file if requested."""
         if self.mode != 'r':
             if self.verify_on_close:
                 self._verify_()  # verify data before saving meta
@@ -87,18 +96,21 @@ class DataStore(object):
 
     @property
     def meta(self):
+        """Meta data stored in file."""
         if self._meta is None:
             self._meta = self._load_metadata()
         return self._meta
 
     def update_meta(self, meta):
-        """Update metadata"""
+        """Update metadata."""
         self._meta = self.meta
         self._meta.update(meta)
 
     def write_sample(self, sample):
-        """Write sample to hdf, ensuring a sample is not written twice and
-        maintaining a count of labels seen.
+        """Write sample to hdf.
+
+        Checks are performed to ensure a sample is not written twice and
+        a count of unique training labels seen is maintained.
 
         :param sample: `medaka.common.Sample` object.
         """
@@ -149,7 +161,7 @@ class DataStore(object):
             self.fh[location] = data
 
     def load_sample(self, key):
-        """Load `medaka.common.Sample` object from HDF5
+        """Load `medaka.common.Sample` object from file.
 
         :param key: str, sample name.
         :returns: `medaka.common.Sample` object.
@@ -167,8 +179,7 @@ class DataStore(object):
         return medaka.common.Sample(**s)
 
     def log_counts(self):
-        """Log label counts"""
-
+        """Log label counts."""
         def _label_name(label):
             if isinstance(label, tuple):
                 return medaka.common.decoding[label[0]], label[1]
@@ -188,7 +199,7 @@ class DataStore(object):
             self.fh[group] = yaml.dump(d)
 
     def _load_metadata(self, groups=None):
-        """Load meta data"""
+        """Load meta data."""
         if groups is None:
             groups = self._groups_
         return {
@@ -197,8 +208,7 @@ class DataStore(object):
 
     @property
     def sample_keys(self):
-        """Return tuple of sample keys"""
-
+        """Return tuple of sample keys."""
         value = tuple()
         if 'medaka_samples' in self.meta:
             value = tuple(self.meta['medaka_samples'])
@@ -213,15 +223,19 @@ class DataStore(object):
 
     @property
     def n_samples(self):
-        """Return number of samples"""
+        """Return the number of samples stored in file."""
         return len(self.sample_keys)
 
 
 class DataIndex(object):
-    """Class to index and serve samples from one or more `DataFiles`"""
+    """Index and serve samples from multiple `DataStore` compatible files."""
 
     def __init__(self, filenames, threads=4):
+        """Intialize an index across a set of files.
 
+        :param filenames: list of files to index.
+        :param threads: number of threads to use for indexing.
+        """
         self.logger = medaka.common.get_named_logger('DataIndex')
 
         self.filenames = filenames
@@ -273,6 +287,11 @@ class DataIndex(object):
 
     @property
     def index(self):
+        """Return a dictionary describing all samples.
+
+        The dictionary maps sample names to their file and HDF group. It is
+        sorted by reference coordinate.
+        """
         if self._index is None:
             self._index = self._get_sorted_index()
         return self._index
@@ -281,8 +300,8 @@ class DataIndex(object):
         """Get index of samples indexed by reference and ordered by start pos.
 
         :returns: {ref_name: [sample dicts sorted by start]}
-        """
 
+        """
         ref_names = defaultdict(list)
 
         for key, f in self.samples:
@@ -319,8 +338,8 @@ class DataIndex(object):
             are supplied).
 
         :yields: `medaka.common.Sample` objects.
-        """
 
+        """
         if samples is not None:
             # yield samples in the order they are asked for
             for sample, fname in samples:

@@ -1,3 +1,4 @@
+"""Training program and ancillary functions."""
 import inspect
 import os
 
@@ -10,6 +11,13 @@ import medaka.models
 
 
 def qscore(y_true, y_pred):
+    """Keras metric function for calculating scaled error.
+
+    :param y_true: tensor of true class labels.
+    :param y_pred: class output scores from network.
+
+    :returns: class error expressed as a phred score.
+    """
     from tensorflow.keras import backend as K
     error = K.cast(K.not_equal(
         K.max(y_true, axis=-1), K.cast(K.argmax(y_pred, axis=-1), K.floatx())),
@@ -20,6 +28,13 @@ def qscore(y_true, y_pred):
 
 
 def cat_acc(y_true, y_pred):
+    """Keras loss function for sparse_categorical_accuracy.
+
+    :param y_true: tensor of true class labels.
+    :param y_pred: class output scores from network.
+
+    :returns: categorical accuracy.
+    """
     # sparse_categorical_accuracy is broken in keras 2.2.4
     #   https://github.com/keras-team/keras/issues/11348#issuecomment-439969957
     # this is taken from e59570ae
@@ -202,11 +217,12 @@ def run_training(
 
 
 class TrainBatcher():
+    """Batching of training and validation samples."""
+
     def __init__(
             self, features, label_scheme_cls, max_label_len,
             validation=0.2, seed=0, batch_size=500, threads=1):
-        """
-        Class to server up batches of training / validation data.
+        """Serve up batches of training or validation data.
 
         :param features: iterable of str, training feature files.
         :param label_scheme_cls: LabellingScheme class.
@@ -275,8 +291,10 @@ class TrainBatcher():
             'validation'))
 
     def sample_to_x_y(self, sample):
-        """Convert a `medaka.common.Sample` object into an x,y tuple for
-        training.
+        """Convert a `common.Sample` object into a training x, y tuple.
+
+        This method is synonymous to the static method
+        sample_to_x_y_bq_worker.
 
         :param sample: (filename, sample key)
 
@@ -286,8 +304,9 @@ class TrainBatcher():
         return self.sample_to_x_y_bq_worker(sample, self.label_scheme)
 
     def samples_to_batch(self, samples):
-        """Convert a set of `medaka.common.Sample` objects into an X, Y tuple
-        for training.
+        """Convert a set of `common.Sample` objects into a training X, Y tuple.
+
+        The function wraps `.sample_to_x_y` and stacks the outputs.
 
         :param samples: (filename, sample key) tuples
 
@@ -301,11 +320,11 @@ class TrainBatcher():
 
     @staticmethod
     def sample_to_x_y_bq_worker(sample, label_scheme):
-        """Convert a `medaka.common.Sample` object into an x,y tuple for
-        training.
+        """Convert a `common.Sample` object into a training x, y tuple.
 
-        :param sample: (filename, sample key)
-        :param label_scheme: `LabellingScheme` obj
+        :param sample: (filename, sample key).
+        :param label_scheme: `LabelScheme` obj.
+
         :returns: (np.ndarray of inputs, np.ndarray of labels)
 
         """

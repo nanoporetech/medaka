@@ -1,3 +1,5 @@
+"""Reading and writing of Variant Call Format files."""
+
 import collections
 import contextlib
 from copy import deepcopy
@@ -13,6 +15,7 @@ import medaka.common
 
 
 def self_return(x):
+    """Return the input."""
     return x
 
 
@@ -37,6 +40,12 @@ all_info_fields.update(own_info_fields)
 
 
 def parse_tags_to_string(tags):
+    """Create string representation of a dictionary of tags.
+
+    :param tags: dictionary containing "tag" meta data of a variant.
+
+    :returns: the string representation of the tags.
+    """
     str_tags = []
     for key, value in sorted(tags.items()):
         # If key is of type 'Flag', print only key, else 'key=value'
@@ -50,6 +59,14 @@ def parse_tags_to_string(tags):
 
 
 def parse_string_to_tags(string, splitter=','):
+    """Create a dictionary of "tag" meta data from a string representation.
+
+    :param string: string containing tags.
+    :param splitter: delimiter of array-valued items.
+
+    :returns: dictionary of tags.
+
+    """
     tags = {}
     for field in string.split(';'):
         try:
@@ -68,6 +85,7 @@ def parse_string_to_tags(string, splitter=','):
 
 
 class MetaInfo(object):
+    """Representation of a variant file meta data."""
 
     __valid_groups__ = ('INFO', 'FILTER', 'FORMAT')
     __valid_group_sort__ = {v: k for k, v in enumerate(__valid_groups__)}
@@ -75,13 +93,14 @@ class MetaInfo(object):
     __valid_types__ = {'Integer', 'Float', 'Flag', 'Character', 'String'}
 
     def __init__(self, group, id, number, typ, descr):
-        """Class for representing meta info for VCF header
+        """Initialize meta info storage for VCF header.
 
         :param group: str, one of {'INFO', 'FILTER', 'FORMAT'}
         :param id: str, short name as it occurs in a VCF data line.
         :param number: int or one of {'A', 'R', 'G', '.'}.
         :param type: one of {'Integer', 'Float', 'Flag', 'Character', 'String'}
         :param descr: str, free form description.
+
         """
         if group not in self.__valid_groups__:
             raise ValueError(
@@ -106,14 +125,18 @@ class MetaInfo(object):
         self.descr = descr
 
     def __repr__(self):
+        """Create representation of meta data item in VCF format."""
         return '{}=<ID={},Number={},Type={},Description="{}">'.format(
             self.group, self.id, self.number, self.typ, self.descr)
 
     def __str__(self):
+        """Return meta data as string."""
         return self.__repr__()
 
 
 class Variant(object):
+    """Representation of a genomic variant."""
+
     # TODO: ref/alt could be a symbolic allele "<ID>".
     # TODO: alt could contain breakends.
     # TODO: Handle genomic fields.
@@ -122,6 +145,19 @@ class Variant(object):
             self, chrom, pos, ref,
             alt='.', id='.', qual='.', filter='.', info='.',
             sample_dict=None):
+        """Initialize a variant.
+
+        :param chrom: reference sequence (chromosome).
+        :param pos: position in reference chrom.
+        :param ref: reference allele
+        :param alt: alternative alleles.
+        :param id: variant indentification.
+        :param qual: variant quality.
+        :param filter: filter status.
+        :param info: variant info, a dictionary or VCF compatible string.
+        :param sample_dict: dictionary specifying genotypes of samples.
+
+        """
         self.chrom = chrom
         self.pos = int(pos)
         self.ref = ref.upper()
@@ -140,6 +176,7 @@ class Variant(object):
             self.sample_dict = collections.OrderedDict()
 
     def __eq__(self, other):
+        """Equality comparison of two variants."""
         for field in (
                 'chrom', 'pos', 'id', 'ref', 'alt',
                 'qual', 'filter', 'info', 'sample_dict'):
@@ -148,6 +185,7 @@ class Variant(object):
         return True
 
     def __ne__(self, other):
+        """Inequality comparison of two variants."""
         return not self.__eq__(other)
 
     @property
@@ -161,19 +199,23 @@ class Variant(object):
 
     @property
     def format(self):
+        """Return the format field for writing to`.vcf` file."""
         return ':'.join((str(v) for v in self._sorted_format_keys))
 
     @property
     def sample(self):
+        """Return the sample field for writing to `.vcf` file."""
         return ':'.join((
             str(self.sample_dict[k]) for k in self._sorted_format_keys))
 
     @property
     def info_string(self):
+        """Return info field for writing to `.vcf` file."""
         return parse_tags_to_string(self.info)
 
     @property
     def gt(self):
+        """Return the genotype (or None) for each sample."""
         if 'GT' in self.sample_dict:
             gts = self.sample_dict['GT'].replace('|', '/').split('/')
             return tuple(int(x) for x in gts)
@@ -182,6 +224,7 @@ class Variant(object):
 
     @property
     def alleles(self):
+        """Return alleles for each genotype."""
         all_alleles = [self.ref] + self.alt
         if self.gt is None:
             return None
@@ -190,6 +233,11 @@ class Variant(object):
 
     @classmethod
     def from_text(cls, line):
+        """Create a `Variant` from a `.vcf` formatted line.
+
+        :param line: string representing variant.
+
+        """
         chrom, pos, ident, ref, alt, qual, filt, info, \
             sample_fields, sample_data, *others = line.split('\t')
         pos = int(pos)
@@ -203,6 +251,12 @@ class Variant(object):
         return instance
 
     def add_tag(self, tag, value=None):
+        """Add a tag (with value).
+
+        :param tag: tag name.
+        :param value: tag value.
+
+        """
         self.info[tag] = value
 
         # Remove default value if more than one exists
@@ -210,9 +264,15 @@ class Variant(object):
             self.info.pop('.', None)
 
     def get_tag(self, tag):
+        """Get the value of a tag by name.
+
+        :param tag: tag name.
+
+        """
         return self.info[tag]
 
     def __repr__(self):
+        """Return the representation of the `Variant`."""
         attributes = {}
         for field in (
                 'chrom', 'pos', 'ref', 'alt', 'id',
@@ -227,6 +287,7 @@ class Variant(object):
             "sample='{sample_repr}')".format(**attributes))
 
     def deep_copy(self):
+        """Return the (deep)copy of the `Variant`."""
         return deepcopy(self)
 
     def to_dict(self):
@@ -293,10 +354,8 @@ class Variant(object):
 
 
 class VCFWriter(object):
-    # some tools don't like VCFv4.3, preferring VCFv4.1 - so we should be able
-    # to write VCFv4.1 files. VCFv4.3 has a few extra reserved fields ('AD',
-    # 'ADF', and 'ADR') but there is no harm in including those files written
-    # as VCFv4.1 - they just won't be recognised and used as reserved fields.
+    """Writing of `Variants` to file."""
+
     version_options = {'4.3', '4.1'}
 
     def __init__(self, filename, mode='w',
@@ -307,7 +366,21 @@ class VCFWriter(object):
                  meta_info=None,
                  version='4.1'
                  ):
+        """Initialize a VCF writer.
 
+        Some tools cannot read VCFv4.3, preferring VCFv4.1 - so this class
+        writes VCFv4.1 files by default. VCFv4.3 has a few extra reserved
+        fields ('AD', 'ADF', and 'ADR') but there is no harm in including those
+        files written as VCFv4.1 - they simply as not recognised and used as
+        reserved fields.
+
+        :param filename: output file.
+        :param header: list of header fields.
+        :param contigs: contig names.
+        :param meta_info: meta information to store in header.
+        :param version: version to write to file.
+
+        """
         self.filename = filename
         self.mode = mode
         self.header = header
@@ -336,12 +409,14 @@ class VCFWriter(object):
         self.logger = medaka.common.get_named_logger('VCFWriter')
 
     def __enter__(self):
+        """Open and prepare file as a managed context."""
         self.handle = open(self.filename, self.mode, encoding='utf-8')
         self.handle.write('\n'.join('##' + line for line in self.meta) + '\n')
         self.handle.write('#' + '\t'.join(self.header) + '\n')
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """Close the file when context is left."""
         self.handle.close()
 
     def write_variants(self, variants, sort=True):
@@ -354,6 +429,11 @@ class VCFWriter(object):
             self.write_variant(variant)
 
     def write_variant(self, variant):
+        """Write a single variant to file.
+
+        :param variant: the `Variant` to write.
+
+        """
         variant = variant.deep_copy()
         # Some fields can be multiple
         for attribute in ('alt', 'filter'):
@@ -372,15 +452,16 @@ class VCFWriter(object):
 
 
 class VCFReader(object):
+    """Basic VCF parser."""
+
     def __init__(self, filename, cache=True):
-        """Basic VCF parser.
+        """Initialize a VCF parser.
 
         :param filename: .vcf file.
         :param cache: if True, all parsed variants are stored in memory for
             faster subsequent access.
 
         """
-
         self.filename = filename
         self.cache = cache
         self.chroms = list()  # keep record of chroms in order they were read
@@ -432,7 +513,6 @@ class VCFReader(object):
 
     def index(self):
         """Index the input file for faster fetches."""
-
         # calling this method implies caching
         self.cache = True
         if self._indexed or not self.cache:
@@ -517,7 +597,7 @@ def _get_hap(v, trees):
 
 def _merge_variants(
         interval, trees, ref_seq, detailed_info=False, discard_phase=True):
-    """Merge variants in an interval into a `Variant` obj
+    """Merge variants in an interval into a `Variant` object.
 
     .. note::
 
@@ -604,15 +684,18 @@ def _merge_variants(
 
 
 class Haploid2DiploidConverter(object):
+    """Conversion of multiple haploid `.vcf` files to a single `.vcf`."""
 
     def __init__(
             self, vcf1, vcf2, ref_fasta,
             only_overlapping=True, discard_phase=True, detailed_info=False):
-        """Merge variants from two haploid VCFs into a diploid vcf. Variants in
+        """Initialize variant merging.
+
+        Merge variants from two haploid VCFs into a diploid vcf. Variants in
         one file which overlap with variants in the other will have their alts
         padded.
 
-        .. note::
+        .. warning::
 
             Variants in a single vcf file should not overlap with each other.
 
@@ -622,8 +705,8 @@ class Haploid2DiploidConverter(object):
             adjacent ones).
         :param discard_phase: bool, if False, preserve phase, else output
             unphased variants.
-        """
 
+        """
         self.only_overlapping = only_overlapping
         self.discard_phase = discard_phase
         self.detailed_info = detailed_info
@@ -640,8 +723,8 @@ class Haploid2DiploidConverter(object):
         """Yield diploid variants.
 
         :yields `medaka.vcf.Variant` objs
-        """
 
+        """
         for chrom in medaka.common.loose_version_sort(self.chroms):
             self.logger.info('Merging variants in chrom {}'.format(chrom))
             merged = []
@@ -669,6 +752,7 @@ class Haploid2DiploidConverter(object):
 
     @property
     def meta_info(self):
+        """Return the meta information for the combined `.vcf` file."""
         m = []
         for h in 1, 2:
             m.append(MetaInfo(
@@ -696,8 +780,7 @@ class Haploid2DiploidConverter(object):
 
 
 def haploid2diploid(args):
-    """Entry point for merging two haploid vcfs into a diploid vcf"""
-
+    """Entry point for merging two haploid vcfs into a diploid vcf."""
     convertor = Haploid2DiploidConverter(args.vcf1, args.vcf2, args.ref_fasta,
                                          only_overlapping=not args.adjacent)
 
@@ -715,8 +798,8 @@ def split_variants(vcf_fp, trim=True):
     :param trim: bool, trim variants to minimal alt and ref and update pos.
 
     :returns: tuple of output files written
-    """
 
+    """
     vcf = VCFReader(vcf_fp, cache=False)
     q = collections.defaultdict(list)
     for v in vcf.fetch():
@@ -749,8 +832,8 @@ def classify_variant(v):
     :param v: `medaka.vcf.Variant` obj
 
     :returns: typ: str, variant classification.
-    """
 
+    """
     def is_start_same(x):
         return all([a[0] == x.ref[0] for a in x.alt])
 
@@ -786,11 +869,13 @@ def classify_variant(v):
 
 
 def classify_variants(args):
-    """Entry point to classify variants and write out a new VCF for each class
-    and class-groups.
+    """Entry point to classify variants.
+
+    Program to separate variants by class and write to individual files.
 
     Example classifications for subsitutions are 'snp' and 'mnp', which belong
     to the same class-group 'sub'.
+
     """
     path, ext = os.path.splitext(args.vcf)
 
@@ -832,7 +917,7 @@ def classify_variants(args):
 
 
 def vcf2tsv(args):
-    """Entry point to convert vcf to tsv, unpacking info and sample fields"""
+    """Entry point to convert vcf to tsv, unpacking info and sample fields."""
     try:
         import pandas as pd
     except ImportError:
@@ -845,9 +930,7 @@ def vcf2tsv(args):
 
 
 def get_homozygous_regions(args):
-    """Entry point to find homozygous regions from an input diploid VCF.
-    """
-
+    """Entry point to find homozygous regions from an input diploid VCF."""
     vcf = VCFReader(args.vcf, cache=False)
     reg = medaka.common.Region.from_string(args.region)
     if reg.start is None or reg.end is None:

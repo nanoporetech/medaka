@@ -1,3 +1,4 @@
+"""Creation and loading of models."""
 import medaka.common
 import medaka.datastore
 
@@ -34,7 +35,8 @@ def load_model(fname, time_steps=None, allow_cudnn=True):
 
 def build_legacy_model(
         chunk_size, feature_len, num_classes, allow_cudnn, gru_size=128):
-    """Builds a bidirectional GRU model
+    """Build a bidirectional GRU model.
+
     :param chunk_size: int, number of pileup columns in a sample.
     :param feature_len: int, number of features for each pileup column.
     :param num_classes: int, number of output class labels.
@@ -44,7 +46,6 @@ def build_legacy_model(
     :returns: `keras.models.Sequential` object.
 
     """
-
     from tensorflow.keras.models import Sequential
     from tensorflow.keras.layers import Dense, GRU
     from tensorflow.keras.layers import Bidirectional
@@ -69,8 +70,13 @@ def build_legacy_model(
 def build_model(
         chunk_size, feature_len, num_classes, allow_cudnn,
         gru_size=128, classify_activation='softmax'):
-    """Builds a bidirectional GRU model. Uses CuDNNGRU for additional
-    speed-up on GPU (claimed 7x).
+    """Build a bidirectional GRU model with CuDNNGRU support.
+
+    CuDNNGRU implementation is claimed to give speed-up on GPU of 7x.
+    The function will build a model capable of running on GPU with
+    CuDNNGRU provided a) a GPU is present, b) the option has been
+    allowed by the `allow_cudnn` argument; otherwise a compatible
+    (but not CuDNNGRU accelerated model) is built.
 
     :param chunk_size: int, number of pileup columns in a sample.
     :param feature_len: int, number of features for each pileup column.

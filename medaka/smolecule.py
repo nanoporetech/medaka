@@ -1,3 +1,4 @@
+"""Creation of consensus sequences from repetitive reads."""
 from collections import namedtuple
 from concurrent.futures import as_completed, ThreadPoolExecutor
 import os
@@ -29,8 +30,7 @@ def first_cigar(cigar):
 
 
 def parasail_to_sam(result, seq):
-    """Extract reference start and sam compatible cigar string
-    from a parasail result object.
+    """Extract reference start and sam compatible cigar string.
 
     :param result: parasail alignment result.
     :param seq: query sequence.
@@ -66,9 +66,10 @@ Alignment = namedtuple('Alignment', 'rname qname flag rstart seq cigar')
 
 
 class Read(object):
+    """Functionality to extract information from a read with subreads."""
 
     def __init__(self, name, subreads, initialize=False):
-        """Functionality to extract information from a read with subreads.
+        """Initialize repeat read analysis.
 
         :param name: read name.
         :param subreads: list of subreads.
@@ -92,6 +93,7 @@ class Read(object):
         self.consensus_run = False
 
     def initialize(self):
+        """Calculate initial alignments of subreads to scaffold read."""
         # we find initial alignments with parasail as mappy may not find some
         if not self._initialized:
             self._alignments = self.orient_subreads()
@@ -117,8 +119,10 @@ class Read(object):
     def multi_from_fastx(cls, fastx,
                          take_all=False, read_id=None, depth_filter=1,
                          length_filter=0):
-        """Create multiple `Read` s from a fasta/q file, assuming subreads
-        are grouped by read and named with <read_id>_<subread_id>.
+        """Create multiple `Read` s from a fasta/q file.
+
+        It is assumed that subreads are grouped by read and named with
+        <read_id>_<subread_id>.
 
         :param fastx: input file path.
         :param take_all: skip check on subread_ids, take all subreads in one
@@ -158,12 +162,12 @@ class Read(object):
 
     @property
     def seqs(self):
-        """A list of the subread sequences."""
+        """Return a list of the subread sequences."""
         return [x.seq for x in self.subreads]
 
     @property
     def nseqs(self):
-        """The number of subreads contained in the read."""
+        """Return the number of subreads contained in the read."""
         return len(self.subreads)
 
     def poa_consensus(self, additional_seq=None, method='racon'):
@@ -351,6 +355,14 @@ class Read(object):
 
 
 def write_bam(fname, alignments, header, bam=True):
+    """Write a `.bam` file for a set of alignments.
+
+    :param fname: output filename.
+    :param alignments: a list of `Alignment` tuples.
+    :param header: bam header
+    :param bam: write bam, else sam
+
+    """
     mode = 'wb' if bam else 'w'
     with pysam.AlignmentFile(fname, mode, header=header) as fh:
         for ref_id, subreads in enumerate(alignments):
@@ -381,6 +393,12 @@ def _read_worker(read, align=True):
 
 
 def poa_workflow(reads, threads):
+    """Worker function for processing repetitive reads.
+
+    :param reads: list of `Read` s.
+    :param threads: number of threads to use for processing.
+
+    """
     # TODO: this is quite memory inefficient, but we can only build the header
     #       by seeing everything.
     logger = medaka.common.get_named_logger('POAManager')
@@ -417,6 +435,7 @@ def poa_workflow(reads, threads):
 
 
 def main(args):
+    """Entry point for repeat read consensus creation."""
     # arg parser does not supply these
     args.tag_name = None
     args.tag_value = None

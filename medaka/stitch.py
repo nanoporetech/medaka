@@ -1,3 +1,5 @@
+"""Creation of contiguous consensus sequences from chunked network outputs."""
+
 import itertools
 
 import medaka.common
@@ -6,14 +8,23 @@ import medaka.labels
 
 
 def write_fasta(filename, contigs):
+    """Write a fasta file from tuples of (name, sequence).
+
+    :param filename: output filename.
+    :param contigs: tuples of the form (sequence name, base sequence).
+
+    """
     with open(filename, 'w') as fasta:
         for name, seq in contigs:
             fasta.write('>{}\n{}\n'.format(name, seq))
 
 
 def stitch_from_probs(h5_fp, regions=None):
-    """Join overlapping label probabilities from HDF5
-    file(s), and decode them to generate complete sequence(s).
+    """Join overlapping label probabilities from HDF5 files.
+
+     Network outputs from multiple samples stored within a file are spliced
+     together into a logically contiguous array and decoded to generate
+     contiguous sequence(s).
 
     :param h5_fp: iterable of HDF5 filepaths
     :param regions: iterable of regions to process
@@ -116,5 +127,6 @@ def stitch_from_probs(h5_fp, regions=None):
 
 
 def stitch(args):
+    """Entry point for stitching program."""
     joined = stitch_from_probs(args.inputs, regions=args.regions)
     write_fasta(args.output, joined)

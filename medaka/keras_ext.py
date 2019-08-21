@@ -1,3 +1,4 @@
+"""Extensions to keras API for medaka."""
 from timeit import default_timer as now
 
 import numpy as np
@@ -11,14 +12,22 @@ import medaka.datastore
 
 
 class ModelMetaCheckpoint(ModelCheckpoint):
+    """Custom ModelCheckpoint to add medaka-specific metadata."""
 
     def __init__(self, medaka_meta, *args, **kwargs):
-        """Custom ModelCheckpoint to add medaka-specific metadata to
-        model files."""
+        """Initilize checkpointing.
+
+        :param medaka_meta: dictionary of meta data to store in checkpoint
+            files.
+        :param args: positional arguments for baseclass.
+        :param kwargs: keyword arguments for baseclass.
+
+        """
         super(ModelMetaCheckpoint, self).__init__(*args, **kwargs)
         self.medaka_meta = medaka_meta
 
     def on_epoch_end(self, epoch, logs=None):
+        """Perform actions at the end of an epoch."""
         super(ModelMetaCheckpoint, self).on_epoch_end(epoch, logs)
         filepath = self.filepath.format(epoch=epoch + 1, **logs)
         with medaka.datastore.DataStore(filepath, 'a') as ds:
@@ -26,9 +35,10 @@ class ModelMetaCheckpoint(ModelCheckpoint):
 
 
 class SequenceBatcher(Sequence):
+    """Interface for keras to a `TrainBatcher` for training and validation."""
+
     def __init__(self, batcher, dataset='train', mini_epochs=1, seed=None):
-        """Interface for keras to a `TrainBatcher` for training and validation
-        batches.
+        """Initialize batching for training.
 
         :param batcher: a `medaka.inference.TrainBatcher` instance.
         :param dataset: one of 'train' or 'validation'.
@@ -67,10 +77,12 @@ class SequenceBatcher(Sequence):
                 original_size))
 
     def __len__(self):
+        """Return the number of batches."""
         # report our length (to keras) as being the size of a mini_epoch batch
         return self.n_batches // self.mini_epochs
 
     def __getitem__(self, idx):
+        """Return the ith batch."""
         t0 = now()
         bs = self.batch_size
         # offset into where miniepoch starts: miniepoch * samples in miniepoch
@@ -89,6 +101,7 @@ class SequenceBatcher(Sequence):
         return batch
 
     def on_epoch_end(self):
+        """Perform actions at the end of an epoch."""
         # shuffle data at end of miniepoch
         self.epoch += 1
         if self.dataset == 'train' and self.epoch % self.mini_epochs == 0:
