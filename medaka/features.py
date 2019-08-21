@@ -1,23 +1,17 @@
 import abc
-from collections import defaultdict, Counter, OrderedDict
+from collections import defaultdict
 import concurrent.futures
-from copy import deepcopy
 import inspect
 import itertools
-import functools
-from multiprocessing import Pool
 import os
-import sys
 from timeit import default_timer as now
 
-from Bio import SeqIO
 import numpy as np
-import pysam
 
+import libmedaka
 import medaka.common
 import medaka.datastore
 import medaka.labels
-import libmedaka
 
 
 def __plp_data_to_numpy(plp_data, n_rows):
@@ -31,24 +25,23 @@ def __plp_data_to_numpy(plp_data, n_rows):
     :returns: pileup counts numpy array, reference positions
 
     """
-    ffi, lib = libmedaka.ffi, libmedaka.lib
+    ffi = libmedaka.ffi
     size_sizet = np.dtype(np.uintp).itemsize
     np_counts = np.frombuffer(ffi.buffer(
         plp_data.matrix, size_sizet * plp_data.n_cols * n_rows),
         dtype=np.uintp
     ).reshape(plp_data.n_cols, n_rows).copy()
 
-    positions = np.empty(plp_data.n_cols, dtype=[('major', int), ('minor', int)])
-    np.copyto(positions['major'],
+    positions = np.empty(plp_data.n_cols, dtype=[
+        ('major', int), ('minor', int)])
+    np.copyto(
+        positions['major'], np.frombuffer(
+            ffi.buffer(plp_data.major, size_sizet * plp_data.n_cols),
+            dtype=np.uintp))
+    np.copyto(
+        positions['minor'],
         np.frombuffer(ffi.buffer(
-        plp_data.major, size_sizet * plp_data.n_cols),
-        dtype=np.uintp
-    ))
-    np.copyto(positions['minor'],
-        np.frombuffer(ffi.buffer(
-        plp_data.minor, size_sizet * plp_data.n_cols),
-        dtype=np.uintp
-    ))
+            plp_data.minor, size_sizet * plp_data.n_cols), dtype=np.uintp))
     return np_counts, positions
 
 
@@ -98,7 +91,8 @@ def __enforce_pileup_chunk_contiguity(pileups):
             last = positions['major'][-1]
         else:
             # discontinuity
-            chunk_results.append(_finalize_chunk(counts_buffer, positions_buffer))
+            chunk_results.append(_finalize_chunk(
+                counts_buffer, positions_buffer))
             counts_buffer = [counts]
             positions_buffer = [positions]
             last = positions['major'][-1]
@@ -107,7 +101,9 @@ def __enforce_pileup_chunk_contiguity(pileups):
     return chunk_results
 
 
-def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers=8, tag_name=None, tag_value=None, keep_missing=False):
+def pileup_counts(
+        region, bam, dtype_prefixes=None, region_split=100000, workers=8,
+        tag_name=None, tag_value=None, keep_missing=False, num_qstrat=1):
     """Create pileup counts feature array for region.
 
     :param region: `medaka.common.Region` object
@@ -119,13 +115,14 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
     :param tag_name: two letter tag name by which to filter reads.
     :param tag_value: integer value of tag for reads to keep.
     :param keep_missing: whether to keep reads when tag is missing.
+    :param num_qstrat: number of layers for qscore stratification.
 
     :returns: pileup counts array, reference positions, insertion postions
     """
     ffi, lib = libmedaka.ffi, libmedaka.lib
-    logger = medaka.common.get_named_logger('PileUp')
 
-    if dtype_prefixes is None or isinstance(dtype_prefixes, str) or len(dtype_prefixes) == 1:
+    if dtype_prefixes is None or isinstance(dtype_prefixes, str) \
+            or len(dtype_prefixes) == 1:
         num_dtypes, dtypes = 1, ffi.NULL
     else:
         num_dtypes = len(dtype_prefixes)
@@ -147,24 +144,25 @@ def pileup_counts(region, bam, dtype_prefixes=None, region_split=100000, workers
         region_str = '{}:{}-{}'.format(reg.ref_name, reg.start + 1, reg.end)
 
         counts = lib.calculate_pileup(
-            region_str.encode(), bam.encode(), num_dtypes, dtypes,
+            region_str.encode(), bam.encode(), num_dtypes, dtypes, num_qstrat,
             tag_name, tag_value, keep_missing
         )
-        np_counts, positions = __plp_data_to_numpy(counts, featlen * num_dtypes)
-
+        np_counts, positions = __plp_data_to_numpy(
+            counts, featlen * num_dtypes * num_qstrat)
         lib.destroy_plp_data(counts)
         return np_counts, positions
 
     # split large regions for performance
     regions = region.split(region_split)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) \
+            as executor:
         results = executor.map(_process_region, regions)
         chunk_results = __enforce_pileup_chunk_contiguity(results)
 
     return chunk_results
 
 
-def pileup_counts_norm_indices(dtypes):
+def pileup_counts_norm_indices(dtypes, num_qstrat=1):
     """Calculates (per-datatype, per-read-orientation) locations of bases in
     `pileup_counts` output for the purpose of various normalization
     strategies.
@@ -177,6 +175,7 @@ def pileup_counts_norm_indices(dtypes):
     (datatype1, False):[4,5,6,7,9], for the datatype1 forward bases.
 
     :param dtypes: list of datatype names.
+    :param num_qstrat: number of layers for qscore stratification.
 
     :returns: a dictionary of the form
         `{(datatype, is_rev): [base1_index, base2_index, ...]}`.
@@ -189,12 +188,18 @@ def pileup_counts_norm_indices(dtypes):
     codes = ffi.string(plp_bases).decode()
     assert len(codes) == featlen
     # from the C code:
-    #     pileup->matrix[major_col + dtype_featlen * j + featlen * dtype + base_i] += 1
+
+    #     pileup->matrix[major_col + featlen * dtype * num_qstrat + \
+    #     featlen * qstrat + base_i] += 1;
     # where j is the insert index, so feature is ordered: datatype > base
     for dti, dt in enumerate(dtypes):
-        for base_i, code in enumerate(codes):
-            is_rev = code.islower()
-            indices[dt, is_rev].append(base_i + dti * len(codes))
+        for qindex in range(num_qstrat):
+            for base_i, code in enumerate(codes):
+                is_rev = code.islower()
+                indices[dt, is_rev].append(
+                    base_i + dti * num_qstrat * len(codes) +
+                    qindex * len(codes))
+
     return dict(indices)
 
 
@@ -216,9 +221,11 @@ class BaseFeatureEncoder(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def bams_to_training_samples(self, truth_bam, bam, region, reference=None, truth_haplotag=None):
+    def bams_to_training_samples(
+            self, truth_bam, bam, region, reference=None, truth_haplotag=None):
         # Create labelled samples, should internally call bam_to_sample
-        #TODO: should be moved outside this class?
+
+        # TODO: should be moved outside this class?
         pass
 
     # this shouldn't be overridden
@@ -226,7 +233,8 @@ class BaseFeatureEncoder(abc.ABC):
         """Converts a section of an alignment pileup to a sample.
 
         :param reads_bam: (sorted indexed) bam with read alignment to reference
-        :param region: `medaka.common.Region` object with ref_name, start and end attributes.
+        :param region: `medaka.common.Region` object with ref_name, start and
+            end attributes.
 
         :returns: `medaka.common.Sample` object
 
@@ -235,7 +243,9 @@ class BaseFeatureEncoder(abc.ABC):
         samples = list()
         for counts, positions in pileups:
             if len(counts) == 0:
-                msg = 'Pileup-feature is zero-length for {} indicating no reads in this region.'.format(region)
+                msg = (
+                    'Pileup-feature is zero-length for {} indicating no '
+                    'reads in this region.').format(region)
                 self.logger.warning(msg)
                 samples.append(
                     medaka.common.Sample(
@@ -245,7 +255,8 @@ class BaseFeatureEncoder(abc.ABC):
                     )
                 )
                 continue
-            samples.append(self._post_process_pileup(counts, positions, region))
+            samples.append(self._post_process_pileup(
+                counts, positions, region))
         return samples
 
 
@@ -253,13 +264,14 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
     _norm_modes_ = ['total', 'fwd_rev', None]
     feature_dtype = np.float32
 
-    def __init__(self,
-            normalise:str='total', dtypes=('',),
+    def __init__(
+            self, normalise='total', dtypes=('',),
             tag_name=None, tag_value=None, tag_keep_missing=False):
         """Class to generate neural network input features.
 
         :param normalise: str, how to normalise the data.
-        :param dtypes: iterable of str, read id prefixes of distinct data types that should be counted separately.
+        :param dtypes: iterable of str, read id prefixes of distinct data types
+            that should be counted separately.
         :param tag_name: two letter tag name by which to filter reads.
         :param tag_value: integer value of tag for reads to keep.
         :param tag_keep_missing: whether to keep reads when tag is missing.
@@ -274,13 +286,14 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         self.tag_keep_missing = tag_keep_missing
 
         if self.normalise not in self._norm_modes_:
-            raise ValueError('normalise={} is not one of {}'.format(self.normalise, self._norm_modes_))
+            raise ValueError('normalise={} is not one of {}'.format(
+                self.normalise, self._norm_modes_))
 
-        #TODO: refactor/remove/move to base class.
-        opts = inspect.signature(CountsFeatureEncoder.__init__).parameters.keys()
-        opts = {k:getattr(self, k) for k in opts if k != 'self'}
+        # TODO: refactor/remove/move to base class.
+        opts = inspect.signature(
+            CountsFeatureEncoder.__init__).parameters.keys()
+        opts = {k: getattr(self, k) for k in opts if k != 'self'}
         self.logger.debug("Creating features with: {}".format(opts))
-
 
     def _pileup_function(self, region, bam):
         return pileup_counts(
@@ -289,21 +302,23 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
             tag_name=self.tag_name, tag_value=self.tag_value,
             keep_missing=self.tag_keep_missing)
 
-
     def _post_process_pileup(self, counts, positions, region):
         # Normalise produced counts using chosen method.
 
         start, end = positions['major'][0], positions['major'][-1]
-        if start != region.start or end + 1 != region.end: # TODO investigate off-by-one
+        # TODO investigate off-by-one
+        if start != region.start or end + 1 != region.end:
             self.logger.warning(
                 'Pileup counts do not span requested region, requested {}, '
                 'received {}-{}.'.format(region, start, end)
             )
 
-        # find the position index for parent major position of all minor positions
+        # find the position index for parent major position of all minor
+        # positions
         minor_inds = np.where(positions['minor'] > 0)
         major_pos_at_minor_inds = positions['major'][minor_inds]
-        major_ind_at_minor_inds = np.searchsorted(positions['major'], major_pos_at_minor_inds, side='left')
+        major_ind_at_minor_inds = np.searchsorted(
+            positions['major'], major_pos_at_minor_inds, side='left')
 
         depth = np.sum(counts, axis=1)
         depth[minor_inds] = depth[major_ind_at_minor_inds]
@@ -311,14 +326,17 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         if self.normalise == 'total':
             # normalize counts by total depth at major position, since the
             # counts include deletions this is a count of spanning reads
-            feature_array = counts / np.maximum(1, depth).reshape((-1, 1)) # max just to avoid div error
+            # max just to avoid div error
+            feature_array = counts / np.maximum(1, depth).reshape((-1, 1))
         elif self.normalise == 'fwd_rev':
             # normalize forward and reverse and by dtype
             feature_array = np.empty_like(counts, dtype=self.feature_dtype)
             for (dt, is_rev), inds in self.feature_indices.items():
                 dt_depth = np.sum(counts[:, inds], axis=1)
                 dt_depth[minor_inds] = dt_depth[major_ind_at_minor_inds]
-                feature_array[: , inds] = counts[:, inds] / np.maximum(1, dt_depth).reshape((-1, 1)) # max just to avoid div error
+                # max just to avoid div err
+                feature_array[:, inds] = \
+                    counts[:, inds] / np.maximum(1, dt_depth).reshape((-1, 1))
         else:
             feature_array = counts
         feature_array = feature_array.astype(self.feature_dtype)
@@ -328,11 +346,12 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
             labels=None, ref_seq=None,
             positions=positions, label_probs=None
         )
-        self.logger.info('Processed {} (median depth {})'.format(sample.name, np.median(depth)))
+        self.logger.info('Processed {} (median depth {})'.format(
+            sample.name, np.median(depth)))
         return sample
 
-
-    def bams_to_training_samples(self, truth_bam, bam, region, reference=None, truth_haplotag=None):
+    def bams_to_training_samples(
+            self, truth_bam, bam, region, reference=None, truth_haplotag=None):
         """Prepare training data chunks.
 
         :param truth_bam: .bam file of truth aligned to ref to generate labels.
@@ -340,7 +359,8 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         :param region: `medaka.common.Region` obj.
             the reference will be parsed.
         :param reference: reference `.fasta`, should correspond to `bam`.
-        :param truth_haplotag: two letter tag name used for grouping truth labels by haplotype.
+        :param truth_haplotag: two letter tag name used for grouping truth
+            labels by haplotype.
 
         :returns: tuple of `medaka.common.Sample` objects.
 
@@ -351,28 +371,38 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         # pick function to get pairs for labels, should be modified for RLE
         aln_to_pairs = medaka.common.get_pairs
 
-        # filter truth alignments to restrict ourselves to regions of the ref where the truth
-        # in unambiguous
-        alns = medaka.labels.TruthAlignment.bam_to_alignments(truth_bam, region, haplotag=truth_haplotag)
+        # filter truth alignments to restrict ourselves to regions of the ref
+        # where the truth is unambiguous
+        alns = medaka.labels.TruthAlignment.bam_to_alignments(
+            truth_bam, region, haplotag=truth_haplotag)
         if len(alns) == 0:
-            self.logger.info("Filtering and grouping removed all alignments of truth to ref from {}.".format(region))
+            self.logger.info(
+                "Filtering and grouping removed all alignments "
+                "of truth to ref from {}.".format(region))
 
         samples = []
         pad = (medaka.common.encoding[medaka.common._gap_], 1)
         for aln in alns:
-            # truth_labels should be shape (pos, ploidy) and dtype (base, run_length)
-            truth_pos, truth_labels = medaka.labels.TruthAlignment.get_positions_and_labels(aln, aln_to_pairs)
-            aln_samples = self.bam_to_sample(bam, medaka.common.Region(region.ref_name, aln[0].start, aln[0].end))
+            # truth_labels should be shape (pos, ploidy) and
+            # dtype (base, run_length)
+            truth_pos, truth_labels = \
+                medaka.labels.TruthAlignment.get_positions_and_labels(
+                    aln, aln_to_pairs)
+            aln_samples = self.bam_to_sample(bam, medaka.common.Region(
+                region.ref_name, aln[0].start, aln[0].end))
             ploidy = truth_labels.shape[-1]
             for sample in aln_samples:
                 # Create labels according to positions in pileup
-                padded_labels = np.empty((len(sample.positions), ploidy), dtype=truth_labels.dtype)
-                # fill with pad so that insertions not present in labels have correct gap-label
+                padded_labels = np.empty(
+                    (len(sample.positions), ploidy), dtype=truth_labels.dtype)
+                # fill with pad so that insertions not present in labels have
+                # correct gap-label
                 padded_labels.fill(pad)
                 truth_inds = np.where(np.in1d(truth_pos, sample.positions))
                 sample_inds = np.where(np.in1d(sample.positions, truth_pos))
                 assert len(truth_inds[0]) == len(sample_inds[0])
-                assert np.alltrue(truth_pos[truth_inds] == sample.positions[sample_inds])
+                assert np.alltrue(
+                    truth_pos[truth_inds] == sample.positions[sample_inds])
 
                 padded_labels[sample_inds] = truth_labels[truth_inds]
 
@@ -382,18 +412,53 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         return tuple(samples)
 
 
-def alphabet_filter(sample_gen, alphabet=None, filter_labels=True, filter_ref_seq=True):
-    """Skip chunks in which labels and/or ref_seq contain bases not in `alphabet`.
+class HardRLEFeatureEncoder(CountsFeatureEncoder):
+
+    def __init__(
+            self, normalise='total', dtypes=('', ), tag_name=None,
+            tag_value=None, tag_keep_missing=False, num_qstrat=10):
+        """Class to generate neural network input features.
+
+        :param normalise: str, how to normalise the data.
+        :param dtypes: iterable of str, read id prefixes of distinct data
+            types that should be counted separately.
+        :param tag_name: two letter tag name by which to filter reads.
+        :param tag_value: integer value of tag for reads to keep.
+        :param tag_keep_missing: whether to keep reads when tag is missing.
+        :param num_qstrat: number of layers for qscore stratification.
+
+        """
+        self.num_qstrat = num_qstrat
+        super().__init__(
+            normalise, dtypes=dtypes, tag_name=tag_name, tag_value=tag_value,
+            tag_keep_missing=tag_keep_missing)
+        self.feature_indices = pileup_counts_norm_indices(
+            self.dtypes, num_qstrat=self.num_qstrat)
+
+    def _pileup_function(self, region, bam):
+        return pileup_counts(
+            region, bam,
+            dtype_prefixes=self.dtypes,
+            tag_name=self.tag_name, tag_value=self.tag_value,
+            keep_missing=self.tag_keep_missing, num_qstrat=self.num_qstrat)
+
+
+def alphabet_filter(
+        sample_gen, alphabet=None, filter_labels=True, filter_ref_seq=True):
+    """Skip chunks in which labels and/or ref_seq contain bases not
+        in `alphabet`.
 
     :param sample_gen: generator of `medaka.common.Sample` named tuples.
-    :param alphabet: set of str of allowed bases. If None, automatically generated from decoding.
+    :param alphabet: set of str of allowed bases. If None, automatically
+        generated from decoding.
     :param filter_labels: bool, whether to filter on labels.
     :param filter_ref_seq: bool, whether to filter on ref_seq.
 
     :yields: `medaka.common.Sample` named tuples.
     """
     if alphabet is None:
-        alphabet = set([c for c in medaka.common._alphabet_ + medaka.common._gap_])
+        alphabet = set([
+            c for c in medaka.common._alphabet_ + medaka.common._gap_])
     logger = medaka.common.get_named_logger('AlphaFilter')
     logger.debug("alphabet: {}".format(alphabet))
 
@@ -406,14 +471,17 @@ def alphabet_filter(sample_gen, alphabet=None, filter_labels=True, filter_ref_se
             diff = [medaka.common.decoding[i] for i in bases - alphabet]
             msg = "Skipping {}:{}-{} ({} bases) due to {} {}"
             pos = s.positions
-            logger.info(msg.format(s.ref_name, pos['major'][0], pos['major'][-1],
-                                   len(pos), field, diff))
+            logger.info(msg.format(
+                s.ref_name, pos['major'][0], pos['major'][-1],
+                len(pos), field, diff))
             return True
 
     for s in sample_gen:
-        if filter_labels and s.labels is not None and _find_bad_bases(s, 'labels', alphabet):
+        if filter_labels and s.labels is not None \
+                and _find_bad_bases(s, 'labels', alphabet):
             continue
-        if filter_ref_seq and s.ref_seq is not None and _find_bad_bases(s, 'ref_seq', alphabet):
+        if filter_ref_seq and s.ref_seq is not None \
+                and _find_bad_bases(s, 'ref_seq', alphabet):
             continue
         yield s
 
@@ -426,12 +494,14 @@ class SampleGenerator(object):
                  tag_keep_missing=False, enable_chunking=True):
         """Generate chunked inference (or training) samples.
 
-        :param bam: `.bam` containing alignments from which to generate samples.
+        :param bam: `.bam` containing alignments from which to generate
+            samples.
         :param region: a `medaka.common.Region` for which to generate samples.
         :param model: a medaka model.
         :param truth_bam: a `.bam` containing alignment of truth sequence to
             `reference` sequence. Required only for creating training chunks.
-        :param truth_haplotag: two letter tag name used for grouping truth labels by haplotype.
+        :param truth_haplotag: two letter tag name used for grouping truth
+            labels by haplotype.
         :param reference: reference `.fasta`, should correspond to `bam`.
         :param tag_name: two letter tag name by which to filter reads.
         :param tag_value: integer value of tag for reads to keep.
@@ -441,16 +511,18 @@ class SampleGenerator(object):
         """
         self.logger = medaka.common.get_named_logger("Sampler")
         self.sample_type = "training" if truth_bam is not None else "consensus"
-        self.logger.info("Initializing sampler for {} of region {}.".format(self.sample_type, region))
+        self.logger.info("Initializing sampler for {} of region {}.".format(
+            self.sample_type, region))
 
-        #TODO: this will need changing when we switch to simply saving a class
+        # TODO: this need changing when we switch to simply saving a class
         with medaka.datastore.DataStore(model) as ds:
             self.fencoder_args = ds.meta['medaka_features_kwargs']
-        dtypes = ('',) if 'dtypes' not in self.fencoder_args else self.fencoder_args['dtypes']
+        dtypes = ('',) if 'dtypes' not in self.fencoder_args \
+            else self.fencoder_args['dtypes']
         self.fencoder = CountsFeatureEncoder(
             normalise=self.fencoder_args['normalise'], dtypes=dtypes,
-            tag_name=tag_name, tag_value=tag_value, tag_keep_missing=tag_keep_missing,
-            )
+            tag_name=tag_name, tag_value=tag_value,
+            tag_keep_missing=tag_keep_missing)
 
         self.bam = bam
         self.region = region
@@ -460,11 +532,11 @@ class SampleGenerator(object):
         self.chunk_len = chunk_len
         self.chunk_overlap = chunk_overlap
         self.enable_chunking = enable_chunking
-        self._source = None # the base data to be chunked
-        self._quarantined = list() # samples which are shorter than chunk size
+        self._source = None  # the base data to be chunked
+        self._quarantined = list()  # samples which are shorter than chunk size
 
-        #TODO: check reference has been given if model/feature encoder requires it
-
+        # TODO: check reference has been given if model/feature encoder
+        # requires it
 
     def _fill_features(self):
         if self._source is None:
@@ -480,7 +552,6 @@ class SampleGenerator(object):
             t1 = now()
             self.logger.info("Took {:.2f}s to make features.".format(t1-t0))
 
-
     def _quarantine_sample(self, sample):
         """Add sample name and pileup width to a list."""
         # Note: the below assumes we haven't split a pileup on minor positions.
@@ -488,11 +559,10 @@ class SampleGenerator(object):
         # larger regions.
         start, _ = sample.first_pos
         end, _ = sample.last_pos
-        end += 1 # end exclusive
+        end += 1  # end exclusive
         self._quarantined.append((
             medaka.common.Region(sample.ref_name, start, end), sample.size
         ))
-
 
     @property
     def samples(self):
@@ -507,61 +577,78 @@ class SampleGenerator(object):
                 chunks = [source]
             else:
                 if source.size < self.chunk_len:
-                    msg = "Region {} ({} positions) is smaller than inference chunk length {}, quarantining.".format(
-                        source.name, source.size, self.chunk_len)
+                    msg = (
+                        "Region {} ({} positions) is smaller than "
+                        "inference chunk length {}, quarantining.").format(
+                            source.name, source.size, self.chunk_len)
                     self.logger.warning(msg)
                     self._quarantine_sample(source)
                     continue
+
                 self.logger.debug(
-                    "Chunking pileup data into {} columns with overlap of {}.".format(
-                    self.chunk_len, self.chunk_overlap))
-                chunks = source.chunks(chunk_len=self.chunk_len, overlap=self.chunk_overlap)
-            self.logger.info("Pileup for {} is of width {}".format(source.name, source.size))
+                    "Chunking pileup data into {} columns with overlap "
+                    "of {}.".format(self.chunk_len, self.chunk_overlap))
+                chunks = source.chunks(
+                    chunk_len=self.chunk_len, overlap=self.chunk_overlap)
+            self.logger.info("Pileup for {} is of width {}".format(
+                source.name, source.size))
             all_data.extend(alphabet_filter(chunks))
+
         return all_data
 
 
 def create_samples(args):
-    raise NotImplementedError('Creation of unlabelled samples is currently disabled')
+    raise NotImplementedError(
+        'Creation of unlabelled samples is currently disabled')
 
 
 def _labelled_samples_worker(args, region):
     logger = medaka.common.get_named_logger('PrepWork')
     logger.info("Processing region {}.".format(region))
     data_gen = SampleGenerator(
-        args.bam, region, args.model, truth_bam=args.truth, truth_haplotag=args.truth_haplotag,
-        chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
+        args.bam, region, args.model, truth_bam=args.truth,
+        truth_haplotag=args.truth_haplotag, chunk_len=args.chunk_len,
+        chunk_overlap=args.chunk_ovlp)
+
     return list(data_gen.samples), region
 
 
 def create_labelled_samples(args):
     logger = medaka.common.get_named_logger('Prepare')
     if args.chunk_ovlp >= args.chunk_len:
-        raise ValueError('chunk_ovlp {} is not smaller than chunk_len {}'.format(args.chunk_ovlp, args.chunk_len))
+        raise ValueError(
+            'chunk_ovlp {} is not smaller than chunk_len {}'.format(
+                args.chunk_ovlp, args.chunk_len))
     regions = medaka.common.get_regions(args.bam, args.regions)
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))
-
-    labels_counter = Counter()
 
     no_data = False
     with medaka.datastore.DataStore(args.output, 'w') as ds:
         # write feature options to file
         logger.info("Writing meta data to file.")
         with medaka.datastore.DataStore(args.model) as model:
-            meta = { k: model.meta[k] for k in ('medaka_features_kwargs', 'medaka_feature_decoding')}
+            meta = {
+                k: model.meta[k] for k in (
+                    'medaka_features_kwargs', 'medaka_feature_decoding')}
         ds.update_meta(meta)
-        # TODO: this parallelism would be better in `SampleGenerator.bams_to_training_samples`
-        #       since training alignments are usually chunked.
-        with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as executor:
+        # TODO: this parallelism would be better in
+        # `SampleGenerator.bams_to_training_samples` since training
+        # alignments are usually chunked.
+        with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) \
+                as executor:
             # break up overly long chunks
-            MAX_SIZE= int(1e6)
+            MAX_SIZE = int(1e6)
             regions = itertools.chain(*(r.split(MAX_SIZE) for r in regions))
-            futures = [executor.submit(_labelled_samples_worker, args, reg) for reg in regions]
+            futures = [
+                executor.submit(_labelled_samples_worker, args, reg)
+                for reg in regions]
             for fut in concurrent.futures.as_completed(futures):
                 if fut.exception() is None:
                     samples, region = fut.result()
-                    logger.info("Writing {} samples for region {}".format(len(samples), region))
+                    logger.info(
+                        "Writing {} samples for region {}".format(
+                            len(samples), region))
                     for sample in samples:
                         ds.write_sample(sample)
                 else:
@@ -571,5 +658,7 @@ def create_labelled_samples(args):
         no_data = ds.n_samples == 0
 
     if no_data:
-        logger.critical("Warning: No training data was written to file, deleting output.")
+        logger.critical(
+            "Warning: No training data was written to file, "
+            "deleting output.")
         os.remove(args.output)
