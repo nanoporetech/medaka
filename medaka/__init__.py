@@ -1,3 +1,4 @@
+"""Consensus and variant calling of Nanopore sequencing data."""
 from distutils.version import LooseVersion
 import functools
 import os
@@ -7,7 +8,7 @@ __version__ = '0.8.2'
 
 
 def check_minimap2_version():
-    """get minimap2 version."""
+    """Get minimap2 version."""
     try:
         proc = subprocess.run(
             ["minimap2", "--version"], stdout=subprocess.PIPE)
@@ -22,6 +23,15 @@ def check_minimap2_version():
 
 
 def check_htslib_tool_version(tool, pos=2):
+    """Get version of an htslib program.
+
+    :param tool: program name.
+    :param pos: the position index of the item containing the version
+        information. e.g. `pos=2` extracts `1.3.1` from
+        `tabix (htslib) 1.3.1`.
+
+    :returns: the `LooseVersion` number.
+    """
     try:
         proc = subprocess.run([tool, "--version"], stdout=subprocess.PIPE)
         if proc.returncode != 0:
@@ -59,8 +69,9 @@ get_version = {
 
 
 def report_binaries():
-    """Print a report of versions of required programs, exits with status 1
-    if a bad version is found.
+    """Print a report of versions of required programs.
+
+    The program will exit with status 1 if a bad version is found.
 
     """
     versions = {prog: get_version[prog]() for prog in required_version.keys()}

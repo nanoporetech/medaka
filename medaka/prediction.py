@@ -1,3 +1,4 @@
+"""Inference program and ancilliary functions."""
 from concurrent.futures import as_completed, ThreadPoolExecutor
 import logging
 import os
@@ -20,7 +21,6 @@ def run_prediction(
         save_features=False, tag_name=None, tag_value=None,
         tag_keep_missing=False, enable_chunking=True):
     """Inference worker."""
-
     logger = medaka.common.get_named_logger('PWorker')
 
     remainder_regions = list()
@@ -174,8 +174,21 @@ def predict(args):
 
 
 class DataLoader(object):
+    """Loading of data for inference."""
+
     def __init__(self, sample_cache_size, bam, regions, *args, **kwargs):
-        self.logger = medaka.common.get_named_logger('DaLoader')
+        """Initialise data loading.
+
+        :param sample_cache_size: maximum number of network inputs to
+            pre-load.
+        :param bam: input `.bam` file.
+        :param regions: regions to process.
+        :param args: position arguments to use when creating
+            `features.SampleGenerator` instances.
+        :param kwargs: keyword arguments to use when creating
+            `features.SampleGenerator` instances.
+        """
+        self.logger = medaka.common.get_named_logger('DLoader')
         self.sample_cache_size = sample_cache_size
         self.region_cache_size = 4
         self.bam = bam
@@ -271,9 +284,11 @@ class DataLoader(object):
         return data_gen.samples, data_gen._quarantined
 
     def __iter__(self):
+        """Simply return self."""
         return self
 
     def __next__(self):
+        """Iterate over items in internal network input cache."""
         while self.have_data.is_set():
             try:
                 res = self.results.get(timeout=0.1)

@@ -1,3 +1,4 @@
+"""Run length encoding and realignment of reads."""
 import array
 import concurrent.futures
 import functools
@@ -24,7 +25,6 @@ def rle(iterable, low_mem=False):
 
     :returns: structured array with fields `start`, `length`, and `value`.
     """
-
     if not isinstance(iterable, np.ndarray):
         array = np.fromiter(iterable, dtype='U1', count=len(iterable))
     else:
@@ -54,8 +54,10 @@ def rle(iterable, low_mem=False):
 
 
 class RLEConverter(object):
+    """Class to convert a basecall to RLE, with coordinate conversions."""
+
     def __init__(self, basecall):
-        """Class to convert a basecall to RLE, with coordinate conversions.
+        """Create an RLE conversion helper.
 
         :param basecall: string to be converted to RLE.
         """
@@ -72,7 +74,6 @@ class RLEConverter(object):
 
         :returns: numpy.ndarray of coordinates
         """
-
         return np.searchsorted(
             self.rle_conversion['start'], coord, 'right') - 1
 
@@ -84,11 +85,17 @@ class RLEConverter(object):
 
         :returns: numpy.ndarray of coordinates
         """
-
         return self.rle_conversion[coord]['start']
 
 
 def parasail_alignment(query, ref):
+    """Run a Smith-Waterman alignment between two sequences.
+
+    :param query: the query sequence.
+    :param ref: the reference sequence.
+
+    :returns: reference start co-ordinate, cigar string
+    """
     result = parasail.sw_trace_striped_16(query, ref, 5, 3, parasail.dnafull)
     rstart, cigar = medaka.smolecule.parasail_to_sam(result, query)
 
@@ -219,7 +226,7 @@ def _compress_alignment(alignment, ref_rle):
 
 
 def _compress_bam(bam_input, bam_output, ref_fname, regions=None, threads=1):
-    """Compress a bam into run length encoding (RLE)
+    """Compress a bam into run length encoding (RLE).
 
     :param bam_input: str, name of the bam file to be compressed
     :param bam_output: str, name of the bam to be produced
@@ -259,8 +266,9 @@ def _compress_bam(bam_input, bam_output, ref_fname, regions=None, threads=1):
 
 
 def compress_seq(read):
-    """Compress homopolymers within a basecall, encoding their lengths
-    in qscores.
+    """Compress homopolymers within a basecall.
+
+    Creates and RLE sequence record, with run-lengths stored in qualities.
 
     :param read: `pysam FastxRecord` object.
 
@@ -293,6 +301,7 @@ def compress_seq(read):
 
 
 def compress_basecalls(args):
+    """Entry point for RLE compression of a fasta/q file."""
     logger = medaka.common.get_named_logger('Compress_basecalls')
 
     reads = pysam.FastxFile(args.input)
@@ -320,7 +329,7 @@ def compress_basecalls(args):
 
 
 def compress_bam(args):
-    """Compress a bam alignment file into an RLE system of reference """
+    """Compress a bam alignment file into an RLE system of reference."""
     _compress_bam(
         args.bam_input, args.bam_output, args.ref_fname,
         threads=args.threads, regions=args.regions)
