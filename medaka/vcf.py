@@ -92,11 +92,11 @@ class MetaInfo(object):
     __valid_non_int_nums__ = {'A', 'R', 'G', '.'}
     __valid_types__ = {'Integer', 'Float', 'Flag', 'Character', 'String'}
 
-    def __init__(self, group, id, number, typ, descr):
+    def __init__(self, group, ident, number, typ, descr):
         """Initialize meta info storage for VCF header.
 
         :param group: str, one of {'INFO', 'FILTER', 'FORMAT'}
-        :param id: str, short name as it occurs in a VCF data line.
+        :param ident: str, short name as it occurs in a VCF data line.
         :param number: int or one of {'A', 'R', 'G', '.'}.
         :param type: one of {'Integer', 'Float', 'Flag', 'Character', 'String'}
         :param descr: str, free form description.
@@ -119,7 +119,7 @@ class MetaInfo(object):
                 typ, self.__valid_types__))
 
         self.group = group
-        self.id = id
+        self.ident = ident
         self.number = number
         self.typ = typ
         self.descr = descr
@@ -127,7 +127,7 @@ class MetaInfo(object):
     def __repr__(self):
         """Create representation of meta data item in VCF format."""
         return '{}=<ID={},Number={},Type={},Description="{}">'.format(
-            self.group, self.id, self.number, self.typ, self.descr)
+            self.group, self.ident, self.number, self.typ, self.descr)
 
     def __str__(self):
         """Return meta data as string."""
@@ -143,7 +143,7 @@ class Variant(object):
 
     def __init__(
             self, chrom, pos, ref,
-            alt='.', id='.', qual='.', filter='.', info='.',
+            alt='.', ident='.', qual='.', filt='.', info='.',
             sample_dict=None):
         """Initialize a variant.
 
@@ -151,9 +151,9 @@ class Variant(object):
         :param pos: position in reference chrom.
         :param ref: reference allele
         :param alt: alternative alleles.
-        :param id: variant indentification.
+        :param ident: variant indentification.
         :param qual: variant quality.
-        :param filter: filter status.
+        :param filt: filt status.
         :param info: variant info, a dictionary or VCF compatible string.
         :param sample_dict: dictionary specifying genotypes of samples.
 
@@ -163,9 +163,9 @@ class Variant(object):
         self.ref = ref.upper()
         # self.alt should be a list/tuple of alternatives
         self.alt = alt.split(',') if isinstance(alt, str) else alt
-        self.id = str(id)
+        self.ident = str(ident)
         self.qual = float(qual) if qual != '.' else qual
-        self.filter = filter.split(';') if ';' in filter else filter
+        self.filt = filt.split(';') if ';' in filt else filt
         if isinstance(info, dict):
             self.info = info
         else:
@@ -178,8 +178,8 @@ class Variant(object):
     def __eq__(self, other):
         """Equality comparison of two variants."""
         for field in (
-                'chrom', 'pos', 'id', 'ref', 'alt',
-                'qual', 'filter', 'info', 'sample_dict'):
+                'chrom', 'pos', 'ident', 'ref', 'alt',
+                'qual', 'filt', 'info', 'sample_dict'):
             if getattr(self, field) != getattr(other, field):
                 return False
         return True
@@ -198,7 +198,7 @@ class Variant(object):
         return sorted_keys
 
     @property
-    def format(self):
+    def format_field(self):
         """Return the format field for writing to`.vcf` file."""
         return ':'.join((str(v) for v in self._sorted_format_keys))
 
@@ -246,7 +246,7 @@ class Variant(object):
             tuple(zip(sample_fields.split(':'), sample_data.split(':'))))
         instance = cls(
             chrom, pos, ref,
-            alt=alt, id=ident, qual=qual, filter=filt, info=info,
+            alt=alt, ident=ident, qual=qual, filt=filt, info=info,
             sample_dict=sample_dict)
         return instance
 
@@ -275,15 +275,15 @@ class Variant(object):
         """Return the representation of the `Variant`."""
         attributes = {}
         for field in (
-                'chrom', 'pos', 'ref', 'alt', 'id',
-                'qual', 'filter', 'info_string'):
+                'chrom', 'pos', 'ref', 'alt', 'ident',
+                'qual', 'filt', 'info_string'):
             attributes[field] = getattr(self, field)
         attributes['sample_repr'] = ';'.join(
             '{}={}'.format(k, self.sample_dict[k])
             for k in self._sorted_format_keys)
         return (
-            "Variant('{chrom}', {pos}, '{ref}', alt={alt}, id={id}, "
-            "qual={qual}, filter={filter}, info='{info_string}', "
+            "Variant('{chrom}', {pos}, '{ref}', alt={alt}, ident={ident}, "
+            "qual={qual}, filt={filt}, info='{info_string}', "
             "sample='{sample_repr}')".format(**attributes))
 
     def deep_copy(self):
@@ -293,7 +293,7 @@ class Variant(object):
     def to_dict(self):
         """Return a dictionary representation."""
         d = dict(alt=','.join(self.alt))
-        for attr in ['chrom', 'pos', 'qual', 'id', 'filter', 'ref']:
+        for attr in ['chrom', 'pos', 'qual', 'ident', 'filt', 'ref']:
             d[attr] = getattr(self, attr)
         d.update(self.info)
         d.update(self.sample_dict)
@@ -436,15 +436,17 @@ class VCFWriter(object):
         """
         variant = variant.deep_copy()
         # Some fields can be multiple
-        for attribute in ('alt', 'filter'):
+        for attribute in ('alt', 'filt'):
             value = getattr(variant, attribute)
             if isinstance(value, (tuple, list)):
                 setattr(variant, attribute, ','.join(str(x) for x in value))
 
         # Convert info dictionary to string
         variant.info = variant.info_string
-
-        elements = [getattr(variant, field.lower()) for field in self.header]
+        fields = (
+            'chrom', 'pos', 'ident', 'ref', 'alt', 'qual',
+            'filt', 'info', 'format_field', 'sample')
+        elements = [getattr(variant, field.lower()) for field in fields]
         # VCF POS field is 1-based
         elements[self.header.index('POS')] += 1
         line = '\t'.join([str(x) for x in elements])
@@ -677,9 +679,9 @@ def _merge_variants(
         gt = gt_sep.join(map(str, gts))
 
     sample = {'GT': gt, 'GQ': qual}
-    return medaka.vcf.Variant(
+    return Variant(
         v.chrom, interval.begin, ref, alt=alts,
-        filter='PASS', info=info, qual=qual,
+        filt='PASS', info=info, qual=qual,
         sample_dict=sample).trim()
 
 
@@ -713,7 +715,7 @@ class Haploid2DiploidConverter(object):
 
         self.logger = medaka.common.get_named_logger('VCFMERGE')
 
-        self.vcfs = [medaka.vcf.VCFReader(vcf) for vcf in (vcf1, vcf2)]
+        self.vcfs = [VCFReader(vcf) for vcf in (vcf1, vcf2)]
         for vcf in self.vcfs:
             vcf.index()  # create tree
         self.fasta = pysam.FastaFile(ref_fasta)
@@ -812,7 +814,7 @@ def split_variants(vcf_fp, trim=True):
     output_files = []
     for k, variants in q.items():
         output_files.append('{}_hap{}{}'.format(basename, k, ext))
-        with medaka.vcf.VCFWriter(
+        with VCFWriter(
                 output_files[-1], meta_info=vcf.meta) as vcf_writer:
             # output variants in the same order they occured in the input file
             vcf_writer.write_variants(variants, sort=False)

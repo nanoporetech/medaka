@@ -384,7 +384,7 @@ class SNPDecoder(BaseDecoder):
             sample = {'GT': '1/1', 'GQ': qual,}
             called_loci.add(pos)
             yield medaka.vcf.Variant(data['ref_name'], pos, ref, alt,
-                                     filter='PASS', info=info, qual=qual,
+                                     filt='PASS', info=info, qual=qual,
                                      sample_dict=sample)
 
 
@@ -416,7 +416,7 @@ class SNPDecoder(BaseDecoder):
             sample = {'GT': gt, 'GQ': qual,}
             called_loci.add(pos)
             yield medaka.vcf.Variant(data['ref_name'], pos, ref, alt=alt,
-                                     filter='PASS', info=info, qual=qual,
+                                     filt='PASS', info=info, qual=qual,
                                      sample_dict=sample)
 
 
@@ -439,7 +439,7 @@ class SNPDecoder(BaseDecoder):
             sample = {'GT': 0, 'GQ': qual,}
             yield medaka.vcf.Variant(ref_name, pos,
                                         self.label_decoding[ref_base_encoded],
-                                        alt='.', filter='PASS', info=info,
+                                        alt='.', filt='PASS', info=info,
                                         qual=qual, sample_dict=sample)
 
 
@@ -685,7 +685,7 @@ class HaploidVariantDecoder(SNPDecoder):
                 self.logger.debug('Yielding variant {}:{}'.format(s.ref_name, s.positions[start_i]))
                 yield medaka.vcf.Variant(s.ref_name, s.positions['major'][start_i],
                                          var_ref_seq, alt=var_pred_seq,
-                                         filter='PASS', info=info, qual=qual,
+                                         filt='PASS', info=info, qual=qual,
                                          sample_dict=sample).trim()
 
 
