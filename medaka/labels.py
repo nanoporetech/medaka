@@ -463,8 +463,8 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
         """
         # ensure all alignments have same start and end
-        if not (self._singleton(a.start for a in truth_alns) or
-                not self._singleton(a.end for a in truth_alns)):
+        if not (self._singleton(a.start for a in truth_alns) and
+                self._singleton(a.end for a in truth_alns)):
 
             raise ValueError('Alignments must have identical \
                 genomic start and end.')
