@@ -91,6 +91,22 @@ class HaploidLabelSchemeTest(unittest.TestCase):
     def test_n_element(self):
         self.assertEqual(self.ls.n_elements, 1)
 
+    def test_alignments_start_end(self):
+        """Test all alignments start and end in the same position.
+
+        If alignments have a different start/end, `alignments_to_labels`
+         should raise ValueError.
+        """
+        start, end = np.random.randint(1, 1000, size=2)
+        alignment = namedtuple("alignment", ('start', 'end'))
+
+        incorrect_start = [alignment(start, end), alignment(start+1, end)]
+        incorrect_end = [alignment(start, end), alignment(start, end+1)]
+        incorrect_both = [alignment(start, end), alignment(start+1, end+1)]
+        for incorrect in (incorrect_start, incorrect_end, incorrect_both):
+            with self.assertRaises(ValueError):
+                self.ls.alignments_to_labels(incorrect)
+
     def test_labels_to_encoded_labels(self):
 
         dummy = np.array((('A',), ('C',), ('C',), ('T',)))
