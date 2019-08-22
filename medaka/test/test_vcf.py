@@ -63,23 +63,23 @@ class TestReader(unittest.TestCase):
 
     def test_050_check_variant_contents(self):
         expected = [
-                Variant('chr1', 14369, 'G', alt=['A'], id='rs6054257', qual=29, filter='PASS',
+                Variant('chr1', 14369, 'G', alt=['A'], ident='rs6054257', qual=29, filt='PASS',
                     info={'NS': 3, 'DP': 14, 'AF': 0.5, 'DB': True, 'H2':True},
                     sample_dict=OrderedDict([('GT', '1|0'), ('GQ', '48'), ('DP', '8'), ('HQ', '51,51')]),
                 ),
-                Variant('chr2', 17329, 'T', alt=['A'], id='.', qual=3, filter='q10',
+                Variant('chr2', 17329, 'T', alt=['A'], ident='.', qual=3, filt='q10',
                     info={'NS': 3, 'DP': 11, 'AF': 0.017},
                     sample_dict=OrderedDict([('GT', '0|0'), ('GQ', '49'), ('DP', '3'), ('HQ', '58,50')]),
                 ),
-                Variant('chr10', 1110695, 'A', alt=['G', 'T'], id='rs6040355', qual=67, filter='PASS',
+                Variant('chr10', 1110695, 'A', alt=['G', 'T'], ident='rs6040355', qual=67, filt='PASS',
                     info={'NS': 2, 'DP': 10, 'AF': [0.333,0.667], 'AA': 'T', 'DB': True},
                     sample_dict=OrderedDict([('GT', '1|2'), ('GQ', '21'), ('DP', '6'), ('HQ', '23,27')]),
                 ),
-                Variant('chr20', 1230236, 'T', alt=['.'], id='.', qual=47, filter='PASS',
+                Variant('chr20', 1230236, 'T', alt=['.'], ident='.', qual=47, filt='PASS',
                     info={'NS': 3, 'DP': 13, 'AA': 'T'},
                     sample_dict=OrderedDict([('GT', '0|0'), ('GQ', '54'), ('DP', '7'), ('HQ', '56,60')]),
                 ),
-                Variant('chrX', 1234566, 'GTCT', alt=['G','GTACT'], id='microsat1', qual=50, filter='PASS',
+                Variant('chrX', 1234566, 'GTCT', alt=['G','GTACT'], ident='microsat1', qual=50, filt='PASS',
                     info={'NS': 3, 'DP': 9, 'AA': 'G'},
                     sample_dict=OrderedDict([('GT', '1/1'), ('GQ', '40'), ('DP', '3')]),
                 )
@@ -115,7 +115,7 @@ class TestWriter(unittest.TestCase):
             # Read them back and compare with original file
             vcf_test = VCFReader(test_file.name).fetch()
             for variant_original, variant_test in zip(self.vcf_reader.fetch(), vcf_test):
-                for key in  ('chrom', 'pos', 'id', 'ref', 'alt', 'qual', 'filter', 'info', 'sample_dict'):
+                for key in  ('chrom', 'pos', 'ident', 'ref', 'alt', 'qual', 'filt', 'info', 'sample_dict'):
                     expected = getattr(variant_original, key)
                     result = getattr(variant_test, key)
                     self.assertEqual(expected, result, 'Round trip failed for {}.'.format(key))
