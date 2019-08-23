@@ -442,6 +442,17 @@ def get_regions(bam, region_strs=None):
     return regions
 
 
+def ref_name_from_region_str(region_str):
+    """Parse region strings, returning a list of reference names.
+
+    :param regions: iterable of region strings.
+
+    :returns: tuple of reference name str.
+    """
+    ref_names = [Region.from_string(r).ref_name for r in region_str]
+    return tuple(set(ref_names))
+
+
 def get_pairs(aln):
     """Return generator of pairs.
 

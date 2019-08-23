@@ -285,14 +285,21 @@ def main():
     pparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
     pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
     pparser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
+    pparser.add_argument('--regions', default=None, nargs='+',
+                         help='Limit variant calling to these reference names')
+
+    pparser = subparsers.add_parser('snp',
+        help='Decode probabilities to SNPs.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    pparser.set_defaults(func=medaka.variant.snps_from_hdf)
+    pparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
+    pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
+    pparser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
     pparser.add_argument('--regions', default=None, nargs='+', help='Limit variant calling to these reference names')
     pparser.add_argument('--threshold', default=0.04, type=float,
-                         help="""Threshold for considering secondary calls. Only used in SNPDecoder.
-                         A value of 1 will result in haploid decoding.""")
-    pparser.add_argument('--ref_vcf', default=None, help='Reference vcf to compare to, only used in SNPDecoder.')
-    pparser.add_argument('--decoder', default='SNPDecoder', help='Variant decoder.',
-                         choices=sorted(medaka.variant.variant_decoders.keys()))
-    pparser.add_argument('--multi_label', action='store_true', help='Multi-classification decoding.')
+                         help='Threshold for considering secondary calls. A value of 1 will result in haploid decoding.')
+    pparser.add_argument('--ref_vcf', default=None, help='Reference vcf.')
 
 
     # Tools

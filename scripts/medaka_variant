@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eo pipefail
+set -eox pipefail
 
 medaka_version=$(medaka --version)
 modeldata=()
@@ -13,15 +13,12 @@ function follow_link {
 
 declare -r HAP1OPTS="--tag_name HP --tag_value 1 --tag_keep_missing"
 declare -r HAP2OPTS="--tag_name HP --tag_value 2 --tag_keep_missing"
-declare -r SNP_DECODER="SNPDecoder"  # used for tagging reads
-declare -r VARIANT_DECODER="HaploidVariantDecoder"  # used for final calls
-declare -r HAPLOIDTHRESHOLD=1  # For final calls
 declare -r WHATSHAPOPTS="--ignore-read-groups"
 
 # Variables
 OUTPUT="medaka_variant"
 THREADS=1
-THRESHOLD=0.04  # for tagging reads
+THRESHOLD=0.04 # for defining secondary calls in diploid snp calling stage used to haplotype reads
 BATCH_SIZE=100
 REGIONS=""
 iflag=false
@@ -65,7 +62,7 @@ $(basename "$0") [-h] -i <fastx>
     -d  delete intermediate files. (default: keep)."
 
 
-while getopts ':hi::f:r:o:m:s:v:T:Mt:b:d' option; do
+while getopts ':hi::f:r:o:m:s:T:Mt:b:d' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; CALLS2REF=$(follow_link $OPTARG);;
@@ -74,7 +71,6 @@ while getopts ':hi::f:r:o:m:s:v:T:Mt:b:d' option; do
     o  ) OUTPUT=$OPTARG;;
     m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
     s  ) SNPMODEL=$(medaka tools resolve_model --model $OPTARG);;
-    v  ) VARIANT_DECODER=$OPTARG;;
     T  ) THRESHOLD=$OPTARG;;
     M  ) MULTIPASS=true;;
     t  ) THREADS=$OPTARG;;
@@ -138,6 +134,23 @@ run_medaka_consensus () {
     fi
 }
 
+run_medaka_snp () {
+    local PROBS=$1
+    local VCF=$2
+    local T=$3
+    local EXTRAOPTS=$4
+    exit_if_file_does_not_exist ${PROBS} ${REF}
+    if [[ ! -e ${VCF} ]]; then
+        echo ""
+        echo "- Running medaka snp with threshold ${T}"
+        medaka snp ${REF} ${PROBS} ${VCF} --threshold ${T} ${EXTRAOPTS} \
+            || (echo "Failed to call snps from consensus probabilities." && exit 1)
+        echo "VCF written to ${OUTPUT}/${VCF}."
+    else
+        echo "Using existing output:  ${OUTPUT}/${VCF}."
+    fi
+}
+
 run_medaka_variant () {
     local PROBS=$1
     local VCF=$2
@@ -146,9 +159,9 @@ run_medaka_variant () {
     exit_if_file_does_not_exist ${PROBS} ${REF}
     if [[ ! -e ${VCF} ]]; then
         echo ""
-        echo "- Running medaka variant with threshold ${T}"
-        medaka variant ${REF} ${PROBS} ${VCF} --threshold ${T} ${EXTRAOPTS} \
-            || (echo "Failed to call variants from consensus chunks." && exit 1)
+        echo "- Running medaka variant"
+        medaka variant ${REF} ${PROBS} ${VCF} ${EXTRAOPTS} \
+            || (echo "Failed to call variants from consensus probabilities." && exit 1)
         echo "VCF written to ${OUTPUT}/${VCF}."
     else
         echo "Using existing output:  ${OUTPUT}/${VCF}."
@@ -280,11 +293,19 @@ run_haplotyped_pass () {
     run_medaka_consensus ${INBAM} ${PROBSHAP1} ${MODEL} "${HAP1OPTS}"
     PROBSHAP2=round_${ITER}_hap_2_probs.hdf
     run_medaka_consensus ${INBAM} ${PROBSHAP2} ${MODEL} "${HAP2OPTS}" 
-    
+
     VCFHAP1=round_${ITER}_hap_1.vcf
-    run_medaka_variant ${PROBSHAP1} ${VCFHAP1} ${HAPLOIDTHRESHOLD} "${DECODE_OPTS}"
     VCFHAP2=round_${ITER}_hap_2.vcf
-    run_medaka_variant ${PROBSHAP2} ${VCFHAP2} ${HAPLOIDTHRESHOLD} "${DECODE_OPTS}"
+
+    if [ "$DECODE_OPTS" == "snp" ]; then
+        run_medaka_snp ${PROBSHAP1} ${VCFHAP1} ${THRESHOLD}
+        run_medaka_snp ${PROBSHAP2} ${VCFHAP2} ${THRESHOLD}
+    else
+        run_medaka_variant ${PROBSHAP1} ${VCFHAP1}
+        run_medaka_variant ${PROBSHAP2} ${VCFHAP2}
+    fi
+
+
     VCFMERGED=round_${ITER}.vcf
     run_medaka_haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGED}
     
@@ -327,13 +348,12 @@ fi
 echo ""
 echo "+ Running initial pass to haplotag reads."
 ROUND=0
-DECODING_OPTS="--decoder ${SNP_DECODER}"
 
 CONSENSUSPROBS=round_${ROUND}_hap_mixed_probs.hdf
 run_medaka_consensus ${CALLS2REF} ${CONSENSUSPROBS} ${SNPMODEL}
 
 UNPHASEDVCF=round_${ROUND}_hap_mixed_thresh_${THRESHOLD}_unphased.vcf
-run_medaka_variant ${CONSENSUSPROBS} ${UNPHASEDVCF} ${THRESHOLD} "${DECODING_OPTS}"
+run_medaka_snp ${CONSENSUSPROBS} ${UNPHASEDVCF} ${THRESHOLD}
 
 PHASEDVCF=round_${ROUND}_hap_mixed_thresh_${THRESHOLD}_phased.vcf
 run_phase_vcf ${UNPHASEDVCF} ${PHASEDVCF} 
@@ -351,7 +371,7 @@ if ${MULTIPASS}; then
     echo ""
     echo "+ Running intermediate pass to improving haplotagging."
     ROUND=1
-    DECODING_OPTS="--decoder ${SNP_DECODER}"
+    DECODING_OPTS="snp"
     run_haplotyped_pass ${ROUND} ${PHASEDBAM} ${DECODING_OPTS}
 
     VCFPHASEDGZ=round_${ROUND}_phased.vcf.gz
@@ -365,8 +385,8 @@ fi
 echo ""
 echo "+ Running final pass to produce variant calls."
 ROUND=2
-DECODING_OPTS="--decoder ${VARIANT_DECODER}"
-run_haplotyped_pass ${ROUND} ${PHASEDBAM} "${DECODING_OPTS}"
+DECODING_OPTS="variant"
+run_haplotyped_pass ${ROUND} ${PHASEDBAM} ${DECODING_OPTS}
 
 ###
 # Cleanup

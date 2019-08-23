@@ -1,3 +1,4 @@
+"""Schemes to encode and decode truth labels and network outputs."""
 import abc
 import collections
 from copy import copy
@@ -15,12 +16,12 @@ import medaka.vcf
 
 
 class TruthAlignment(object):
+    """Process truth alignments."""
 
     def __init__(self, alignment):
-        """Create a TruthAlignment oblist from a
-        `pysam.libcalignedsegment.AlignedSegment` object.
+        """Create a `TruthAlignment` list from an `AlignedSegment`.
 
-        :param alignment: `pysam.libcalignedsegment.AlignedSegment` object.
+        :param alignment: `pysam.AlignedSegment`.
         """
         self.aln = alignment  # so we can get positions and labels later
         # initialise start and end (which might be moved)
@@ -108,7 +109,7 @@ class TruthAlignment(object):
 
     @staticmethod
     def bam_to_alignments(truth_bam, region, haplotag=None):
-        """Get processed truth alignments
+        """Get processed truth alignments.
 
         :param truth_bam: (sorted indexed) bam with true sequence
             aligned to reference
@@ -149,7 +150,6 @@ class TruthAlignment(object):
              staggering of truth alignments and hence the number of labels
              discarded.
         """
-
         logger = medaka.common.get_named_logger("Group_and_trim")
         haplotypes = sorted(list(alignments.keys()))
         if len(haplotypes) == 1:  # haploid
@@ -202,8 +202,7 @@ class TruthAlignment(object):
 
     @staticmethod
     def _load_alignments(truth_bam, region, haplotag=None):
-        """Create list of `TruthAlignment` s from a bam with true sequence(s)
-        aligned to a reference.
+        """Create list of `TruthAlignment` s from a truth bam.
 
         :param truth_bam: (sorted indexed) bam with true sequence(s) aligned
             to reference
@@ -313,22 +312,25 @@ label_schemes = dict()
 
 
 class LabelSchemeRegistrar(type):
-    """Class for registering label schemes.
-    """
+    """Class for registering label schemes."""
 
     def __new__(cls, clsname, bases, attrs):
+        """Register class to `label_schemes` dict upon instantiation."""
         newclass = super(LabelSchemeRegistrar, cls).__new__(
             cls, clsname, bases, attrs)
         cls.register_label_scheme(clsname, newclass)
         return newclass
 
     def register_label_scheme(clsname, cls):
+        """Add `LabelScheme` to `label_schemes` dict."""
         # do not display base class as command line option
         if clsname != 'BaseLabelScheme':
             label_schemes[clsname] = cls
 
 
 class LabelSchemeMeta(abc.ABC, LabelSchemeRegistrar):
+    """Metaclass facilitating registration of `LabelScheme` s."""
+
     pass
 
 
@@ -377,13 +379,17 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
     @abc.abstractproperty
     def n_elements(self):
-        # number of elements per genomic position provided
-        # by truth alignment (synonymous with ploidy)
+        """Return number of elements provided by truth alignment.
+
+        (Mostly) synonymous with ploidy. i.e. n_elements = 2 where
+        two symbols are provided for the two haplotypes of a truth
+        alignment for diploid training.
+        """
         return 1
 
     @staticmethod
     def _singleton(it):
-        """Iterable contains one unique element.
+        """Test whether iterable contains one unique element.
 
         :param it: iterable
 
@@ -408,12 +414,12 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
     @abc.abstractmethod
     def _alignment_to_pairs(self, aln):
-        """Convert `pysam.AlignedSegment` to aligned pairs.
-        """
+        """Convert `pysam.AlignedSegment` to aligned pairs."""
 
     @abc.abstractmethod
     def _alignments_to_labels(self, truth_alns):
         """Convert truth alignment(s) to an array of labels.
+
         A label is a tuple of self.symbols of length self.n_elements
         e.g. ('A','C') where n_elements = 2.
 
@@ -424,8 +430,7 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
     @abc.abstractmethod
     def _labels_to_encoded_labels(self, label_array):
-        """Convert array of labels to an array of integer (tuple)
-        encoded labels.
+        """Convert array of labels to array of integer (tuple) encoded labels.
 
         The logic of many to one mappings, where multiple labels
         map to a common integer encoding is specified here.
@@ -437,7 +442,8 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
     @abc.abstractmethod
     def _encoded_labels_to_training_vectors(self, enc_labels):
-        """Convert integer (tuple) encoded labels to truth vectors
+        """Convert integer (tuple) encoded labels to truth vectors.
+
         (e.g. one-hot encoded truth vectors) that represent the truth
         for comparison with network output logits in
         e.g. metric(truth, pred) or loss(truth, pred)) functions.
@@ -510,7 +516,8 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
     @abc.abstractproperty
     def _encoding(self):
-        """A dictionary mapping from label tuple to integer (tuple).
+        """Return a dictionary mapping from label tuple to integer (tuple).
+
         This property is accessed by methods that are responsible
         for encoding. Also, it can be written to file in order to
         log the encoding scheme used.
@@ -518,7 +525,8 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
     @property
     def _decoding(self):
-        """A dictionary mapping from integer (tuple) to label tuple.
+        """Return a dictionary mapping from integer (tuple) to label tuple.
+
         Inverse of encoding.
         """
         try:
@@ -529,19 +537,16 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
     @property
     def _unitary_encoding(self):
-        """A dictionary mapping from all symbol 1-tuples to integers.
-        """
+        """Return a dictionary mapping from all symbol 1-tuples to integers."""
         return {v: k for k, v in enumerate(self._unitary_labels())}
 
     @property
     def _unitary_decoding(self):
-        """A dictionary mapping from integers to all symbol 1-tuples.
-        """
+        """Return a dictionary mapping from integers to all symbol 1-tuples."""
         return {v: k for k, v in self._unitary_encoding.items()}
 
     def encode(self, truth_alns):
-        """Convert truth alignment(s) to nd.array of integer-encoded network
-        training vectors.
+        """Convert truth alignment(s) to array of network training vectors.
 
         :param truth_alns: tuple of `pysam.AlignedSegment` s for each haplotype
             spanning the same genomic range
@@ -555,7 +560,6 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
             - training_vectors: nd.array of training vectors
 
         """
-
         positions, labels = self._alignments_to_labels(truth_alns)
         encoded = self._labels_to_encoded_labels(labels)
         training_vectors = self._encoded_labels_to_training_vectors(encoded)
@@ -563,28 +567,26 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         return positions, training_vectors
 
     def _unitary_labels(self):
-        """All symbol 1-tuples.
-        """
+        """Return all symbol 1-tuples."""
         return tuple((s,) for s in self.symbols)
 
     def _unordered_label_combinations(self):
-        """Generate all combinations of n_elements tuples where
-        order is ignored. ('A','T') == ('T','A').
+        """Generate all combinations of n_elements tuples; order is ignored.
+
+        ('A','T') == ('T','A').
         """
         return tuple(itertools.combinations_with_replacement(
             self.symbols, self.n_elements))
 
-    def _decode_snps(self, sample, threshold=0.04):
-        """Convert network output in sample to a set of
-        medaka.vcf.Variants recording SNPs but NOT indels.
+    def _decode_snps(self, sample):
+        """Convert network output in sample to a set of medaka.vcf.Variants.
+
+        Recording SNPs but NOT indels.
 
         :param sample: medaka.common.Sample
-        :param threshold: threshold for acceptance of secondary call.
 
         :returns: list of medaka.vcf.Variant objects for SNPs
         """
-
-        self.secondary_threshold = threshold
         ref_name = sample.ref_name
         pos = sample.positions
         probs = sample.label_probs
@@ -630,20 +632,21 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
         return snps
 
-    def decode_snps(self, sample, ref_seq, ref_vcf=None):
-        """Decode network outputs to medaka.vcf.Variant objects
-        recording SNPs. Optionally, SNPs are returned at ALL
-        loci specified in suplied ref_vcf.
+    def decode_snps(self, sample, ref_seq, ref_vcf=None, threshold=0.04):
+        """Decode network outputs to medaka.vcf.Variant objects recording SNPs.
+
+        Optionally, SNPs are returned at ALL loci specified in suplied ref_vcf.
 
         :param sample: medaka.common.Sample
         :param ref_seq: str, reference sequence
         :param ref_vcf: VCF file
+        :param threshold: threshold for acceptance of secondary call.
 
         :returns: list of medaka.vcf.Variant objects
 
         """
-
         self.ref_seq = ref_seq
+        self.secondary_threshold = threshold
         self.ref_vcf = medaka.vcf.VCFReader(ref_vcf) \
             if ref_vcf else None
 
@@ -652,8 +655,7 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
     @abc.abstractmethod
     def _prob_to_snp(self, network_output, pos, ref_name,
                      ref_symbol, return_all=False):
-        """Convert the network output for a single locus
-        to a medaka.common.Variant.
+        """Convert network output for a single locus to medaka.common.Variant.
 
         This method contains all logic for converting network
         output into SNP Variants.
@@ -671,7 +673,7 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
     @property
     def snp_metainfo(self):
-
+        """Return meta data for use in `.vcf` header."""
         MI = medaka.vcf.MetaInfo
         m = [MI('INFO', 'ref_prob', 1, 'Float',
                 'Medaka probability for reference allele'),
@@ -700,26 +702,33 @@ class HaploidLabelScheme(BaseLabelScheme):
     Consensus decoding is simple argmax.
     [[0.02, 0.9, 0.02, 0.01, 0.05], [0.01, 0.02, 0.01, 0.9, 0.05]] -> "AG"
 
-    SNP and variant (SNP + indel) decoding utilises a hard threshold to define
-    secondary calls.
+    SNP decoding utilises a hard threshold to define secondary calls.
     """
 
     @property
     def n_elements(self):
+        """Return number of elements provided by truth alignment.
+
+        Synonymous with ploidy.
+        """
         return 1
 
     @property
     def _encoding(self):
+        """Return a dictionary mapping from label tuple to integer (tuple).
+
+        This property is accessed by methods that are responsible
+        for encoding. Also, it can be written to file in order to
+        log the encoding scheme used.
+        """
         return self._unitary_encoding
 
     def _alignment_to_pairs(self, aln):
-        """Convert `pysam.AlignedSegment` to aligned pairs.
-        """
+        """Convert `pysam.AlignedSegment` to aligned pairs."""
         return medaka.common.get_pairs(aln)
 
     def _alignments_to_labels(self, truth_alns):
-        """Convert truth alignments to an array of labels.
-        """
+        """Convert truth alignments to an array of labels."""
         n_haps = len(truth_alns)
         if not n_haps == 1:
             raise ValueError('{} haplotypes were passed '.format(n_haps) +
@@ -727,14 +736,13 @@ class HaploidLabelScheme(BaseLabelScheme):
         return self.alignments_to_labels(truth_alns)
 
     def _labels_to_encoded_labels(self, label_array):
-        """Convert array of labels to an array of integer (tuple)
-        encoded labels.
-        """
+        """Convert label array to array of integer (tuple) encoded labels."""
         return np.fromiter((self._encoding[tuple(i)]
                             for i in label_array), dtype=int)
 
     def _encoded_labels_to_training_vectors(self, enc_labels):
-        """Convert integer (tuple) encoded labels to truth vectors
+        """Convert integer (tuple) encoded labels to truth vectors.
+
         (e.g. one-hot encoded truth vectors) that represent the truth
         for comparison with network output logits in
         e.g. metric(truth, pred) or loss(truth, pred)) functions.
@@ -743,8 +751,7 @@ class HaploidLabelScheme(BaseLabelScheme):
 
     def _prob_to_snp(self, network_output, pos, ref_name,
                      ref_symbol, return_all=False):
-        """Convert the networkout output for a single locus
-        to a medaka.common.Variant.
+        """Convert networkout output for single locus to medaka.common.Variant.
 
         A threshold is used to define significant secondary calls
         allowing the prediciton of homozygous and heterozygous
@@ -753,7 +760,6 @@ class HaploidLabelScheme(BaseLabelScheme):
         Where a significant secondary call is a deletion, the
         SNP is considered homozygous in the primary call.
         """
-
         secondary_call, primary_call = (self._decoding[p][0]
                                         for p in np.argsort(
                                             network_output)[-2:])
@@ -829,28 +835,25 @@ class HaploidLabelScheme(BaseLabelScheme):
                                           qual=qual, sample_dict=genotype)
 
     def decode_variants(self, sample, ref_seq):
-        """Convert network output in sample to a set of `medaka.vcf.Variant` s
-        recording SNPs and indels. We return a heterozygous SNP if the
-        secondary probability exceeds a hard threshold.
+        """Convert network output in sample to a set of `medaka.vcf.Variant` s.
 
-        Multi-base or otherwise complex variants will be decoded in their
-        entirety.
+        A consensus sequence is decoded and compared with a reference sequence.
+        Both substitution and indel variants that may be multi-base will be
+        reported in the output `medaka.vcf.Variant` s.
 
         :param sample: medaka.common.Sample
         :param ref_seq: str, reference sequence
 
         :returns: list of medaka.vcf.Variant objects
         """
-
         pos = sample.positions
         probs = sample.label_probs
 
         assert sample.positions['minor'][0] == 0
 
         # array of symbols retaining gaps
-        predicted = np.fromiter((self._decoding[p][0]
-                                for p in np.argmax(probs, -1)),
-                                dtype='|U1', count=len(probs))
+        predicted = np.array(list(
+            self.decode_consensus(sample, with_gaps=True)))
 
         # get reference sequence with insertions marked as '*'
         def get_symbol(p):
@@ -949,7 +952,7 @@ class HaploidLabelScheme(BaseLabelScheme):
 
     @property
     def variant_metainfo(self):
-
+        """Return meta data for use in `.vcf` header."""
         MI = medaka.vcf.MetaInfo
         m = [MI('INFO', 'ref_seq', 1, 'String',
                 'Medaka reference sequence'),
@@ -972,25 +975,28 @@ class HaploidLabelScheme(BaseLabelScheme):
 
         return m
 
-    def decode_consensus(self, sample):
-        """Convert network output to consensus sequence by argmax
-           decoding.
+    def decode_consensus(self, sample, with_gaps=False):
+        """Convert network output to consensus sequence by argmax decoding.
 
-        :param: medaka.common.Sample
+        :param sample: medaka.common.Sample
+        :param with_gaps: include gap ("*") characters in output.
 
         :returns: str, consensus sequence
         """
+        # property access is slow
+        decode = self._decoding
         # most probable class
-        decode = self._decoding  # property access is slow
         mp = np.argmax(sample.label_probs, -1)
         seq = ''.join([decode[x][0] for x in mp])
         # delete gap symbol from sequence
-        seq = seq.replace('*', '')
+        if not with_gaps:
+            seq = seq.replace('*', '')
         return seq
 
 
 class DiploidLabelScheme(BaseLabelScheme):
-    """This LabelScheme defines a two-element label per genomic position.
+    """LabelScheme defines a two-element label per genomic position.
+
     Each label maps to an integer, and we make a direct diploid call.
     A categorical crossentropy loss is appropriate.
 
@@ -1013,11 +1019,12 @@ class DiploidLabelScheme(BaseLabelScheme):
     Where reference is ('T',), we output ref='T', alt=['A'], GT='1/1'
     """
 
-    def __init__(self):
-        super().__init__()
-
     @property
     def n_elements(self):
+        """Return number of elements provided by truth alignment.
+
+        Synonymous with ploidy.
+        """
         return 2
 
     @property
@@ -1026,14 +1033,11 @@ class DiploidLabelScheme(BaseLabelScheme):
             self._unordered_label_combinations())}
 
     def _alignment_to_pairs(self, aln):
-        """Convert `pysam.AlignedSegment` to
-           aligned pairs.
-        """
+        """Convert `pysam.AlignedSegment` to aligned pairs."""
         return medaka.common.get_pairs(aln)
 
     def _alignments_to_labels(self, truth_alns):
-        """Convert truth alignments to an array of labels.
-        """
+        """Convert truth alignments to an array of labels."""
         n_haps = len(truth_alns)
         if not n_haps == 2:
             raise ValueError('{} haplotypes were passed '.format(n_haps) +
@@ -1041,14 +1045,13 @@ class DiploidLabelScheme(BaseLabelScheme):
         return self.alignments_to_labels(truth_alns)
 
     def _labels_to_encoded_labels(self, label_array):
-        """Convert array of labels to an array of integer (tuple)
-        encoded labels.
-        """
+        """Convert label array to array of integer (tuple) encoded labels."""
         return np.fromiter((self._encoding[tuple(sorted(i))]
                            for i in label_array), dtype=int)
 
     def _encoded_labels_to_training_vectors(self, enc_labels):
-        """Convert integer (tuple) encoded labels to truth vectors
+        """Convert integer (tuple) encoded labels to truth vectors.
+
         (e.g. one-hot encoded truth vectors) that represent the truth
         for comparison with network output logits in
         e.g. metric(truth, pred) or loss(truth, pred)) functions.
@@ -1057,10 +1060,7 @@ class DiploidLabelScheme(BaseLabelScheme):
 
     def _prob_to_snp(self, network_output, pos, ref_name,
                      ref_symbol, return_all=False):
-        """Convert the networkout output for a single locus
-        to a medaka.common.Variant.
-        """
-
+        """Convert network output single locus to medaka.common.Variant."""
         call = self._decoding[np.argmax(network_output)]
         prob = np.max(network_output)
         qual = self._phred(1 - prob)
@@ -1129,7 +1129,7 @@ class DiploidLabelScheme(BaseLabelScheme):
 
     @property
     def snp_metainfo(self):
-
+        """Return meta data for use in `.vcf` header."""
         MI = medaka.vcf.MetaInfo
         m = [MI('INFO', 'ref_prob', 1, 'Float',
                 'Medaka probability of reference'),
@@ -1142,9 +1142,10 @@ class DiploidLabelScheme(BaseLabelScheme):
 
 
 class DiploidZygosityLabelScheme(BaseLabelScheme):
+    """This LabelScheme defines a two-part label per genomic position.
 
-    """ This LabelScheme defines a two-element label per genomic position,
-    plus a third element explicitly indicating heterozygosity.
+    A two-tuple label defining symbols at a position, and an additional
+    element explicitly indicating heterozygosity.
 
     Each symbol in the diploid label is encoded as a unitary symbol, exactly
     as it is in the HaploidLabelScheme, i.e. ('A',) maps to 1.
@@ -1193,6 +1194,10 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
 
     @property
     def n_elements(self):
+        """Return number of elements provided by truth alignment.
+
+        Synonymous with ploidy.
+        """
         return 2
 
     def _is_het(self, l):
@@ -1221,25 +1226,21 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
         return encoding
 
     def _alignment_to_pairs(self, aln):
-        """Convert `pysam.AlignedSegment` to
-           aligned pairs.
-        """
+        """Convert `pysam.AlignedSegment` to aligned pairs."""
         return medaka.common.get_pairs(aln)
 
     def _alignments_to_labels(self, truth_alns):
-        """Convert truth alignments to an array of labels.
-        """
+        """Convert truth alignments to an array of labels."""
         return self.alignments_to_labels(truth_alns)
 
     def _labels_to_encoded_labels(self, label_array):
-        """Convert array of labels to an array of integer (tuple)
-        encoded labels.
-        """
+        """Convert label array to array of integer (tuple) encoded labels."""
         return np.array([self._encoding[tuple(sorted(i))]
                         for i in label_array], dtype=object)
 
     def _encoded_labels_to_training_vectors(self, enc_labels):
-        """Convert integer (tuple) encoded labels to truth vectors
+        """Convert integer (tuple) encoded labels to truth vectors.
+
         (e.g. one-hot encoded truth vectors) that represent the truth
         for comparison with network output logits in
         e.g. metric(truth, pred) or loss(truth, pred)) functions.
@@ -1258,10 +1259,7 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
 
     def _prob_to_snp(self, network_output, pos, ref_name,
                      ref_symbol, return_all=False):
-        """Convert the networkout output for a single locus
-        to a medaka.common.Variant.
-        """
-
+        """Convert network output for single locus to medaka.common.Variant."""
         # where probability of heterozygosity > 0.5,
         # we make a heterozygous call, taking the two most
         # probable symbols.
