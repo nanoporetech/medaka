@@ -123,16 +123,14 @@ install: venv scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINAR
 
 
 test: install
-	${IN_VENV} && pip install pytest pytest-cov flake8 flake8-rst-docstrings flake8-import-order \
-            flake8-builtins
+	${IN_VENV} && pip install pytest pytest-cov flake8 flake8-rst-docstrings flake8-docstrings flake8-import-order
 	# TODO: add these exclusions back in after outstanding PRs
-	${IN_VENV} && flake8 medaka --import-order-style google \
-	    --application-import-names medaka,libmedaka \
-	    --exclude medaka/test/,medaka/medaka.py,medaka/common.py,medaka/variant.py \
+	${IN_VENV} && flake8 medaka --import-order-style google --application-import-names medaka --exclude \
+		medaka/test/,medaka/features.py,medaka/medaka.py,medaka/common.py \
 		--statistics
 	${IN_VENV} && pytest medaka --doctest-modules \
 		--cov=medaka --cov-report html --cov-report term \
-		--cov-fail-under=62
+		--cov-fail-under=60
 
 
 clean: clean_htslib

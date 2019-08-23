@@ -322,13 +322,15 @@ class HaploidLabelSchemeTest(unittest.TestCase):
 
         # Using a threshold equal to the secondary_prob we should get heterozygous calls
         threshold = sec_prob
-        variants = self.ls._decode_snps(s, threshold=threshold)
+        variants = self.ls.decode_snps(s, ref.replace('*', ''),
+                                       threshold=threshold)
         variants = sorted(variants, key=lambda x: x.pos)
 
 
         # If we increase the threshold, we should only get only homozyous calls
         threshold = 2 * sec_prob
-        variants_prim = self.ls._decode_snps(s, threshold = threshold)
+        variants_prim = self.ls.decode_snps(s, ref.replace('*', ''),
+                                            threshold = threshold)
         variants_prim = sorted(variants_prim, key=lambda x: x.pos)
         self.assertEqual(len(variants), len(pos_ref_alt_gt))
         self.assertEqual(len(variants_prim), len(pos_ref_alt_gt_prim))
@@ -474,8 +476,9 @@ class DiploidLabelSchemeTest(unittest.TestCase):
         self.ls.ref_vcf = None
 
         # Using a threshold equal to the secondary_prob we should get heterozygous calls
-        variants = self.ls._decode_snps(s)
+        variants = self.ls.decode_snps(s, ref.replace('*', ''))
         variants = sorted(variants, key=lambda x: x.pos)
+
 
         self.assertEqual(len(variants), len(pos_ref_alt_gt))
 
@@ -633,7 +636,7 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
         self.ls.ref_vcf = None
     
         # Using a threshold equal to the secondary_prob we should get heterozygous calls
-        variants = self.ls._decode_snps(s)
+        variants = self.ls.decode_snps(s, ref.replace('*', ''))
         variants = sorted(variants, key=lambda x: x.pos)
 
         qual_hom = self.ls._phred(1 - pri_prob)
@@ -680,7 +683,8 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
         self.ls.ref_vcf = None
 
         # Using a threshold equal to the secondary_prob we should get heterozygous calls
-        variants = self.ls._decode_snps(s)
+        variants = self.ls.decode_snps(s, ref.replace('*', ''))
+
         variants = sorted(variants, key=lambda x: x.pos)
 
         qual_hom = self.ls._phred(1 - pri_prob)
