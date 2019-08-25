@@ -539,11 +539,13 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         """Return a dictionary mapping from integers to all symbol 1-tuples."""
         return {v: k for k, v in self._unitary_encoding.items()}
 
-    def encode(self, truth_alns):
-        """Convert truth alignment(s) to array of network training vectors.
+    def encode(self, truth_alns, matrix=False):
+        """Convert truth alignment(s) to array of unpadded, network training vectors.
 
         :param truth_alns: tuple of `pysam.AlignedSegment` s for each haplotype
-            spanning the same genomic range
+            spanning the same genomic range.
+        :param matrix: return matrix suitable for training, else simply
+            encoded label vector.
 
         :returns: tuple(positions, training_vectors)
 
@@ -553,10 +555,19 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
             - training_vectors: nd.array of training vectors
 
+        .. note ::
+            It is generally the case that the returned label vectors must be
+            padded with gap labels when aligned to corresponding training
+            feature data.
+
         """
         positions, labels = self._alignments_to_labels(truth_alns)
         encoded = self._labels_to_encoded_labels(labels)
-        training_vectors = self._encoded_labels_to_training_vectors(encoded)
+        if matrix:
+            training_vectors = self._encoded_labels_to_training_vectors(
+                encoded)
+        else:
+            training_vectors = encoded
 
         return positions, training_vectors
 
@@ -733,7 +744,13 @@ class HaploidLabelScheme(BaseLabelScheme):
         for comparison with network output logits in
         e.g. metric(truth, pred) or loss(truth, pred)) functions.
         """
-        return tensorflow.keras.utils.to_categorical(enc_labels)
+        if len(enc_labels.dtype) == 2:
+            # legacy features had (base, runlength) with the encoding:
+            #   gap, lowercase bases, uppercase bases, other stuff
+            enc_labels = np.array(
+                [max(0, x[0] - 4) for x in enc_labels],
+                dtype='int64')
+        return np.expand_dims(enc_labels, axis=1)  # a sparse 1-hot
 
     def _prob_to_snp(self, network_output, pos, ref_name,
                      ref_symbol, return_all=False):
@@ -1034,6 +1051,7 @@ class DiploidLabelScheme(BaseLabelScheme):
         for comparison with network output logits in
         e.g. metric(truth, pred) or loss(truth, pred)) functions.
         """
+        # TODO: this likely isn't correct
         return tensorflow.keras.utils.to_categorical(enc_labels)
 
     def _prob_to_snp(self, network_output, pos, ref_name,

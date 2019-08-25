@@ -138,12 +138,6 @@ class DataStore(object):
                         self.write_executor.submit(
                             self._write, location, data))
 
-            if sample.labels is not None:
-                # count combinations of labels accross haplotypes
-                # cast nd.array to tuple of label tuples
-                # use tolist to convert from np types to python types
-                self.meta['medaka_label_counts'].update(
-                    map(tuple, sample.labels.tolist()))
             # Do this last so we only add this sample to the index if we have
             # gotten this far
             self.meta['medaka_samples'].add(sample.name)
