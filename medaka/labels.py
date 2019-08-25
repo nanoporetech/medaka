@@ -354,7 +354,6 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
     These private methods must be implemented.
 
         - `_alignment_to_pairs` (called by _alignment_to_labels)
-        - `_alignment_to_labels`
         - `_labels_to_encoded_labels`
         - `_encoded_labels_to_training_vectors`
 
@@ -377,7 +376,8 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
     # default set of symbols used throughout all LabelSchemes
     symbols = '*ACGT'
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def n_elements(self):
         """Return number of elements provided by truth alignment.
 
@@ -416,58 +416,26 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
     def _alignment_to_pairs(self, aln):
         """Convert `pysam.AlignedSegment` to aligned pairs."""
 
-    @abc.abstractmethod
     def _alignments_to_labels(self, truth_alns):
-        """Convert truth alignment(s) to an array of labels.
+        """Convert `TruthAlignment` s to nd.array of positions and labels.
 
-        A label is a tuple of self.symbols of length self.n_elements
-        e.g. ('A','C') where n_elements = 2.
-
-        :param truth_alns: tuple of `pysam.AlignedSegment` s
-
-        :returns: np.ndarray of label tuples, dtype=object
-        """
-
-    @abc.abstractmethod
-    def _labels_to_encoded_labels(self, label_array):
-        """Convert array of labels to array of integer (tuple) encoded labels.
-
-        The logic of many to one mappings, where multiple labels
-        map to a common integer encoding is specified here.
-
-        :param label_array: np.ndarray of label tuples, dtype=object
-
-        :returns: np.ndarray of integer (tuples)
-        """
-
-    @abc.abstractmethod
-    def _encoded_labels_to_training_vectors(self, enc_labels):
-        """Convert integer (tuple) encoded labels to truth vectors.
-
-        (e.g. one-hot encoded truth vectors) that represent the truth
-        for comparison with network output logits in
-        e.g. metric(truth, pred) or loss(truth, pred)) functions.
-
-        :param enc_labels: np.ndarray of integer (tuples)
-
-        :returns: np.ndarray of training vectors
-        """
-
-    def alignments_to_labels(self, truth_alns):
-        """Convert truth alignment(s) to nd.array of labels.
-
-        :param truth_alns: tuple of `AlignedSegment` s for each haplotype
+        :param truth_alns: tuple of `TruthAlignment` s for each haplotype
             spanning the same genomic range
 
         :returns: tuple(positions, label_array)
-
             - positions: numpy structured array with 'major'
-              (reference position index) and 'minor'
-              (trailing insertion index) fields.
+            (reference position index) and 'minor'
+            (trailing insertion index) fields.
 
             - label_array: numpy array of self.n_elements tuples
 
         """
+        n_haps = len(truth_alns)
+        if n_haps != self.n_elements:
+            raise ValueError(
+                '{} alignments were passed to {}, requires {}'.format(
+                    n_haps, type(self), self.n_elements))
+
         # ensure all alignments have same start and end
         if not (self._singleton(a.start for a in truth_alns) and
                 self._singleton(a.end for a in truth_alns)):
@@ -514,7 +482,33 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
         return (positions, label_array)
 
-    @abc.abstractproperty
+    @abc.abstractmethod
+    def _labels_to_encoded_labels(self, label_array):
+        """Convert array of labels to array of integer (tuple) encoded labels.
+
+        The logic of many to one mappings, where multiple labels
+        map to a common integer encoding is specified here.
+
+        :param label_array: np.ndarray of label tuples, dtype=object
+
+        :returns: np.ndarray of integer (tuples)
+        """
+
+    @abc.abstractmethod
+    def _encoded_labels_to_training_vectors(self, enc_labels):
+        """Convert integer (tuple) encoded labels to truth vectors.
+
+        (e.g. one-hot encoded truth vectors) that represent the truth
+        for comparison with network output logits in
+        e.g. metric(truth, pred) or loss(truth, pred)) functions.
+
+        :param enc_labels: np.ndarray of integer (tuples)
+
+        :returns: np.ndarray of training vectors
+        """
+
+    @property
+    @abc.abstractmethod
     def _encoding(self):
         """Return a dictionary mapping from label tuple to integer (tuple).
 
@@ -726,14 +720,6 @@ class HaploidLabelScheme(BaseLabelScheme):
     def _alignment_to_pairs(self, aln):
         """Convert `pysam.AlignedSegment` to aligned pairs."""
         return medaka.common.get_pairs(aln)
-
-    def _alignments_to_labels(self, truth_alns):
-        """Convert truth alignments to an array of labels."""
-        n_haps = len(truth_alns)
-        if not n_haps == 1:
-            raise ValueError('{} haplotypes were passed '.format(n_haps) +
-                             'to a haploid LabelScheme')
-        return self.alignments_to_labels(truth_alns)
 
     def _labels_to_encoded_labels(self, label_array):
         """Convert label array to array of integer (tuple) encoded labels."""
@@ -1036,14 +1022,6 @@ class DiploidLabelScheme(BaseLabelScheme):
         """Convert `pysam.AlignedSegment` to aligned pairs."""
         return medaka.common.get_pairs(aln)
 
-    def _alignments_to_labels(self, truth_alns):
-        """Convert truth alignments to an array of labels."""
-        n_haps = len(truth_alns)
-        if not n_haps == 2:
-            raise ValueError('{} haplotypes were passed '.format(n_haps) +
-                             'to a diploid LabelScheme')
-        return self.alignments_to_labels(truth_alns)
-
     def _labels_to_encoded_labels(self, label_array):
         """Convert label array to array of integer (tuple) encoded labels."""
         return np.fromiter((self._encoding[tuple(sorted(i))]
@@ -1228,10 +1206,6 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
     def _alignment_to_pairs(self, aln):
         """Convert `pysam.AlignedSegment` to aligned pairs."""
         return medaka.common.get_pairs(aln)
-
-    def _alignments_to_labels(self, truth_alns):
-        """Convert truth alignments to an array of labels."""
-        return self.alignments_to_labels(truth_alns)
 
     def _labels_to_encoded_labels(self, label_array):
         """Convert label array to array of integer (tuple) encoded labels."""
