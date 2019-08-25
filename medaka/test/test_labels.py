@@ -94,8 +94,8 @@ class HaploidLabelSchemeTest(unittest.TestCase):
     def test_alignments_start_end(self):
         """Test all alignments start and end in the same position.
 
-        If alignments have a different start/end, `alignments_to_labels`
-         should raise ValueError.
+        If alignments have a different start/end, `_alignments_to_labels`
+        should raise ValueError.
         """
         start, end = np.random.randint(1, 1000, size=2)
         alignment = namedtuple("alignment", ('start', 'end'))
@@ -105,7 +105,7 @@ class HaploidLabelSchemeTest(unittest.TestCase):
         incorrect_both = [alignment(start, end), alignment(start+1, end+1)]
         for incorrect in (incorrect_start, incorrect_end, incorrect_both):
             with self.assertRaises(ValueError):
-                self.ls.alignments_to_labels(incorrect)
+                self.ls._alignments_to_labels(incorrect)
 
     def test_labels_to_encoded_labels(self):
 
@@ -360,7 +360,7 @@ def diploid_sample_from_labels(ls=None,
 
     # mocking up the network output in terms of 0. and 1.
     # in reality they would be float probabilities
- 
+
     probs = np.zeros((len(pos), len(ls._decoding)))
 
     for i in range(len(ref)):
@@ -604,21 +604,21 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
         self.assertEqual(var.sample_dict['GT'], '0/1')
 
     def test_decode_snps_is_het_always_true(self):
-    
+
         # minor position => not a SNP
-    
+
         ref = 'CATGCGTCGATGCAT*G'
         pri = 'gAgGTGatacT*CATCG'.upper()
         sec = 'Cca***T*c**a**c**'.upper()
         # het is always true, and consistent with base probs
         het = '11111111111111111'
-    
+
         pri_prob = 0.6
         sec_prob = 0.5
 
         s, ref_seq = diploid_zygosity_sample_from_labels(self.ls,
             ref, pri, sec, pri_prob, sec_prob, het)
-    
+
         pos_ref_alt_gt = [
             (0, 'C', ['G'], '0/1'),
             (1, 'A', ['C'], '0/1'),
@@ -634,7 +634,7 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
 
         self.ls.ref_seq = ref.replace('*','')
         self.ls.ref_vcf = None
-    
+
         # Using a threshold equal to the secondary_prob we should get heterozygous calls
         variants = self.ls.decode_snps(s, ref.replace('*', ''))
         variants = sorted(variants, key=lambda x: x.pos)
@@ -643,7 +643,7 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
         qual_het = self.ls._phred(1 - 0.5 * (pri_prob + sec_prob))
 
         self.assertEqual(len(variants), len(pos_ref_alt_gt))
-    
+
         for v, (pos, ref, alt, gt) in zip(variants, pos_ref_alt_gt):
             self.assertEqual(v.chrom, s.ref_name)
             self.assertEqual(v.pos, pos)
@@ -704,4 +704,3 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
