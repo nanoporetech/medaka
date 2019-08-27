@@ -384,7 +384,6 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
                 "of truth to ref from {}.".format(region))
 
         samples = []
-        ploidy = label_scheme.n_elements
         for aln in alns:
             # get labels from truth alignments.
             truth_pos, truth_labels = label_scheme.encode(aln, matrix=False)
