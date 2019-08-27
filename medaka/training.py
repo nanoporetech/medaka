@@ -321,7 +321,7 @@ class TrainBatcher():
     def sample_to_x_y_bq_worker(sample, label_scheme):
         """Convert a `common.Sample` object into a training x, y tuple.
 
-        :param sample: (sample name, filename).
+        :param sample: (sample key, filename).
         :param label_scheme: `LabelScheme` obj.
 
         :returns: (np.ndarray of inputs, np.ndarray of labels)
