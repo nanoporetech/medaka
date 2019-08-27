@@ -859,10 +859,9 @@ class HaploidLabelScheme(BaseLabelScheme):
 
         # medaka.common.rle requires numeric input
         runs = medaka.rle.rle(is_variant)
-
         variant_runs = runs[np.where(runs['value'])]
-
         variants = []
+        encoding = self._encoding
         for run in variant_runs:
             start = run['start']
             end = start + run['length']
@@ -895,13 +894,14 @@ class HaploidLabelScheme(BaseLabelScheme):
             if var_ref == var_pred:
                 # not a variant
                 continue
+            elif not set(var_ref).issubset(set(self.symbols)):
+                # don't call where reference is ambiguous
+                continue
 
             var_probs = probs[start:end]
 
-            var_ref_encoded = (self._encoding[(s,)]
-                               for s in var_ref_with_gaps)
-            var_pred_encoded = (self._encoding[(s,)]
-                                for s in var_pred_with_gaps)
+            var_ref_encoded = (encoding[(s,)] for s in var_ref_with_gaps)
+            var_pred_encoded = (encoding[(s,)] for s in var_pred_with_gaps)
 
             ref_probs = np.array([var_probs[i, j]
                                  for i, j in enumerate(var_ref_encoded)])
