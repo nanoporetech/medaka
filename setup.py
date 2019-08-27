@@ -73,6 +73,12 @@ class HTSBuild(build_ext):
         build_ext.run(self)
 
 
+pymajor, pyminor = sys.version_info[0:2]
+if (pymajor < 3) or (pyminor not in {5, 6}):
+    raise RuntimeError(
+        '`medaka` is unsupported on your version of python, '
+        'please use python 3.5 or python 3.6.')
+
 setup(
     name='medaka',
     version=__version__,
