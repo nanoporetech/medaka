@@ -105,11 +105,13 @@ def run_training(
 
     opt_str = '\n'.join(
         ['{}: {}'.format(k, v) for k, v in model_kwargs.items()])
-    logger.info('Building {} model with: \n{}'.format(model_name, opt_str))
-    num_classes = len(batcher.label_scheme.label_decoding)
+    num_classes = len(batcher.label_scheme._decoding)
+    allow_cudnn = True
+    logger.info('Building {} model with: \n{}\nand {} classes.'.format(
+        model_name, opt_str, num_classes))
     timesteps, feat_dim = batcher.feature_shape
     model = medaka.models.model_builders[model_name](
-        timesteps, feat_dim, num_classes, **model_kwargs)
+        timesteps, feat_dim, num_classes, allow_cudnn, **model_kwargs)
 
     if model_fp is not None:
         try:
@@ -122,17 +124,17 @@ def run_training(
     logger.info(msg.format(feat_dim, timesteps, num_classes))
     model.summary()
 
+    # TODO: this should all change
     model_details = batcher.meta.copy()
-
     model_details['medaka_model_name'] = model_name
-    model_details['medaka_model_kwargs'] = model_kwargs
-    model_details['medaka_multi_label'] = multi_label
-    model_details['medaka_label_decoding'] = \
-        batcher.label_scheme.label_decoding
-    model_details['medaka_label_description'] = \
-        batcher.label_scheme.label_description
-    model_details['medaka_label_counts'] = \
-        batcher.label_scheme.label_counts
+    # model_details['medaka_model_kwargs'] = model_kwargs
+    # model_details['medaka_multi_label'] = multi_label
+    # model_details['medaka_label_decoding'] = \
+    #     batcher.label_scheme.label_decoding
+    # model_details['medaka_label_description'] = \
+    #     batcher.label_scheme.label_description
+    # model_details['medaka_label_counts'] = \
+    #     batcher.label_scheme.label_counts
     model_details['medaka_label_scheme'] = \
         batcher.label_scheme.__class__.__name__
 
@@ -161,12 +163,12 @@ def run_training(
             optim_args = {
                 'lr': 0.002, 'beta_1': 0.9, 'beta_2': 0.999,
                 'epsilon': None, 'schedule_decay': 0.004}
-        optimizer = optimizers.Nadam(optim_args)
+        optimizer = optimizers.Nadam(**optim_args)
     elif optimizer == 'rmsprop':
         if optim_args is None:
             optim_args = {
                 'lr': 0.001, 'rho': 0.9, 'epsilon': None, 'decay': 0.0}
-        optimizer = optimizers.RMSprop(optim_args)
+        optimizer = optimizers.RMSprop(**optim_args)
     else:
         raise ValueError('Unknown optimizer: {}'.format(optimizer))
     model.compile(
@@ -242,15 +244,12 @@ class TrainBatcher():
         self.max_label_len = max_label_len
         self.validation = validation
         self.seed = seed
-        self.sparse_labels = label_scheme_cls.sparse_labels
         self.batch_size = batch_size
 
         di = medaka.datastore.DataIndex(self.features, threads=threads)
         self.samples = di.samples.copy()
         self.meta = di.meta.copy()
-        self.label_counts = self.meta['medaka_label_counts']
-        self.label_scheme = label_scheme_cls(
-            self.label_counts, max_label_len=self.max_label_len)
+        self.label_scheme = label_scheme_cls()
 
         # check sample size using first batch
         test_sample, test_fname = self.samples[0]
@@ -322,7 +321,7 @@ class TrainBatcher():
     def sample_to_x_y_bq_worker(sample, label_scheme):
         """Convert a `common.Sample` object into a training x, y tuple.
 
-        :param sample: (filename, sample key).
+        :param sample: (sample key, filename).
         :param label_scheme: `LabelScheme` obj.
 
         :returns: (np.ndarray of inputs, np.ndarray of labels)
@@ -336,33 +335,5 @@ class TrainBatcher():
             raise ValueError("Sample {} in {} has no labels.".format(
                 sample_key, sample_file))
         x = s.features
-
-        # trim label lengths to max_label_len
-        s.labels['run_length'] = np.minimum(
-            s.labels['run_length'], label_scheme.max_label_len,
-            out=s.labels['run_length'])
-
-        if label_scheme.sparse_labels:
-            # label encoding values are tuples of int labels, but for sparse
-            # labels there will only be one, so take first one.
-            # need to use tolist() to convert numpy dtypes to python dtypes
-            int_tups = (
-                label_scheme.label_encoding[tuple(l)][0]
-                for l in s.labels.tolist())
-            y = np.fromiter(
-                int_tups, dtype=int, count=len(s.labels)).reshape(-1, 1)
-
-        else:
-            y = np.zeros(
-                shape=(len(s.labels), len(label_scheme.label_decoding)),
-                dtype=int)
-            encoded = (
-                label_scheme.label_encoding[tuple(l)]
-                for l in s.labels.tolist())
-            # TODO can this be implemented more efficiently up, e.g. converting
-            # this to sparse array in scipy / numpy then to non-sparse array?
-            for row_ind, col_inds in enumerate(encoded):
-                for col_ind in col_inds:
-                    y[row_ind, col_ind] = 1
-
+        y = label_scheme._encoded_labels_to_training_vectors(s.labels)
         return x, y

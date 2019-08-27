@@ -117,10 +117,7 @@ class HaploidLabelSchemeTest(unittest.TestCase):
     def test_encoded_labels_to_training_vectors(self):
 
         dummy = np.array([1,2,2,4])
-        expected = np.array([[0,1,0,0,0],
-                             [0,0,1,0,0],
-                             [0,0,1,0,0],
-                             [0,0,0,0,1]])
+        expected = np.array([[1], [2], [2], [4]])
         np.testing.assert_equal(self.ls._encoded_labels_to_training_vectors(dummy),
                                 expected)
 
