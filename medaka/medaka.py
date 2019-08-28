@@ -6,6 +6,7 @@ import yaml
 
 import numpy as np
 import pysam
+import sys
 
 import medaka.datastore
 import medaka.features
