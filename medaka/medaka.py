@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 from pkg_resources import resource_filename
+import sys
 import yaml
 
 import numpy as np
