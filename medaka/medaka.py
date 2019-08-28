@@ -2,11 +2,11 @@ import argparse
 import logging
 import os
 from pkg_resources import resource_filename
+import sys
 import yaml
 
 import numpy as np
 import pysam
-import sys
 
 import medaka.datastore
 import medaka.features
