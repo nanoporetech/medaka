@@ -1,12 +1,14 @@
+import array
 import unittest
-from collections import Counter, namedtuple
+from collections import namedtuple
 import pickle
 import tempfile
 
 import numpy as np
 
-import medaka.labels
 import medaka.common
+import medaka.labels
+import medaka.rle
 
 
 def mock_positions_array(ref):
@@ -71,7 +73,6 @@ def haploid_sample_from_labels(ls=None,
                              labels=None, ref_seq=None,
                              positions=pos, label_probs=probs)
     return s, ref
-
 
 
 class HaploidLabelSchemeTest(unittest.TestCase):
@@ -698,6 +699,64 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
             gq = qual_hom if len(set(v.gt)) == 1 else qual_het
             self.assertAlmostEqual(v.sample_dict['GQ'], gq)
 
+
+class RLELabelSchemeTest(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.scheme = medaka.labels.RLELabelScheme(max_run=3)
+
+    def test_encoding(self):
+        """Check some elements of the `_encoding`."""
+        expected = {
+            ('*', 1): 0, ('A', 1): 1, ('A', 2): 2, ('A', 3): 3,
+            ('C', 1): 4, ('C', 2): 5, ('C', 3): 6, ('G', 1): 7,
+            ('G', 2): 8, ('G', 3): 9, ('T', 1): 10, ('T', 2): 11,
+            ('T', 3): 12}
+        encoding = self.scheme._encoding
+        self.assertEqual(encoding, expected)
+
+    def test_alignment_to_pairs_001(self):
+        """Check output of alignment agrees.
+
+        To fully test the functionality, the alignment contains:
+            - insertions
+            - deletions
+            - a run length larger than `self.max_run`, that will be capped
+                 to the max_run
+        """
+        query_name = 'query'
+        reference_id = 1
+        reference_start = 10
+        query_sequence = 'ACATGATGTAC'
+        cigarstring = '3=1I2=1D5='
+        flag = 0
+        qualities = array.array('B', [2, 1, 4, 5, 1, 1, 2, 16, 2, 3, 4])
+        aln = medaka.rle.initialise_alignment(
+            query_name, reference_id, reference_start, query_sequence,
+            cigarstring, flag, query_qualities=qualities)
+        expected = (
+            (10, ('A', 2)), (11, ('C', 1)), (12, ('A', 3)), (None, ('T', 3)),
+            (13, ('G', 1)), (14, ('A', 1)), (15, ('*', 1)), (16, ('T', 2)),
+            (17, ('G', 3)), (18, ('T', 2)), (19, ('A', 3)), (20, ('C', 3)))
+
+        got = tuple(self.scheme._alignment_to_pairs(aln))
+        self.assertEqual(got, expected)
+
+    def test_decode_consensus(self):
+        """Test the conversion between network outputs and sequence"""
+        num_classes = 13  # 3 elements per base * 4 bases + *
+        label_probs = np.zeros([6, num_classes])
+        label_probs[0, 10] = 0.9   # decodes to (T, 1)
+        label_probs[1, 5] = 0.8    # (C, 2)
+        label_probs[2, 0] = 0.81   # (*, 1)
+        label_probs[3, 3] = 0.95   # (A, 3)
+        label_probs[4, 8] = 0.9    # (G, 2)
+        label_probs[5, 5] = 0.9    # (C, 2)
+        mock = medaka.common.Sample(None, None, None, None, None, label_probs)
+        expected = 'TCCAAAGGCC'
+        got = self.scheme.decode_consensus(mock)
+        self.assertEqual(expected, got)
 
 if __name__ == '__main__':
     unittest.main()
