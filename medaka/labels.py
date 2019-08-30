@@ -2,6 +2,7 @@
 import abc
 import collections
 from copy import copy
+import functools
 import itertools
 from operator import attrgetter
 
@@ -447,25 +448,24 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         pos_maps = list()
 
         for aln in truth_alns:
-            pairs = self._alignment_to_pairs(aln.aln)
+            labels = self._alignment_to_pairs(aln.aln)
             # default to gap on lookup
             pos_to_symbol = collections.defaultdict(lambda: '*')
             ins_count = 0
-            for pair in itertools.dropwhile(
-                lambda x: (x.rpos is None)
-                    or (x.rpos < aln.start), pairs):
+            for rpos, label in itertools.dropwhile(
+                lambda rpos, label: (rpos is None)
+                    or (rpos < aln.start), labels):
 
-                if pair.rpos is not None and pair.rpos >= aln.end:
+                if rpos is not None and rpos >= aln.end:
                     break
-                if pair.rpos is None:
+                if rpos is None:
                     ins_count += 1
                 else:
                     ins_count = 0
-                    current_pos = pair.rpos
+                    current_pos = rpos
 
                 pos = (current_pos, ins_count)
-                symbol = pair.qbase.upper() if pair.qbase else '*'
-                pos_to_symbol[pos] = symbol
+                pos_to_symbol[pos] = label
 
             pos_maps.append(pos_to_symbol)
 
@@ -518,16 +518,13 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         """
 
     @property
+    @functools.lru_cache(1)
     def _decoding(self):
         """Return a dictionary mapping from integer (tuple) to label tuple.
 
         Inverse of encoding.
         """
-        try:
-            return self.__decoding
-        except AttributeError:
-            self.__decoding = {v: k for k, v in self._encoding.items()}
-            return self.__decoding
+        return {v: k for k, v in self._encoding.items()}
 
     @property
     def _unitary_encoding(self):
@@ -719,6 +716,7 @@ class HaploidLabelScheme(BaseLabelScheme):
         return 1
 
     @property
+    @functools.lru_cache(1)
     def _encoding(self):
         """Return a dictionary mapping from label tuple to integer (tuple).
 
@@ -730,7 +728,9 @@ class HaploidLabelScheme(BaseLabelScheme):
 
     def _alignment_to_pairs(self, aln):
         """Convert `pysam.AlignedSegment` to aligned pairs."""
-        return medaka.common.get_pairs(aln)
+        seq = aln.query_sequence
+        for qpos, rpos in aln.get_aligned_pairs():
+            yield rpos, seq[qpos].upper() if qpos is not None else '*'
 
     def _labels_to_encoded_labels(self, label_array):
         """Convert label array to array of integer (tuple) encoded labels."""
@@ -990,7 +990,7 @@ class HaploidLabelScheme(BaseLabelScheme):
         decode = self._decoding
         # most probable class
         mp = np.argmax(sample.label_probs, -1)
-        seq = ''.join([decode[x][0] for x in mp])
+        seq = ''.join((decode[x][0] for x in mp))
         # delete gap symbol from sequence
         if not with_gaps:
             seq = seq.replace('*', '')
@@ -1031,13 +1031,16 @@ class DiploidLabelScheme(BaseLabelScheme):
         return 2
 
     @property
+    @functools.lru_cache(1)
     def _encoding(self):
         return {v: k for k, v in enumerate(
             self._unordered_label_combinations())}
 
     def _alignment_to_pairs(self, aln):
         """Convert `pysam.AlignedSegment` to aligned pairs."""
-        return medaka.common.get_pairs(aln)
+        seq = aln.query_sequence
+        for qpos, rpos in aln.get_aligned_pairs():
+            yield rpos, seq[qpos].upper() if qpos is not None else '*'
 
     def _labels_to_encoded_labels(self, label_array):
         """Convert label array to array of integer (tuple) encoded labels."""
@@ -1200,6 +1203,7 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
         return 1 if not self._singleton(l) else 0
 
     @property
+    @functools.lru_cache(1)
     def _encoding(self):
         # (symbol, symbol, zygosity) encoding.
         # ('C', 'G'): ((2, 3), (1,))
@@ -1223,7 +1227,9 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
 
     def _alignment_to_pairs(self, aln):
         """Convert `pysam.AlignedSegment` to aligned pairs."""
-        return medaka.common.get_pairs(aln)
+        seq = aln.query_sequence
+        for qpos, rpos in aln.get_aligned_pairs():
+            yield rpos, seq[qpos].upper() if qpos is not None else '*'
 
     def _labels_to_encoded_labels(self, label_array):
         """Convert label array to array of integer (tuple) encoded labels."""
@@ -1336,3 +1342,73 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
                 return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                           alt='.', filt='PASS', info=info,
                                           qual=qual, sample_dict=genotype)
+
+
+class RLELabelScheme(HaploidLabelScheme):
+    """Class for RLE labelling schemes.
+
+    The true length of the runs is encoded in the query scores.
+    """
+
+    def __init__(self, max_run=10):
+        """Initialise class.
+
+        :param max_run: Maximum run length (inclusive) to be
+            considered. This will determine, amongst other things, the size
+            of the labels created.
+
+        """
+        self.max_run = max_run
+
+    @property
+    @functools.lru_cache(1)
+    def _encoding(self):
+        """Create a dictionary mapping from label tuple to integer."""
+        encoding = dict()
+        encoding[('*', 1)] = 0
+        bases = [s for s in self.symbols if s != '*']
+        lengths = range(1, self.max_run + 1)
+
+        for i, (b, l) in enumerate(itertools.product(bases, lengths), 1):
+            encoding[(b, l)] = i
+
+        return encoding
+
+    def _alignment_to_pairs(self, aln):
+        """Convert `pysam.AlignedSegment` to aligned pairs."""
+        seq = aln.query_sequence
+        run_lengths = aln.query_qualities
+        for qpos, rpos in aln.get_aligned_pairs():
+            qbase = seq[qpos] if qpos is not None else '*'
+            # A deletion will have length 1
+            qlen = run_lengths[qpos] if qpos is not None else 1
+
+            # A larger run length that our maximum run length will be clipped
+            qlen = min(qlen, self.max_run)
+
+            yield rpos, (qbase, qlen)
+
+    def decode_consensus(self, sample):
+        """Convert network output to consensus sequence by argmax decoding.
+
+        :param sample: medaka.common.Sample
+
+        :returns: str, consensus sequence
+        """
+        # property access is slow
+        decode = self._decoding
+        # most probable class
+        mp = np.argmax(sample.label_probs, -1)
+
+        def _get_substrings():
+            for x in mp:
+                base, run = decode[x]
+                if base != '*':
+                    yield base * run
+        seq = ''.join(_get_substrings())
+
+        return seq
+
+    def _prob_to_snp(self):
+        """Convert network output to medaka.common.Variant."""
+        raise NotImplementedError
