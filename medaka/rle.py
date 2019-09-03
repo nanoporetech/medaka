@@ -293,7 +293,7 @@ def compress_seq(read):
 
     compressed_record = pysam.FastxRecord(
         name=read.name,
-        comment=read.comment,
+        comment=read.comment if read.comment is not None else '',
         sequence=rle_compressed.compact_basecall,
         quality=coded_lengths)
 
@@ -318,8 +318,7 @@ def compress_basecalls(args):
         fh = open(args.output, 'w')
 
     for read in compressed:
-        fh.write('@{}\n{}\n{}\n'.format(
-            read.name, read.comment, read.sequence))
+        fh.write('@{} {}\n{}\n'.format(read.name, read.comment, read.sequence))
         fh.write('{}\n{}\n'.format('+', read.quality))
     t1 = now()
     logger.info('Compressing {} took {:.3f}s.'.format(args.input, t1 - t0))
