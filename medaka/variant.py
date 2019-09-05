@@ -49,7 +49,7 @@ def trim_samples(sample_gen):
                 is_last_in_contig = True
                 end_1, start_2 = (None, None)
                 msg = '{} and {} cannot be concatenated as there is ' + \
-                      'nocoverlap and they do not abut.'
+                      'no overlap and they do not abut.'
                 logger.info(msg.format(s1_name, s2_name))
             else:
                 raise RuntimeError(
