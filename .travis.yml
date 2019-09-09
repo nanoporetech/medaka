@@ -9,7 +9,7 @@ before_install:
   - sudo apt-get install -y python3-all-dev
 
 script:
-  - make install
+  - make test
   - make docs
 
 deploy:
