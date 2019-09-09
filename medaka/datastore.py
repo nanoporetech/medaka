@@ -167,10 +167,17 @@ class DataStore(object):
         pickled_obj = np.string_(dill.dumps(obj))
         self.fh[path] = pickled_obj
 
+    def _load_feature_encoder(self, path):
+        """Load and return feature encoder."""
+        obj = self._load_pickled(path)
+        # set logger; pickle does not handle correctly
+        obj.logger = medaka.common.get_named_logger('Feature')
+        return obj
+
     @property
     def _metadata_loaders(self):
         """Return dict of metadata loaders."""
-        loaders = {'feature_encoder': self._load_pickled,
+        loaders = {'feature_encoder': self._load_feature_encoder,
                    'model_function': self._load_pickled,
                    'label_scheme': self._load_pickled}
         return loaders
