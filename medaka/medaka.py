@@ -101,7 +101,7 @@ def _model_arg():
     return parser
 
 
-def _chunking_feature_args(batch_size=200, chunk_len=10000, chunk_ovlp=1000):
+def _chunking_feature_args(batch_size=100, chunk_len=10000, chunk_ovlp=1000):
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False,
         parents=[_model_arg()],
@@ -221,7 +221,7 @@ def main():
                          choices=sorted(medaka.labels.label_schemes))
     tparser.add_argument('--max_label_len', type=int, default=1, help='Maximum label length.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
-    tparser.add_argument('--batch_size', type=int, default=200, help='Training batch size.')
+    tparser.add_argument('--batch_size', type=int, default=100, help='Training batch size.')
     tparser.add_argument('--max_samples', type=int, default=np.inf, help='Only train on max_samples.')
     tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
     tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
@@ -255,7 +255,7 @@ def main():
     # Consensus from single-molecules with subreads
     smparser = subparsers.add_parser('smolecule',
         help='Create consensus sequences from single-molecule reads.',
-        parents=[_log_level(), _chunking_feature_args(batch_size=200, chunk_len=1000, chunk_ovlp=500)],
+        parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500)],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     smparser.add_argument('fasta', nargs='+', help='Single-molecule reads, one file per read.')
     smparser.set_defaults(func=medaka.smolecule.main)
