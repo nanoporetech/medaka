@@ -38,11 +38,16 @@ def run_prediction(
 
     with medaka.datastore.DataStore(output, 'a', verify_on_close=False) as ds:
         mbases_done = 0
+        cache_size_log_interval = 5
 
         t0 = now()
         tlast = t0
+        tcache = t0
         for data in batches:
-            logger.info("Samples in cache: {}.".format(loader.results.qsize()))
+            if now() - tcache > cache_size_log_interval:
+                logger.info("Samples in cache: {}.".format(
+                    loader.results.qsize()))
+                tcache = now()
             x_data = np.stack([x.features for x in data])
             class_probs = model.predict_on_batch(x_data)
             # calculate bases done taking into account overlap
