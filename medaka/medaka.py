@@ -200,8 +200,8 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     fparser.set_defaults(func=feature_gen_dispatch)
     fparser.add_argument('bam', help='Input alignments.', action=CheckBam)
-    fparser.add_argument('truth', help='Bam of truth aligned to ref to create features for training.')
     fparser.add_argument('output', help='Output features file.')
+    fparser.add_argument('--truth', help='Bam of truth aligned to ref to create features for training.')
     fparser.add_argument('--truth_haplotag', help='Two-letter tag defining haplotype of alignments for polyploidy labels.')
     # TODO: enable other label schemes.
     fparser.add_argument('--label_scheme', default='HaploidLabelScheme', help='Labelling scheme.',
