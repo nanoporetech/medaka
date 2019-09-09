@@ -1,11 +1,13 @@
+import functools
 import tempfile
 import unittest
 
 import numpy as np
 import tensorflow as tf
 
-from medaka import keras_ext
-from medaka.datastore import DataStore
+import medaka.models
+import medaka.keras_ext
+import medaka.datastore
 
 def get_test_data(num_train=1000, num_test=500, input_shape=(10,),
                   output_shape=(2,),
@@ -35,8 +37,13 @@ class ModelAndData(object):
     batch_size = 5
     num_train = 20
     num_test = 20
-    # note DataStore only reads certain groups as meta
-    model_meta = dict(medaka_model_name='dumbmodel')
+
+    model_function = functools.partial(medaka.models.build_model,
+        feature_len=10, num_classes=6, gru_size=128,
+        classify_activation='softmax', time_steps=None,
+        allow_cudnn=None)
+    model_meta = {'model_function': model_function}
+
     callback_opts = dict(verbose=0, save_best_only=True, mode='max')
     metrics = ['binary_accuracy']
 
@@ -69,16 +76,21 @@ class TestCheckpoint(unittest.TestCase, ModelAndData):
         model_file = tempfile.NamedTemporaryFile()
         model_fname = model_file.name
         callbacks = [
-            keras_ext.ModelMetaCheckpoint(
+            medaka.keras_ext.ModelMetaCheckpoint(
                 self.model_meta, model_fname, monitor='val_{}'.format(self.metrics[0]), **self.callback_opts)]
         model = self._get_model()
         model.fit(
             X_train, y_train, validation_data=(X_test, y_test),
             batch_size=2, epochs=5, callbacks=callbacks)
 
-        with DataStore(model_fname, 'r') as ds:
-           meta = ds.meta
-           self.assertDictEqual(meta, self.model_meta)
+        with medaka.datastore.DataStore(model_fname, 'r') as ds:
+           meta = ds.metadata
+           # we can not simply assert equality of partial functions
+           # https://bugs.python.org/issue3564
+           # we need to test .func, .args and. keywords separately
+           self.assertEqual(meta['model_function'].func, self.model_meta['model_function'].func)
+           self.assertEqual(meta['model_function'].args, self.model_meta['model_function'].args)
+           self.assertEqual(meta['model_function'].keywords, self.model_meta['model_function'].keywords)
 
 
 class TestBatcher(unittest.TestCase, ModelAndData):

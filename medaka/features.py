@@ -386,19 +386,21 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         samples = []
         for aln in alns:
             # get labels from truth alignments.
-            truth_pos, truth_labels = label_scheme.encode(aln, matrix=False)
+            truth_pos, truth_labels = label_scheme.encode(aln)
 
             # get features from read alignment data
             aln_samples = self.bam_to_sample(bam, medaka.common.Region(
                 region.ref_name, aln[0].start, aln[0].end))
 
             for sample in aln_samples:
-                # Create labels according to positions in pileup, gap is always
-                # (0,) * ploidy. We don't know (or care) about the shape, only
-                # the first axis.
+                # create a label array that respects positions present
+                # in the feature's position array (where single reads
+                # may have inserted bases, creating minor postions absent
+                # from the labels position array)
                 shape = list(truth_labels.shape)
                 shape[0] = len(sample.positions)
-                padded_labels = np.zeros(shape, dtype=truth_labels.dtype)
+                padded_labels = np.full(shape, label_scheme.padding_vector,
+                                        dtype=truth_labels.dtype)
                 truth_inds = np.where(np.in1d(truth_pos, sample.positions))
                 sample_inds = np.where(np.in1d(sample.positions, truth_pos))
                 assert len(truth_inds[0]) == len(sample_inds[0])
@@ -480,15 +482,11 @@ class SampleGenerator(object):
         self.logger.info("Initializing sampler for {} of region {}.".format(
             self.sample_type, region))
 
-        # TODO: this need changing when we switch to simply saving a class
         with medaka.datastore.DataStore(model) as ds:
-            self.fencoder_args = ds.meta['medaka_features_kwargs']
-        dtypes = ('',) if 'dtypes' not in self.fencoder_args \
-            else self.fencoder_args['dtypes']
-        self.fencoder = CountsFeatureEncoder(
-            normalise=self.fencoder_args['normalise'], dtypes=dtypes,
-            tag_name=tag_name, tag_value=tag_value,
-            tag_keep_missing=tag_keep_missing)
+            self.fencoder = ds.metadata['feature_encoder']
+            self.fencoder.tag_name=tag_name
+            self.fencoder.tag_value=tag_value
+            self.fencoder.tag_keep_missing=tag_keep_missing
 
         self.bam = bam
         self.region = region
@@ -574,9 +572,10 @@ def create_samples(args):
 def _labelled_samples_worker(args, region):
     logger = medaka.common.get_named_logger('PrepWork')
     logger.info("Processing region {}.".format(region))
+    ls = medaka.labels.label_schemes[args.label_scheme]()
     data_gen = SampleGenerator(
         args.bam, region, args.model, truth_bam=args.truth,
-        label_scheme=args.label_scheme(), truth_haplotag=args.truth_haplotag,
+        label_scheme=ls, truth_haplotag=args.truth_haplotag,
         chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
 
     return list(data_gen.samples), region
@@ -598,10 +597,8 @@ def create_labelled_samples(args):
         # write feature options to file
         logger.info("Writing meta data to file.")
         with medaka.datastore.DataStore(args.model) as model:
-            meta = {
-                k: model.meta[k] for k in (
-                    'medaka_features_kwargs', 'medaka_feature_decoding')}
-        ds.update_meta(meta)
+            model_meta = model.metadata
+        ds.metadata.update(model_meta)
         # TODO: this parallelism would be better in
         # `SampleGenerator.bams_to_training_samples` since training
         # alignments are usually chunked.
