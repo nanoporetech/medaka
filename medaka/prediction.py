@@ -11,7 +11,6 @@ import numpy as np
 import medaka.common
 import medaka.datastore
 import medaka.features
-import medaka.labels
 import medaka.models
 
 
@@ -94,10 +93,10 @@ def predict(args):
 
     # write class names to output
     with medaka.datastore.DataStore(args.model) as ds:
-        meta = ds.meta
+        metadata = ds.metadata
     with medaka.datastore.DataStore(
             args.output, 'w', verify_on_close=False) as ds:
-        ds.update_meta(meta)
+        ds.metadata = metadata
 
     logger.info("Setting tensorflow threads to {}.".format(args.threads))
     tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
@@ -128,8 +127,11 @@ def predict(args):
 
     logger.info("Processing {} long region(s) with batching.".format(
         len(regions)))
-    model = medaka.models.load_model(
-        args.model, time_steps=args.chunk_len, allow_cudnn=args.allow_cudnn)
+
+    logger.info("Using model: {}.".format(args.model))
+
+    model = medaka.models.load_model(args.model, time_steps=args.chunk_len,
+                                     allow_cudnn=args.allow_cudnn)
     # the returned regions are those where the pileup width is smaller than
     # chunk_len
     remainder_regions = run_prediction(
@@ -147,8 +149,8 @@ def predict(args):
     if len(remainder_regions) > 0:
         logger.info("Processing {} short region(s).".format(
             len(remainder_regions)))
-        model = medaka.models.load_model(
-            args.model, time_steps=None, allow_cudnn=args.allow_cudnn)
+        model = medaka.models.load_model(args.model, time_steps=None,
+                                         allow_cudnn=args.allow_cudnn)
         for region in remainder_regions:
             new_remainders = run_prediction(
                 args.output, args.bam, [region[0]], model, args.model,

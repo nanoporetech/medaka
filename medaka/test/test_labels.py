@@ -118,7 +118,10 @@ class HaploidLabelSchemeTest(unittest.TestCase):
     def test_encoded_labels_to_training_vectors(self):
 
         dummy = np.array([1,2,2,4])
-        expected = np.array([[1], [2], [2], [4]])
+        expected = np.array([[1],
+                             [2],
+                             [2],
+                             [4]])
         np.testing.assert_equal(self.ls._encoded_labels_to_training_vectors(dummy),
                                 expected)
 
@@ -399,10 +402,10 @@ class DiploidLabelSchemeTest(unittest.TestCase):
 
     def test_encoded_labels_to_training_vectors(self):
         dummy = np.array([5, 10, 10, 14])
-        expected = np.array([[0,0,0,0,0,1,0,0,0,0,0,0,0,0,0],
-                             [0,0,0,0,0,0,0,0,0,0,1,0,0,0,0],
-                             [0,0,0,0,0,0,0,0,0,0,1,0,0,0,0],
-                             [0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]])
+        expected = np.array([[5],
+                             [10],
+                             [10],
+                             [14]])
         np.testing.assert_equal(self.ls._encoded_labels_to_training_vectors(dummy),
                                 expected)
 
@@ -549,10 +552,12 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
         np.testing.assert_equal(self.ls._labels_to_encoded_labels(dummy), expected)
 
     def test_encoded_labels_to_training_vectors(self):
+
         dummy = np.array((((1, 1), (0,)),
                           ((2, 3), (1,)),
                           ((2, 3), (1,)),
                           ((4, 4), (0,))), dtype=object)
+
         expected = np.array([[0,1,0,0,0,0],
                              [0,0,1,1,0,1],
                              [0,0,1,1,0,1],

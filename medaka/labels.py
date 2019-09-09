@@ -9,7 +9,6 @@ from operator import attrgetter
 import intervaltree
 import numpy as np
 import pysam
-import tensorflow.keras.utils
 
 import medaka.common
 import medaka.rle
@@ -388,6 +387,16 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         """
         return 1
 
+    @property
+    @abc.abstractmethod
+    def padding_vector(self):
+        """Return the training vector used to denote a gap.
+
+        Used to inform calling programs that need to expand
+        training vector arrays to align with feature arrays,
+        where reads introduce minor positions.
+        """
+
     @staticmethod
     def _singleton(it):
         """Test whether iterable contains one unique element.
@@ -716,6 +725,14 @@ class HaploidLabelScheme(BaseLabelScheme):
         return 1
 
     @property
+    def padding_vector(self):
+        """Return the training vector used to denote a gap."""
+        p = np.array([('*',)])
+        e = self._labels_to_encoded_labels(p)
+        t = self._encoded_labels_to_training_vectors(e)
+        return t
+
+    @property
     @functools.lru_cache(1)
     def _encoding(self):
         """Return a dictionary mapping from label tuple to integer (tuple).
@@ -740,17 +757,17 @@ class HaploidLabelScheme(BaseLabelScheme):
     def _encoded_labels_to_training_vectors(self, enc_labels):
         """Convert integer (tuple) encoded labels to truth vectors.
 
-        (e.g. one-hot encoded truth vectors) that represent the truth
+        (e.g. sparse one-hot encoded truth vectors) that represent the truth
         for comparison with network output logits in
         e.g. metric(truth, pred) or loss(truth, pred)) functions.
         """
+        # TODO remove once legacy files extinct.
+        # legacy features had (base, runlength) with the encoding:
+        # gap, lowercase bases, uppercase bases, other stuff
         if len(enc_labels.dtype) == 2:
-            # legacy features had (base, runlength) with the encoding:
-            #   gap, lowercase bases, uppercase bases, other stuff
             enc_labels = np.array(
-                [max(0, x[0] - 4) for x in enc_labels],
-                dtype='int64')
-        return np.expand_dims(enc_labels, axis=1)  # a sparse 1-hot
+                [max(0, x[0] - 4) for x in enc_labels], dtype='int64')
+        return np.expand_dims(enc_labels, axis=1)  # sparse 1-hot
 
     def _prob_to_snp(self, network_output, pos, ref_name,
                      ref_symbol, return_all=False):
@@ -1031,6 +1048,14 @@ class DiploidLabelScheme(BaseLabelScheme):
         return 2
 
     @property
+    def padding_vector(self):
+        """Return the training vector used to denote a gap."""
+        p = np.array([('*', '*')])
+        e = self._labels_to_encoded_labels(p)
+        t = self._encoded_labels_to_training_vectors(e)
+        return t
+
+    @property
     @functools.lru_cache(1)
     def _encoding(self):
         return {v: k for k, v in enumerate(
@@ -1050,12 +1075,11 @@ class DiploidLabelScheme(BaseLabelScheme):
     def _encoded_labels_to_training_vectors(self, enc_labels):
         """Convert integer (tuple) encoded labels to truth vectors.
 
-        (e.g. one-hot encoded truth vectors) that represent the truth
+        (e.g. sparse one-hot encoded truth vectors) that represent the truth
         for comparison with network output logits in
         e.g. metric(truth, pred) or loss(truth, pred)) functions.
         """
-        # TODO: this likely isn't correct
-        return tensorflow.keras.utils.to_categorical(enc_labels)
+        return np.expand_dims(enc_labels, axis=1)  # sparse 1-hot
 
     def _prob_to_snp(self, network_output, pos, ref_name,
                      ref_symbol, return_all=False):
@@ -1199,6 +1223,14 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
         """
         return 2
 
+    @property
+    def padding_vector(self):
+        """Return the training vector used to denote a gap."""
+        p = np.array([('*', '*')])
+        e = self._labels_to_encoded_labels(p)
+        t = self._encoded_labels_to_training_vectors(e)
+        return t
+
     def _is_het(self, l):
         return 1 if not self._singleton(l) else 0
 
@@ -1252,7 +1284,6 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
             for s in symbols:
                 vectors[i, s] = 1
             vectors[i, -1] = het[0]
-
         return vectors
 
     def _prob_to_snp(self, network_output, pos, ref_name,
@@ -1359,6 +1390,14 @@ class RLELabelScheme(HaploidLabelScheme):
 
         """
         self.max_run = max_run
+
+    @property
+    def padding_vector(self):
+        """Return the training vector used to denote a gap."""
+        p = [('*', 1)]
+        e = self._labels_to_encoded_labels(p)
+        t = self._encoded_labels_to_training_vectors(e)
+        return t
 
     @property
     @functools.lru_cache(1)

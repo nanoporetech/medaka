@@ -31,7 +31,7 @@ class ModelMetaCheckpoint(ModelCheckpoint):
         super(ModelMetaCheckpoint, self).on_epoch_end(epoch, logs)
         filepath = self.filepath.format(epoch=epoch + 1, **logs)
         with medaka.datastore.DataStore(filepath, 'a') as ds:
-            ds.meta.update(self.medaka_meta)
+            ds.metadata.update(self.medaka_meta)
 
 
 class SequenceBatcher(Sequence):

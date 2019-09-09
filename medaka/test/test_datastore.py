@@ -25,7 +25,7 @@ class TestStore(unittest.TestCase):
 
     def test_000_round_trip(self):
         with datastore.DataStore(self.file.name, 'r') as store:
-            grp = store.fh['samples']
+            grp = store.fh['samples/data']
             name = self.sample.name
             self.assertListEqual(list(grp.keys()), [name], "Stored one sample")
             sample = store.load_sample(self.sample.name)

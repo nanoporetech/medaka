@@ -38,7 +38,7 @@ def stitch_from_probs(h5_fp, regions=None):
     # lookup LabelScheme name stored in HDF5 as piece of metadata
     try:
         label_class = medaka.labels.label_schemes[
-            index.meta['label_scheme_class']]
+            index.metadata['label_scheme_class']]
     except KeyError:
         logger.debug(
             "Could not find `label_scheme_class` definition in input file, "

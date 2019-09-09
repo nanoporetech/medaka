@@ -165,17 +165,14 @@ def snps_from_hdf(args):
     else:
         ref_names = medaka.common.loose_version_sort(index.index)
 
-    # lookup LabelScheme name stored in HDF5 as piece of metadata
+    # lookup LabelScheme stored in HDF5
     try:
-        label_class = medaka.labels.label_schemes[
-            index.meta['label_scheme_class']]
+        label_scheme = index.metadata['label_scheme']
     except KeyError:
         logger.debug(
-            "Could not find `label_scheme_class` definition in input file, "
+            "Could not find `label_scheme` metadata in input file, "
             "assuming HaploidLabelScheme.")
-        label_class = medaka.labels.HaploidLabelScheme
-    finally:
-        label_scheme = label_class()
+        label_scheme = medaka.labels.HaploidLabelScheme()
 
     logger.debug("Label decoding is:\n{}".format(
         '\n'.join('{}: {}'.format(k, v)
@@ -216,17 +213,14 @@ def variants_from_hdf(args):
     else:
         ref_names = medaka.common.loose_version_sort(index.index)
 
-    # lookup LabelScheme name stored in HDF5 as piece of metadata
+    # lookup LabelScheme stored in HDF5
     try:
-        label_class = medaka.labels.label_schemes[
-            index.meta['label_scheme_class']]
+        label_scheme = index.metadata['label_scheme']
     except KeyError:
         logger.debug(
-            "Could not find `label_scheme_class` definition in input file, "
+            "Could not find `label_scheme` metadata in input file, "
             "assuming HaploidLabelScheme.")
-        label_class = medaka.labels.HaploidLabelScheme
-    finally:
-        label_scheme = label_class()
+        label_scheme = medaka.labels.HaploidLabelScheme()
 
     logger.debug("Label decoding is:\n{}".format(
         '\n'.join('{}: {}'.format(k, v)

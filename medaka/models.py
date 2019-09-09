@@ -17,27 +17,18 @@ def load_model(fname, time_steps=None, allow_cudnn=True):
 
     """
     with medaka.datastore.DataStore(fname) as ds:
-        meta = ds.meta
-        num_features = len(meta['medaka_feature_decoding'])
-        num_classes = len(meta['medaka_label_decoding'])
-    build_model = model_builders[meta['medaka_model_name']]
-
-    logger.info(
-        "Building model (steps, features, classes): "
-        "({}, {}, {})".format(time_steps, num_features, num_classes))
-    model = build_model(
-        time_steps, num_features, num_classes, allow_cudnn,
-        **meta['medaka_model_kwargs'])
-    logger.info("Loading weights from {}".format(fname))
-    model.load_weights(fname)
-    return model
+        model_partial_function = ds.metadata['model_function']
+        model = model_partial_function(time_steps=time_steps,
+                                       allow_cudnn=allow_cudnn)
+        model.load_weights(fname)
+        return model
 
 
-def build_legacy_model(
-        chunk_size, feature_len, num_classes, allow_cudnn, gru_size=128):
+def build_legacy_model(feature_len, num_classes, gru_size=128,
+                       time_steps=None, allow_cudn=True):
     """Build a bidirectional GRU model.
 
-    :param chunk_size: int, number of pileup columns in a sample.
+    :param time_steps: int, number of pileup columns in a sample.
     :param feature_len: int, number of features for each pileup column.
     :param num_classes: int, number of output class labels.
     :param allow_cuddn: bool, unused (for compatibility with `build_model`)
@@ -51,7 +42,7 @@ def build_legacy_model(
     from tensorflow.keras.layers import Bidirectional
 
     model = Sequential()
-    input_shape = (chunk_size, feature_len)
+    input_shape = (time_steps, feature_len)
     for i in [1, 2]:
         name = 'gru{}'.format(i)
         gru = GRU(
@@ -62,14 +53,14 @@ def build_legacy_model(
     # see keras #10417 for why we specify input shape
     model.add(Dense(
         num_classes, activation='softmax', name='classify',
-        input_shape=(chunk_size, 2 * feature_len)
+        input_shape=(time_steps, 2 * feature_len)
     ))
     return model
 
 
-def build_model(
-        chunk_size, feature_len, num_classes, allow_cudnn,
-        gru_size=128, classify_activation='softmax'):
+def build_model(feature_len, num_classes, gru_size=128,
+                classify_activation='softmax', time_steps=None,
+                allow_cudnn=True):
     """Build a bidirectional GRU model with CuDNNGRU support.
 
     CuDNNGRU implementation is claimed to give speed-up on GPU of 7x.
@@ -78,12 +69,12 @@ def build_model(
     allowed by the `allow_cudnn` argument; otherwise a compatible
     (but not CuDNNGRU accelerated model) is built.
 
-    :param chunk_size: int, number of pileup columns in a sample.
     :param feature_len: int, number of features for each pileup column.
     :param num_classes: int, number of output class labels.
     :param gru_size: int, size of each GRU layer.
     :param classify_activation: str, activation to use in classification layer.
-    :param disable_cudnn: bool, override opt-in to cudnn when using a GPU.
+    :param time_steps: int, number of pileup columns in a sample.
+    :param allow_cudnn: bool, opt-in to cudnn when using a GPU.
 
     :returns: `keras.models.Sequential` object.
 
@@ -99,7 +90,7 @@ def build_model(
     logger.info("Building model with cudnn optimization: {}".format(cudnn))
 
     model = Sequential()
-    input_shape = (chunk_size, feature_len)
+    input_shape = (time_steps, feature_len)
     for i in [1, 2]:
         name = 'gru{}'.format(i)
         # Options here are to be mutually compatible: train with CuDNNGRU
@@ -116,7 +107,7 @@ def build_model(
     # see keras #10417 for why we specify input shape
     model.add(Dense(
         num_classes, activation=classify_activation, name='classify',
-        input_shape=(chunk_size, 2 * gru_size)
+        input_shape=(time_steps, 2 * gru_size)
     ))
 
     return model

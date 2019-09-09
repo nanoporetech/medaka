@@ -1,5 +1,5 @@
 """Training program and ancillary functions."""
-import inspect
+import functools
 import os
 
 import numpy as np
@@ -61,9 +61,9 @@ def train(args):
     else:
         args.validation = args.validation_features
 
-    label_scheme_cls = medaka.labels.label_schemes[args.label_scheme]
+    label_scheme = medaka.labels.label_schemes[args.label_scheme]()
     batcher = TrainBatcher(
-        args.features, label_scheme_cls, args.max_label_len, args.validation,
+        args.features, label_scheme, args.max_label_len, args.validation,
         args.seed, args.batch_size, threads=args.threads_io)
 
     import tensorflow as tf
@@ -71,8 +71,8 @@ def train(args):
         run_training(
             train_name, batcher, model_fp=args.model, epochs=args.epochs,
             n_mini_epochs=args.mini_epochs,
-            threads_io=args.threads_io, multi_label=args.multi_label,
-            optimizer=args.optimizer, optim_args=args.optim_args)
+            threads_io=args.threads_io, optimizer=args.optimizer,
+            optim_args=args.optim_args)
 
     # stop batching threads
     logger.info("Training finished.")
@@ -81,7 +81,7 @@ def train(args):
 def run_training(
         train_name, batcher, model_fp=None,
         epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1,
-        multi_label=False, optimizer='rmsprop', optim_args=None):
+        optimizer='rmsprop', optim_args=None, allow_cudnn=True):
     """Run training."""
     from tensorflow.keras.callbacks import \
         CSVLogger, TensorBoard, EarlyStopping
@@ -90,57 +90,37 @@ def run_training(
 
     logger = medaka.common.get_named_logger('RunTraining')
 
-    if model_fp is None:
-        model_name = medaka.models.default_model
-        model_kwargs = {
-            k: v.default for (k, v) in
-            inspect.signature(
-                medaka.models.model_builders[model_name]).parameters.items()
-            if v.default is not inspect.Parameter.empty
-        }
-    else:
-        with medaka.datastore.DataStore(model_fp) as ds:
-            model_name = ds.meta['medaka_model_name']
-            model_kwargs = ds.meta['medaka_model_kwargs']
-
-    opt_str = '\n'.join(
-        ['{}: {}'.format(k, v) for k, v in model_kwargs.items()])
-    num_classes = len(batcher.label_scheme._decoding)
-    allow_cudnn = True
-    logger.info('Building {} model with: \n{}\nand {} classes.'.format(
-        model_name, opt_str, num_classes))
-    timesteps, feat_dim = batcher.feature_shape
-    model = medaka.models.model_builders[model_name](
-        timesteps, feat_dim, num_classes, allow_cudnn, **model_kwargs)
+    time_steps, feat_dim = batcher.feature_shape
 
     if model_fp is not None:
+        with medaka.datastore.DataStore(model_fp) as ds:
+            partial_model_function = ds.metadata['model_function']
+            model = partial_model_function(time_steps=time_steps,
+                                           allow_cudnn=allow_cudnn)
         try:
             model.load_weights(model_fp)
             logger.info("Loading weights from {}".format(model_fp))
         except Exception:
             logger.info("Could not load weights from {}".format(model_fp))
 
-    msg = "feat_dim: {}, timesteps: {}, num_classes: {}"
-    logger.info(msg.format(feat_dim, timesteps, num_classes))
-    model.summary()
+    else:
+        num_classes = len(batcher.label_scheme._decoding)
+        model_name = medaka.models.default_model
+        model_function = medaka.models.model_builders[model_name]
+        partial_model_function = functools.partial(
+            model_function, feat_dim, num_classes)
+        model = partial_model_function(time_steps=time_steps,
+                                       allow_cudnn=allow_cudnn)
 
-    # TODO: this should all change
-    model_details = batcher.meta.copy()
-    model_details['medaka_model_name'] = model_name
-    # model_details['medaka_model_kwargs'] = model_kwargs
-    # model_details['medaka_multi_label'] = multi_label
-    # model_details['medaka_label_decoding'] = \
-    #     batcher.label_scheme.label_decoding
-    # model_details['medaka_label_description'] = \
-    #     batcher.label_scheme.label_description
-    # model_details['medaka_label_counts'] = \
-    #     batcher.label_scheme.label_counts
-    model_details['medaka_label_scheme'] = \
-        batcher.label_scheme.__class__.__name__
+    model_metadata = {'model_function': partial_model_function,
+                      'label_scheme': batcher.label_scheme,
+                      'feature_encoder': batcher.feature_encoder}
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
 
-    if multi_label:
+    if isinstance(batcher.label_scheme,
+                  medaka.labels.DiploidZygosityLabelScheme):
+
         metrics = ['binary_accuracy']
         call_back_metrics = metrics
         loss = 'binary_crossentropy'
@@ -149,13 +129,8 @@ def run_training(
     else:
         metrics = [cat_acc, qscore]
         call_back_metrics = {'cat_acc': cat_acc}
-        if class_weight is not None:
-            # TODO: put this back in
-            raise NotImplementedError(
-                "Weighted categorical loss is no longer supported.")
-        else:
-            loss = 'sparse_categorical_crossentropy'
-            logger.info("Using {} loss function".format(loss))
+        loss = 'sparse_categorical_crossentropy'
+        logger.info("Using {} loss function".format(loss))
 
     if optimizer == 'nadam':
         if optim_args is None:
@@ -187,7 +162,7 @@ def run_training(
                 + metric + ':.2f}.hdf5'
             for fn in best_fn, improv_fn:
                 callbacks.append(ModelMetaCheckpoint(
-                    model_details, os.path.join(train_name, fn),
+                    model_metadata, os.path.join(train_name, fn),
                     monitor=m, **opts))
     callbacks.extend([
         # Stop when no improvement
@@ -222,7 +197,7 @@ class TrainBatcher():
     """Batching of training and validation samples."""
 
     def __init__(
-            self, features, label_scheme_cls, max_label_len,
+            self, features, label_scheme, max_label_len,
             validation=0.2, seed=0, batch_size=500, threads=1):
         """Serve up batches of training or validation data.
 
@@ -248,8 +223,9 @@ class TrainBatcher():
 
         di = medaka.datastore.DataIndex(self.features, threads=threads)
         self.samples = di.samples.copy()
-        self.meta = di.meta.copy()
-        self.label_scheme = label_scheme_cls()
+        self.metadata = di.metadata.copy()
+        self.label_scheme = label_scheme
+        self.feature_encoder = self.metadata['feature_encoder']
 
         # check sample size using first batch
         test_sample, test_fname = self.samples[0]

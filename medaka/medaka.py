@@ -22,9 +22,8 @@ import medaka.vcf
 
 model_store = resource_filename(__package__, 'data')
 allowed_models = [
-    'r941_trans', 'r941_flip213', 'r941_flip235',
-    'r941_min_fast', 'r941_min_high', 'r941_prom_fast', 'r941_prom_high',
-    'r10_min_high',
+    'r941_flip235', 'r941_min_fast', 'r941_min_high',
+    'r941_prom_fast', 'r941_prom_high', 'r10_min_high',
 ]
 default_model = 'r941_min_high'
 model_dict = {
@@ -205,7 +204,8 @@ def main():
     fparser.add_argument('output', help='Output features file.')
     fparser.add_argument('--truth_haplotag', help='Two-letter tag defining haplotype of alignments for polyploidy labels.')
     # TODO: enable other label schemes.
-    fparser.add_argument('--label_scheme', default=medaka.labels.HaploidLabelScheme, help='Select labelling scheme.')
+    fparser.add_argument('--label_scheme', default='HaploidLabelScheme', help='Labelling scheme.',
+                         choices=sorted(medaka.labels.label_schemes))
     fparser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
 
     # Training program
@@ -224,7 +224,6 @@ def main():
     tparser.add_argument('--batch_size', type=int, default=200, help='Training batch size.')
     tparser.add_argument('--max_samples', type=int, default=np.inf, help='Only train on max_samples.')
     tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
-    tparser.add_argument('--multi_label', action='store_true', help='Multi-classification training.')
     tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
     tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
     tparser.add_argument('--device', type=int, default=0, help='GPU device to use.')
