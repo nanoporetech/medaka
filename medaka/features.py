@@ -556,7 +556,7 @@ class SampleGenerator(object):
                     "of {}.".format(self.chunk_len, self.chunk_overlap))
                 chunks = source.chunks(
                     chunk_len=self.chunk_len, overlap=self.chunk_overlap)
-            self.logger.info("Pileup for {} is of width {}".format(
+            self.logger.debug("Pileup for {} is of width {}".format(
                 source.name, source.size))
             all_data.extend(chunks)
 
