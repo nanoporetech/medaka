@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eox pipefail
+set -eo pipefail
 
 medaka_version=$(medaka --version)
 modeldata=()
@@ -24,7 +24,6 @@ REGIONS=""
 iflag=false
 fflag=false
 DELETE=false
-MULTIPASS=false
 MODEL=${modeldata[1]##* }
 SNPMODEL=${MODEL}
 
@@ -55,14 +54,12 @@ $(basename "$0") [-h] -i <fastx>
         Alternatively a .hdf file from 'medaka train'. 
     -T  label probability threshold for calling heterozygous SNPs from unphased
         reads. (default: ${THRESHOLD}).
-        -M  perform multiple passes to improve read haplotagging; may give some
-        improvement to variant calling. 
     -t  number of threads with which to create features (default: 1).
     -b  batchsize, controls memory use (default: ${BATCH_SIZE}).
     -d  delete intermediate files. (default: keep)."
 
 
-while getopts ':hi::f:r:o:m:s:T:Mt:b:d' option; do
+while getopts ':hi::f:r:o:m:s:T:t:b:d' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; CALLS2REF=$(follow_link $OPTARG);;
@@ -72,7 +69,6 @@ while getopts ':hi::f:r:o:m:s:T:Mt:b:d' option; do
     m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
     s  ) SNPMODEL=$(medaka tools resolve_model --model $OPTARG);;
     T  ) THRESHOLD=$OPTARG;;
-    M  ) MULTIPASS=true;;
     t  ) THREADS=$OPTARG;;
     b  ) BATCH_SIZE=$OPTARG;;
     d  ) DELETE=true;;
@@ -154,7 +150,6 @@ run_medaka_snp () {
 run_medaka_variant () {
     local PROBS=$1
     local VCF=$2
-    local T=$3
     local EXTRAOPTS=$4
     exit_if_file_does_not_exist ${PROBS} ${REF}
     if [[ ! -e ${VCF} ]]; then
@@ -169,6 +164,7 @@ run_medaka_variant () {
 }
 
 run_medaka_haploid2diploid () {
+    # by default returns a phased vcf
     local VCF1=$1
     local VCF2=$2
     local REF=$3
@@ -306,12 +302,8 @@ run_haplotyped_pass () {
     fi
 
 
-    VCFMERGED=round_${ITER}.vcf
-    run_medaka_haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFMERGED}
-    
-    # since medaka output unphased VCF, rephase variants with whatshap
     VCFPHASED=round_${ITER}_phased.vcf
-    run_phase_vcf ${VCFMERGED} ${VCFPHASED} 
+    run_medaka_haploid2diploid ${VCFHAP1} ${VCFHAP2} ${REF} ${VCFPHASED}
     VCFPHASEDGZ=${VCFPHASED}.gz 
     run_bgzip ${VCFPHASED} ${VCFPHASEDGZ}
 }
@@ -366,25 +358,10 @@ run_whatshap_tag ${PHASEDVCFGZ} ${PHASEDBAM}
 
 
 ###
-# Optional second tagging pass
-if ${MULTIPASS}; then
-    echo ""
-    echo "+ Running intermediate pass to improving haplotagging."
-    ROUND=1
-    DECODING_OPTS="snp"
-    run_haplotyped_pass ${ROUND} ${PHASEDBAM} ${DECODING_OPTS}
-
-    VCFPHASEDGZ=round_${ROUND}_phased.vcf.gz
-    PHASEDBAM=round_${ROUND}_phased.bam
-    run_whatshap_tag ${VCFPHASEDGZ} ${PHASEDBAM}
-fi
-
-
-###
-# Final pass
+# Second pass to call haplotypes and merge to form phased diploid vcf
 echo ""
 echo "+ Running final pass to produce variant calls."
-ROUND=2
+ROUND=1
 DECODING_OPTS="variant"
 run_haplotyped_pass ${ROUND} ${PHASEDBAM} ${DECODING_OPTS}
 
