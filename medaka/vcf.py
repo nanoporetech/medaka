@@ -144,7 +144,7 @@ class Variant(object):
     def __init__(
             self, chrom, pos, ref,
             alt='.', ident='.', qual='.', filt='.', info='.',
-            sample_dict=None):
+            genotype_data=None):
         """Initialize a variant.
 
         :param chrom: reference sequence (chromosome).
@@ -155,7 +155,7 @@ class Variant(object):
         :param qual: variant quality.
         :param filt: filt status.
         :param info: variant info, a dictionary or VCF compatible string.
-        :param sample_dict: dictionary specifying genotypes of samples.
+        :param genotype_data: dictionary specifying genotype information.
 
         """
         self.chrom = chrom
@@ -170,16 +170,16 @@ class Variant(object):
             self.info = info
         else:
             self.info = parse_string_to_tags(info)
-        if sample_dict is not None:
-            self.sample_dict = sample_dict
+        if genotype_data is not None:
+            self.genotype_data = self._sort_genotype_data(genotype_data)
         else:
-            self.sample_dict = collections.OrderedDict()
+            self.genotype_data = collections.OrderedDict()
 
     def __eq__(self, other):
         """Equality comparison of two variants."""
         for field in (
                 'chrom', 'pos', 'ident', 'ref', 'alt',
-                'qual', 'filt', 'info', 'sample_dict'):
+                'qual', 'filt', 'info', 'genotype_data'):
             if getattr(self, field) != getattr(other, field):
                 return False
         return True
@@ -188,25 +188,25 @@ class Variant(object):
         """Inequality comparison of two variants."""
         return not self.__eq__(other)
 
-    @property
-    def _sorted_format_keys(self):
-        start_with = ['GT', 'GQ']
-        sorted_keys = [k for k in start_with if k in self.sample_dict.keys()]
-        sorted_keys.extend([
-            k for k in sorted(self.sample_dict.keys())
-            if k not in sorted_keys])
-        return sorted_keys
+    @staticmethod
+    def _sort_genotype_data(gd):
+        """Sort genotype data."""
+        # GT must be first if present
+        sorted_keys = ['GT'] if 'GT' in gd else []
+        # others follow in alphabetical order
+        sorted_keys.extend(k for k in sorted(gd) if k != 'GT')
+        # order dict returned to retain order
+        return collections.OrderedDict((k, gd[k]) for k in sorted_keys)
 
     @property
-    def format_field(self):
-        """Return the format field for writing to`.vcf` file."""
-        return ':'.join((str(v) for v in self._sorted_format_keys))
+    def genotype_keys(self):
+        """Return genotype format field for writing to`.vcf` file."""
+        return ':'.join(self.genotype_data)
 
     @property
-    def sample(self):
-        """Return the sample field for writing to `.vcf` file."""
-        return ':'.join((
-            str(self.sample_dict[k]) for k in self._sorted_format_keys))
+    def genotype_values(self):
+        """Return the genotype data values for writing to `.vcf` file."""
+        return ':'.join(str(v) for v in self.genotype_data.values())
 
     @property
     def info_string(self):
@@ -216,15 +216,28 @@ class Variant(object):
     @property
     def gt(self):
         """Return the genotype (or None) for each sample."""
-        if 'GT' in self.sample_dict:
-            gts = self.sample_dict['GT'].replace('|', '/').split('/')
-            return tuple(int(x) for x in gts)
-        else:
+        try:
+            gt = self.genotype_data['GT']
+        except(KeyError):
             return None
+        else:
+            gt = gt.replace('|', '/').split('/')
+            return tuple(int(x) for x in gt)
+
+    @property
+    def phased(self):
+        """Specify whether variant is phased."""
+        try:
+            gt = self.genotype_data['GT']
+        except(KeyError):
+            return None
+        else:
+            phased = True if '|' in gt else False
+            return phased
 
     @property
     def alleles(self):
-        """Return alleles for each genotype."""
+        """Return alleles present in genotype."""
         all_alleles = [self.ref] + self.alt
         if self.gt is None:
             return None
@@ -239,15 +252,16 @@ class Variant(object):
 
         """
         chrom, pos, ident, ref, alt, qual, filt, info, \
-            sample_fields, sample_data, *others = line.split('\t')
+            genotype_keys, genotype_values, *others = line.split('\t')
         pos = int(pos)
         pos -= 1  # VCF is 1-based, python 0-based
-        sample_dict = collections.OrderedDict(
-            tuple(zip(sample_fields.split(':'), sample_data.split(':'))))
+        gt = cls._sort_genotype_data(
+            dict(zip(genotype_keys.split(':'),
+                     genotype_values.split(':'))))
         instance = cls(
             chrom, pos, ref,
             alt=alt, ident=ident, qual=qual, filt=filt, info=info,
-            sample_dict=sample_dict)
+            genotype_data=gt)
         return instance
 
     def add_tag(self, tag, value=None):
@@ -278,13 +292,12 @@ class Variant(object):
                 'chrom', 'pos', 'ref', 'alt', 'ident',
                 'qual', 'filt', 'info_string'):
             attributes[field] = getattr(self, field)
-        attributes['sample_repr'] = ';'.join(
-            '{}={}'.format(k, self.sample_dict[k])
-            for k in self._sorted_format_keys)
+        attributes['genotype_data'] = ';'.join(
+            '{}={}'.format(*d) for d in self.genotype_data.items())
         return (
             "Variant('{chrom}', {pos}, '{ref}', alt={alt}, ident={ident}, "
             "qual={qual}, filt={filt}, info='{info_string}', "
-            "sample='{sample_repr}')".format(**attributes))
+            "genotype_data='{genotype_data}')".format(**attributes))
 
     def deep_copy(self):
         """Return the (deep)copy of the `Variant`."""
@@ -296,7 +309,7 @@ class Variant(object):
         for attr in ['chrom', 'pos', 'qual', 'ident', 'filt', 'ref']:
             d[attr] = getattr(self, attr)
         d.update(self.info)
-        d.update(self.sample_dict)
+        d.update(self.genotype_data)
         return d
 
     def trim(self):
@@ -335,12 +348,12 @@ class Variant(object):
 
         :returns: (haplotype number, `vcf.Variant` or None for ref allele)
         """
-        if 'GT' not in self.sample_dict:
+        if 'GT' not in self.genotype_data:
             return tuple()
 
         vs = []
-        sample_dict = self.sample_dict.copy()
-        sample_dict['GT'] = '1/1'
+        genotype_data = self.genotype_data.copy()
+        genotype_data['GT'] = '1/1'
         for hap_n, n in enumerate(self.gt, 1):
             if n == 0:
                 v = None
@@ -348,7 +361,7 @@ class Variant(object):
                 v = Variant(
                     self.chrom, self.pos, self.ref, self.alt[n - 1],
                     qual=self.qual, info=self.info.copy(),
-                    sample_dict=sample_dict)
+                    genotype_data=genotype_data)
             vs.append((hap_n, v))
         return tuple(vs)
 
@@ -445,7 +458,7 @@ class VCFWriter(object):
         variant.info = variant.info_string
         fields = (
             'chrom', 'pos', 'ident', 'ref', 'alt', 'qual',
-            'filt', 'info', 'format_field', 'sample')
+            'filt', 'info', 'genotype_keys', 'genotype_values')
         elements = [getattr(variant, field.lower()) for field in fields]
         # VCF POS field is 1-based
         elements[self.header.index('POS')] += 1
@@ -598,7 +611,7 @@ def _get_hap(v, trees):
 
 
 def _merge_variants(
-        interval, trees, ref_seq, detailed_info=False, discard_phase=True):
+        interval, trees, ref_seq, detailed_info=False, discard_phase=False):
     """Merge variants in an interval into a `Variant` object.
 
     .. note::
@@ -678,11 +691,12 @@ def _merge_variants(
                 gts = [1, 0]
         gt = gt_sep.join(map(str, gts))
 
-    sample = {'GT': gt, 'GQ': qual}
+    genotype_data = {'GT': gt, 'GQ': qual}
+
     return Variant(
         v.chrom, interval.begin, ref, alt=alts,
         filt='PASS', info=info, qual=qual,
-        sample_dict=sample).trim()
+        genotype_data=genotype_data).trim()
 
 
 class Haploid2DiploidConverter(object):
@@ -690,7 +704,7 @@ class Haploid2DiploidConverter(object):
 
     def __init__(
             self, vcf1, vcf2, ref_fasta,
-            only_overlapping=True, discard_phase=True, detailed_info=False):
+            only_overlapping=True, discard_phase=False, detailed_info=False):
         """Initialize variant merging.
 
         Merge variants from two haploid VCFs into a diploid vcf. Variants in
@@ -766,25 +780,28 @@ class Haploid2DiploidConverter(object):
         if self.detailed_info:
             for h in 1, 2:
                 m.append(MetaInfo(
-                    'INFO', 'ref{}'.format(h), '.', 'String',
+                    'INFO', 'ref{}'.format(h), '2', 'String',
                     'ref alleles of incorporated variants '
                     'from haplotype {}'.format(m)))
                 m.append(MetaInfo(
-                    'INFO', 'alt{}'.format(h), '.', 'String',
+                    'INFO', 'alt{}'.format(h), '2', 'String',
                     'alt alleles of incorporated variants '
                     'from haplotype {}'.format(m)))
-
+        # where field has one value for each possible genotype, the
+        # 'Number' value should be ‘G’.
         m.append(MetaInfo(
-            'FORMAT', 'GT', 1, 'String', 'Genotype'))
+            'FORMAT', 'GT', 'G', 'String', 'Genotype'))
+        # if this is not a float, vcf benchmarking tools may fail
         m.append(MetaInfo(
-            'FORMAT', 'GQ', 1, 'Float', 'Genotype quality score'))
+            'FORMAT', 'GQ', 'G', 'Float', 'Genotype quality score'))
         return m
 
 
 def haploid2diploid(args):
     """Entry point for merging two haploid vcfs into a diploid vcf."""
     convertor = Haploid2DiploidConverter(args.vcf1, args.vcf2, args.ref_fasta,
-                                         only_overlapping=not args.adjacent)
+                                         only_overlapping=not args.adjacent,
+                                         discard_phase=args.discard_phase)
 
     with VCFWriter(
             args.vcfout, 'w', version='4.1', contigs=convertor.chroms,

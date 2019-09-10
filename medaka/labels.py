@@ -810,7 +810,7 @@ class HaploidLabelScheme(BaseLabelScheme):
             genotype = {'GT': '1/1', 'GQ': qual}
             return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                       alt, filt='PASS', info=info,
-                                      qual=qual, sample_dict=genotype)
+                                      qual=qual, genotype_data=genotype)
 
         # heterozygous, no deletions
         elif all((not primary_is_deletion,
@@ -827,7 +827,7 @@ class HaploidLabelScheme(BaseLabelScheme):
 
             return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                       alt, filt='PASS', info=info,
-                                      qual=qual, sample_dict=genotype)
+                                      qual=qual, genotype_data=genotype)
 
         # heterozygous, secondary deletion
         elif all((not primary_is_reference,
@@ -840,7 +840,7 @@ class HaploidLabelScheme(BaseLabelScheme):
             genotype = {'GT': '1/1', 'GQ': qual}
             return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                       alt, filt='PASS', info=info,
-                                      qual=qual, sample_dict=genotype)
+                                      qual=qual, genotype_data=genotype)
 
         # no snp at this location
         else:
@@ -852,7 +852,7 @@ class HaploidLabelScheme(BaseLabelScheme):
                 genotype = {'GT': 0, 'GQ': qual}
                 return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                           alt='.', filt='PASS', info=info,
-                                          qual=qual, sample_dict=genotype)
+                                          qual=qual, genotype_data=genotype)
 
     def decode_variants(self, sample, ref_seq):
         """Convert network output in sample to a set of `medaka.vcf.Variant` s.
@@ -964,7 +964,7 @@ class HaploidLabelScheme(BaseLabelScheme):
                                          pos['major'][start],
                                          var_ref, alt=var_pred,
                                          filt='PASS', info=info,
-                                         qual=qual, sample_dict=genotype)
+                                         qual=qual, genotype_data=genotype)
             variant = variant.trim()
             variants.append(variant)
 
@@ -1112,7 +1112,7 @@ class DiploidLabelScheme(BaseLabelScheme):
             genotype = {'GT': '1/1', 'GQ': qual}
             return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                       alt, filt='PASS', info=info,
-                                      qual=qual, sample_dict=genotype)
+                                      qual=qual, genotype_data=genotype)
 
         # heterozygous, no deletions
         elif all((is_het,
@@ -1124,7 +1124,7 @@ class DiploidLabelScheme(BaseLabelScheme):
 
             return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                       alt, filt='PASS', info=info,
-                                      qual=qual, sample_dict=genotype)
+                                      qual=qual, genotype_data=genotype)
 
         # heterozygous, one deletion
         elif all((is_het,
@@ -1137,7 +1137,7 @@ class DiploidLabelScheme(BaseLabelScheme):
 
             return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                       alt, filt='PASS', info=info,
-                                      qual=qual, sample_dict=genotype)
+                                      qual=qual, genotype_data=genotype)
 
         # no snp at this location
         else:
@@ -1148,7 +1148,7 @@ class DiploidLabelScheme(BaseLabelScheme):
                 genotype = {'GT': 0, 'GQ': qual}
                 return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                           alt='.', filt='PASS', info=info,
-                                          qual=qual, sample_dict=genotype)
+                                          qual=qual, genotype_data=genotype)
 
     @property
     def snp_metainfo(self):
@@ -1332,7 +1332,7 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
             genotype = {'GT': '1/1', 'GQ': qual}
             return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                       alt, filt='PASS', info=info,
-                                      qual=qual, sample_dict=genotype)
+                                      qual=qual, genotype_data=genotype)
 
         # heterozygous, no deletions
         elif all((is_het,
@@ -1346,7 +1346,7 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
 
             return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                       alt, filt='PASS', info=info,
-                                      qual=qual, sample_dict=genotype)
+                                      qual=qual, genotype_data=genotype)
 
         # heterozygous, one deletion
         elif all((is_het,
@@ -1360,7 +1360,7 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
 
             return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                       alt, filt='PASS', info=info,
-                                      qual=qual, sample_dict=genotype)
+                                      qual=qual, genotype_data=genotype)
 
         # no snp at this location
         else:
@@ -1372,7 +1372,7 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
                 genotype = {'GT': 0, 'GQ': qual}
                 return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                           alt='.', filt='PASS', info=info,
-                                          qual=qual, sample_dict=genotype)
+                                          qual=qual, genotype_data=genotype)
 
 
 class RLELabelScheme(HaploidLabelScheme):

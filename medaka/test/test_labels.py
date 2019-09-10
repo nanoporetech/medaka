@@ -144,21 +144,21 @@ class HaploidLabelSchemeTest(unittest.TestCase):
             10, 'aref', 'C')
         self.assertEqual(var.ref, 'C')
         self.assertEqual(var.alt, ['A'])
-        self.assertEqual(var.sample_dict['GT'], '1/1')
+        self.assertEqual(var.genotype_data['GT'], '1/1')
 
         #heterozygous double: ('C',) -> ('A','T')
         var = self.ls._prob_to_snp(np.array([0, 0.55, 0, 0, 0.45]),
             10, 'aref', 'C')
         self.assertEqual(var.ref, 'C')
         self.assertEqual(var.alt, ['A', 'T'])
-        self.assertEqual(var.sample_dict['GT'], '1/2')
+        self.assertEqual(var.genotype_data['GT'], '1/2')
 
         #heterozygous single: ('C',) -> ('C','T')
         var = self.ls._prob_to_snp(np.array([0, 0, 0.55, 0, 0.45]),
             10, 'aref', 'C')
         self.assertEqual(var.ref, 'C')
         self.assertEqual(var.alt, ['T'])
-        self.assertEqual(var.sample_dict['GT'], '0/1')
+        self.assertEqual(var.genotype_data['GT'], '0/1')
 
     def test_decode_consensus(self):
 
@@ -267,9 +267,9 @@ class HaploidLabelSchemeTest(unittest.TestCase):
             self.assertEqual(v.pos, pos, msg=msg)
             self.assertEqual(v.ref, ref, msg=msg)
             self.assertEqual(v.alt, [alt], msg=msg)
-            self.assertEqual(v.sample_dict['GT'], '1/1', msg=msg)
+            self.assertEqual(v.genotype_data['GT'], '1/1', msg=msg)
             self.assertAlmostEqual(float(v.qual), expected_qual, places=3, msg=msg)
-            self.assertAlmostEqual(float(v.sample_dict['GQ']), expected_qual, places=3, msg=msg)
+            self.assertAlmostEqual(float(v.genotype_data['GQ']), expected_qual, places=3, msg=msg)
 
 
     def test_decode_snps(self):
@@ -341,9 +341,9 @@ class HaploidLabelSchemeTest(unittest.TestCase):
             self.assertEqual(v.pos, pos)
             self.assertEqual(v.ref, ref)
             self.assertEqual(v.alt, alt)
-            self.assertEqual(v.sample_dict['GT'], gt)
+            self.assertEqual(v.genotype_data['GT'], gt)
             gq = qual_homo if len(set(v.gt)) == 1 else qual_hetero
-            self.assertAlmostEqual(v.sample_dict['GQ'], gq)
+            self.assertAlmostEqual(v.genotype_data['GQ'], gq)
 
 
 def diploid_sample_from_labels(ls=None,
@@ -431,21 +431,21 @@ class DiploidLabelSchemeTest(unittest.TestCase):
             10, 'aref', 'C')
         self.assertEqual(var.ref, 'C')
         self.assertEqual(var.alt, ['A'])
-        self.assertEqual(var.sample_dict['GT'], '1/1')
+        self.assertEqual(var.genotype_data['GT'], '1/1')
 
         #heterozygous double: ('C',) -> ('A','T')
         var = self.ls._prob_to_snp(np.array([0,0,0,0,0,0,0,0,1,0,0,0,0,0,0]),
             10, 'aref', 'C')
         self.assertEqual(var.ref, 'C')
         self.assertEqual(var.alt, ['A', 'T'])
-        self.assertEqual(var.sample_dict['GT'], '1/2')
+        self.assertEqual(var.genotype_data['GT'], '1/2')
 
         #heterozygous single: ('C',) -> ('C','T')
         var = self.ls._prob_to_snp(np.array([0,0,0,0,0,0,0,0,0,0,0,1,0,0,0]),
             10, 'aref', 'C')
         self.assertEqual(var.ref, 'C')
         self.assertEqual(var.alt, ['T'])
-        self.assertEqual(var.sample_dict['GT'], '0/1')
+        self.assertEqual(var.genotype_data['GT'], '0/1')
 
     def test_decode_snps(self):
 
@@ -488,8 +488,8 @@ class DiploidLabelSchemeTest(unittest.TestCase):
             self.assertEqual(v.pos, pos)
             self.assertEqual(v.ref, ref)
             self.assertEqual(v.alt, alt)
-            self.assertEqual(v.sample_dict['GT'], gt)
-            self.assertAlmostEqual(v.sample_dict['GQ'], qual)
+            self.assertEqual(v.genotype_data['GT'], gt)
+            self.assertAlmostEqual(v.genotype_data['GQ'], qual)
 
 
 def diploid_zygosity_sample_from_labels(ls=None,
@@ -590,21 +590,21 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
             10, 'aref', 'C')
         self.assertEqual(var.ref, 'C')
         self.assertEqual(var.alt, ['A'])
-        self.assertEqual(var.sample_dict['GT'], '1/1')
+        self.assertEqual(var.genotype_data['GT'], '1/1')
 
         #heterozygous double: ('C',) -> ('A','T')
         var = self.ls._prob_to_snp(np.array([0, 0.8, 0, 0, 0.6, 1]),
             10, 'aref', 'C')
         self.assertEqual(var.ref, 'C')
         self.assertEqual(var.alt, ['A', 'T'])
-        self.assertEqual(var.sample_dict['GT'], '1/2')
+        self.assertEqual(var.genotype_data['GT'], '1/2')
 
         #heterozygous single: ('C',) -> ('C','T')
         var = self.ls._prob_to_snp(np.array([0, 0, 0.8, 0, 0.6, 1]),
             10, 'aref', 'C')
         self.assertEqual(var.ref, 'C')
         self.assertEqual(var.alt, ['T'])
-        self.assertEqual(var.sample_dict['GT'], '0/1')
+        self.assertEqual(var.genotype_data['GT'], '0/1')
 
     def test_decode_snps_is_het_always_true(self):
 
@@ -652,9 +652,9 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
             self.assertEqual(v.pos, pos)
             self.assertEqual(v.ref, ref)
             self.assertEqual(v.alt, alt)
-            self.assertEqual(v.sample_dict['GT'], gt)
+            self.assertEqual(v.genotype_data['GT'], gt)
             gq = qual_hom if len(set(v.gt)) == 1 else qual_het
-            self.assertAlmostEqual(v.sample_dict['GQ'], gq)
+            self.assertAlmostEqual(v.genotype_data['GQ'], gq)
 
     def test_decode_snps_is_het_always_off(self):
 
@@ -700,9 +700,9 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
             self.assertEqual(v.pos, pos)
             self.assertEqual(v.ref, ref)
             self.assertEqual(v.alt, alt)
-            self.assertEqual(v.sample_dict['GT'], gt)
+            self.assertEqual(v.genotype_data['GT'], gt)
             gq = qual_hom if len(set(v.gt)) == 1 else qual_het
-            self.assertAlmostEqual(v.sample_dict['GQ'], gq)
+            self.assertAlmostEqual(v.genotype_data['GQ'], gq)
 
 
 class RLELabelSchemeTest(unittest.TestCase):

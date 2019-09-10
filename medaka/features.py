@@ -364,10 +364,8 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
 
         :param truth_bam: .bam file of truth aligned to ref to generate labels.
         :param bam: input .bam file.
-        :param region: `medaka.common.Region` obj. the reference will be
-            parsed.
-        :param label_scheme: a `LabelScheme` determining required network
-            outputs.
+        :param region: `medaka.common.Region` instance for region to process.
+        :param label_scheme: a `LabelScheme` describing network outputs.
         :param truth_haplotag: two letter tag name used for grouping truth
             labels by haplotype.
 
