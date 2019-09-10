@@ -49,13 +49,13 @@ clean_htslib:
 	cd submodules/samtools-${SAMVER} && make clean || exit 0
 	cd submodules/samtools-${SAMVER}/htslib-${SAMVER} && make clean || exit 0
 
-
+MINIMAPVER=2.17
 $(BINCACHEDIR)/minimap2: | $(BINCACHEDIR)
 	@echo Making $(@F)
-	curl -L -o minimap2-2.11_x64-linux.tar.bz2 https://github.com/lh3/minimap2/releases/download/v2.11/minimap2-2.11_x64-linux.tar.bz2 
-	tar -xvf minimap2-2.11_x64-linux.tar.bz2
-	cp minimap2-2.11_x64-linux/minimap2 $@
-	rm -rf minimap2-2.11_x64-linux.tar.bz2 minimap2-2.11_x64-linux
+	curl -L -o minimap2-${MINIMAPVER}_x64-linux.tar.bz2 https://github.com/lh3/minimap2/releases/download/v${MINIMAPVER}/minimap2-${MINIMAPVER}_x64-linux.tar.bz2 
+	tar -xvf minimap2-${MINIMAPVER}_x64-linux.tar.bz2
+	cp minimap2-${MINIMAPVER}_x64-linux/minimap2 $@
+	rm -rf minimap2-${MINIMAPVER}_x64-linux.tar.bz2 minimap2-${MINIMAPVER}_x64-linux
 
 
 SPOAVER=3.0.0
