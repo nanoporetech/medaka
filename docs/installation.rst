@@ -18,7 +18,7 @@ through conda; medaka is available via the
 
 .. code-block:: bash
 
-    conda install -c bioconda medaka
+    conda create -n medaka -c conda-forge -c bioconda medaka
 
 
 **Installation with pip**
@@ -50,7 +50,7 @@ We recommend using medaka within a virtual environment, viz.:
     `bgzip <https://github.com/samtools/htslib>`_,
 
     and place these within the `PATH`. `samtools` version 1.9 and `minimap2`
-    version 2.11 are recommended as these are those used in development of
+    version 2.17 are recommended as these are those used in development of
     medaka.
 
 
@@ -65,7 +65,7 @@ Medaka can be installed from its source quite easily on most systems.
     theses are:
     
     bzip2 gcc zlib1g-dev libbz2-dev liblzma-dev libffi-dev libncurses5-dev
-    libcurl4-gnutls-dev libssl-dev curl make wget python3-all-dev python-virtualenv
+    libcurl4-gnutls-dev libssl-dev curl make cmake wget python3-all-dev python-virtualenv
 
 A Makefile is provided to fetch, compile and install all direct dependencies
 into a python virtual environment. To setup the environment run:
@@ -155,18 +155,10 @@ will be saved to ``${OUTDIR}/consensus.fasta``.
     above, according to the basecaller used. Allowed values can be found by
     running ``medaka tools list\_models``.
     
-    For guppy v3.0.3 models are named similarly to their basecalling counterparts
-    with a "fast" and "high accuracy" model, for example ``r941_min_fast`` and
-    ``r941_min_high``. The medaka models are equal in speed regardless of basecaller
-    speed/accuracy.
-    
-    For guppy versions >=2.1.3 where the flip-flop algorithm has been used, users
-    should select the highest numbered model equal to or less than the guppy
-    version used for basecalling. There are two models here: ``r941_flip213`` and
-    ``r941_flip235``
-    
-    A final model ``r941_trans`` is available where a basecaller with the transducer
-    algorithm has been used (Albacore or Guppy<2.1.3).
+    For guppy v3.0.3 models are named similarly to their basecalling
+    counterparts with a "fast" and "high accuracy" model, for example
+    ``r941_min_fast`` and ``r941_min_high``. The medaka models are equal in
+    computational performance regardless of basecaller speed/accuracy.
 
 
 Improving parallelism
