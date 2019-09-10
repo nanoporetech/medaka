@@ -125,13 +125,5 @@ class TruthAlignmentTest(unittest.TestCase):
         self.assertEqual(alignments[1][0].start, 417741)
         self.assertEqual(alignments[1][0].end, 422799)
 
-        p0_positions, p0_labels = TruthAlignment.get_positions_and_labels(alignments[0], get_pairs)
-        p1_positions, p1_labels = TruthAlignment.get_positions_and_labels(alignments[1], get_pairs)
-        self.assertEqual(p0_positions[0]['major'], alignments[0][0].start)
-        self.assertEqual(p0_positions[-1]['major'], alignments[0][0].end - 1)
-        self.assertEqual(p1_positions[0]['major'], alignments[1][0].start)
-        self.assertEqual(p1_positions[-1]['major'], alignments[1][0].end - 1)
-
-
 if __name__ == '__main__':
     unittest.main()
