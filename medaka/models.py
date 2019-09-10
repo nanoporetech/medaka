@@ -24,40 +24,6 @@ def load_model(fname, time_steps=None, allow_cudnn=True):
         return model
 
 
-def build_legacy_model(feature_len, num_classes, gru_size=128,
-                       time_steps=None, allow_cudn=True):
-    """Build a bidirectional GRU model.
-
-    :param time_steps: int, number of pileup columns in a sample.
-    :param feature_len: int, number of features for each pileup column.
-    :param num_classes: int, number of output class labels.
-    :param allow_cuddn: bool, unused (for compatibility with `build_model`)
-    :param gru_size: int, size of each GRU layer.
-
-    :returns: `keras.models.Sequential` object.
-
-    """
-    from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import Dense, GRU
-    from tensorflow.keras.layers import Bidirectional
-
-    model = Sequential()
-    input_shape = (time_steps, feature_len)
-    for i in [1, 2]:
-        name = 'gru{}'.format(i)
-        gru = GRU(
-            gru_size, activation='tanh',
-            return_sequences=True, name=name)
-        model.add(Bidirectional(gru, input_shape=input_shape))
-
-    # see keras #10417 for why we specify input shape
-    model.add(Dense(
-        num_classes, activation='softmax', name='classify',
-        input_shape=(time_steps, 2 * feature_len)
-    ))
-    return model
-
-
 def build_model(feature_len, num_classes, gru_size=128,
                 classify_activation='softmax', time_steps=None,
                 allow_cudnn=True):
@@ -113,9 +79,7 @@ def build_model(feature_len, num_classes, gru_size=128,
     return model
 
 
+default_model = 'two_layer_bidirectional_CuDNNGRU'
 model_builders = {
     'two_layer_bidirectional_CuDNNGRU': build_model,
-    'two_layer_bidirectional_GRU': build_legacy_model,
 }
-
-default_model = 'two_layer_bidirectional_CuDNNGRU'

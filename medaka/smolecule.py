@@ -497,7 +497,3 @@ def main(args):
     logger.info(
         "POA time: {:.0f}s, medaka time: {:.0f}s".format(
             t1 - t0, t3 - t2))
-
-
-if __name__ == '__main__':
-    main()

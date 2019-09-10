@@ -582,8 +582,3 @@ def reverse_complement(seq):
 
     """
     return seq.translate(comp_trans)[::-1]
-
-
-if __name__ == "__main__":
-    import doctest
-    doctest.testmod()
