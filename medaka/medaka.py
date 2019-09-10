@@ -346,6 +346,8 @@ def main():
     h2dparser.add_argument('vcf2', help='Input .vcf file.')
     h2dparser.add_argument('ref_fasta', help='Reference .fasta file.')
     h2dparser.add_argument('vcfout', help='Output .vcf.')
+    h2dparser.add_argument('--discard_phase', default=False,
+                           action='store_true', help='output unphased diploid vcf')
     h2dparser.add_argument('--adjacent', action='store_true',
                          help=('Merge adjacent variants (i.e. variants with non-overlapping genomic ranges) instead' +
                                ' of just overlapping ones. If set to True, all runs of adjacent variants will be' +

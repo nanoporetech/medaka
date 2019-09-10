@@ -29,7 +29,7 @@ def make_variant(seq, tree, max_indel=5, chrom='contig1'):
         else:  # single nucleotide sub
             ref = seq[vpos]
             alt = np.random.choice([b for b in bases if str(b) != str(ref)])
-        v = medaka.vcf.Variant(chrom, vpos, ref=ref, alt=alt, qual=np.random.randint(1,10), sample_dict={'GT':'1/1'})
+        v = medaka.vcf.Variant(chrom, vpos, ref=ref, alt=alt, qual=np.random.randint(1,10), genotype_data={'GT':'1/1'})
         vtrimmed = v.trim()
         end = vtrimmed.pos + len(vtrimmed.ref)
         interval = intervaltree.Interval(v.pos, end + 1)

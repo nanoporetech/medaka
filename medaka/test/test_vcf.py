@@ -65,23 +65,23 @@ class TestReader(unittest.TestCase):
         expected = [
                 Variant('chr1', 14369, 'G', alt=['A'], ident='rs6054257', qual=29, filt='PASS',
                     info={'NS': 3, 'DP': 14, 'AF': 0.5, 'DB': True, 'H2':True},
-                    sample_dict=OrderedDict([('GT', '1|0'), ('GQ', '48'), ('DP', '8'), ('HQ', '51,51')]),
+                    genotype_data=OrderedDict([('GT', '1|0'), ('GQ', '48'), ('DP', '8'), ('HQ', '51,51')]),
                 ),
                 Variant('chr2', 17329, 'T', alt=['A'], ident='.', qual=3, filt='q10',
                     info={'NS': 3, 'DP': 11, 'AF': 0.017},
-                    sample_dict=OrderedDict([('GT', '0|0'), ('GQ', '49'), ('DP', '3'), ('HQ', '58,50')]),
+                    genotype_data=OrderedDict([('GT', '0|0'), ('GQ', '49'), ('DP', '3'), ('HQ', '58,50')]),
                 ),
                 Variant('chr10', 1110695, 'A', alt=['G', 'T'], ident='rs6040355', qual=67, filt='PASS',
                     info={'NS': 2, 'DP': 10, 'AF': [0.333,0.667], 'AA': 'T', 'DB': True},
-                    sample_dict=OrderedDict([('GT', '1|2'), ('GQ', '21'), ('DP', '6'), ('HQ', '23,27')]),
+                    genotype_data=OrderedDict([('GT', '1|2'), ('GQ', '21'), ('DP', '6'), ('HQ', '23,27')]),
                 ),
                 Variant('chr20', 1230236, 'T', alt=['.'], ident='.', qual=47, filt='PASS',
                     info={'NS': 3, 'DP': 13, 'AA': 'T'},
-                    sample_dict=OrderedDict([('GT', '0|0'), ('GQ', '54'), ('DP', '7'), ('HQ', '56,60')]),
+                    genotype_data=OrderedDict([('GT', '0|0'), ('GQ', '54'), ('DP', '7'), ('HQ', '56,60')]),
                 ),
                 Variant('chrX', 1234566, 'GTCT', alt=['G','GTACT'], ident='microsat1', qual=50, filt='PASS',
                     info={'NS': 3, 'DP': 9, 'AA': 'G'},
-                    sample_dict=OrderedDict([('GT', '1/1'), ('GQ', '40'), ('DP', '3')]),
+                    genotype_data=OrderedDict([('GT', '1/1'), ('GQ', '40'), ('DP', '3')]),
                 )
         ]
         result = list(self.vcf_reader.fetch())
@@ -115,7 +115,7 @@ class TestWriter(unittest.TestCase):
             # Read them back and compare with original file
             vcf_test = VCFReader(test_file.name).fetch()
             for variant_original, variant_test in zip(self.vcf_reader.fetch(), vcf_test):
-                for key in  ('chrom', 'pos', 'ident', 'ref', 'alt', 'qual', 'filt', 'info', 'sample_dict'):
+                for key in  ('chrom', 'pos', 'ident', 'ref', 'alt', 'qual', 'filt', 'info', 'genotype_keys', 'genotype_values'):
                     expected = getattr(variant_original, key)
                     result = getattr(variant_test, key)
                     self.assertEqual(expected, result, 'Round trip failed for {}.'.format(key))
@@ -178,12 +178,12 @@ class TestSplitHaplotypes(unittest.TestCase):
 
     def test_001_check_hetero(self):
         v_orig = Variant('20', 14369, 'G', alt=['A', 'C'], qual=10,
-                         sample_dict=OrderedDict([('GT', '1/2'), ('GQ', 10.0)]))
-        sample_dict = v_orig.sample_dict.copy()
-        sample_dict['GT'] = '1/1'
+                         genotype_data=OrderedDict([('GT', '1/2'), ('GQ', 10.0)]))
+        genotype_data = v_orig.genotype_data.copy()
+        genotype_data['GT'] = '1/1'
         expt = tuple([
-            (1, Variant('20', 14369, 'G', alt=['A'], qual=10, sample_dict=sample_dict)),
-            (2, Variant('20', 14369, 'G', alt=['C'], qual=10, sample_dict=sample_dict)),
+            (1, Variant('20', 14369, 'G', alt=['A'], qual=10, genotype_data=genotype_data)),
+            (2, Variant('20', 14369, 'G', alt=['C'], qual=10, genotype_data=genotype_data)),
         ])
         got = v_orig.split_haplotypes()
         self.assertEqual(expt, got, 'Splitting haplotypes failed for {}'.format(v_orig))
@@ -191,11 +191,11 @@ class TestSplitHaplotypes(unittest.TestCase):
 
     def test_002_check_hetero(self):
         v_orig = Variant('20', 14369, 'G', alt=['A'], qual=10,
-                         sample_dict=OrderedDict([('GT', '1/0'), ('GQ', 10.0)]))
-        sample_dict = v_orig.sample_dict.copy()
-        sample_dict['GT'] = '1/1'
+                         genotype_data=OrderedDict([('GT', '1/0'), ('GQ', 10.0)]))
+        genotype_data = v_orig.genotype_data.copy()
+        genotype_data['GT'] = '1/1'
         expt = tuple([
-            (1, Variant('20', 14369, 'G', alt=['A'], qual=10, sample_dict=sample_dict)),
+            (1, Variant('20', 14369, 'G', alt=['A'], qual=10, genotype_data=genotype_data)),
             (2, None),
         ])
         got = v_orig.split_haplotypes()
@@ -204,12 +204,12 @@ class TestSplitHaplotypes(unittest.TestCase):
 
     def test_003_check_hetero(self):
         v_orig = Variant('20', 14369, 'G', alt=['T', 'A'], qual=10,
-                         sample_dict=OrderedDict([('GT', '0/1'), ('GQ', 10.0)]))
-        sample_dict = v_orig.sample_dict.copy()
-        sample_dict['GT'] = '1/1'
+                         genotype_data=OrderedDict([('GT', '0/1'), ('GQ', 10.0)]))
+        genotype_data = v_orig.genotype_data.copy()
+        genotype_data['GT'] = '1/1'
         expt = tuple([
             (1, None),
-            (2, Variant('20', 14369, 'G', alt=['T'], qual=10, sample_dict=sample_dict)),
+            (2, Variant('20', 14369, 'G', alt=['T'], qual=10, genotype_data=genotype_data)),
         ])
         got = v_orig.split_haplotypes()
         self.assertEqual(expt, got, 'Splitting haplotypes failed for {}'.format(v_orig))
@@ -217,12 +217,12 @@ class TestSplitHaplotypes(unittest.TestCase):
 
     def test_004_check_homo(self):
         v_orig = Variant('20', 14369, 'G', alt=['T', 'A'], qual=10,
-                         sample_dict=OrderedDict([('GT', '1/1'), ('GQ', 10.0)]))
-        sample_dict = v_orig.sample_dict.copy()
-        sample_dict['GT'] = '1/1'
+                         genotype_data=OrderedDict([('GT', '1/1'), ('GQ', 10.0)]))
+        genotype_data = v_orig.genotype_data.copy()
+        genotype_data['GT'] = '1/1'
         expt = tuple([
-            (1, Variant('20', 14369, 'G', alt=['T'], qual=10, sample_dict=sample_dict)),
-            (2, Variant('20', 14369, 'G', alt=['T'], qual=10, sample_dict=sample_dict)),
+            (1, Variant('20', 14369, 'G', alt=['T'], qual=10, genotype_data=genotype_data)),
+            (2, Variant('20', 14369, 'G', alt=['T'], qual=10, genotype_data=genotype_data)),
         ])
         got = v_orig.split_haplotypes()
         self.assertEqual(expt, got, 'Splitting haplotypes failed for {}'.format(v_orig))
@@ -230,12 +230,12 @@ class TestSplitHaplotypes(unittest.TestCase):
 
     def test_005_check_homo(self):
         v_orig = Variant('20', 14369, 'G', alt=['T', 'A'], qual=10,
-                         sample_dict=OrderedDict([('GT', '2/2'), ('GQ', 10.0)]))
-        sample_dict = v_orig.sample_dict.copy()
-        sample_dict['GT'] = '1/1'
+                         genotype_data=OrderedDict([('GT', '2/2'), ('GQ', 10.0)]))
+        genotype_data = v_orig.genotype_data.copy()
+        genotype_data['GT'] = '1/1'
         expt = tuple([
-            (1, Variant('20', 14369, 'G', alt=['A'], qual=10, sample_dict=sample_dict)),
-            (2, Variant('20', 14369, 'G', alt=['A'], qual=10, sample_dict=sample_dict)),
+            (1, Variant('20', 14369, 'G', alt=['A'], qual=10, genotype_data=genotype_data)),
+            (2, Variant('20', 14369, 'G', alt=['A'], qual=10, genotype_data=genotype_data)),
         ])
         got = v_orig.split_haplotypes()
         self.assertEqual(expt, got, 'Splitting haplotypes failed for {}'.format(v_orig))
@@ -243,8 +243,8 @@ class TestSplitHaplotypes(unittest.TestCase):
 
     def test_006_check_homo(self):
         v_orig = Variant('20', 14369, 'G', alt=['T', 'A'], qual=10,
-                         sample_dict=OrderedDict([('GT', '0/0'), ('GQ', 10.0)]))
-        sample_dict = v_orig.sample_dict.copy()
+                         genotype_data=OrderedDict([('GT', '0/0'), ('GQ', 10.0)]))
+        genotype_data = v_orig.genotype_data.copy()
         expt = tuple([
             (1, None),
             (2, None),
@@ -299,7 +299,7 @@ class TestMergeAndSplitVCFs(unittest.TestCase):
                                     detailed_info=True)
         merged = converter.variants()
         for expt, found in zip(VCFReader(self.vcf_merged, cache=False).fetch(), merged):
-            for key in  ('chrom', 'pos', 'ref', 'alt', 'info_string'):
+            for key in  ('chrom', 'pos', 'ref', 'alt', 'info_string', 'gt', 'phased'):
                 expected = getattr(expt, key)
                 result = getattr(found, key)
                 self.assertEqual(expected, result, 'Merging failed for {}:{} {}.'.format(expt.chrom, expt.pos+1, key))
@@ -309,14 +309,16 @@ class TestMergeAndSplitVCFs(unittest.TestCase):
         ref_seq = 'ATGGTATGCGATTGACC'
         chrom='chrom1'
 
-        h1 = [Variant(chrom, 0, 'A', alt='C', qual=5, sample_dict={'GT':'1/1'})]
-        h2 = [Variant(chrom, 0, 'A', alt='T', qual=10, sample_dict={'GT':'1/1'})]
-        expt = Variant(chrom, 0, 'A', alt=['C', 'T'], qual=7.5, sample_dict={'GT': '1/2'})
+        h1 = [Variant(chrom, 0, 'A', alt='C', qual=5, genotype_data={'GT':'1/1'})]
+        h2 = [Variant(chrom, 0, 'A', alt='T', qual=10, genotype_data={'GT':'1/1'})]
+        expt = Variant(chrom, 0, 'A', alt=['C', 'T'], qual=7.5, genotype_data={'GT': '1|2'})
 
         comb_interval, trees = self.intervaltree_prep(h1, h2, ref_seq)
         # preserve phase otherwise alts could be switched around
         got = _merge_variants(comb_interval, trees, ref_seq, discard_phase=False)
-        for key in  ('chrom', 'pos', 'ref', 'qual', 'alt', 'gt'):
+#        self.assertEqual(expt, got)
+
+        for key in  ('chrom', 'pos', 'ref', 'qual', 'alt', 'gt', 'phased'):
             expected = getattr(expt, key)
             result = getattr(got, key)
             self.assertEqual(expected, result, 'Merging failed for {}:{} {}.'.format(expt.chrom, expt.pos+1, key))
@@ -326,14 +328,14 @@ class TestMergeAndSplitVCFs(unittest.TestCase):
         ref_seq = 'ATGGTATGCGATTGACC'
         chrom='chrom1'
 
-        h1 = [Variant(chrom, 0, 'ATG', alt='G', qual=5, sample_dict={'GT':'1/1'})]
-        h2 = [Variant(chrom, 1, 'T', alt='TT', qual=10, sample_dict={'GT':'1/1'})]
-        expt = Variant(chrom, 0, 'ATG', alt=['G', 'ATTG'], qual=7.5, sample_dict={'GT': '1/2'})
+        h1 = [Variant(chrom, 0, 'ATG', alt='G', qual=5, genotype_data={'GT':'1/1'})]
+        h2 = [Variant(chrom, 1, 'T', alt='TT', qual=10, genotype_data={'GT':'1/1'})]
+        expt = Variant(chrom, 0, 'ATG', alt=['G', 'ATTG'], qual=7.5, genotype_data={'GT': '1|2'})
 
         comb_interval, trees = self.intervaltree_prep(h1, h2, ref_seq)
         # preserve phase otherwise alts could be switched around
         got = _merge_variants(comb_interval, trees, ref_seq, discard_phase=False)
-        for key in  ('chrom', 'pos', 'ref', 'qual', 'alt', 'gt'):
+        for key in  ('chrom', 'pos', 'ref', 'qual', 'alt', 'gt', 'phased'):
             expected = getattr(expt, key)
             result = getattr(got, key)
             self.assertEqual(expected, result, 'Merging failed for {}:{} {}.'.format(expt.chrom, expt.pos+1, key))
@@ -343,13 +345,13 @@ class TestMergeAndSplitVCFs(unittest.TestCase):
         ref_seq = 'ATGGTATGCGATTGACC'
         chrom='chrom1'
 
-        h1 = [Variant(chrom, 0, 'ATG', alt='G', qual=5, sample_dict={'GT':'1/1'}),
-              Variant(chrom, 4, 'T', alt='G', qual=5, sample_dict={'GT':'1/1'}),
-              Variant(chrom, 7, 'G', alt='GG', qual=5, sample_dict={'GT':'1/1'}),
-              Variant(chrom, 9, ref_seq[9], alt=ref_seq[9] + 'T', qual=5, sample_dict={'GT':'1/1'}),
+        h1 = [Variant(chrom, 0, 'ATG', alt='G', qual=5, genotype_data={'GT':'1/1'}),
+              Variant(chrom, 4, 'T', alt='G', qual=5, genotype_data={'GT':'1/1'}),
+              Variant(chrom, 7, 'G', alt='GG', qual=5, genotype_data={'GT':'1/1'}),
+              Variant(chrom, 9, ref_seq[9], alt=ref_seq[9] + 'T', qual=5, genotype_data={'GT':'1/1'}),
               ]
-        h2 = [Variant(chrom, 1, 'T', alt='TT', qual=10, sample_dict={'GT':'1/1'}),
-              Variant(chrom, 2, ref_seq[2:10], alt=ref_seq[2], qual=10, sample_dict={'GT':'1/1'}),
+        h2 = [Variant(chrom, 1, 'T', alt='TT', qual=10, genotype_data={'GT':'1/1'}),
+              Variant(chrom, 2, ref_seq[2:10], alt=ref_seq[2], qual=10, genotype_data={'GT':'1/1'}),
               ]
 
         # POS  0    1   2   3   4   5   6   7   8   9   10
@@ -362,12 +364,12 @@ class TestMergeAndSplitVCFs(unittest.TestCase):
         alt1_expt = "GGGATGGCGT"
         alt2_expt = "ATTG"
 
-        expt = Variant(chrom, 0, ref_expt, alt=[alt1_expt, alt2_expt], qual=7.5, sample_dict={'GT': '1/2'})
+        expt = Variant(chrom, 0, ref_expt, alt=[alt1_expt, alt2_expt], qual=7.5, genotype_data={'GT': '1|2'})
 
         comb_interval, trees = self.intervaltree_prep(h1, h2, ref_seq)
         # preserve phase otherwise alts could be switched around
         got = _merge_variants(comb_interval, trees, ref_seq, discard_phase=False)
-        for key in  ('chrom', 'pos', 'ref', 'qual', 'alt', 'gt'):
+        for key in  ('chrom', 'pos', 'ref', 'qual', 'alt', 'gt', 'phased'):
             expected = getattr(expt, key)
             result = getattr(got, key)
             self.assertEqual(expected, result, 'Merging failed for {}:{} {}.'.format(expt.chrom, expt.pos+1, key))
