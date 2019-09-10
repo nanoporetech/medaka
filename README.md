@@ -14,7 +14,6 @@ Medaka
 [![](https://img.shields.io/conda/pn/bioconda/medaka.svg)](https://anaconda.org/bioconda/medaka)
 
 
-
 `medaka` is a tool to create a consensus sequence from nanopore sequencing data.
 This task is performed using neural networks applied from a pileup of individual
 sequencing reads against a draft assembly. It outperforms graph-based methods
@@ -52,7 +51,7 @@ Perhaps the simplest way to start using medaka on both Linux and MacOS is
 through conda; medaka is available via the
 [bioconda](https://anaconda.org/bioconda/medaka) channel:
 
-    conda install -c bioconda medaka
+    conda create -n medaka -c conda-forge -c bioconda medaka
 
 **Installation with pip**
   
@@ -78,7 +77,7 @@ Using this method requires the user to provide several binaries:
  * [bgzip](https://github.com/samtools/htslib)
 
 and place these within the `PATH`. `samtools/bgzip/tabix` version 1.9 and
-`minimap2` version 2.11 are recommended as these are those used in development
+`minimap2` version 2.17 are recommended as these are those used in development
 of medaka.
 
 **Installation from source**
@@ -99,6 +98,7 @@ Medaka can be installed from its source quite easily on most systems.
  > * libssl-dev
  > * curl
  > * make
+ > * cmake
  > * wget
  > * python3-all-dev
  > * python-virtualenv
@@ -129,7 +129,7 @@ GPU-powered `medaka` can be configured with:
     sed -i 's/tensorflow/tensorflow-gpu/' requirements.txt
     make install
 
-However, note that The ``tensorflow-gpu`` GPU package is compiled against
+However, note that The `tensorflow-gpu` GPU package is compiled against
 specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the 
 [tensorflow installation](https://www.tensorflow.org/install/gpu) pages
 for further information. cuDNN can be obtained from the
@@ -178,16 +178,9 @@ running `medaka tools list\_models`.
 
 For guppy v3.0.3 models are named similarly to their basecalling counterparts
 with a "fast" and "high accuracy" model, for example `r941_min_fast` and
-`r941_min_high`. The medaka models are equal in speed regardless of basecaller
-speed/accuracy.
+`r941_min_high`. The medaka models are equal in computation performance
+regardless of basecaller speed/accuracy.
 
-For guppy versions >=2.1.3 where the flip-flop algorithm has been used, users
-should select the highest numbered model equal to or less than the guppy
-version used for basecalling. There are two models here: `r941_flip213` and
-`r941_flip235`
-
-A final model `r941_trans` is available where a basecaller with the transducer
-algorithm has been used (Albacore or Guppy<2.1.3).
 
 ### Origin of the draft sequence
 
