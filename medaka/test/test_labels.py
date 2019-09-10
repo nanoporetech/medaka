@@ -343,7 +343,7 @@ class HaploidLabelSchemeTest(unittest.TestCase):
             self.assertEqual(v.alt, alt)
             self.assertEqual(v.genotype_data['GT'], gt)
             gq = qual_homo if len(set(v.gt)) == 1 else qual_hetero
-            self.assertAlmostEqual(v.genotype_data['GQ'], gq)
+            self.assertAlmostEqual(float(v.genotype_data['GQ']), gq, places=3)
 
 
 def diploid_sample_from_labels(ls=None,
@@ -489,7 +489,7 @@ class DiploidLabelSchemeTest(unittest.TestCase):
             self.assertEqual(v.ref, ref)
             self.assertEqual(v.alt, alt)
             self.assertEqual(v.genotype_data['GT'], gt)
-            self.assertAlmostEqual(v.genotype_data['GQ'], qual)
+            self.assertAlmostEqual(float(v.genotype_data['GQ']), qual, places=3)
 
 
 def diploid_zygosity_sample_from_labels(ls=None,
@@ -654,7 +654,7 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
             self.assertEqual(v.alt, alt)
             self.assertEqual(v.genotype_data['GT'], gt)
             gq = qual_hom if len(set(v.gt)) == 1 else qual_het
-            self.assertAlmostEqual(v.genotype_data['GQ'], gq)
+            self.assertAlmostEqual(float(v.genotype_data['GQ']), gq, places=3)
 
     def test_decode_snps_is_het_always_off(self):
 
@@ -702,7 +702,7 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
             self.assertEqual(v.alt, alt)
             self.assertEqual(v.genotype_data['GT'], gt)
             gq = qual_hom if len(set(v.gt)) == 1 else qual_het
-            self.assertAlmostEqual(v.genotype_data['GQ'], gq)
+            self.assertAlmostEqual(float(v.genotype_data['GQ']), gq, places=3)
 
 
 class RLELabelSchemeTest(unittest.TestCase):

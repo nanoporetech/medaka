@@ -422,6 +422,14 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         q = -10 * np.log10(err)
         return min(q, cap)
 
+    @staticmethod
+    def _pfmt(p):
+        """Cast float to string with 3 decimal places.
+
+        Used to format probabilities and quality scores for vcf output.
+        """
+        return '{:.3f}'.format(p)
+
     @abc.abstractmethod
     def _alignment_to_pairs(self, aln):
         """Convert `pysam.AlignedSegment` to aligned pairs."""
@@ -688,7 +696,7 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         MI = medaka.vcf.MetaInfo
         m = [MI('INFO', 'ref_prob', 1, 'Float',
                 'Medaka probability for reference allele'),
-             MI('INFO', 'primary_prob', 1, 'String',
+             MI('INFO', 'primary_prob', 1, 'Float',
                 'Medaka probability of primary call'),
              MI('INFO', 'primary_call', 1, 'String',
                 'Medaka primary call'),
@@ -787,10 +795,10 @@ class HaploidLabelScheme(BaseLabelScheme):
         secondary_prob, primary_prob = np.sort(network_output)[-2:]
         ref_prob = network_output[self._encoding[(ref_symbol,)]]
 
-        info = {'ref_prob': ref_prob,
-                'primary_prob': primary_prob,
+        info = {'ref_prob': self._pfmt(ref_prob),
+                'primary_prob': self._pfmt(primary_prob),
                 'primary_call': primary_call,
-                'secondary_prob': secondary_prob,
+                'secondary_prob': self._pfmt(secondary_prob),
                 'secondary_call': secondary_call}
 
         # logical tests
@@ -806,7 +814,7 @@ class HaploidLabelScheme(BaseLabelScheme):
                 not secondary_exceeds_threshold)):
 
             alt = primary_call
-            qual = self._phred(1 - primary_prob)
+            qual = self._pfmt(self._phred(1 - primary_prob))
             genotype = {'GT': '1/1', 'GQ': qual}
             return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                       alt, filt='PASS', info=info,
@@ -818,7 +826,7 @@ class HaploidLabelScheme(BaseLabelScheme):
                   secondary_exceeds_threshold)):
 
             err = 1 - (primary_prob + secondary_prob)
-            qual = self._phred(err)
+            qual = self._pfmt(self._phred(err))
             # filtering by list comp maintains order
             alt = [c for c in [primary_call, secondary_call]
                    if not c == ref_symbol]
@@ -836,7 +844,7 @@ class HaploidLabelScheme(BaseLabelScheme):
                   secondary_exceeds_threshold)):
 
             alt = primary_call
-            qual = self._phred(1 - primary_prob)
+            qual = self._pfmt(self._phred(1 - primary_prob))
             genotype = {'GT': '1/1', 'GQ': qual}
             return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                       alt, filt='PASS', info=info,
@@ -848,7 +856,7 @@ class HaploidLabelScheme(BaseLabelScheme):
                 return None
             else:
                 # return variant even though it is not a snp
-                qual = self._phred(1 - primary_prob)
+                qual = self._pfmt(self._phred(1 - primary_prob))
                 genotype = {'GT': 0, 'GQ': qual}
                 return medaka.vcf.Variant(ref_name, pos, ref_symbol,
                                           alt='.', filt='PASS', info=info,
@@ -945,19 +953,16 @@ class HaploidLabelScheme(BaseLabelScheme):
             ref_quals = [self._phred(1 - p) for p in ref_probs]
             pred_quals = [self._phred(1 - p) for p in pred_probs]
 
-            def qfmt(q):
-                return '{:.3f}'.format(q)
-
             info = {'ref_seq': var_ref_with_gaps,
                     'pred_seq': var_pred_with_gaps,
-                    'pred_qs': ','.join((qfmt(q) for q in pred_quals)),
-                    'ref_qs': ','.join((qfmt(q) for q in ref_quals)),
-                    'pred_q': qfmt(sum(pred_quals)),
-                    'ref_q': qfmt(sum(ref_quals)),
+                    'ref_qs': ','.join((self._pfmt(q) for q in ref_quals)),
+                    'pred_qs': ','.join((self._pfmt(q) for q in pred_quals)),
+                    'ref_q': self._pfmt(sum(ref_quals)),
+                    'pred_q': self._pfmt(sum(pred_quals)),
                     'n_cols': len(pred_quals)}
 
             # log likelihood ratio
-            qual = qfmt(sum(pred_quals) - sum(ref_quals))
+            qual = self._pfmt(sum(pred_quals) - sum(ref_quals))
             genotype = {'GT': '1/1', 'GQ': qual}
 
             variant = medaka.vcf.Variant(sample.ref_name,
@@ -978,21 +983,20 @@ class HaploidLabelScheme(BaseLabelScheme):
                 'Medaka reference sequence'),
              MI('INFO', 'pred_seq', 1, 'String',
                 'Medaka predicted sequence'),
-             MI('INFO', 'pred_qs', '.', 'Float',
-                'Medaka quality score for prediction'),
              MI('INFO', 'ref_qs', '.', 'Float',
                 'Medaka quality score for reference'),
-             MI('INFO', 'pred_q', 1, 'Float',
-                'Medaka per position quality score for prediction'),
+             MI('INFO', 'pred_qs', '.', 'Float',
+                'Medaka quality score for prediction'),
              MI('INFO', 'ref_q', 1, 'Float',
                 'Medaka per position quality score for reference'),
-             MI('INFO', 'n_cols', 1, 'Integer',
-                'Number of medaka pileup columns in variant call'),
+             MI('INFO', 'pred_q', 1, 'Float',
+                'Medaka per position quality score for prediction'),
              MI('FORMAT', 'GT', 1, 'String',
                 'Medaka genotype.'),
              MI('FORMAT', 'GQ', 1, 'Float',
-                'Medaka genotype quality score')]
-
+                'Medaka genotype quality score'),
+             MI('INFO', 'n_cols', 1, 'Integer',
+                'Number of medaka pileup columns in variant call')]
         return m
 
     def decode_consensus(self, sample, with_gaps=False):
@@ -1086,13 +1090,13 @@ class DiploidLabelScheme(BaseLabelScheme):
         """Convert network output single locus to medaka.common.Variant."""
         call = self._decoding[np.argmax(network_output)]
         prob = np.max(network_output)
-        qual = self._phred(1 - prob)
+        qual = self._pfmt(self._phred(1 - prob))
         # probability of homozygous reference
         ref_prob = network_output[
             self._encoding[(ref_symbol, ref_symbol)]]
 
-        info = {'ref_prob': ref_prob,
-                'prob': prob,
+        info = {'ref_prob': self._pfmt(ref_prob),
+                'prob': self._pfmt(prob),
                 'call': call}
 
         # logical tests
@@ -1157,7 +1161,7 @@ class DiploidLabelScheme(BaseLabelScheme):
         m = [MI('INFO', 'ref_prob', 1, 'Float',
                 'Medaka probability of reference'),
              MI('INFO', 'prob', 1, 'Float', 'Medaka probability of variant'),
-             MI('INFO', 'call', 1, 'Float', 'Medaka variant call'),
+             MI('INFO', 'call', 1, 'String', 'Medaka variant call'),
              MI('FORMAT', 'GT', 1, 'String', 'Medaka genotype'),
              MI('FORMAT', 'GQ', 1, 'Float', 'Medaka genotype quality score')]
 
@@ -1309,10 +1313,10 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
         else:
             call = tuple((primary_call, secondary_call))
 
-        info = {'ref_prob': ref_prob,
-                'primary_prob': primary_prob,
+        info = {'ref_prob': self._pfmt(ref_prob),
+                'primary_prob': self._pfmt(primary_prob),
                 'primary_call': primary_call,
-                'secondary_prob': secondary_prob,
+                'secondary_prob': self._pfmt(secondary_prob),
                 'secondary_call': secondary_call}
 
         # logical tests
@@ -1327,7 +1331,7 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
                 not is_het,
                 not contains_deletion)):
 
-            qual = self._phred(1 - primary_prob)
+            qual = self._pfmt(self._phred(1 - primary_prob))
             alt = call[0]
             genotype = {'GT': '1/1', 'GQ': qual}
             return medaka.vcf.Variant(ref_name, pos, ref_symbol,
@@ -1339,7 +1343,7 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
                   not contains_deletion)):
 
             err = 1 - 0.5 * (primary_prob + secondary_prob)
-            qual = self._phred(err)
+            qual = self._pfmt(self._phred(err))
             alt = [s for s in call if s is not ref_symbol]
             gt = '0/1' if len(alt) == 1 else '1/2'
             genotype = {'GT': gt, 'GQ': qual}
@@ -1353,7 +1357,7 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
                   contains_nonref,
                   contains_deletion)):
 
-            qual = self._phred(1 - primary_prob)
+            qual = self._pfmt(self._phred(1 - primary_prob))
             alt = [s for s in call if s != '*']
             gt = '1/1'
             genotype = {'GT': gt, 'GQ': qual}
@@ -1367,7 +1371,7 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
             if not return_all:
                 return None
             else:
-                qual = ref_prob
+                qual = self._pfmt(ref_prob)
                 # return variant even though it is not a snp
                 genotype = {'GT': 0, 'GQ': qual}
                 return medaka.vcf.Variant(ref_name, pos, ref_symbol,
