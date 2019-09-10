@@ -429,7 +429,3 @@ def main():
     else:
         #TODO: do common argument validation here
         args.func(args)
-
-
-if __name__ == '__main__':
-    main()
