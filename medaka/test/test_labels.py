@@ -345,6 +345,8 @@ class HaploidLabelSchemeTest(unittest.TestCase):
             gq = qual_homo if len(set(v.gt)) == 1 else qual_hetero
             self.assertAlmostEqual(float(v.genotype_data['GQ']), gq, places=3)
 
+    def test_padding_vector(self):
+        np.testing.assert_equal(self.ls.padding_vector, np.array([[0]]))
 
 def diploid_sample_from_labels(ls=None,
                                ref=None,
@@ -491,6 +493,8 @@ class DiploidLabelSchemeTest(unittest.TestCase):
             self.assertEqual(v.genotype_data['GT'], gt)
             self.assertAlmostEqual(float(v.genotype_data['GQ']), qual, places=3)
 
+    def test_padding_vector(self):
+        np.testing.assert_equal(self.ls.padding_vector, np.array([[0]]))
 
 def diploid_zygosity_sample_from_labels(ls=None,
                                         ref=None,
@@ -704,12 +708,14 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
             gq = qual_hom if len(set(v.gt)) == 1 else qual_het
             self.assertAlmostEqual(float(v.genotype_data['GQ']), gq, places=3)
 
+    def test_padding_vector(self):
+        np.testing.assert_equal(self.ls.padding_vector, np.array([[1., 0., 0., 0., 0., 0.]]))
 
 class RLELabelSchemeTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.scheme = medaka.labels.RLELabelScheme(max_run=3)
+        cls.ls = medaka.labels.RLELabelScheme(max_run=3)
 
     def test_encoding(self):
         """Check some elements of the `_encoding`."""
@@ -718,7 +724,7 @@ class RLELabelSchemeTest(unittest.TestCase):
             ('C', 1): 4, ('C', 2): 5, ('C', 3): 6, ('G', 1): 7,
             ('G', 2): 8, ('G', 3): 9, ('T', 1): 10, ('T', 2): 11,
             ('T', 3): 12}
-        encoding = self.scheme._encoding
+        encoding = self.ls._encoding
         self.assertEqual(encoding, expected)
 
     def test_alignment_to_pairs_001(self):
@@ -745,7 +751,7 @@ class RLELabelSchemeTest(unittest.TestCase):
             (13, ('G', 1)), (14, ('A', 1)), (15, ('*', 1)), (16, ('T', 2)),
             (17, ('G', 3)), (18, ('T', 2)), (19, ('A', 3)), (20, ('C', 3)))
 
-        got = tuple(self.scheme._alignment_to_pairs(aln))
+        got = tuple(self.ls._alignment_to_pairs(aln))
         self.assertEqual(got, expected)
 
     def test_decode_consensus(self):
@@ -760,8 +766,11 @@ class RLELabelSchemeTest(unittest.TestCase):
         label_probs[5, 5] = 0.9    # (C, 2)
         mock = medaka.common.Sample(None, None, None, None, None, label_probs)
         expected = 'TCCAAAGGCC'
-        got = self.scheme.decode_consensus(mock)
+        got = self.ls.decode_consensus(mock)
         self.assertEqual(expected, got)
+
+    def test_padding_vector(self):
+        np.testing.assert_equal(self.ls.padding_vector, np.array([[0]]))
 
 if __name__ == '__main__':
     unittest.main()
