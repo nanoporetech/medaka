@@ -51,11 +51,11 @@ build:sdist:
         paths:
             - dist/*.tar.gz
 
-deploy-test:pypi:
+deploy:pypi:
     stage: deploy
     script:
         - make build
         - source pypi_build/bin/activate
-        - twine upload --repository-url https://test.pypi.org/legacy/ dist/*.tar.gz wheelhouse/*.whl
+        - twine upload dist/*.tar.gz wheelhouse/*.whl
     only:
         - tags
