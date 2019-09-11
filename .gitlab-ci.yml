@@ -44,7 +44,7 @@ build:many-linux-6:
         - ./build-wheels.sh . 6
 
 build:sdist:
-    stage: deploy
+    stage: build
     script:
         - make sdist
     artifacts:
