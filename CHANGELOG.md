@@ -6,6 +6,7 @@ Bugfix and training refactor release
 * Fix bug where medaka_variant did not call indels by default
 * Fix bug in determining when to split contigs
 * Drop support for older basecaller models (guppy<3.0.3)
+* Store models in git-lfs
 * Simplify medaka_variant workflow for speed
 * Make network feature generation 2x faster
 * Add smolecule command
