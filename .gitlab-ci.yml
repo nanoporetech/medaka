@@ -1,7 +1,9 @@
 image: $IMAGE
 
 stages:
+    - test
     - build
+    - deploy
 
 before_script:
     - apt-get update -qq && apt-get install -y -qq
@@ -11,8 +13,8 @@ before_script:
       libssl-dev libffi-dev
     - wget https://ont-research.s3-eu-west-1.amazonaws.com/parasail-1.1.17-py2.py3-none-manylinux1_x86_64.whl 
 
-runtest:
-    stage: build
+test:
+    stage: test
     script:
         - make venv
         # no wheel for parasail on pypi
@@ -31,13 +33,29 @@ runtest:
   only:
       - tags
 
-many-linux-5:
+build:many-linux-5:
     <<: *many-linux-def
     script:
         - ./build-wheels.sh . 5
 
-many-linux-6:
+build:many-linux-6:
     <<: *many-linux-def
     script:
         - ./build-wheels.sh . 6
 
+build:sdist:
+    stage: deploy
+    script:
+        - make sdist
+    artifacts:
+        paths:
+            - dist/*.tar.gz
+
+deploy-test:pypi:
+    stage: deploy
+    script:
+        - make build
+        - source pypi_build/bin/activate
+        - twine upload --repository-url https://test.pypi.org/legacy/ dist/*.tar.gz wheelhouse/*.whl
+    only:
+        - tags
