@@ -3,10 +3,44 @@ import unittest
 import numpy as np
 import os
 
-from medaka.common import Sample, OverlapException
+from medaka.common import Region, Sample, OverlapException
 
 root_dir = os.path.abspath(os.path.dirname(__file__))
 test_file = os.path.join(root_dir, 'data/test_probs.hdf')
+
+class TestRegion(unittest.TestCase):
+    def test_self_overlap(self):
+        cases = [
+            Region('contig1', 0, 100),
+            Region('contig1', 0, None),
+            Region('contig1', None, None)]
+        for c in cases:
+            self.assertTrue(c.overlaps(c))
+
+    def test_overlaps(self):
+        a = Region('contig1', 50, 100)
+        cases = [
+            Region('contig1', 49, 150),
+            Region('contig1', 50, 150),
+            Region('contig1', 51, 150),
+            Region('contig1', 50, 99),
+            Region('contig1', 50, 100),
+            Region('contig1', 50, 101),
+        ]
+        for c in cases:
+            self.assertTrue(a.overlaps(c))
+            self.assertTrue(c.overlaps(a))
+
+    def test_no_overlap(self):
+        a = Region('contig1', 50, 100)
+        cases = [
+            Region('contig2', 50, 100),
+            Region('contig1', 0, 50),
+            Region('contig1', 100, 150),
+        ]
+        for c in cases:
+            self.assertFalse(a.overlaps(c))
+            self.assertFalse(c.overlaps(a))
 
 
 class TestSample(unittest.TestCase):

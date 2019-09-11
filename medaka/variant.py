@@ -160,10 +160,11 @@ def snps_from_hdf(args):
 
     index = medaka.datastore.DataIndex(args.inputs)
 
-    if args.regions is not None:
-        ref_names = medaka.common.ref_name_from_region_str(args.regions)
-    else:
-        ref_names = medaka.common.loose_version_sort(index.index)
+    if args.regions is None:
+        args.regions = sorted(index.index)
+    regions = [
+        medaka.common.Region.from_string(r)
+        for r in args.regions]
 
     # lookup LabelScheme stored in HDF5
     try:
@@ -180,14 +181,16 @@ def snps_from_hdf(args):
 
     meta_info = label_scheme.snp_metainfo
 
+    ref_names = [r.ref_name for r in regions]
     with medaka.vcf.VCFWriter(
             args.output, 'w', version='4.1',
             contigs=ref_names, meta_info=meta_info) as vcf_writer:
-        for ref_name in ref_names:
-            logger.info("Processing {}.".format(ref_name))
-            ref_seq = pysam.FastaFile(args.ref_fasta).fetch(reference=ref_name)
+        for reg in regions:
+            logger.info("Processing {}.".format(reg))
+            ref_seq = pysam.FastaFile(args.ref_fasta).fetch(
+                reference=reg.ref_name)
 
-            samples = index.yield_from_feature_files([ref_name])
+            samples = index.yield_from_feature_files(regions=[reg])
             trimmed_samples = trim_samples(samples)
 
             for sample, is_last in trimmed_samples:
@@ -208,10 +211,11 @@ def variants_from_hdf(args):
 
     index = medaka.datastore.DataIndex(args.inputs)
 
-    if args.regions is not None:
-        ref_names = medaka.common.ref_name_from_region_str(args.regions)
-    else:
-        ref_names = medaka.common.loose_version_sort(index.index)
+    if args.regions is None:
+        args.regions = sorted(index.index)
+    regions = [
+        medaka.common.Region.from_string(r)
+        for r in args.regions]
 
     # lookup LabelScheme stored in HDF5
     try:
@@ -237,14 +241,16 @@ def variants_from_hdf(args):
 
     meta_info = label_scheme.variant_metainfo
 
+    ref_names = [r.ref_name for r in regions]
     with medaka.vcf.VCFWriter(
             args.output, 'w', version='4.1',
             contigs=ref_names, meta_info=meta_info) as vcf_writer:
-        for ref_name in ref_names:
-            logger.info("Processing {}.".format(ref_name))
-            ref_seq = pysam.FastaFile(args.ref_fasta).fetch(reference=ref_name)
+        for reg in regions:
+            logger.info("Processing {}.".format(reg))
+            ref_seq = pysam.FastaFile(args.ref_fasta).fetch(
+                reference=reg.ref_name)
 
-            samples = index.yield_from_feature_files([ref_name])
+            samples = index.yield_from_feature_files([reg])
             trimmed_samples = trim_samples(samples)
             joined_samples = join_samples(
                 trimmed_samples, ref_seq, label_scheme)
