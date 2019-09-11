@@ -1,3 +1,19 @@
+v0.9.0
+------
+Bugfix and training refactor release
+
+* Fix readlink issue on MacOS
+* Fix bug where medaka_variant did not call indels by default
+* Fix bug in determining when to split contigs
+* Drop support for older basecaller models (guppy<3.0.3)
+* Store models in git-lfs
+* Simplify medaka_variant workflow for speed
+* Make network feature generation 2x faster
+* Add smolecule command
+* Log use of GPU and cuDNN, noting workaround for RTX cards
+* Refactor labelling of training data and storing of models
+* Reimplement RLE feature generation
+
 
 v0.8.2
 ------
@@ -6,11 +22,13 @@ Documentation release
 
 * Clarify suggested workflows in documentation.
 
+
 v0.8.1
 ------
 Patch release
 
 * Patch import of loading of older models
+
 
 v0.8.0
 ------

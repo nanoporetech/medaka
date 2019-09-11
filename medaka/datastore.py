@@ -1,300 +1,402 @@
-from collections import Counter, defaultdict, OrderedDict
-from concurrent.futures import ProcessPoolExecutor, as_completed
-
-import numpy as np
-import yaml
-
+"""Storing of training and inference data to file."""
+from collections import defaultdict, OrderedDict
+from concurrent.futures import \
+    as_completed, ProcessPoolExecutor, ThreadPoolExecutor
 import warnings
+
+import dill
+import numpy as np
+
+import medaka.common
+
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
     import h5py
 
-import medaka.common
-
 
 class DataStore(object):
-    """Class to read/write to a data file"""
-    _sample_path_ = 'samples'
-    _groups_ = ('medaka_features_kwargs', 'medaka_model_kwargs', 'medaka_model_name',
-                'medaka_label_decoding', 'medaka_feature_decoding',
-                'medaka_label_counts', 'medaka_samples')
+    """Read and write data to .hdf files."""
+
+    # these metadata Datasets are common to data files storing
+    # both sample and model information
+    # they are placed in a self._meta_group_ Group
+    _meta_group_ = 'meta'
+    _metadata_datasets_ = (
+        'feature_encoder',  # pickled FeatureEncoder object
+        'model_function',   # pickled partial function; creates model object
+        'label_scheme')     # pickled LabelScheme object
+
+    _sample_path_ = 'samples/data'  # data group contains sample Datasets
+    _sample_registry_path_ = 'samples/registry'  # set of sample keys
 
     def __init__(self, filename, mode='r', verify_on_close=True):
+        """Initialize a datastore.
 
+        :param filename: file to open.
+        :param mode: file opening mode ('r', 'w', 'a').
+        :param verify_on_close: on file close, check that all samples logged
+            as being stored in file have a corresponding group within the
+            `.hdf`."
+        """
         self.filename = filename
         self.mode = mode
         self.verify_on_close = verify_on_close
 
-        self._sample_keys = set()
-        self.fh = None
-
         self.logger = medaka.common.get_named_logger('DataStore')
 
-        self._meta = None
-
+        self.write_executor = ThreadPoolExecutor(1)
+        self.write_futures = []
 
     def __enter__(self):
-
+        """Create filehandle."""
         self.fh = h5py.File(self.filename, self.mode)
+        self._load_metadata()  # accessed via self.metadata
+        self._load_sample_registry()  # accessed via self.sample_registry
 
         return self
 
-
     def __exit__(self, *args):
-
+        """Verify file if requested."""
         if self.mode != 'r':
             if self.verify_on_close:
-                self._verify_()  # verify data before saving meta
+                self._verify()
             else:
                 self.logger.debug("Skipping validation on close.")
-            self._write_metadata(self.meta)
+            self._write_metadata()
+            self._write_sample_registry()
+            self.write_executor.shutdown(wait=True)
         self.fh.close()
 
-
-    def _verify_(self):
+    def _verify(self):
+        """Remove samples from registry if nonexistent or missing fields."""
         self.logger.debug("Verifying data.")
         self.fh.flush()
         fh = h5py.File(self.filename, 'r')
-        # find the union of all present fields and remove and samples from the
-        # index which don't contain all of these fields
-        all_fields = set()
 
-        for key in self.sample_keys:
-            self.logger.debug("First round verify {}.".format(key))
-            # if key is not in the file, remove it from the index
-            grp = '{}/{}'.format(self._sample_path_, key)
-            if grp not in fh:
-                self.meta['medaka_samples'].remove(key)
-                self.logger.debug("Removing sample {} as grp {} is not present.".format(key, grp))
-                continue
-            all_fields.update(fh[grp].keys())
+        # ensure that sample registry only contains the keys of samples
+        # that exist
+        self._sync_sample_registry()
 
-        for key in self.sample_keys:
-            self.logger.debug("Second round verify {}.".format(key))
-            for field in all_fields:
-                path = '{}/{}/{}'.format(self._sample_path_, key, field)
-                if path not in fh:
-                    self.meta['medaka_samples'].remove(key)
-                    self.logger.debug("Removing sample {} as field {} is not present.".format(key, path))
-                    break
+        # get union of all fields in all samples
+        sample_fields = set()
+        for key in self.sample_registry:
+            sample_data_path = '/'.join((self._sample_path_, key))
+            sample_fields.update(set(fh[sample_data_path]))
 
-
-    @property
-    def meta(self):
-        if self._meta is None:
-            self._meta = self._load_metadata()
-        return self._meta
-
-
-    def update_meta(self, meta):
-        """Update metadata"""
-        self._meta = self.meta
-        self._meta.update(meta)
-
+        # if a sample is missing fields, delete it from the registry
+        for key in self.sample_registry:
+            sample_data_path = '/'.join((self._sample_path_, key))
+            missing_fields = sample_fields - set(fh[sample_data_path])
+            if len(missing_fields):
+                self.sample_registry.remove(key)
+                self.logger.debug('Removing sample {} '.format(key) +
+                                  'as {} not present.'.format(missing_fields))
 
     def write_sample(self, sample):
-        """Write sample to hdf, ensuring a sample is not written twice and maintaining
-        a count of labels seen.
+        """Write sample to hdf.
+
+        Checks are performed to ensure a sample is not written twice and
+        a count of unique training labels seen is maintained.
 
         :param sample: `medaka.common.Sample` object.
         """
-        # count labels and store them in meta
-        if 'medaka_label_counts' not in self.meta:
-            self.meta['medaka_label_counts'] = Counter()
-        # Store sample index in meta
-        if 'medaka_samples' not in self.meta:
-            self.meta['medaka_samples'] = set()
-
-        if not any([isinstance(getattr(sample, field), np.ndarray) for field in sample._fields]):
+        contains_numpy_array = any(isinstance(getattr(sample, field),
+                                              np.ndarray)
+                                   for field in sample._fields)
+        if not contains_numpy_array:
             self.logger.debug('Not writing sample as it has no data.')
-        elif sample.name not in self.meta['medaka_samples']:
+
+        # if the sample does not already exist (according to sample registry)
+        elif sample.name not in self.sample_registry:
             for field in sample._fields:
+                # do not write None
                 if getattr(sample, field) is not None:
                     data = getattr(sample, field)
-                    if isinstance(data, np.ndarray) and isinstance(data[0], np.unicode):
+                    # handle numpy array of unicode chars
+                    if isinstance(data, np.ndarray) and \
+                            isinstance(data[0], np.unicode):
                         data = np.char.encode(data)
-                    self.fh['{}/{}/{}'.format(self._sample_path_, sample.name, field)] = data
-
-            if sample.labels is not None:
-                if sample.labels.shape[-1] == 1:  # haploid
-                    self.meta['medaka_label_counts'].update([tuple(l) for l in sample.labels[:, 0]])
-                else:
-                    #TODO this is appropriate for multi_label training
-                    # but if we want to explicitely encode diploid labels
-                    # one would have to count pairs of labels.
-                    self.meta['medaka_label_counts'].update([tuple(l) for l in sample.labels.flatten()])
-            # Do this last so we only add this sample to the index if we have
-            # gotten this far
-            self.meta['medaka_samples'].add(sample.name)
+                    location = '{}/{}/{}'.format(
+                        self._sample_path_, sample.name, field)
+                    self.write_futures.append(
+                        self.write_executor.submit(
+                            self._write_dataset, location, data))
+            self.sample_registry.add(sample.name)
         else:
-            self.logger.debug('Not writing {} as it is present already'.format(sample.name))
+            self.logger.debug(
+                'Not writing {} as present already'.format(
+                    sample.name))
 
+    def _write_dataset(self, location, data):
+        """Write data, compressing numpy arrays."""
+        if isinstance(data, np.ndarray):
+            self.fh.create_dataset(location, data=data,
+                                   compression='gzip',
+                                   compression_opts=1)
+        else:
+            self.fh[location] = data
 
     def load_sample(self, key):
-        """Load `medaka.common.Sample` object from HDF5
+        """Load `medaka.common.Sample` object from file.
 
         :param key: str, sample name.
         :returns: `medaka.common.Sample` object.
         """
-        s = {}
+        s = dict()
         for field in medaka.common.Sample._fields:
             pth = '{}/{}/{}'.format(self._sample_path_, key, field)
             if pth in self.fh:
                 s[field] = self.fh[pth][()]
-                if isinstance(s[field], np.ndarray) and isinstance(s[field][0], type(b'')):
+                # handle loading of bytestrings
+                if isinstance(s[field], np.ndarray) and \
+                        isinstance(s[field][0], type(b'')):
                     s[field] = np.char.decode(s[field])
             else:
                 s[field] = None
         return medaka.common.Sample(**s)
 
+    def _load_pickled(self, path):
+        """Load and return pickled object."""
+        obj = dill.loads(self.fh[path][()])
+        return obj
 
-    def log_counts(self):
-        """Log label counts"""
+    def _write_pickled(self, obj, path):
+        """Write a pickled object to file."""
+        if path in self.fh:
+            del self.fh[path]
+        pickled_obj = np.string_(dill.dumps(obj))
+        self.fh[path] = pickled_obj
 
-        h = lambda l: (medaka.common.decoding[l[0]], l[1]) if type(l) == tuple else l
-        self.logger.info("Label counts:\n{}".format('\n'.join(
-            ['{}: {}'.format(h(label), count) for label, count in self.meta['medaka_label_counts'].items()]
-        )))
-
-
-    def _write_metadata(self, data):
-        """Save a data structure to file within a yml str."""
-        self.logger.debug("Writing metadata.")
-        for group, d in data.items():
-            if group in self.fh:
-                del self.fh[group]
-            self.fh[group] = yaml.dump(d)
-
-
-    def _load_metadata(self, groups=None):
-        """Load meta data"""
-        if groups is None:
-            groups = self._groups_
-        return {g: yaml.unsafe_load(self.fh[g][()]) for g in groups if g in self.fh}
-
+    def _load_feature_encoder(self, path):
+        """Load and return feature encoder."""
+        obj = self._load_pickled(path)
+        # set logger; pickle does not handle correctly
+        obj.logger = medaka.common.get_named_logger('Feature')
+        return obj
 
     @property
-    def sample_keys(self):
-        """Return tuple of sample keys"""
+    def _metadata_loaders(self):
+        """Return dict of metadata loaders."""
+        loaders = {'feature_encoder': self._load_feature_encoder,
+                   'model_function': self._load_pickled,
+                   'label_scheme': self._load_pickled}
+        return loaders
 
-        return tuple(self.meta['medaka_samples']) if 'medaka_samples' in self.meta else tuple()
+    @property
+    def _metadata_writers(self):
+        """Return dict of metadata writers."""
+        writers = {'feature_encoder': self._write_pickled,
+                   'model_function': self._write_pickled,
+                   'label_scheme': self._write_pickled}
+        return writers
 
+    def _load_metadata_dataset(self, dataset):
+        """Load dataset using appropriate loader."""
+        try:
+            loader = self._metadata_loaders[dataset]
+        except KeyError:
+            self.logger.debug('No metadata loader defined for {}'.format(
+                dataset))
+        else:
+            path = '/'.join((self._meta_group_, dataset))
+            dataset = loader(path)
+            return dataset
 
-    def _find_samples(self):
-        """Find samples in a file and update meta with a list of samples."""
-        self.update_meta({'medaka_samples': set(self.fh[self._sample_path_].keys()) if self._sample_path_ in self.fh else {}})
+    def _load_metadata(self, datasets=None):
+        """Load meta data."""
+        if datasets is None:
+            datasets = self._metadata_datasets_
+        metadata = dict()
+        for d in datasets:
+            try:
+                metadata[d] = self._load_metadata_dataset(d)
+            except Exception as e:
+                self.logger.debug("Could not load {} from {}. {}.".format(
+                    d, self.filename, e))
+        self.metadata = metadata
 
+    def _write_metadata(self):
+        """Write meta data."""
+        for dataset, data in self.metadata.items():
+            self._write_metadata_dataset(dataset, data)
+
+    def _write_metadata_dataset(self, dataset, data):
+        """Write metadata."""
+        self.logger.debug("Writing metadata.")
+        try:
+            writer = self._metadata_writers[dataset]
+        except KeyError:
+            self.logger.debug('No metadata writer defined for {}'.format(
+                dataset))
+        else:
+            path = '/'.join((self._meta_group_, dataset))
+            writer(data, path)
+
+    def _load_sample_registry(self):
+        """Load sample registry."""
+        try:
+            sample_keys = self._load_pickled(
+                self._sample_registry_path_)
+        except KeyError:
+            sample_keys = set()
+        finally:
+            self.sample_registry = sample_keys
+
+    def _write_sample_registry(self):
+        """Write sample registry."""
+        self.logger.debug("Writing sample registry.")
+        if self._sample_registry_path_ in self.fh:
+            del self.fh[self._sample_registry_path_]
+        self._write_pickled(self.sample_registry,
+                            self._sample_registry_path_)
+
+    def _sync_sample_registry(self):
+        """Find samples in file and update registry accordingly."""
+        try:
+            sample_keys = set(self.fh[self._sample_path_])
+        except KeyError:
+            self.logger.debug('No {} found in {}.'.format(
+                self._sample_path_, self.filename))
+            sample_keys = set()
+        finally:
+            self.sample_registry = sample_keys
 
     @property
     def n_samples(self):
-        """Return number of samples"""
-        return len(self.sample_keys)
+        """Return the number of samples stored in file."""
+        return len(self.sample_registry)
 
 
 class DataIndex(object):
-    """Class to index and serve samples from one or more `DataFiles`"""
+    """Index and serve samples from multiple `DataStore` compatible files."""
 
     def __init__(self, filenames, threads=4):
+        """Intialize an index across a set of files.
 
+        :param filenames: list of files to index.
+        :param threads: number of threads to use for indexing.
+        """
         self.logger = medaka.common.get_named_logger('DataIndex')
-
         self.filenames = filenames
+        self.threads = threads
+        self.n_files = len(self.filenames)
+        self._index = None
+        self._extract_sample_registries()
+        self.metadata = self._load_metadata()
 
-        with DataStore(filenames[0]) as ds:
-            self.logger.debug('Loading meta from {}'.format(filenames[0]))
-            self.meta = ds.meta
-
-        c_grp = 'medaka_label_counts'
-        if c_grp in self.meta:
-            self.meta[c_grp] = Counter()
-
-        if 'medaka_samples' in self.meta:
-            del self.meta['medaka_samples']
-
+    def _extract_sample_registries(self):
+        """."""
         self.samples = []
 
-        with ProcessPoolExecutor(threads) as executor:
-            future_to_f = {executor.submit(DataIndex._load_meta, f): f for f in filenames}
-            for i, future in enumerate(as_completed(future_to_f), 1):
-                f = future_to_f[future]
+        with ProcessPoolExecutor(self.threads) as executor:
+            future_to_fn = {
+                executor.submit(DataIndex._load_sample_registry, fn): fn
+                for fn in self.filenames}
+            for i, future in enumerate(as_completed(future_to_fn), 1):
+                fn = future_to_fn[future]
                 try:
-                    meta = future.result()
-                    if 'medaka_samples' in meta:
-                        self.samples.extend([(s, f) for s in meta['medaka_samples']])
-                    else:
-                        self.logger.info('Could not find samples in {}'.format(f))
-
-                    self.meta[c_grp].update(meta[c_grp])
-                except Exception as exc:
-                    self.logger.info('Could not load meta from {}'.format(f))
+                    sample_registry = future.result()
+                    self.samples.extend(
+                            [(s, fn) for s in sample_registry])
+                except Exception:
+                    self.logger.info('No sample_registry in {}'.format(fn))
                 else:
-                    self.logger.info('Loaded sample-index from {}/{} ({:.2%}) of feature files.'.format(i, len(filenames), i / len(filenames)))
+                    self.logger.info(
+                        'Loaded {}/{} ({:.2f}%) sample files.'.format(
+                            i, self.n_files,
+                            i / self.n_files * 100))
 
         # make order of samples independent of order in which tasks complete
         self.samples.sort()
 
-        self._index = None
-
     @staticmethod
-    def _load_meta(f):
+    def _load_sample_registry(f):
         with DataStore(f) as ds:
-            meta = ds.meta
-            #medaka.common.get_named_logger('Load_meta').debug('Done {}'.format(f))
-            return meta
+            return ds.sample_registry
 
+    def _load_metadata(self):
+        """Return metadata for first file.
+
+        Assumes that metadata is identical for all feature files
+        """
+        first_file = self.filenames[0]
+        with DataStore(first_file) as ds:
+            return ds.metadata
 
     @property
     def index(self):
-        self._index = self._get_sorted_index() if self._index is None else self._index
-        return self._index
+        """Return a dictionary describing all samples.
 
+        The dictionary maps sample names to their file and HDF group. It is
+        sorted by reference coordinate.
+        """
+        if self._index is None:
+            self._index = self._get_sorted_index()
+        return self._index
 
     def _get_sorted_index(self):
         """Get index of samples indexed by reference and ordered by start pos.
 
         :returns: {ref_name: [sample dicts sorted by start]}
-        """
 
+        """
         ref_names = defaultdict(list)
 
-        for key, f in self.samples:
-            d = medaka.common.Sample.decode_sample_name(key)
+        for sample_key, fn in self.samples:
+            d = medaka.common.Sample.decode_sample_name(sample_key)
             if d is not None:
-                d['key'] = key
-                d['filename'] = f
+                d['sample_key'] = sample_key
+                d['filename'] = fn
                 ref_names[d['ref_name']].append(d)
 
-        # sort dicts so that refs are in order and within a ref, chunks are in order
+        # sort dicts so that refs are in order and within a ref,
+        # chunks are in order
         ref_names_ordered = OrderedDict()
 
-        get_major_minor = lambda x: tuple((int(i) for i in x.split('.')))
         # sort by start and -end so that if we have two samples with the same
-        # start but differrent end points, the longest sample comes first
-        sorter = lambda x: (get_major_minor(x['start']) + tuple((-i for i in get_major_minor(x['end']))))
-        for ref_name in sorted(ref_names.keys()):
+        # start but different end points, the longest sample comes first
+        def get_major_minor(x):
+            return tuple((int(i) for i in x.split('.')))
+
+        def sorter(x):
+            return get_major_minor(
+                x['start']) + tuple((-i for i in get_major_minor(x['end'])))
+
+        for ref_name in sorted(ref_names):
             ref_names[ref_name].sort(key=sorter)
             ref_names_ordered[ref_name] = ref_names[ref_name]
 
         return ref_names_ordered
 
-
-    def yield_from_feature_files(self, ref_names=None, samples=None):
+    def yield_from_feature_files(self, regions=None, samples=None):
         """Yield `medaka.common.Sample` objects from one or more feature files.
 
-        :ref_names: iterable of str, only process these references.
-        :samples: iterable of sample names to yield (in order in which they are supplied).
-        :yields: `medaka.common.Sample` objects.
-        """
+        :regions: list of `medaka.common.Region` s for which to yield samples.
+        :samples: iterable of sample names to yield (in order in which they
+            are supplied).
 
+        :yields: `medaka.common.Sample` objects.
+
+        """
         if samples is not None:
             # yield samples in the order they are asked for
             for sample, fname in samples:
                 yield DataStore(fname).load_sample(sample)
         else:
-            # yield samples sorted by ref_name and start
-            if ref_names is None:
-                ref_names = sorted(self.index.keys())
-            for ref_name in ref_names:
-                for d in self.index[ref_name]:
-                    with DataStore(d['filename']) as ds:
-                        yield ds.load_sample(d['key'])
+            all_samples = self.index
+            if regions is None:
+                regions = [
+                    medaka.common.Region.from_string(x)
+                    for x in sorted(all_samples)]
+            for reg in regions:
+                if reg.ref_name not in self.index:
+                    continue
+                for sample in self.index[reg.ref_name]:
+                    # samples can have major.minor coords, round to end excl.
+                    sam_reg = medaka.common.Region(
+                        sample['ref_name'],
+                        int(float(sample['start'])),
+                        int(float(sample['end'])) + 1)
+                    if sam_reg.overlaps(reg):
+                        with DataStore(sample['filename']) as store:
+                            yield store.load_sample(sample['sample_key'])

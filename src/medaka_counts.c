@@ -1,10 +1,12 @@
+#include <assert.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
 #include "htslib/sam.h"
 
+#include "medaka_bamiter.h"
+#include "medaka_common.h"
 #include "medaka_counts.h"
 
 #define bam1_seq(b) ((b)->data + (b)->core.n_cigar*4 + (b)->core.l_qname)
@@ -12,65 +14,49 @@
 #define bam_nt16_rev_table seq_nt16_str
 
 
-/** Allocates zero-initialised memory with a message on failure.
- *
- *  @param num number of elements to allocate.
- *  @param size size of each element.
- *  @param msg message to describe allocation on failure.
- *  @returns pointer to allocated memory
- *
- */
-void *xalloc(size_t num, size_t size, char* msg){
-    void *res = calloc(num, size);
-    if (res == NULL){
-        fprintf(stderr, "Failed to allocate mem for %s\n", msg);
-        exit(1);
-    }
-    return res;
-}
-
-
-/** Retrieves a substring.
- *
- *  @param string input string.
- *  @param postion start position of substring.
- *  @param length length of substring required.
- *  @returns string pointer.
- *
- */
-char *substring(char *string, int position, int length) {
-   char *ptr;
-   size_t i;
-
-   ptr = malloc(length + 1);
-
-   for (i = 0 ; i < length ; i++) {
-      *(ptr + i) = *(string + position);
-      string++;
-   }
-
-   *(ptr + i) = '\0';
-   return ptr;
-}
-
-
 /** Constructs a pileup data structure.
  *
  *  @param n_cols number of pileup columns.
  *  @param num_dtypes number of datatypes in pileup.
+ *  @param num_qstrat number of layers in the qscore stratification.
  *  @see destroy_plp_data
  *  @returns a plp_data pointer.
  *
  *  The return value can be freed with destroy_plp_data.
  *
  */
-plp_data create_plp_data(size_t n_cols, size_t num_dtypes) {
+plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_qstrat) {
+    assert(buffer_cols >= n_cols);
     plp_data data = xalloc(1, sizeof(*data), "plp_data");
+    data->buffer_cols = buffer_cols;
+    data->num_dtypes = num_dtypes;
+    data->num_qstrat = num_qstrat;
     data->n_cols = n_cols;
-    data->counts = xalloc(featlen * num_dtypes * n_cols, sizeof(size_t), "count");
-    data->major = xalloc(n_cols, sizeof(size_t), "major");
-    data->minor = xalloc(n_cols, sizeof(size_t), "minor");
+    data->matrix = xalloc(featlen * num_dtypes * buffer_cols * num_qstrat, sizeof(size_t), "matrix");
+    data->major = xalloc(buffer_cols, sizeof(size_t), "major");
+    data->minor = xalloc(buffer_cols, sizeof(size_t), "minor");
     return data;
+}
+
+
+/** Enlarge the internal buffers of a pileup data structure.
+ *
+ *  @param pileup a plp_data pointer.
+ *  @param buffer_cols number of pileup columns for which to allocate memory
+ *
+ */
+void enlarge_plp_data(plp_data pileup, size_t buffer_cols) {
+    assert(buffer_cols > pileup->buffer_cols);
+    size_t old_size = featlen * pileup->num_dtypes * pileup->num_qstrat * pileup->buffer_cols;
+    size_t new_size = featlen * pileup->num_dtypes * pileup->num_qstrat * buffer_cols;
+    pileup->matrix = xrealloc(pileup->matrix, new_size * sizeof(size_t), "matrix");
+    pileup->major = xrealloc(pileup->major, buffer_cols * sizeof(size_t), "major");
+    pileup->minor = xrealloc(pileup->minor, buffer_cols * sizeof(size_t), "minor");
+    // zero out new part of matrix
+    for (size_t i = old_size; i < new_size; ++i) {
+        pileup->matrix[i] = 0;
+    }
+    pileup->buffer_cols = buffer_cols;
 }
 
 
@@ -81,65 +67,57 @@ plp_data create_plp_data(size_t n_cols, size_t num_dtypes) {
  *
  */
 void destroy_plp_data(plp_data data) {
-    free(data->counts);
+    free(data->matrix);
     free(data->major);
     free(data->minor);
     free(data);
 }
 
 
-// parameters for bam iteration
-typedef struct {
-    htsFile *fp;
-    bam_hdr_t *hdr;
-    hts_itr_t *iter;
-    int min_mapQ;
-    char tag_name[2];
-    int tag_value;
-    bool keep_missing;
-} mplp_data;
-
-
-// iterator for reading bam
-static int read_bam(void *data, bam1_t *b) {
-    mplp_data *aux = (mplp_data*) data;
-    uint8_t *tag;
-    bool check_tag = (strcmp(aux->tag_name, "") != 0);
-    int ret;
-    while (1) {
-        ret = aux->iter ? sam_itr_next(aux->fp, aux->iter, b) : sam_read1(aux->fp, aux->hdr, b);
-        if (ret<0) break;
-        // only take primary alignments
-        if (b->core.flag & (BAM_FUNMAP | BAM_FSECONDARY | BAM_FSUPPLEMENTARY | BAM_FQCFAIL | BAM_FDUP)) continue;
-        // filter by mapping quality
-        if ((int)b->core.qual < aux->min_mapQ) continue;
-        // filter by tag
-        if (check_tag) {
-            tag = bam_aux_get((const bam1_t*) b, aux->tag_name);
-            if (tag == NULL){ // tag isn't present or is currupt
-                if (aux->keep_missing) {
-                    break;
-                } else {
-                    continue;
-                }
+/** Prints a pileup data structure.
+ *
+ *  @param pileup a pileup structure.
+ *  @param num_dtypes number of datatypes in the pileup.
+ *  @param dtypes datatype prefix strings.
+ *  @param num_qstrat number of layers in the qscore stratification.
+ *  @returns void
+ *
+ */
+void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_t num_qstrat){
+    fprintf(stdout, "pos\tins\t");
+    if (num_dtypes > 1) {
+        for (size_t i = 0; i < num_dtypes; ++i) {
+            for (size_t j = 0; j < featlen; ++j){
+                fprintf(stdout, "%s.%c\t", dtypes[i], plp_bases[j]);
             }
-            int tag_value = bam_aux2i(tag);
-            if (errno == EINVAL) continue; // tag was not integer
-            if (tag_value != aux->tag_value) continue;
         }
-        break;
+    } else {
+        for (size_t j = 0; j < featlen; ++j){
+            fprintf(stdout, "%c\t", plp_bases[j]);
+        }
     }
-    return ret;
+    fprintf(stdout, "depth\n");
+    for (size_t j = 0; j < pileup->n_cols; ++j) {
+        int s = 0;
+        fprintf(stdout, "%zu\t%zu\t", pileup->major[j], pileup->minor[j]);
+        for (size_t i = 0; i < num_dtypes * featlen * num_qstrat; ++i){
+            size_t c = pileup->matrix[j * num_dtypes * featlen * num_qstrat + i];
+            s += c;
+            fprintf(stdout, "%zu\t", c);
+        }
+        fprintf(stdout, "%d\n", s);
+    }
 }
 
 
 /** Generates medaka-style feature data in a region of a bam.
- *  
+ *
  *  @param region 1-based region string.
  *  @param bam_file input aligment file.
  *  @param num_dtypes number of datatypes in bam.
  *  @param dtypes prefixes on query names indicating datatype.
- *  @returns a pileup counts data pointer.
+ *  @param num_qstrat number of layers of the qscore stratification.
+ *  @returns a pileup data pointer.
  *
  *  The return value can be freed with destroy_plp_data.
  *
@@ -152,20 +130,16 @@ static int read_bam(void *data, bam1_t *b) {
  *  When tag_name is given the behaviour for alignments without the tag is
  *  determined by keep_missing.
  *
- */ 
-plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[], const char tag_name[2], const int tag_value, const bool keep_missing) { 
+ */
+plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[], size_t num_qstrat, const char tag_name[2], const int tag_value, const bool keep_missing) {
     if (num_dtypes == 1 && dtypes != NULL) {
         fprintf(stderr, "Recieved invalid num_dtypes and dtypes args.\n");
         exit(1);
     }
-    //fprintf(stderr, "%u\n", num_dtypes);
-    //for (size_t i=0; i<num_dtypes; ++i) {
-    //    fprintf(stderr, "%s\n", dtypes[i]);
-    //}
-    const size_t dtype_featlen = featlen * num_dtypes;
+    const size_t dtype_featlen = featlen * num_dtypes * num_qstrat;
 
     // extract `chr`:`start`-`end` from `region`
-    //   (start is one-based and end-inclusive), 
+    //   (start is one-based and end-inclusive),
     //   hts_parse_reg below sets return value to point
     //   at ":", copy the input then set ":" to null terminator
     //   to get `chr`.
@@ -179,8 +153,8 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
     } else {
         fprintf(stderr, "Failed to parse region: '%s'.\n", region);
     }
-   
-    // open bam etc. 
+
+    // open bam etc.
     htsFile *fp = hts_open(bam_file, "rb");
     hts_idx_t *idx = sam_index_load(fp, bam_file);
     bam_hdr_t *hdr = sam_hdr_read(fp);
@@ -201,42 +175,34 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
     const bam_pileup1_t **plp = xalloc(1, sizeof(bam_pileup1_t *), "pileup");
     int ret, pos, tid, n_plp;
 
-    // first iterate to find the total number of cols (including inserts)
+    // allocate output assuming one insertion per ref position
     int n_cols = 0;
+    size_t buffer_cols = 2 * (end - start);
+    plp_data pileup = create_plp_data(n_cols, buffer_cols, num_dtypes, num_qstrat);
+
+    // get counts
+    size_t major_col = 0;  // index into `pileup` corresponding to pos
+    n_cols = 0;            // number of processed columns (including insertions)
     while ((ret=bam_mplp_auto(mplp, &tid, &pos, &n_plp, plp) > 0)) {
         const char *c_name = data->hdr->target_name[tid];
         if (strcmp(c_name, chr) != 0) continue;
-        if(pos < start) continue;
-        if(pos >= end) break;
+        if (pos < start) continue;
+        if (pos >= end) break;
         n_cols++;
 
+        // find maximum insert
         int max_ins = 0;
         for (int i = 0; i < n_plp; ++i) {
             const bam_pileup1_t *p = plp[0] + i;
             if (p->indel > 0 && max_ins < p->indel) max_ins = p->indel;
         }
-        n_cols += max_ins;
-    }
-    plp_data pileup = create_plp_data(n_cols, num_dtypes);
 
-    // reset and iterate to get counts
-    bam_itr_destroy(data->iter);
-    data->iter = bam_itr_querys(idx, hdr, region);
-    bam_mplp_destroy(mplp);
-    mplp = bam_mplp_init(1, read_bam, (void **)& data);
-    size_t major_col = 0; // col of `pileup` corresponding to pos
-    while ((ret=bam_mplp_auto(mplp, &tid, &pos, &n_plp, plp) > 0)) {
-        const char *c_name = data->hdr->target_name[tid];
-        if (strcmp(c_name, chr) != 0) continue;
-        if(pos < start) continue;
-        if(pos >= end) break;
-           
-        // find maximum insert, again...
-        int max_ins = 0;
-		for (int i = 0; i < n_plp; ++i) {
-		    const bam_pileup1_t *p = plp[0] + i;
-		    if (p->indel > 0 && max_ins < p->indel) max_ins = p->indel;
-		}
+        // reallocate output if necessary
+        if (n_cols + max_ins > pileup->buffer_cols) {
+            float cols_per_pos = (float) n_cols / (pos - start);
+            buffer_cols = max(2 * buffer_cols, cols_per_pos * (end - start));
+            enlarge_plp_data(pileup, buffer_cols);
+        }
 
         // set major/minor position indexes, minors hold ins
         for (int i = 0; i <= max_ins; ++i ) {
@@ -247,9 +213,7 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
         // loop through all reads at this position
         for (int i = 0; i < n_plp; ++i) {
             const bam_pileup1_t *p = plp[0] + i;
-            if (p->is_refskip) {
-                continue;
-            }
+            if (p->is_refskip) continue;
 
             // find to which datatype the read belongs
             int dtype = 0;
@@ -274,11 +238,14 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
                 }
             }
 
+
             int base_i;
             if (p->is_del) {
+                // deletions are kept in the first layer of qscore stratification, if any
+                int qstrat = 0;
                 base_i = bam_is_rev(p->b) ? rev_del : fwd_del;
-                //base = plp_bases[base_i]; 
-                pileup->counts[major_col + featlen * dtype + base_i] += 1;
+                //base = plp_bases[base_i];
+                pileup->matrix[major_col + featlen * dtype * num_qstrat + featlen * qstrat + base_i] += 1;
             } else { // handle pos and any following ins
                 int max_j = p->indel > 0 ? p->indel : 0;
                 for (int j = 0; j <= max_j; ++j){
@@ -287,13 +254,21 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
                     if bam_is_rev(p->b) {
                         base_j += 16;
                     }
+
+                    //find layer in the stratified qscore scheme.
+                    //layer corresponding to 1 should be at q0, hence the -1
+                    int qstrat = min(bam_get_qual(p->b)[p->qpos + j], num_qstrat) - 1;
+
                     base_i = num2countbase[base_j];
-                    pileup->counts[major_col + dtype_featlen * j + featlen * dtype + base_i] += 1;
+                    if (base_i != -1) //not an ambiguity code
+                        pileup->matrix[major_col + dtype_featlen * j + featlen * dtype * num_qstrat + featlen * qstrat + base_i] += 1;
                 }
             }
         }
         major_col += (dtype_featlen * (max_ins+1));
+        n_cols += max_ins;
     }
+    pileup->n_cols = n_cols;
 
     bam_itr_destroy(data->iter);
     bam_mplp_destroy(mplp);
@@ -304,44 +279,10 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
     hts_close(fp);
     hts_idx_destroy(idx);
     bam_hdr_destroy(hdr);
-    
+
     return pileup;
 }
 
-
-/** Prints a pileup data structure.
- *
- *  @param pileup a pileup counts structure.
- *  @param num_dtypes number of datatypes in the pileup.
- *  @param dtypes datatype prefix strings.
- *  @returns void
- *
- */
-void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[]){
-    fprintf(stdout, "pos\tins\t");
-    if (num_dtypes > 1) {
-        for (size_t i = 0; i < num_dtypes; ++i) {
-            for (size_t j = 0; j < featlen; ++j){
-                fprintf(stdout, "%s.%c\t", dtypes[i], plp_bases[j]);
-            }
-        }
-    } else {
-        for (size_t j = 0; j < featlen; ++j){
-            fprintf(stdout, "%c\t", plp_bases[j]);
-        }
-    }
-    fprintf(stdout, "depth\n");
-    for (size_t j = 0; j < pileup->n_cols; ++j) {
-        int s = 0;
-        fprintf(stdout, "%zu\t%zu\t", pileup->major[j], pileup->minor[j]);
-        for (size_t i = 0; i < num_dtypes * featlen; ++i){
-            size_t c = pileup->counts[j * num_dtypes * featlen + i];
-            s += c;
-            fprintf(stdout, "%zu\t", c);
-        }
-        fprintf(stdout, "%d\n", s);
-    }
-}
 
 // Demonstrates usage
 int main(int argc, char *argv[]) {
@@ -361,11 +302,14 @@ int main(int argc, char *argv[]) {
     char tag_name[2] = "";
     int tag_value = 0;
     bool keep_missing = false;
+    size_t num_qstrat = 1;
 
     plp_data pileup = calculate_pileup(
         reg, bam_file, num_dtypes, dtypes,
+        num_qstrat,
         tag_name, tag_value, keep_missing);
-    print_pileup_data(pileup, num_dtypes, dtypes);
+    print_pileup_data(pileup, num_dtypes, dtypes, num_qstrat);
+    fprintf(stdout, "pileup is length %zu, with buffer of %zu columns\n", pileup->n_cols, pileup->buffer_cols);
     destroy_plp_data(pileup);
     exit(0); 
 }

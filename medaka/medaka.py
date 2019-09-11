@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 from pkg_resources import resource_filename
+import sys
 import yaml
 
 import numpy as np
@@ -9,16 +10,20 @@ import pysam
 
 import medaka.datastore
 import medaka.features
-import medaka.inference
+import medaka.labels
+import medaka.prediction
+import medaka.rle
+import medaka.smolecule
 import medaka.stitch
+import medaka.training
 import medaka.variant
 import medaka.vcf
 
+
 model_store = resource_filename(__package__, 'data')
 allowed_models = [
-    'r941_trans', 'r941_flip213', 'r941_flip235',
-    'r941_min_fast', 'r941_min_high', 'r941_prom_fast', 'r941_prom_high',
-    'r10_min_high',
+    'r941_min_fast', 'r941_min_high',
+    'r941_prom_fast', 'r941_prom_high', 'r10_min_high',
 ]
 default_model = 'r941_min_high'
 model_dict = {
@@ -89,23 +94,24 @@ def _model_arg():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
     parser.add_argument('--model', action=ResolveModel, default=model_dict[default_model],
-                        help='Model definition, default is equivalent to {}.'.format(default_model))
+            help='Model definition, default is equivalent to {}.'.format(default_model))
+    parser.add_argument('--allow_cudnn', dest='allow_cudnn', default=True, action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--disable_cudnn', dest='allow_cudnn', default=False, action='store_false',
+            help='Disable use of cuDNN model layers.')
     return parser
 
 
-def _chunking_feature_args():
+def _chunking_feature_args(batch_size=100, chunk_len=10000, chunk_ovlp=1000):
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False,
         parents=[_model_arg()],
     )
-    parser.add_argument('bam', help='Input alignments.', action=CheckBam)
-    parser.add_argument('--batch_size', type=int, default=200, help='Inference batch size.')
+    parser.add_argument('--batch_size', type=int, default=batch_size, help='Inference batch size.')
     parser.add_argument('--regions', default=None, nargs='+', help='Genomic regions to analyse.')
-    parser.add_argument('--chunk_len', type=int, default=10000, help='Chunk length of samples.')
-    parser.add_argument('--chunk_ovlp', type=int, default=1000, help='Overlap of chunks.')
+    parser.add_argument('--chunk_len', type=int, default=chunk_len, help='Chunk length of samples.')
+    parser.add_argument('--chunk_ovlp', type=int, default=chunk_ovlp, help='Overlap of chunks.')
     parser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
         nargs=2, metavar=('lower', 'upper'))
-    parser.add_argument('--rle_ref', default=None, help='Encoded reference file (required only for some model types.')
     return parser
 
 
@@ -135,8 +141,24 @@ def print_all_models(args):
     print('Default:', default_model)
 
 
+class StoreDict(argparse.Action):
+     def __call__(self, parser, namespace, values, option_string=None):
+         my_dict = {}
+         for kv in values.split(","):
+             k,v = kv.split("=")
+             my_dict[k] = v
+         setattr(namespace, self.dest, my_dict)
+
+
 def main():
     from medaka import __version__
+
+    pymajor, pyminor = sys.version_info[0:2]
+    if (pymajor < 3) or (pyminor not in {5, 6}):
+        raise RuntimeError(
+            '`medaka` is unsupported on your version of python, '
+            'please use python 3.5 or python 3.6.')
+
     parser = argparse.ArgumentParser('medaka',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     subparsers = parser.add_subparsers(title='subcommands', description='valid commands', help='additional help', dest='command')
@@ -146,14 +168,30 @@ def main():
         version='%(prog)s {}'.format(__version__))
 
     # Transformation of sequence data
-    #TODO: is this needed?
-    #pparser = subparsers.add_parser('compress',
-    #    help='Transform basecalls and draft assemblies.',
-    #    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    #pparser.set_defaults(func=compress)
-    #pparser.add_argument('input', help='.fasta/fastq file.')
-    #pparser.add_argument('--output', default=None, help='Output file, default it stdout.')
-    #pparser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
+    pparser = subparsers.add_parser('compress_basecalls',
+        help='Transform basecalls and draft assemblies.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    pparser.set_defaults(func=medaka.rle.compress_basecalls)
+    pparser.add_argument('input', help='.fasta/fastq file.')
+    pparser.add_argument('--output', default=None, help='Output file, default it stdout.')
+    pparser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
+
+
+    # Compress bam file_ext
+    rparser = subparsers.add_parser('compress_bam',
+        help='Compress an alignment into RLE form. ',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    rparser.set_defaults(func=medaka.rle.compress_bam)
+    rparser.add_argument('bam_input', help='Bam file to compress.')
+    rparser.add_argument('bam_output', help='Output bam file.')
+    rparser.add_argument('ref_fname',
+                         help='Reference fasta file used for `bam_input`.')
+    rparser.add_argument('--threads', type=int, default=1,
+                         help='Number of threads for parallel execution.')
+    rparser.add_argument('--regions', default=None, nargs='+',
+                         help='Genomic regions to analyse.')
 
     # Creation of feature files
     fparser = subparsers.add_parser('features',
@@ -161,9 +199,13 @@ def main():
         parents=[_log_level(), _chunking_feature_args()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     fparser.set_defaults(func=feature_gen_dispatch)
+    fparser.add_argument('bam', help='Input alignments.', action=CheckBam)
     fparser.add_argument('output', help='Output features file.')
     fparser.add_argument('--truth', help='Bam of truth aligned to ref to create features for training.')
     fparser.add_argument('--truth_haplotag', help='Two-letter tag defining haplotype of alignments for polyploidy labels.')
+    # TODO: enable other label schemes.
+    fparser.add_argument('--label_scheme', default='HaploidLabelScheme', help='Labelling scheme.',
+                         choices=sorted(medaka.labels.label_schemes))
     fparser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
 
     # Training program
@@ -171,20 +213,22 @@ def main():
         help='Train a model from features.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    tparser.set_defaults(func=medaka.inference.train)
+    tparser.set_defaults(func=medaka.training.train)
     tparser.add_argument('features', nargs='+', help='Paths to training data.')
     tparser.add_argument('--train_name', type=str, default='keras_train', help='Name for training run.')
     tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
+    tparser.add_argument('--label_scheme', default='HaploidLabelScheme', help='Labelling scheme.',
+                         choices=sorted(medaka.labels.label_schemes))
     tparser.add_argument('--max_label_len', type=int, default=1, help='Maximum label length.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
-    tparser.add_argument('--batch_size', type=int, default=200, help='Training batch size.')
+    tparser.add_argument('--batch_size', type=int, default=100, help='Training batch size.')
     tparser.add_argument('--max_samples', type=int, default=np.inf, help='Only train on max_samples.')
     tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
-    tparser.add_argument('--balanced_weights', action='store_true', help='Balance label weights.')
-    tparser.add_argument('--multi_label', action='store_true', help='Multi-classification training.')
     tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
     tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
     tparser.add_argument('--device', type=int, default=0, help='GPU device to use.')
+    tparser.add_argument('--optimizer', type=str, default='rmsprop', choices=['nadam','rmsprop'], help='Optimizer to use.')
+    tparser.add_argument('--optim_args', action=StoreDict, default=None, metavar="KEY1=VAL1,KEY2=VAL2...", help="Optimizer key-word arguments.")
 
     vgrp = tparser.add_mutually_exclusive_group()
     vgrp.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
@@ -195,7 +239,8 @@ def main():
         help='Run inference from a trained model and alignments.',
         parents=[_log_level(), _chunking_feature_args()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    cparser.set_defaults(func=medaka.inference.predict)
+    cparser.add_argument('bam', help='Input alignments.', action=CheckBam)
+    cparser.set_defaults(func=medaka.prediction.predict)
     cparser.add_argument('output', help='Output file.')
     cparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
     cparser.add_argument('--check_output', action='store_true', default=False,
@@ -207,6 +252,22 @@ def main():
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
     tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
 
+    # Consensus from single-molecules with subreads
+    smparser = subparsers.add_parser('smolecule',
+        help='Create consensus sequences from single-molecule reads.',
+        parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500)],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    smparser.add_argument('fasta', nargs='+', help='Single-molecule reads, one file per read.')
+    smparser.set_defaults(func=medaka.smolecule.main)
+    smparser.add_argument('output', help='Output directory.')
+    smparser.add_argument('--depth', type=int, default=3, help='Minimum subread count.')
+    smparser.add_argument('--length', type=int, default=400, help='Minimum median subread length.')
+    smparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
+    smparser.add_argument('--check_output', action='store_true', default=False,
+            help='Verify integrity of output file after inference.')
+    smparser.add_argument('--save_features', action='store_true', default=False,
+            help='Save features with consensus probabilities.')
+
     # Consensus from features input
     cfparser = subparsers.add_parser('consensus_from_features',
         help='Run inference from a trained model on existing features.',
@@ -214,7 +275,6 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cfparser.add_argument('features', nargs='+', help='Pregenerated features (from medaka features).')
     cfparser.add_argument('--model', action=ResolveModel, default=default_model, help='Model definition.')
-    cfparser.add_argument('--ref_rle', default=None, help='Encoded reference file (required only for some model types.')
 
     # Post-processing of consensus outputs
     sparser = subparsers.add_parser('stitch',
@@ -234,14 +294,21 @@ def main():
     pparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
     pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
     pparser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
+    pparser.add_argument('--regions', default=None, nargs='+',
+                         help='Limit variant calling to these reference names')
+
+    pparser = subparsers.add_parser('snp',
+        help='Decode probabilities to SNPs.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    pparser.set_defaults(func=medaka.variant.snps_from_hdf)
+    pparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
+    pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
+    pparser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
     pparser.add_argument('--regions', default=None, nargs='+', help='Limit variant calling to these reference names')
     pparser.add_argument('--threshold', default=0.04, type=float,
-                         help="""Threshold for considering secondary calls. Only used in SNPDecoder.
-                         A value of 1 will result in haploid decoding.""")
-    pparser.add_argument('--ref_vcf', default=None, help='Reference vcf to compare to, only used in SNPDecoder.')
-    pparser.add_argument('--decoder', default='SNPDecoder', help='Variant decoder.',
-                         choices=sorted(medaka.variant.variant_decoders.keys()))
-    pparser.add_argument('--multi_label', action='store_true', help='Multi-classification decoding.')
+                         help='Threshold for considering secondary calls. A value of 1 will result in haploid decoding.')
+    pparser.add_argument('--ref_vcf', default=None, help='Reference vcf.')
 
 
     # Tools
@@ -279,6 +346,8 @@ def main():
     h2dparser.add_argument('vcf2', help='Input .vcf file.')
     h2dparser.add_argument('ref_fasta', help='Reference .fasta file.')
     h2dparser.add_argument('vcfout', help='Output .vcf.')
+    h2dparser.add_argument('--discard_phase', default=False,
+                           action='store_true', help='output unphased diploid vcf')
     h2dparser.add_argument('--adjacent', action='store_true',
                          help=('Merge adjacent variants (i.e. variants with non-overlapping genomic ranges) instead' +
                                ' of just overlapping ones. If set to True, all runs of adjacent variants will be' +
@@ -358,10 +427,5 @@ def main():
         # display help if given `medaka tools (--help)`
         toolparser.print_help()
     else:
-        #TODO: do common argument validation here: e.g. rle_ref being present if
-        #      required by model
+        #TODO: do common argument validation here
         args.func(args)
-
-
-if __name__ == '__main__':
-    main()

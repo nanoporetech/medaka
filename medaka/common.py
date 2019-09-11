@@ -15,21 +15,7 @@ import numpy as np
 import pysam
 
 
-# Codec for converting tview output to ints.
-#TODO: this can likely be renomved
-_gap_ = '*'
-_ref_gap_ = '#'
-_read_sep_ = ' '
-_alphabet_ = 'ACGT'
-_extra_bases_ = 'NRYSWKMBDHV' #TODO: put this in htslib order
-#TODO: change name of these
-decoding = _gap_ + _alphabet_.lower() + _alphabet_.upper() + _read_sep_ + _extra_bases_
-# store encoding in ordered dict as the order will always be the same
-# (we need order to be the same for training and inference)
-encoding = OrderedDict(((a, i) for i, a in enumerate(decoding)))
-
-AlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'rpos', 'rbase'))
-ComprAlignPos = namedtuple('AlignPos', ('qpos', 'qbase', 'qlen', 'rpos', 'rbase', 'rlen'))
+ComprAlignPos = namedtuple('ComprAlignPos', ('qpos', 'qbase', 'qlen', 'rpos', 'rbase', 'rlen'))
 
 
 class OverlapException(Exception):
@@ -283,7 +269,7 @@ class Sample(_Sample):
         :param chunk_len: chunk length (number of columns)
         :param overlap: overlap length.
 
-        :yields: chunked :py:class:`Sample` instances.
+        :yields: chunked `Sample` instances.
         """
         # TODO - could refactor this to use Sample.slice?
         chunker = functools.partial(sliding_window,
@@ -414,6 +400,27 @@ class Region(_Region):
         return regions
 
 
+    def overlaps(self, other):
+        """Determine if a region overlaps another.
+
+        :param other: a second Region to test overlap.
+
+        :returns: True if regions overlap.
+
+        """
+        if self.ref_name != other.ref_name:
+            return False
+        def _limits(x):
+            x0 = x.start if x.start is not None else -1
+            x1 = x.end if x.end is not None else float('inf')
+            return x0, x1
+        a0, a1 = _limits(self)
+        b0, b1 = _limits(other)
+        return (
+            (a0 < b1 and a1 > b0) or
+            (b0 < a1 and b1 > a0))
+
+
 def get_regions(bam, region_strs=None):
     """Create `Region` objects from a bam and region strings.
 
@@ -442,12 +449,15 @@ def get_regions(bam, region_strs=None):
     return regions
 
 
-def lengths_to_rle(lengths):
-    runs = np.empty(len(lengths), dtype=[('start', int), ('length', int)])
-    runs['length'][:] = lengths
-    runs['start'][0] = 0
-    runs['start'][1:] = np.cumsum(lengths)[:-1]
-    return runs
+def ref_name_from_region_str(region_str):
+    """Parse region strings, returning a list of reference names.
+
+    :param regions: iterable of region strings.
+
+    :returns: tuple of reference name str.
+    """
+    ref_names = [Region.from_string(r).ref_name for r in region_str]
+    return tuple(set(ref_names))
 
 
 def get_pairs(aln):
@@ -464,73 +474,6 @@ def get_pairs(aln):
     return pairs
 
 
-def seq_to_hp_lens(seq):
-    """Return array of HP lengths for every position in the sequence
-
-    :param seq: str, sequence
-    :returns: `np.ndarray` containing HP lengths (the same length as seq).
-    """
-    q_rle = rle(np.fromiter(seq, dtype='U1', count=len(seq)), low_mem=True)
-    # get rle encoding for every position (so we can slice with qb instead of
-    # searching)
-    qlens = np.repeat(q_rle['length'], q_rle['length'])
-    return qlens
-
-
-def get_pairs_with_hp_len(aln, ref_seq=None):
-    """Return generator of pairs in which the qbase is not just the base,
-    but is decorated with extra information. E.g. an A which is part of a basecalled
-    6mer HP would be AAAAAA.
-
-    :param aln: `pysam.AlignedSegment` object.
-    :param ref_seq: str containing reference sequence or result of
-        `seq_to_hp_lens` (ref_seq), or None
-
-    :yields: `ComprAlignPos` objects.
-    """
-    seq = aln.query_sequence
-    qlens = seq_to_hp_lens(seq)
-
-    h = lambda ar, i, alt: ar[i] if i is not None else alt
-
-    if ref_seq is not None:
-        rlens = seq_to_hp_lens(ref_seq) if isinstance(ref_seq, str) else ref_seq
-        h_rlen = h
-    else:
-        rlens = None
-        h_rlen = lambda ar, i, alt: None
-
-    for qp, rp, rb in aln.get_aligned_pairs(with_seq=True):
-        a = ComprAlignPos(qpos=qp, qbase=h(seq, qp, None), qlen=h(qlens, qp, 1),
-                          rpos=rp, rbase=rb, rlen=h_rlen(rlens, rp, 1))
-        yield a
-
-
-def yield_compressed_pairs(aln, ref_rle=None):
-    """Yield ComprAlignPos objects for aligned pairs of an AlignedSegment.
-
-    :param aln: pysam AlignedSegment.
-    :param ref_rle: structured array with columns 'start' and 'length' encoding ref.
-    :yields: `ComprAlignPos` objects.
-    """
-    seq = aln.query_sequence
-    qlens = aln.query_qualities
-    if qlens is None:
-        raise ValueError('Found an alignment without qscores, try filter to only primary alignments.')
-    qrle = lengths_to_rle(qlens)
-    # define helpers
-    h = lambda ar, i, alt: ar[i] if i is not None else alt
-    if ref_rle is None:
-        h_ref_rle = lambda ar, i , alt: None
-    else:
-        h_ref_rle = lambda ar, i , alt: h(ar['length'], i, alt)
-
-    for qp, rp, rb in aln.get_aligned_pairs(with_seq=True):
-        a = ComprAlignPos(qpos=qp, qbase=h(seq, qp, None), qlen=h(qlens, qp, 1),
-                          rpos=rp, rbase=rb, rlen=h_ref_rle(ref_rle, rp, 1))
-        yield a
-
-
 def segment_limits(start, end, segment_len=20000, overlap_len=1000):
     """Generate segments of a range [0, end_point].
 
@@ -543,35 +486,6 @@ def segment_limits(start, end, segment_len=20000, overlap_len=1000):
     """
     for n in range(start, end, segment_len):
         yield max(start, n - overlap_len), min(n + segment_len, end - 1)
-
-
-def rle(array, low_mem=False):
-    """Calculate a run length encoding (rle), of an input vector.
-
-    :param array: 1D input array.
-    :param low_mem: use a lower memory implementation
-
-    returns: structured array with fields `start`, `length`, and `value`.
-    """
-    if len(array.shape) != 1:
-        raise TypeError("Input array must be one dimensional.")
-    dtype = [('length', int), ('start', int), ('value', array.dtype)]
-
-    if not low_mem:
-        pos = np.where(np.diff(array) != 0)[0]
-        pos = np.concatenate(([0], pos+1, [len(array)]))
-        return np.fromiter(
-            ((stop - start, start, array[start]) for (stop, start) in zip(pos[1:], pos[:-1])),
-            dtype, count=len(pos) - 1,
-        )
-    else:
-        def _gen():
-            start = 0
-            for key, group in itertools.groupby(array):
-                length = sum(1 for x in group)
-                yield length, start, key
-                start += length
-        return np.fromiter(_gen(), dtype=dtype)
 
 
 def sliding_window(a, window=3, step=1, axis=0):
@@ -609,73 +523,6 @@ def mkdir_p(path, info=None):
             pass
         else:
             raise
-
-
-class ThreadsafeIter:
-    """Takes an iterator and makes it thread-safe by
-    serializing call to `next` method.
-
-    `<http://anandology.com/blog/using-iterators-and-generators/>`_
-    """
-    def __init__(self, it):
-        self.it = it
-        self.lock = threading.Lock()
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        with self.lock:
-            return next(self.it)
-
-
-def threadsafe_generator(f):
-    """A decorator that takes a generator function and makes it
-    thread-safe.
-
-    `<http://anandology.com/blog/using-iterators-and-generators/>`_
-    """
-    @functools.wraps(f)
-    def g(*args, **kwargs):
-        return ThreadsafeIter(f(*args, **kwargs))
-    return g
-
-
-def background_generator(generator, max_size, daemon=True):
-    """Run a generator in background thread.
-
-    :param max_size: maximum number of items from the generator to cache.
-    :param daemon: run generator in daemon thread
-
-    """
-
-    results = queue.Queue(maxsize=max_size)
-    have_data = threading.Event()
-    have_data.set()
-    def gen_to_queue():
-        for item in generator:
-            results.put(item)
-        have_data.clear()
-
-    thread = threading.Thread(target=gen_to_queue)
-    thread.daemon = daemon
-    thread.start()
-
-    # yield results concurrently whilst filling queue
-    while have_data.is_set():
-        try:
-            res = results.get(timeout=1)
-        except queue.Empty:
-            if not have_data.is_set():
-               break
-        else:
-            yield res
-
-    # empty remaining items in queue when input has finished
-    while not results.empty():
-        yield results.get()
-
-    thread.join(5)
 
 
 def grouper(gen, batch_size=4):
@@ -725,6 +572,20 @@ def loose_version_sort(it, key=None):
     return result
 
 
-if __name__ == "__main__":
-    import doctest
-    doctest.testmod()
+comp = {
+    'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C', 'X': 'X', 'N': 'N',
+    'a': 't', 't': 'a', 'c': 'g', 'g': 'c', 'x': 'x', 'n': 'n',
+    #'-': '-'
+}
+comp_trans = str.maketrans(''.join(comp.keys()), ''.join(comp.values()))
+
+
+def reverse_complement(seq):
+    """Reverse complement sequence.
+
+    :param: input sequence string.
+
+    :returns: reverse-complemented string.
+
+    """
+    return seq.translate(comp_trans)[::-1]

@@ -1,6 +1,11 @@
 #!/bin/bash
 set -eo pipefail
 
+function follow_link {
+  python -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' $1
+}
+
+
 OUTPUT="medaka"
 THREADS=1
 
@@ -10,7 +15,7 @@ while read -r line; do
     modeldata+=("$line")
 done < <(medaka tools list_models) # Available models on first line, default on next line
 MODEL=${modeldata[1]##* }
-BATCH_SIZE=200
+BATCH_SIZE=100
 
 iflag=false
 dflag=false
@@ -37,8 +42,8 @@ $(basename "$0") [-h] -i <fastx>
 while getopts ':hi::d:o:m:t:b:' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
-    i  ) iflag=true; BASECALLS=$(readlink -f $OPTARG);;
-    d  ) dflag=true; DRAFT=$(readlink -f $OPTARG);;
+    i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
+    d  ) dflag=true; DRAFT=$(follow_link $OPTARG);;
     o  ) OUTPUT=$OPTARG;;
     m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
     t  ) THREADS=$OPTARG;;

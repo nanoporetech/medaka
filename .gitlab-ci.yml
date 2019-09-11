@@ -1,0 +1,61 @@
+image: $IMAGE
+
+stages:
+    - test
+    - build
+    - deploy
+
+before_script:
+    - apt-get update -qq && apt-get install -y -qq
+      gcc make cmake curl wget
+      python3-all-dev python-virtualenv
+      zlib1g-dev libbz2-dev liblzma-dev libncurses5-dev libcurl4-gnutls-dev
+      libssl-dev libffi-dev
+    - wget https://ont-research.s3-eu-west-1.amazonaws.com/parasail-1.1.17-py2.py3-none-manylinux1_x86_64.whl 
+
+test:
+    stage: test
+    script:
+        - make venv
+        # no wheel for parasail on pypi
+        - . ./venv/bin/activate && pip install parasail-1.1.17-py2.py3-none-manylinux1_x86_64.whl
+        - make -j 4 test
+        - make docs
+
+.many-linux: &many-linux-def
+  image: quay.io/pypa/manylinux1_x86_64
+  stage: build
+  before_script:
+      - echo "Nothing to do in before_script"
+  artifacts:
+      paths:
+          - wheelhouse/*.whl
+  only:
+      - tags
+
+build:many-linux-5:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 5
+
+build:many-linux-6:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 6
+
+build:sdist:
+    stage: deploy
+    script:
+        - make sdist
+    artifacts:
+        paths:
+            - dist/*.tar.gz
+
+deploy-test:pypi:
+    stage: deploy
+    script:
+        - make build
+        - source pypi_build/bin/activate
+        - twine upload --repository-url https://test.pypi.org/legacy/ dist/*.tar.gz wheelhouse/*.whl
+    only:
+        - tags
