@@ -400,6 +400,27 @@ class Region(_Region):
         return regions
 
 
+    def overlaps(self, other):
+        """Determine if a region overlaps another.
+
+        :param other: a second Region to test overlap.
+
+        :returns: True if regions overlap.
+
+        """
+        if self.ref_name != other.ref_name:
+            return False
+        def _limits(x):
+            x0 = x.start if x.start is not None else -1
+            x1 = x.end if x.end is not None else float('inf')
+            return x0, x1
+        a0, a1 = _limits(self)
+        b0, b1 = _limits(other)
+        return (
+            (a0 < b1 and a1 > b0) or
+            (b0 < a1 and b1 > a0))
+
+
 def get_regions(bam, region_strs=None):
     """Create `Region` objects from a bam and region strings.
 

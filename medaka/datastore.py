@@ -354,7 +354,7 @@ class DataIndex(object):
         ref_names_ordered = OrderedDict()
 
         # sort by start and -end so that if we have two samples with the same
-        # start but differrent end points, the longest sample comes first
+        # start but different end points, the longest sample comes first
         def get_major_minor(x):
             return tuple((int(i) for i in x.split('.')))
 
@@ -368,10 +368,10 @@ class DataIndex(object):
 
         return ref_names_ordered
 
-    def yield_from_feature_files(self, ref_names=None, samples=None):
+    def yield_from_feature_files(self, regions=None, samples=None):
         """Yield `medaka.common.Sample` objects from one or more feature files.
 
-        :ref_names: iterable of str, only process these references.
+        :regions: list of `medaka.common.Region` s for which to yield samples.
         :samples: iterable of sample names to yield (in order in which they
             are supplied).
 
@@ -383,10 +383,20 @@ class DataIndex(object):
             for sample, fname in samples:
                 yield DataStore(fname).load_sample(sample)
         else:
-            # yield samples sorted by ref_name and start
-            if ref_names is None:
-                ref_names = sorted(self.index)
-            for ref_name in ref_names:
-                for d in self.index[ref_name]:
-                    with DataStore(d['filename']) as ds:
-                        yield ds.load_sample(d['sample_key'])
+            all_samples = self.index
+            if regions is None:
+                regions = [
+                    medaka.common.Region.from_string(x)
+                    for x in sorted(all_samples)]
+            for reg in regions:
+                if reg.ref_name not in self.index:
+                    continue
+                for sample in self.index[reg.ref_name]:
+                    # samples can have major.minor coords, round to end excl.
+                    sam_reg = medaka.common.Region(
+                        sample['ref_name'],
+                        int(float(sample['start'])),
+                        int(float(sample['end'])) + 1)
+                    if sam_reg.overlaps(reg):
+                        with DataStore(sample['filename']) as store:
+                            yield store.load_sample(sample['sample_key'])

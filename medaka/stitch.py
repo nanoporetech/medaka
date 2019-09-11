@@ -27,7 +27,7 @@ def stitch_from_probs(h5_fp, regions=None):
      contiguous sequence(s).
 
     :param h5_fp: iterable of HDF5 filepaths
-    :param regions: iterable of regions to process
+    :param regions: iterable of region (strings) to process
 
     :returns: list of (region string, sequence)
     """
@@ -52,24 +52,20 @@ def stitch_from_probs(h5_fp, regions=None):
                   for k, v in label_scheme._decoding.items())))
 
     if regions is None:
-        ref_names = index.index.keys()
-    else:
-        # TODO: respect entire region specification
-        ref_names = list()
-        for r in regions:
-            region = medaka.common.Region.from_string(r)
-            if region.start is None or region.end is None:
-                logger.warning("Ignoring start:end for '{}'.".format(region))
-            ref_names.append(region.ref_name)
+        regions = sorted(index.index)
+
+    regions = [
+        medaka.common.Region.from_string(r)
+        for r in regions]
 
     def get_pos(sample, i):
         return '{}.{}'.format(
             sample.positions[i]['major'] + 1, sample.positions[i]['minor'])
 
     ref_assemblies = []
-    for ref_name in ref_names:
-        logger.info("Processing {}.".format(ref_name))
-        data_gen = index.yield_from_feature_files(ref_names=(ref_name,))
+    for reg in regions:
+        logger.info("Processing {}.".format(reg))
+        data_gen = index.yield_from_feature_files(regions=[reg])
         seq_parts = list()
         # first sample
         s1 = next(data_gen)

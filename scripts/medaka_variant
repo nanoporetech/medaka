@@ -135,11 +135,16 @@ run_medaka_snp () {
     local VCF=$2
     local T=$3
     local EXTRAOPTS=$4
+    if [ -n "${REGIONS}" ]; then
+        local REG_OPT="--regions ${REGIONS}"
+    else
+        local REG_OPT=""
+    fi
     exit_if_file_does_not_exist ${PROBS} ${REF}
     if [[ ! -e ${VCF} ]]; then
         echo ""
         echo "- Running medaka snp with threshold ${T}"
-        medaka snp ${REF} ${PROBS} ${VCF} --threshold ${T} ${EXTRAOPTS} \
+        medaka snp ${REF} ${PROBS} ${VCF} --threshold ${T} ${REG_OPT} ${EXTRAOPTS} \
             || (echo "Failed to call snps from consensus probabilities." && exit 1)
         echo "VCF written to ${OUTPUT}/${VCF}."
     else
@@ -151,11 +156,16 @@ run_medaka_variant () {
     local PROBS=$1
     local VCF=$2
     local EXTRAOPTS=$4
+    if [ -n "${REGIONS}" ]; then
+        local REG_OPT="--regions ${REGIONS}"
+    else
+        local REG_OPT=""
+    fi
     exit_if_file_does_not_exist ${PROBS} ${REF}
     if [[ ! -e ${VCF} ]]; then
         echo ""
         echo "- Running medaka variant"
-        medaka variant ${REF} ${PROBS} ${VCF} ${EXTRAOPTS} \
+        medaka variant ${REF} ${PROBS} ${VCF} ${REG_OPT} ${EXTRAOPTS} \
             || (echo "Failed to call variants from consensus probabilities." && exit 1)
         echo "VCF written to ${OUTPUT}/${VCF}."
     else
