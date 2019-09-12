@@ -301,6 +301,18 @@ class BaseFeatureEncoder(metaclass=FeatureEncoderMeta):
                 counts, positions, region))
         return samples
 
+    def __getstate__(self):
+        """Modify object so it is pickleable."""
+        # Logs are not picklable in python < 3.7
+        state = self.__dict__.copy()
+        del state['logger']
+        return state
+
+    def __setstate__(self, state):
+        """Modify object after unpickling."""
+        self.__dict__.update(state)
+        self.logger = medaka.common.get_named_logger('Feature')
+
 
 class CountsFeatureEncoder(BaseFeatureEncoder):
     """Create a pileup array of counts of observed bases."""
