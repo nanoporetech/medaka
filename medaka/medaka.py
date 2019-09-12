@@ -140,12 +140,41 @@ def print_all_models(args):
 
 
 class StoreDict(argparse.Action):
-     def __call__(self, parser, namespace, values, option_string=None):
-         my_dict = {}
-         for kv in values.split(","):
-             k,v = kv.split("=")
-             my_dict[k] = v
-         setattr(namespace, self.dest, my_dict)
+    def __call__(self, parser, namespace, values, option_string=None):
+        """Converts 'key1=value1 key2=value1a,value2a' to a dictionary.
+
+        List values are supported, as are simple type conversions.
+        """
+        str_to_type = {
+            'None': None,
+            'True': True, 'False': False,
+            'true': True, 'false': False,
+            'TRUE': True, 'FALSE': False}
+
+        def _str_to_numeric(x):
+            if not isinstance(x, str):
+                return x
+            try:
+                return int(x)
+            except:
+                try:
+                    return float(x)
+                except:
+                    return x
+
+        my_dict = {}
+        for kv in values:
+            key, value = kv.split("=")
+            list_like = ',' in value
+            value = str_to_type.get(value, value)
+            if value is not None:
+                if list_like:
+                    value = [_str_to_numeric(str_to_type.get(x,x))
+                        for x in value.split(',')]
+                else:
+                    value = _str_to_numeric(value)
+            my_dict[key] = value
+        setattr(namespace, self.dest, my_dict)
 
 
 def main():
@@ -208,8 +237,8 @@ def main():
     fparser.add_argument('--feature_encoder', default='CountsFeatureEncoder',
         help='FeatureEncoder used to create the features.',
         choices=sorted(medaka.features.feature_encoders))
-    fparser.add_argument('--feature_encoder_args', action=StoreDict,
-        default={}, metavar="KEY1=VAL1,KEY2=VAL2...",
+    fparser.add_argument('--feature_encoder_args', action=StoreDict, nargs='+',
+        default=tuple(), metavar="KEY1=VAL1 KEY2=VAL2a,VAL2b...",
         help="Feature encoder key-word arguments.")
 
     # Training program
