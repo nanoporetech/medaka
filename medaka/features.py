@@ -2,6 +2,7 @@
 import abc
 from collections import defaultdict
 import concurrent.futures
+import functools
 import inspect
 import itertools
 import os
@@ -208,7 +209,33 @@ def pileup_counts_norm_indices(dtypes, num_qstrat=1):
     return dict(indices)
 
 
-class BaseFeatureEncoder(abc.ABC):
+feature_encoders = dict()
+
+
+class FeatureEncoderRegistrar(type):
+    """Class for registering feature encoders."""
+
+    def __new__(cls, clsname, bases, attrs):
+        """Register class to `feature_encoders` dict upon instantiation."""
+        newclass = super(FeatureEncoderRegistrar, cls).__new__(
+            cls, clsname, bases, attrs)
+        cls.register_feature_encoder(clsname, newclass)
+        return newclass
+
+    def register_feature_encoder(clsname, cls):
+        """Add `FeatureEncoder` to `feature_encoders` dict."""
+        # do not display base class as command line option
+        if clsname != 'BaseFeatureEncoder':
+            feature_encoders[clsname] = cls
+
+
+class FeatureEncoderMeta(abc.ABC, FeatureEncoderRegistrar):
+    """Metaclass facilitating registration of `FeatureEncoder` s."""
+
+    pass
+
+
+class BaseFeatureEncoder(metaclass=FeatureEncoderMeta):
     """Base class for creation of feature arrays from a `.bam` file."""
 
     @abc.abstractmethod
@@ -232,6 +259,15 @@ class BaseFeatureEncoder(abc.ABC):
             self, truth_bam, bam, region, label_scheme, truth_haplotag=None):
         """Create labelled samples, should internally call bam_to_sample."""
         # TODO: should be moved outside this class?
+        pass
+
+    @property
+    @abc.abstractmethod
+    def feature_vector_length(self):
+        """Return size of a single feature sample.
+
+        The length of a neural network input at a single time point.
+        """
         pass
 
     # this shouldn't be overridden
@@ -302,6 +338,12 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
             CountsFeatureEncoder.__init__).parameters.keys()
         opts = {k: getattr(self, k) for k in opts if k != 'self'}
         self.logger.debug("Creating features with: {}".format(opts))
+
+    @property
+    def feature_vector_length(self):
+        """Length of a single sample."""
+        featlen = libmedaka.lib.featlen
+        return len(self.dtypes) * featlen
 
     def _pileup_function(self, region, bam):
         return pileup_counts(
@@ -450,20 +492,26 @@ class HardRLEFeatureEncoder(CountsFeatureEncoder):
             tag_name=self.tag_name, tag_value=self.tag_value,
             keep_missing=self.tag_keep_missing, num_qstrat=self.num_qstrat)
 
+    @property
+    def feature_vector_length(self):
+        """Length of a single sample."""
+        featlen = libmedaka.lib.featlen
+        return len(self.dtypes) * featlen * self.num_qstrat
+
 
 class SampleGenerator(object):
     """Orchestration of neural network inputs with chunking."""
 
-    def __init__(self, bam, region, model, truth_bam=None, label_scheme=None,
-                 truth_haplotag=None, chunk_len=1000,
-                 chunk_overlap=200, tag_name=None, tag_value=None,
-                 tag_keep_missing=False, enable_chunking=True):
+    def __init__(self, bam, region, feature_encoder, truth_bam=None,
+                 label_scheme=None, truth_haplotag=None, chunk_len=1000,
+                 chunk_overlap=200, enable_chunking=True):
         """Generate chunked inference (or training) samples.
 
         :param bam: `.bam` containing alignments from which to generate
             samples.
         :param region: a `medaka.common.Region` for which to generate samples.
-        :param model: a medaka model.
+        :param feature_encoder: a `FeatureEncoder` object used for
+            constructing training features.
         :param truth_bam: a `.bam` containing alignment of truth sequence to
             `reference` sequence. Required only for creating training chunks.
         :param label_scheme: a `LabelScheme` used for deriving training truth
@@ -471,9 +519,6 @@ class SampleGenerator(object):
         :param truth_haplotag: two letter tag name used for grouping truth
             labels by haplotype.
         :param reference: reference `.fasta`, should correspond to `bam`.
-        :param tag_name: two letter tag name by which to filter reads.
-        :param tag_value: integer value of tag for reads to keep.
-        :param tag_keep_missing: whether to keep reads when tag is missing.
         :param enable_chunking: when yielding samples, do so in chunks.
 
         """
@@ -481,16 +526,9 @@ class SampleGenerator(object):
         self.sample_type = "training" if truth_bam is not None else "consensus"
         self.logger.info("Initializing sampler for {} of region {}.".format(
             self.sample_type, region))
-
-        with medaka.datastore.DataStore(model) as ds:
-            self.fencoder = ds.metadata['feature_encoder']
-            self.fencoder.tag_name = tag_name
-            self.fencoder.tag_value = tag_value
-            self.fencoder.tag_keep_missing = tag_keep_missing
-
+        self.fencoder = feature_encoder
         self.bam = bam
         self.region = region
-        self.model = model
         self.truth_bam = truth_bam
         self.label_scheme = label_scheme
         self.truth_haplotag = truth_haplotag
@@ -569,13 +607,12 @@ def create_samples(args):
         'Creation of unlabelled samples is currently disabled')
 
 
-def _labelled_samples_worker(args, region):
+def _labelled_samples_worker(args, region, feature_encoder, label_scheme):
     logger = medaka.common.get_named_logger('PrepWork')
     logger.info("Processing region {}.".format(region))
-    ls = medaka.labels.label_schemes[args.label_scheme]()
     data_gen = SampleGenerator(
-        args.bam, region, args.model, truth_bam=args.truth,
-        label_scheme=ls, truth_haplotag=args.truth_haplotag,
+        args.bam, region, feature_encoder, truth_bam=args.truth,
+        label_scheme=label_scheme, truth_haplotag=args.truth_haplotag,
         chunk_len=args.chunk_len, chunk_overlap=args.chunk_ovlp)
 
     return list(data_gen.samples), region
@@ -596,8 +633,20 @@ def create_labelled_samples(args):
     with medaka.datastore.DataStore(args.output, 'w') as ds:
         # write feature options to file
         logger.info("Writing meta data to file.")
-        with medaka.datastore.DataStore(args.model) as model:
-            model_meta = model.metadata
+
+        feature_encoder = feature_encoders[args.feature_encoder](
+            **args.feature_encoder_args)
+
+        label_scheme = medaka.labels.label_schemes[args.label_scheme]()
+        model_function = functools.partial(
+            medaka.models.build_model,
+            feature_encoder.feature_vector_length,
+            len(label_scheme._decoding))
+        model_meta = {
+            'model_function': model_function,
+            'label_scheme': label_scheme,
+            'feature_encoder': feature_encoder}
+
         ds.metadata.update(model_meta)
         # TODO: this parallelism would be better in
         # `SampleGenerator.bams_to_training_samples` since training
@@ -607,9 +656,10 @@ def create_labelled_samples(args):
             # break up overly long chunks
             MAX_SIZE = int(1e6)
             regions = itertools.chain(*(r.split(MAX_SIZE) for r in regions))
-            futures = [
-                executor.submit(_labelled_samples_worker, args, reg)
-                for reg in regions]
+            futures = [executor.submit(
+                _labelled_samples_worker, args, reg,
+                feature_encoder, label_scheme) for reg in regions]
+
             for fut in concurrent.futures.as_completed(futures):
                 if fut.exception() is None:
                     samples, region = fut.result()
