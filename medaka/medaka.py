@@ -103,9 +103,7 @@ def _model_arg():
 
 def _chunking_feature_args(batch_size=100, chunk_len=10000, chunk_ovlp=1000):
     parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False,
-        parents=[_model_arg()],
-    )
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
     parser.add_argument('--batch_size', type=int, default=batch_size, help='Inference batch size.')
     parser.add_argument('--regions', default=None, nargs='+', help='Genomic regions to analyse.')
     parser.add_argument('--chunk_len', type=int, default=chunk_len, help='Chunk length of samples.')
@@ -203,10 +201,16 @@ def main():
     fparser.add_argument('output', help='Output features file.')
     fparser.add_argument('--truth', help='Bam of truth aligned to ref to create features for training.')
     fparser.add_argument('--truth_haplotag', help='Two-letter tag defining haplotype of alignments for polyploidy labels.')
+    fparser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
     # TODO: enable other label schemes.
     fparser.add_argument('--label_scheme', default='HaploidLabelScheme', help='Labelling scheme.',
                          choices=sorted(medaka.labels.label_schemes))
-    fparser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
+    fparser.add_argument('--feature_encoder', default='CountsFeatureEncoder',
+        help='FeatureEncoder used to create the features.',
+        choices=sorted(medaka.features.feature_encoders))
+    fparser.add_argument('--feature_encoder_args', action=StoreDict,
+        default={}, metavar="KEY1=VAL1,KEY2=VAL2...",
+        help="Feature encoder key-word arguments.")
 
     # Training program
     tparser = subparsers.add_parser('train',
@@ -237,7 +241,7 @@ def main():
     # Consensus from bam input
     cparser = subparsers.add_parser('consensus',
         help='Run inference from a trained model and alignments.',
-        parents=[_log_level(), _chunking_feature_args()],
+        parents=[_log_level(), _chunking_feature_args(), _model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cparser.add_argument('bam', help='Input alignments.', action=CheckBam)
     cparser.set_defaults(func=medaka.prediction.predict)

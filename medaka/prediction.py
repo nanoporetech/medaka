@@ -15,19 +15,16 @@ import medaka.models
 
 
 def run_prediction(
-        output, bam, regions, model, model_file,
+        output, bam, regions, model, feature_encoder,
         chunk_len, chunk_ovlp, batch_size=200,
-        save_features=False, tag_name=None, tag_value=None,
-        tag_keep_missing=False, enable_chunking=True):
+        save_features=False, enable_chunking=True):
     """Inference worker."""
     logger = medaka.common.get_named_logger('PWorker')
 
     remainder_regions = list()
     loader = DataLoader(
-        4 * batch_size, bam, regions, model_file,
+        4 * batch_size, bam, regions, feature_encoder,
         chunk_len=chunk_len, chunk_overlap=chunk_ovlp,
-        tag_name=tag_name, tag_value=tag_value,
-        tag_keep_missing=tag_keep_missing,
         enable_chunking=enable_chunking)
     batches = medaka.common.grouper(loader, batch_size)
 
@@ -103,6 +100,11 @@ def predict(args):
             args.output, 'w', verify_on_close=False) as ds:
         ds.metadata = metadata
 
+    feature_encoder = metadata['feature_encoder']
+    feature_encoder.tag_name = args.tag_name
+    feature_encoder.tag_value = args.tag_value
+    feature_encoder.tag_keep_missing = args.tag_keep_missing
+
     logger.info("Setting tensorflow threads to {}.".format(args.threads))
     tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
     K.set_session(tf.Session(
@@ -137,14 +139,13 @@ def predict(args):
 
     model = medaka.models.load_model(args.model, time_steps=args.chunk_len,
                                      allow_cudnn=args.allow_cudnn)
+
     # the returned regions are those where the pileup width is smaller than
     # chunk_len
     remainder_regions = run_prediction(
-        args.output, args.bam, regions, model, args.model,
+        args.output, args.bam, regions, model, feature_encoder,
         args.chunk_len, args.chunk_ovlp,
-        batch_size=args.batch_size, save_features=args.save_features,
-        tag_name=args.tag_name, tag_value=args.tag_value,
-        tag_keep_missing=args.tag_keep_missing
+        batch_size=args.batch_size, save_features=args.save_features
     )
 
     # short/remainder regions: just do things without chunking. We can do this
@@ -158,11 +159,9 @@ def predict(args):
                                          allow_cudnn=args.allow_cudnn)
         for region in remainder_regions:
             new_remainders = run_prediction(
-                args.output, args.bam, [region[0]], model, args.model,
+                args.output, args.bam, [region[0]], model, feature_encoder,
                 args.chunk_len, args.chunk_ovlp,  # these won't be used
                 batch_size=args.batch_size, save_features=args.save_features,
-                tag_name=args.tag_name, tag_value=args.tag_value,
-                tag_keep_missing=args.tag_keep_missing,
                 enable_chunking=False
             )
             if len(new_remainders) > 0:

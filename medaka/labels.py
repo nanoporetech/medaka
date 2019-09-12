@@ -389,14 +389,14 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         pos_maps = list()
 
         for aln in truth_alns:
-            labels = self._alignment_to_pairs(aln.aln)
             # default to gap on lookup
             pos_to_symbol = collections.defaultdict(lambda: '*')
             ins_count = 0
-            for rpos, label in itertools.dropwhile(
-                lambda rpos, label: (rpos is None)
-                    or (rpos < aln.start), labels):
 
+            labels = self._alignment_to_pairs(aln.aln)
+            trimmed_labels = itertools.dropwhile(
+                lambda x: (x[0] is None) or (x[0] < aln.start), labels)
+            for rpos, label in trimmed_labels:
                 if rpos is not None and rpos >= aln.end:
                     break
                 if rpos is None:
@@ -1325,6 +1325,7 @@ class RLELabelScheme(HaploidLabelScheme):
         p = [('*', 1)]
         e = self._labels_to_encoded_labels(p)
         t = self._encoded_labels_to_training_vectors(e)
+
         return t
 
     @property
