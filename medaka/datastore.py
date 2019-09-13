@@ -84,13 +84,16 @@ class DataStore(object):
             sample_fields.update(set(fh[sample_data_path]))
 
         # if a sample is missing fields, delete it from the registry
+        to_remove = []
         for key in self.sample_registry:
             sample_data_path = '/'.join((self._sample_path_, key))
             missing_fields = sample_fields - set(fh[sample_data_path])
             if len(missing_fields):
-                self.sample_registry.remove(key)
+                to_remove.append(key)
                 self.logger.debug('Removing sample {} '.format(key) +
                                   'as {} not present.'.format(missing_fields))
+        for key in to_remove:
+            self.sample_registry.remove(key)
 
     def write_sample(self, sample):
         """Write sample to hdf.

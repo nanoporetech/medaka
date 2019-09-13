@@ -113,13 +113,6 @@ def _chunking_feature_args(batch_size=100, chunk_len=10000, chunk_ovlp=1000):
     return parser
 
 
-def feature_gen_dispatch(args):
-    if hasattr(args, 'truth'):
-        medaka.features.create_labelled_samples(args)
-    else:
-        medaka.features.create_samples(args)
-
-
 def hdf2yaml(args):
     with medaka.datastore.DataStore(args.input) as ds, open(args.output, 'w') as fh:
         yaml.dump(ds.meta, fh)
@@ -225,7 +218,7 @@ def main():
         help='Create features for inference.',
         parents=[_log_level(), _chunking_feature_args()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    fparser.set_defaults(func=feature_gen_dispatch)
+    fparser.set_defaults(func=medaka.features.create_samples)
     fparser.add_argument('bam', help='Input alignments.', action=CheckBam)
     fparser.add_argument('output', help='Output features file.')
     fparser.add_argument('--truth', help='Bam of truth aligned to ref to create features for training.')

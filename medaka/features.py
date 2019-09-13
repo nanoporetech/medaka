@@ -6,6 +6,7 @@ import functools
 import inspect
 import itertools
 import os
+import time
 from timeit import default_timer as now
 
 import numpy as np
@@ -613,13 +614,7 @@ class SampleGenerator(object):
         return all_data
 
 
-def create_samples(args):
-    """Load samples from file."""
-    raise NotImplementedError(
-        'Creation of unlabelled samples is currently disabled')
-
-
-def _labelled_samples_worker(args, region, feature_encoder, label_scheme):
+def _samples_worker(args, region, feature_encoder, label_scheme):
     logger = medaka.common.get_named_logger('PrepWork')
     logger.info("Processing region {}.".format(region))
     data_gen = SampleGenerator(
@@ -630,8 +625,8 @@ def _labelled_samples_worker(args, region, feature_encoder, label_scheme):
     return list(data_gen.samples), region
 
 
-def create_labelled_samples(args):
-    """Entry point for creation of training (labelled) samples."""
+def create_samples(args):
+    """Entry point for creation of feature .hdfs (labelled or unlabelled)."""
     logger = medaka.common.get_named_logger('Prepare')
     if args.chunk_ovlp >= args.chunk_len:
         raise ValueError(
@@ -640,6 +635,11 @@ def create_labelled_samples(args):
     regions = medaka.common.get_regions(args.bam, args.regions)
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))
+    if args.truth is None:
+        logger.warn(
+            'Running medaka features without a truth bam, '
+            'unlabelled data will be produced. Is this intended?')
+        time.sleep(3)
 
     no_data = False
     with medaka.datastore.DataStore(args.output, 'w') as ds:
@@ -684,7 +684,7 @@ def create_labelled_samples(args):
             MAX_SIZE = int(1e6)
             regions = itertools.chain(*(r.split(MAX_SIZE) for r in regions))
             futures = [executor.submit(
-                _labelled_samples_worker, args, reg,
+                _samples_worker, args, reg,
                 feature_encoder, label_scheme) for reg in regions]
 
             for fut in concurrent.futures.as_completed(futures):
