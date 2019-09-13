@@ -110,7 +110,7 @@ class HaploidLabelSchemeTest(unittest.TestCase):
 
     def test_labels_to_encoded_labels(self):
 
-        dummy = np.array((('A',), ('C',), ('C',), ('T',)))
+        dummy = [('A',), ('C',), ('C',), ('T',)]
         expected = np.array([1,2,2,4])
         np.testing.assert_equal(self.ls._labels_to_encoded_labels(dummy),
                                 expected)
@@ -398,7 +398,7 @@ class DiploidLabelSchemeTest(unittest.TestCase):
     def test_labels_to_encoded_labels(self):
 
         #expected output from truth alignment to labels
-        dummy = np.array((('A','A'), ('C','G'), ('G','C'), ('T','T')))
+        dummy = [('A','A'), ('C','G'), ('G','C'), ('T','T')]
         expected = np.array([5, 10, 10, 14])
         np.testing.assert_equal(self.ls._labels_to_encoded_labels(dummy), expected)
 
@@ -548,7 +548,7 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
     def test_labels_to_encoded_labels(self):
 
         #expected output from truth alignment to labels
-        dummy = np.array((('A','A'), ('C','G'), ('G','C'), ('T','T')))
+        dummy = [('A','A'), ('C','G'), ('G','C'), ('T','T')]
         expected = np.array((((1, 1), (0,)),
                              ((2, 3), (1,)),
                              ((2, 3), (1,)),
@@ -557,10 +557,10 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
 
     def test_encoded_labels_to_training_vectors(self):
 
-        dummy = np.array((((1, 1), (0,)),
-                          ((2, 3), (1,)),
-                          ((2, 3), (1,)),
-                          ((4, 4), (0,))), dtype=object)
+        dummy = [((1, 1), (0,)),
+                 ((2, 3), (1,)),
+                 ((2, 3), (1,)),
+                 ((4, 4), (0,))]
 
         expected = np.array([[0,1,0,0,0,0],
                              [0,0,1,1,0,1],
@@ -720,10 +720,11 @@ class RLELabelSchemeTest(unittest.TestCase):
     def test_encoding(self):
         """Check some elements of the `_encoding`."""
         expected = {
-            ('*', 1): 0, ('A', 1): 1, ('A', 2): 2, ('A', 3): 3,
-            ('C', 1): 4, ('C', 2): 5, ('C', 3): 6, ('G', 1): 7,
-            ('G', 2): 8, ('G', 3): 9, ('T', 1): 10, ('T', 2): 11,
-            ('T', 3): 12}
+            (('*', 1), ): 0, (('A', 1), ): 1, (('A', 2), ): 2,
+            (('A', 3), ): 3, (('C', 1), ): 4, (('C', 2),): 5,
+            (('C', 3), ): 6, (('G', 1), ): 7, (('G', 2), ): 8,
+            (('G', 3), ): 9, (('T', 1), ): 10, (('T', 2), ): 11,
+            (('T', 3), ): 12}
         encoding = self.ls._encoding
         self.assertEqual(encoding, expected)
 

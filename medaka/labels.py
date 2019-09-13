@@ -417,20 +417,19 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         # n_element tuples of symbols from haplotypes
         labels = [tuple(h[pos] for h in pos_maps)
                   for pos in positions]
-        label_array = np.array(labels, dtype=object)
         positions = np.array(positions,
                              dtype=[('major', int), ('minor', int)])
 
-        return (positions, label_array)
+        return (positions, labels)
 
     @abc.abstractmethod
-    def _labels_to_encoded_labels(self, label_array):
-        """Convert array of labels to array of integer (tuple) encoded labels.
+    def _labels_to_encoded_labels(self, labels):
+        """Convert list of label tuples to array of integer encoded labels.
 
         The logic of many to one mappings, where multiple labels
         map to a common integer encoding is specified here.
 
-        :param label_array: np.ndarray of label tuples, dtype=object
+        :param labels: list of label tuples
 
         :returns: np.ndarray of integer (tuples)
         """
@@ -477,13 +476,13 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         """Return a dictionary mapping from integers to all symbol 1-tuples."""
         return {v: k for k, v in self._unitary_encoding.items()}
 
-    def encode(self, truth_alns, matrix=False):
-        """Convert truth alignment(s) to array of unpadded, network training vectors.
+    def encode(self, truth_alns):
+        """Convert truth alignment(s) to array of intermediate representation.
+
+        In most cases the intermediate representation consists of integers.
 
         :param truth_alns: tuple of `pysam.AlignedSegment` s for each haplotype
             spanning the same genomic range.
-        :param matrix: return matrix suitable for training, else simply
-            encoded label vector.
 
         :returns: tuple(positions, training_vectors)
 
@@ -499,15 +498,13 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
             feature data.
 
         """
+        # Labels is a list of tuples with alleles ('A', ), ('A', 'C'), ('C', 3)
         positions, labels = self._alignments_to_labels(truth_alns)
-        encoded = self._labels_to_encoded_labels(labels)
-        if matrix:
-            training_vectors = self._encoded_labels_to_training_vectors(
-                encoded)
-        else:
-            training_vectors = encoded
 
-        return positions, training_vectors
+        # Encoded is an array of integers
+        encoded = self._labels_to_encoded_labels(labels)
+
+        return positions, encoded
 
     def _unitary_labels(self):
         """Return all symbol 1-tuples."""
@@ -659,7 +656,7 @@ class HaploidLabelScheme(BaseLabelScheme):
     @property
     def padding_vector(self):
         """Return the training vector used to denote a gap."""
-        p = np.array([('*',)])
+        p = [('*',)]
         e = self._labels_to_encoded_labels(p)
         t = self._encoded_labels_to_training_vectors(e)
         return t
@@ -681,10 +678,10 @@ class HaploidLabelScheme(BaseLabelScheme):
         for qpos, rpos in aln.get_aligned_pairs():
             yield rpos, seq[qpos].upper() if qpos is not None else '*'
 
-    def _labels_to_encoded_labels(self, label_array):
-        """Convert label array to array of integer (tuple) encoded labels."""
-        return np.fromiter((self._encoding[tuple(i)]
-                            for i in label_array), dtype=int)
+    def _labels_to_encoded_labels(self, labels):
+        """Convert list of label tuples to array of integer encoded labels."""
+        return np.fromiter(
+            (self._encoding[x] for x in labels), dtype=int)
 
     def _encoded_labels_to_training_vectors(self, enc_labels):
         """Convert integer (tuple) encoded labels to truth vectors.
@@ -978,7 +975,7 @@ class DiploidLabelScheme(BaseLabelScheme):
     @property
     def padding_vector(self):
         """Return the training vector used to denote a gap."""
-        p = np.array([('*', '*')])
+        p = [('*', '*')]
         e = self._labels_to_encoded_labels(p)
         t = self._encoded_labels_to_training_vectors(e)
         return t
@@ -995,10 +992,10 @@ class DiploidLabelScheme(BaseLabelScheme):
         for qpos, rpos in aln.get_aligned_pairs():
             yield rpos, seq[qpos].upper() if qpos is not None else '*'
 
-    def _labels_to_encoded_labels(self, label_array):
-        """Convert label array to array of integer (tuple) encoded labels."""
-        return np.fromiter((self._encoding[tuple(sorted(i))]
-                           for i in label_array), dtype=int)
+    def _labels_to_encoded_labels(self, labels):
+        """Convert a list of labels to array of integer encoded labels."""
+        return np.fromiter(
+            (self._encoding[tuple(sorted(x))] for x in labels), dtype=int)
 
     def _encoded_labels_to_training_vectors(self, enc_labels):
         """Convert integer (tuple) encoded labels to truth vectors.
@@ -1154,7 +1151,7 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
     @property
     def padding_vector(self):
         """Return the training vector used to denote a gap."""
-        p = np.array([('*', '*')])
+        p = [('*', '*')]
         e = self._labels_to_encoded_labels(p)
         t = self._encoded_labels_to_training_vectors(e)
         return t
@@ -1309,7 +1306,7 @@ class RLELabelScheme(HaploidLabelScheme):
     The true length of the runs is encoded in the query scores.
     """
 
-    def __init__(self, max_run=10):
+    def __init__(self, max_run=12):
         """Initialise class.
 
         :param max_run: Maximum run length (inclusive) to be
@@ -1322,7 +1319,7 @@ class RLELabelScheme(HaploidLabelScheme):
     @property
     def padding_vector(self):
         """Return the training vector used to denote a gap."""
-        p = [('*', 1)]
+        p = [(('*', 1), )]
         e = self._labels_to_encoded_labels(p)
         t = self._encoded_labels_to_training_vectors(e)
 
@@ -1333,12 +1330,12 @@ class RLELabelScheme(HaploidLabelScheme):
     def _encoding(self):
         """Create a dictionary mapping from label tuple to integer."""
         encoding = dict()
-        encoding[('*', 1)] = 0
+        encoding[(('*', 1), )] = 0
         bases = [s for s in self.symbols if s != '*']
         lengths = range(1, self.max_run + 1)
 
         for i, (b, l) in enumerate(itertools.product(bases, lengths), 1):
-            encoding[(b, l)] = i
+            encoding[((b, l), )] = i
 
         return encoding
 
@@ -1356,6 +1353,11 @@ class RLELabelScheme(HaploidLabelScheme):
 
             yield rpos, (qbase, qlen)
 
+    def _labels_to_encoded_labels(self, labels):
+        """Convert a list of tuple labels to array of int encoded labels."""
+        return np.fromiter(
+            (self._encoding[x] for x in labels), dtype=int)
+
     def decode_consensus(self, sample):
         """Convert network output to consensus sequence by argmax decoding.
 
@@ -1370,7 +1372,7 @@ class RLELabelScheme(HaploidLabelScheme):
 
         def _get_substrings():
             for x in mp:
-                base, run = decode[x]
+                ((base, run), ) = decode[x]
                 if base != '*':
                     yield base * run
         seq = ''.join(_get_substrings())

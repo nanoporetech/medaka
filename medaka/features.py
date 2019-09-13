@@ -478,7 +478,7 @@ class HardRLEFeatureEncoder(CountsFeatureEncoder):
 
     def __init__(
             self, normalise='total', dtypes=('', ), tag_name=None,
-            tag_value=None, tag_keep_missing=False, num_qstrat=10):
+            tag_value=None, tag_keep_missing=False, num_qstrat=12):
         """Class to generate neural network input features.
 
         :param normalise: str, how to normalise the data.
@@ -646,10 +646,25 @@ def create_labelled_samples(args):
         # write feature options to file
         logger.info("Writing meta data to file.")
 
+        num_qstrat = args.feature_encoder_args.get('num_qstrat')
+        max_run = args.label_scheme_args.get('max_run')
+        # If one of them is set, set the other to agree.
+        # If both are set, force them to agree.
+        # If none is set or they are the same continue merrily.
+        if max_run is None and num_qstrat is not None:
+            args.label_scheme_args['max_run'] = num_qstrat
+        elif max_run is not None and num_qstrat is None:
+            args.feature_encoder_args['num_qstrat'] = max_run
+        elif max_run != num_qstrat:
+            raise ValueError(
+                 'num_qstrat in feature_encoder_args must agree '
+                 'with max_run in feature_encoder_args')
+
         feature_encoder = feature_encoders[args.feature_encoder](
             **args.feature_encoder_args)
 
-        label_scheme = medaka.labels.label_schemes[args.label_scheme]()
+        label_scheme = medaka.labels.label_schemes[args.label_scheme](
+            **args.label_scheme_args)
         model_function = functools.partial(
             medaka.models.build_model,
             feature_encoder.feature_vector_length,
