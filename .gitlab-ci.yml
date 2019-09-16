@@ -5,16 +5,15 @@ stages:
     - build
     - deploy
 
-before_script:
-    - apt-get update -qq && apt-get install -y -qq
-      gcc make cmake curl wget
-      python3-all-dev python-virtualenv
-      zlib1g-dev libbz2-dev liblzma-dev libncurses5-dev libcurl4-gnutls-dev
-      libssl-dev libffi-dev
-    - wget https://ont-research.s3-eu-west-1.amazonaws.com/parasail-1.1.17-py2.py3-none-manylinux1_x86_64.whl 
-
 test:
     stage: test
+    before_script:
+        - apt-get update -qq && apt-get install -y -qq
+          gcc make cmake curl wget
+          python3-all-dev python-virtualenv
+          zlib1g-dev libbz2-dev liblzma-dev libncurses5-dev libcurl4-gnutls-dev
+          libssl-dev libffi-dev
+        - wget https://ont-research.s3-eu-west-1.amazonaws.com/parasail-1.1.17-py2.py3-none-manylinux1_x86_64.whl 
     script:
         - make venv
         # no wheel for parasail on pypi
@@ -45,6 +44,9 @@ build:many-linux-6:
 
 build:sdist:
     stage: build
+    before_script:
+        - apt-get update -qq && apt-get install -y -qq
+          python3-all-dev python-virtualenv
     script:
         - make sdist
     artifacts:
@@ -53,6 +55,9 @@ build:sdist:
 
 deploy:pypi:
     stage: deploy
+    before_script:
+        - apt-get update -qq && apt-get install -y -qq
+          python3-all-dev python-virtualenv
     script:
         - make build
         - source pypi_build/bin/activate
