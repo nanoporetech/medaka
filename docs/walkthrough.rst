@@ -178,10 +178,8 @@ model is used to make predictions.
     REFNAME=utg000001c
     TRAINEND=3762624
     TRAINFEATURES=train_features.hdf
-    FRACTION="0.1 1"
-    BATCHSIZE=200
-    MODEL_FEAT_OPT=medaka/medaka/data/medaka_model.hdf5
-    medaka features ${CALLS2DRAFT}.bam ${TRAINFEATURES} --truth ${TRUTH2DRAFT}.bam --threads ${NPROC} --region ${REFNAME}:-${TRAINEND} --batch_size ${BATCHSIZE} --read_fraction ${FRACTION} --chunk_len 1000 --chunk_ovlp 0 --model ${MODEL_FEAT_OPT} --max_label_len 1
+    BATCHSIZE=100
+    medaka features ${CALLS2DRAFT}.bam ${TRAINFEATURES} --truth ${TRUTH2DRAFT}.bam --threads ${NPROC} --region ${REFNAME}:-${TRAINEND} --batch_size ${BATCHSIZE} --chunk_len 1000 --chunk_ovlp 0 
 
 Now everything is in place to train a consensus network with ``medaka train``:
 
@@ -212,6 +210,38 @@ the model using the ``-m`` option:
     CONSENSUS=consensus_trained
     MODEL=${PWD}/${TRAINNAME}/model.best.val.hdf5
     medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${CONSENSUS} -t ${NPROC} -m ${MODEL}
+
+
+Training with multipe data types
+--------------------------------
+
+Medaka supports creating inference networks that handle independently data from
+difference sources, for example two distinct nanopores. The is enabled through
+the use of alignment tags in the input ``.bam`` files.
+
+To train a model which can handle multiple datatypes follow the same process as above
+for all datatypes independently until the ``medaka feature`` step. Before this combine
+the ``.bam`` files whilst adding the string tag ``DT`` to the files. For example to
+combine data for the R9 and R10 pores:
+
+.. code-block:: bash
+
+    samtools view r9.bam | awk 'BEGIN{OFS="\t"}{print $0, "DT:Z:r9"}' > r9.sam
+    samtools view r10.bam | awk 'BEGIN{OFS="\t"}{print $0, "DT:Z:r10"}' > r10.sam
+    samtools view -H r9.bam | cat - r9.sam r10.sam | samtools view -bS | samtools sort > all_reads.bam
+    samtools index all_reads.bam
+
+Having combined the data types training a model simply requires an additional
+argument to ``medaka features``:
+
+.. code-block:: bash
+
+    medaka features all_reads.bam ... --feature_encoder_args dtypes=r9,r10
+
+In order to create consensus sequences using models trained for multiple
+datatypes, the input ``.bam`` to ``medaka consensus`` should have the ``DT``
+tag added appropriately to all reads. Models trained for multiple datatypes
+will not work without this tag being added to the input files.
 
 
 Automated training pipeline

@@ -19,6 +19,8 @@ static const size_t featlen = 10; // len of the above
 static const size_t fwd_del = 9; // position of D
 static const size_t rev_del = 8;  // position of d
 
+// bam tag used for datatypes
+static const char datatype_tag[] = "DT";
 
 // convert 16bit IUPAC (+16 for strand) to plp_bases index
 static const int num2countbase[32] = {

@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <errno.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -218,26 +219,30 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
             // find to which datatype the read belongs
             int dtype = 0;
             if (num_dtypes > 1){
-                char *qname = bam_get_qname(p->b);
-                bool found = false;
-                for (dtype = 0; dtype < num_dtypes; ++dtype){
-                    char *aux = substring(qname, 0, strlen(dtypes[dtype]));
-                    if(strcmp(dtypes[dtype], aux) == 0) {
-                        found = true;
-                        free(aux);
-                        break;
-                    }
-                    free(aux);
+                bool failed = false;
+                char *tag_val;
+                uint8_t *tag = bam_aux_get(p->b, datatype_tag);
+                if (tag == NULL) { // tag isn't present
+                    failed = true;
+                } else {
+                    tag_val = bam_aux2Z(tag);
+                    failed = errno == EINVAL;
                 }
-                if (!found) {
-                    fprintf(stderr, "Datatype not found for %s.\n", qname);
-                    bam_itr_destroy(data->iter); bam_mplp_destroy(mplp);
-                    free(data); free(plp); free(chr);
-                    hts_close(fp); hts_idx_destroy(idx); bam_hdr_destroy(hdr);
-                    exit(1);
+                if (!failed) {
+                    bool found = false;
+                    for (dtype = 0; dtype < num_dtypes; ++dtype){
+                        if(strcmp(dtypes[dtype], tag_val) == 0) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    failed = !found;
+                }
+                if (failed) {
+                    fprintf(stderr, "Datatype not found for %s.\n", bam_get_qname(p->b));
+                    exit(1); 
                 }
             }
-
 
             int base_i;
             if (p->is_del) {
