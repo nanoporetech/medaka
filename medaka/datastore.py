@@ -2,9 +2,9 @@
 from collections import defaultdict, OrderedDict
 from concurrent.futures import \
     as_completed, ProcessPoolExecutor, ThreadPoolExecutor
+import pickle
 import warnings
 
-import dill
 import numpy as np
 
 import medaka.common
@@ -160,27 +160,20 @@ class DataStore(object):
 
     def _load_pickled(self, path):
         """Load and return pickled object."""
-        obj = dill.loads(self.fh[path][()])
+        obj = pickle.loads(self.fh[path][()])
         return obj
 
     def _write_pickled(self, obj, path):
         """Write a pickled object to file."""
         if path in self.fh:
             del self.fh[path]
-        pickled_obj = np.string_(dill.dumps(obj))
+        pickled_obj = np.string_(pickle.dumps(obj))
         self.fh[path] = pickled_obj
-
-    def _load_feature_encoder(self, path):
-        """Load and return feature encoder."""
-        obj = self._load_pickled(path)
-        # set logger; pickle does not handle correctly
-        obj.logger = medaka.common.get_named_logger('Feature')
-        return obj
 
     @property
     def _metadata_loaders(self):
         """Return dict of metadata loaders."""
-        loaders = {'feature_encoder': self._load_feature_encoder,
+        loaders = {'feature_encoder': self._load_pickled,
                    'model_function': self._load_pickled,
                    'label_scheme': self._load_pickled}
         return loaders
