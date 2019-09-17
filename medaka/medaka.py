@@ -3,7 +3,6 @@ import logging
 import os
 from pkg_resources import resource_filename
 import sys
-import yaml
 
 import numpy as np
 import pysam
@@ -111,16 +110,6 @@ def _chunking_feature_args(batch_size=100, chunk_len=10000, chunk_ovlp=1000):
     parser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
         nargs=2, metavar=('lower', 'upper'))
     return parser
-
-
-def hdf2yaml(args):
-    with medaka.datastore.DataStore(args.input) as ds, open(args.output, 'w') as fh:
-        yaml.dump(ds.meta, fh)
-
-
-def yaml2hdf(args):
-    with medaka.datastore.DataStore(args.output, 'a') as ds, open(args.input) as fh:
-        ds.update_meta(yaml.unsafe_load(fh))
 
 
 def print_model_path(args):
@@ -346,24 +335,6 @@ def main():
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     toolsubparsers = toolparser.add_subparsers(title='tools', description='valid tool commands', help='additional help', dest='tool_command')
-
-    # Dump model/feature meta to yaml
-    hparser = toolsubparsers.add_parser('hdf2yaml',
-        help='Dump medaka meta in a hdf to yaml.',
-        parents=[_log_level()],
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    hparser.set_defaults(func=hdf2yaml)
-    hparser.add_argument('input', help='Input .hdf file.')
-    hparser.add_argument('output', help='Output .yaml file.', default='meta.yaml')
-
-    # Create model .hdf containing model/feature meta from yaml
-    yparser = toolsubparsers.add_parser('yaml2hdf',
-        help='Dump medaka meta in a yaml to hdf.',
-        parents=[_log_level()],
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    yparser.set_defaults(func=yaml2hdf)
-    yparser.add_argument('input', help='Input .yaml file.')
-    yparser.add_argument('output', help='Output .hdf, will be appended to if it exists.', default='meta.hdf')
 
     # merge two haploid VCFs into a diploid VCF.
     h2dparser = toolsubparsers.add_parser('haploid2diploid',
