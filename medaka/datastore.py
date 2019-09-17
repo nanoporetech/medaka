@@ -17,15 +17,7 @@ with warnings.catch_warnings():
 class DataStore(object):
     """Read and write data to .hdf files."""
 
-    # these metadata Datasets are common to data files storing
-    # both sample and model information
-    # they are placed in a self._meta_group_ Group
-    _meta_group_ = 'meta'
-    _metadata_datasets_ = (
-        'feature_encoder',  # pickled FeatureEncoder object
-        'model_function',   # pickled partial function; creates model object
-        'label_scheme')     # pickled LabelScheme object
-
+    _meta_group_ = 'meta'  # top level group for meta items
     _sample_path_ = 'samples/data'  # data group contains sample Datasets
     _sample_registry_path_ = 'samples/registry'  # set of sample keys
 
@@ -43,22 +35,69 @@ class DataStore(object):
         self.write_executor = ThreadPoolExecutor(1)
         self.write_futures = []
 
-    def __enter__(self):
-        """Create filehandle."""
+        self._sample_registry = None
         self.fh = h5py.File(self.filename, self.mode)
-        self._load_metadata()  # accessed via self.metadata
-        self._load_sample_registry()  # accessed via self.sample_registry
 
+    def __enter__(self):
+        """Create context for handling a datastore file."""
         return self
 
     def __exit__(self, *args):
-        """Shutdown sample writer, write metadata and close."""
+        """Shutdown sample writer and close."""
         if self.mode != 'r':
             self.write_executor.shutdown(wait=True)
-            self._write_metadata()
             self._write_sample_registry()
+        self.close()
 
+    def close(self):
+        """Close filehandle of back-end file."""
         self.fh.close()
+
+    def get_meta(self, key):
+        """Load (deserialise) a meta data item.
+
+        :param key: name of item to load.
+        """
+        path = '{}/{}'.format(self._meta_group_, key)
+        try:
+            return pickle.loads(self.fh[path][()])
+        except Exception as e:
+            self.logger.debug("Could not load {} from {}. {}.".format(
+                key, self.filename, e))
+
+    def set_meta(self, obj, key):
+        """Store (serialize) a meta data item to file.
+
+        :param obj: the object to serialise.
+        :param key: the name of the object.
+        """
+        path = '{}/{}'.format(self._meta_group_, key)
+        if path in self.fh:
+            del self.fh[path]
+        pickled_obj = np.string_(pickle.dumps(obj))
+        self.fh[path] = pickled_obj
+        self.fh.flush()
+
+    def copy_meta(self, other):
+        """Copy metadata to another file.
+
+        :param other: filename of another file.
+        """
+        with DataStore(other, 'a') as other_ds:
+            self.fh.copy(
+                self._meta_group_, other_ds.fh,
+                name=self._meta_group_)
+
+    @property
+    def sample_registry(self):
+        """Return a set of samples stored within file."""
+        self._initialise_sample_registry()  # is idempotent
+        return self._sample_registry
+
+    @property
+    def n_samples(self):
+        """Return the number of samples stored in file."""
+        return len(self.sample_registry)
 
     def write_sample(self, sample):
         """Write sample to hdf.
@@ -68,9 +107,9 @@ class DataStore(object):
 
         :param sample: `medaka.common.Sample` object.
         """
-        contains_numpy_array = any(isinstance(getattr(sample, field),
-                                              np.ndarray)
-                                   for field in sample._fields)
+        contains_numpy_array = any(
+            isinstance(getattr(sample, field), np.ndarray)
+            for field in sample._fields)
         if not contains_numpy_array:
             self.logger.debug('Not writing sample as it has no data.')
 
@@ -89,20 +128,11 @@ class DataStore(object):
                     self.write_futures.append(
                         self.write_executor.submit(
                             self._write_dataset, location, data))
-            self.sample_registry.add(sample.name)
+            self._sample_registry.add(sample.name)
         else:
             self.logger.debug(
                 'Not writing {} as present already'.format(
                     sample.name))
-
-    def _write_dataset(self, location, data):
-        """Write data, compressing numpy arrays."""
-        if isinstance(data, np.ndarray):
-            self.fh.create_dataset(location, data=data,
-                                   compression='gzip',
-                                   compression_opts=1)
-        else:
-            self.fh[location] = data
 
     def load_sample(self, key):
         """Load `medaka.common.Sample` object from file.
@@ -113,20 +143,25 @@ class DataStore(object):
         s = dict()
         for field in medaka.common.Sample._fields:
             pth = '{}/{}/{}'.format(self._sample_path_, key, field)
-            if pth in self.fh:
+            try:
                 s[field] = self.fh[pth][()]
+            except KeyError:
+                s[field] = None
+            else:
                 # handle loading of bytestrings
                 if isinstance(s[field], np.ndarray) and \
                         isinstance(s[field][0], type(b'')):
                     s[field] = np.char.decode(s[field])
-            else:
-                s[field] = None
         return medaka.common.Sample(**s)
 
-    def _load_pickled(self, path):
-        """Load and return pickled object."""
-        obj = pickle.loads(self.fh[path][()])
-        return obj
+    def _write_dataset(self, location, data):
+        """Write data, compressing numpy arrays."""
+        if isinstance(data, np.ndarray):
+            self.fh.create_dataset(location, data=data,
+                                   compression='gzip',
+                                   compression_opts=1)
+        else:
+            self.fh[location] = data
 
     def _write_pickled(self, obj, path):
         """Write a pickled object to file."""
@@ -135,73 +170,14 @@ class DataStore(object):
         pickled_obj = np.string_(pickle.dumps(obj))
         self.fh[path] = pickled_obj
 
-    @property
-    def _metadata_loaders(self):
-        """Return dict of metadata loaders."""
-        loaders = {'feature_encoder': self._load_pickled,
-                   'model_function': self._load_pickled,
-                   'label_scheme': self._load_pickled}
-        return loaders
-
-    @property
-    def _metadata_writers(self):
-        """Return dict of metadata writers."""
-        writers = {'feature_encoder': self._write_pickled,
-                   'model_function': self._write_pickled,
-                   'label_scheme': self._write_pickled}
-        return writers
-
-    def _load_metadata_dataset(self, dataset):
-        """Load dataset using appropriate loader."""
-        try:
-            loader = self._metadata_loaders[dataset]
-        except KeyError:
-            self.logger.debug('No metadata loader defined for {}'.format(
-                dataset))
-        else:
-            path = '/'.join((self._meta_group_, dataset))
-            dataset = loader(path)
-            return dataset
-
-    def _load_metadata(self, datasets=None):
-        """Load meta data."""
-        if datasets is None:
-            datasets = self._metadata_datasets_
-        metadata = dict()
-        for d in datasets:
+    def _initialise_sample_registry(self):
+        """Load sample registry from file if present else create."""
+        if self._sample_registry is None:
             try:
-                metadata[d] = self._load_metadata_dataset(d)
-            except Exception as e:
-                self.logger.debug("Could not load {} from {}. {}.".format(
-                    d, self.filename, e))
-        self.metadata = metadata
-
-    def _write_metadata(self):
-        """Write meta data."""
-        for dataset, data in self.metadata.items():
-            self._write_metadata_dataset(dataset, data)
-
-    def _write_metadata_dataset(self, dataset, data):
-        """Write metadata."""
-        self.logger.debug("Writing metadata.")
-        try:
-            writer = self._metadata_writers[dataset]
-        except KeyError:
-            self.logger.debug('No metadata writer defined for {}'.format(
-                dataset))
-        else:
-            path = '/'.join((self._meta_group_, dataset))
-            writer(data, path)
-
-    def _load_sample_registry(self):
-        """Load sample registry."""
-        try:
-            sample_keys = self._load_pickled(
-                self._sample_registry_path_)
-        except KeyError:
-            sample_keys = set()
-        finally:
-            self.sample_registry = sample_keys
+                self._sample_registry = pickle.loads(
+                    self.fh[self._sample_registry_path_][()])
+            except KeyError:
+                self._sample_registry = set()
 
     def _write_sample_registry(self):
         """Write sample registry."""
@@ -210,11 +186,6 @@ class DataStore(object):
             del self.fh[self._sample_registry_path_]
         self._write_pickled(self.sample_registry,
                             self._sample_registry_path_)
-
-    @property
-    def n_samples(self):
-        """Return the number of samples stored in file."""
-        return len(self.sample_registry)
 
 
 class DataIndex(object):
@@ -247,7 +218,7 @@ class DataIndex(object):
                 try:
                     sample_registry = future.result()
                     self.samples.extend(
-                            [(s, fn) for s in sample_registry])
+                        [(s, fn) for s in sample_registry])
                 except Exception:
                     self.logger.info('No sample_registry in {}'.format(fn))
                 else:
@@ -255,7 +226,6 @@ class DataIndex(object):
                         'Loaded {}/{} ({:.2f}%) sample files.'.format(
                             i, self.n_files,
                             i / self.n_files * 100))
-
         # make order of samples independent of order in which tasks complete
         self.samples.sort()
 
@@ -269,9 +239,13 @@ class DataIndex(object):
 
         Assumes that metadata is identical for all feature files
         """
+        metadata = dict()
         first_file = self.filenames[0]
         with DataStore(first_file) as ds:
-            return ds.metadata
+            if ds._meta_group_ in ds.fh:
+                for k in ds.fh[ds._meta_group_].keys():
+                    metadata[k] = ds.get_meta(k)
+        return metadata
 
     @property
     def index(self):

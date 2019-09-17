@@ -23,15 +23,21 @@ class ModelMetaCheckpoint(ModelCheckpoint):
         :param kwargs: keyword arguments for baseclass.
 
         """
+        required_meta = set(
+            ('model_function', 'label_scheme', 'feature_encoder'))
         super(ModelMetaCheckpoint, self).__init__(*args, **kwargs)
         self.medaka_meta = medaka_meta
+        if not set(medaka_meta.keys()).issubset(required_meta):
+            raise KeyError(
+                '`medaka_meta must contain: {}'.format(required_meta))
 
     def on_epoch_end(self, epoch, logs=None):
         """Perform actions at the end of an epoch."""
         super(ModelMetaCheckpoint, self).on_epoch_end(epoch, logs)
         filepath = self.filepath.format(epoch=epoch + 1, **logs)
         with medaka.datastore.DataStore(filepath, 'a') as ds:
-            ds.metadata.update(self.medaka_meta)
+            for k, v in self.medaka_meta.items():
+                ds.set_meta(v, k)
 
 
 class SequenceBatcher(Sequence):

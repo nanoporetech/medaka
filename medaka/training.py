@@ -94,7 +94,7 @@ def run_training(
 
     if model_fp is not None:
         with medaka.datastore.DataStore(model_fp) as ds:
-            partial_model_function = ds.metadata['model_function']
+            partial_model_function = ds.get_meta('model_function')
             model = partial_model_function(time_steps=time_steps,
                                            allow_cudnn=allow_cudnn)
         try:
@@ -223,13 +223,14 @@ class TrainBatcher():
 
         di = medaka.datastore.DataIndex(self.features, threads=threads)
         self.samples = di.samples.copy()
-        self.metadata = di.metadata.copy()
         self.label_scheme = label_scheme
-        self.feature_encoder = self.metadata['feature_encoder']
+        # TODO: label scheme is passed in, this probably should be too
+        self.feature_encoder = di.metadata['feature_encoder']
 
         # check sample size using first batch
         test_sample, test_fname = self.samples[0]
         with medaka.datastore.DataStore(test_fname) as ds:
+            # TODO: this should come from feature_encoder
             self.feature_shape = ds.load_sample(test_sample).features.shape
         self.logger.info(
             "Sample features have shape {}".format(self.feature_shape))

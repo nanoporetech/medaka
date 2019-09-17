@@ -660,21 +660,21 @@ def create_samples(args):
                  'num_qstrat in feature_encoder_args must agree '
                  'with max_run in feature_encoder_args')
 
+        # Create and serialise to file model ancilliaries
         feature_encoder = feature_encoders[args.feature_encoder](
             **args.feature_encoder_args)
+        ds.set_meta(feature_encoder, 'feature_encoder')
 
         label_scheme = medaka.labels.label_schemes[args.label_scheme](
             **args.label_scheme_args)
+        ds.set_meta(label_scheme, 'label_scheme')
+
         model_function = functools.partial(
             medaka.models.build_model,
             feature_encoder.feature_vector_length,
             len(label_scheme._decoding))
-        model_meta = {
-            'model_function': model_function,
-            'label_scheme': label_scheme,
-            'feature_encoder': feature_encoder}
+        ds.set_meta(model_function, 'model_function')
 
-        ds.metadata.update(model_meta)
         # TODO: this parallelism would be better in
         # `SampleGenerator.bams_to_training_samples` since training
         # alignments are usually chunked.

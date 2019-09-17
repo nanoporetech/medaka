@@ -34,18 +34,7 @@ def stitch_from_probs(h5_fp, regions=None):
     logger = medaka.common.get_named_logger('Stitch')
 
     index = medaka.datastore.DataIndex(h5_fp)
-
-    # lookup LabelScheme name stored in HDF5 as piece of metadata
-    try:
-        label_class = medaka.labels.label_schemes[
-            index.metadata['label_scheme_class']]
-    except KeyError:
-        logger.debug(
-            "Could not find `label_scheme_class` definition in input file, "
-            "assuming HaploidLabelScheme.")
-        label_class = medaka.labels.HaploidLabelScheme
-    finally:
-        label_scheme = label_class()
+    label_scheme = index.metadata['label_scheme']
 
     logger.debug("Label decoding is:\n{}".format(
         '\n'.join('{}: {}'.format(k, v)
