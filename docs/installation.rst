@@ -72,6 +72,8 @@ into a python virtual environment. To setup the environment run:
 
 .. code-block:: bash
 
+    # Note: certain files are stored in git-lfs, https://git-lfs.github.com/,
+    #       which must therefore be installed first.
     git clone https://github.com/nanoporetech/medaka.git
     cd medaka
     make install
