@@ -29,18 +29,14 @@ class DataStore(object):
     _sample_path_ = 'samples/data'  # data group contains sample Datasets
     _sample_registry_path_ = 'samples/registry'  # set of sample keys
 
-    def __init__(self, filename, mode='r', verify_on_close=True):
+    def __init__(self, filename, mode='r'):
         """Initialize a datastore.
 
         :param filename: file to open.
         :param mode: file opening mode ('r', 'w', 'a').
-        :param verify_on_close: on file close, check that all samples logged
-            as being stored in file have a corresponding group within the
-            `.hdf`."
         """
         self.filename = filename
         self.mode = mode
-        self.verify_on_close = verify_on_close
 
         self.logger = medaka.common.get_named_logger('DataStore')
 
@@ -56,44 +52,13 @@ class DataStore(object):
         return self
 
     def __exit__(self, *args):
-        """Verify file if requested."""
+        """Shutdown sample writer, write metadata and close."""
         if self.mode != 'r':
-            if self.verify_on_close:
-                self._verify()
-            else:
-                self.logger.debug("Skipping validation on close.")
+            self.write_executor.shutdown(wait=True)
             self._write_metadata()
             self._write_sample_registry()
-            self.write_executor.shutdown(wait=True)
+
         self.fh.close()
-
-    def _verify(self):
-        """Remove samples from registry if nonexistent or missing fields."""
-        self.logger.debug("Verifying data.")
-        self.fh.flush()
-        fh = h5py.File(self.filename, 'r')
-
-        # ensure that sample registry only contains the keys of samples
-        # that exist
-        self._sync_sample_registry()
-
-        # get union of all fields in all samples
-        sample_fields = set()
-        for key in self.sample_registry:
-            sample_data_path = '/'.join((self._sample_path_, key))
-            sample_fields.update(set(fh[sample_data_path]))
-
-        # if a sample is missing fields, delete it from the registry
-        to_remove = []
-        for key in self.sample_registry:
-            sample_data_path = '/'.join((self._sample_path_, key))
-            missing_fields = sample_fields - set(fh[sample_data_path])
-            if len(missing_fields):
-                to_remove.append(key)
-                self.logger.debug('Removing sample {} '.format(key) +
-                                  'as {} not present.'.format(missing_fields))
-        for key in to_remove:
-            self.sample_registry.remove(key)
 
     def write_sample(self, sample):
         """Write sample to hdf.
@@ -245,17 +210,6 @@ class DataStore(object):
             del self.fh[self._sample_registry_path_]
         self._write_pickled(self.sample_registry,
                             self._sample_registry_path_)
-
-    def _sync_sample_registry(self):
-        """Find samples in file and update registry accordingly."""
-        try:
-            sample_keys = set(self.fh[self._sample_path_])
-        except KeyError:
-            self.logger.debug('No {} found in {}.'.format(
-                self._sample_path_, self.filename))
-            sample_keys = set()
-        finally:
-            self.sample_registry = sample_keys
 
     @property
     def n_samples(self):
