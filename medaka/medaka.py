@@ -217,13 +217,13 @@ def main():
     fparser.add_argument('--label_scheme', default='HaploidLabelScheme', help='Labelling scheme.',
                          choices=sorted(medaka.labels.label_schemes))
     fparser.add_argument('--label_scheme_args', action=StoreDict,
-        default={}, metavar="KEY1=VAL1 KEY2=VAL2a,VAL2b...",
+        default=dict(), metavar="KEY1=VAL1 KEY2=VAL2a,VAL2b...",
         help="Label scheme key-word arguments.")
     fparser.add_argument('--feature_encoder', default='CountsFeatureEncoder',
         help='FeatureEncoder used to create the features.',
         choices=sorted(medaka.features.feature_encoders))
     fparser.add_argument('--feature_encoder_args', action=StoreDict, nargs='+',
-        default=tuple(), metavar="KEY1=VAL1 KEY2=VAL2a,VAL2b...",
+        default=dict(), metavar="KEY1=VAL1 KEY2=VAL2a,VAL2b...",
         help="Feature encoder key-word arguments.")
 
     # Training program
