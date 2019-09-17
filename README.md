@@ -103,9 +103,14 @@ Medaka can be installed from its source quite easily on most systems.
  > * python3-all-dev
  > * python-virtualenv
 
+
+
 A Makefile is provided to fetch, compile and install all direct dependencies
 into a python virtual environment. To set-up the environment run:
 
+    # Note: certain files are stored in git-lfs, https://git-lfs.github.com/,
+    #       which must therefore be installed first.
+    git-lfs before cloning the repository*
     git clone https://github.com/nanoporetech/medaka.git
     cd medaka
     make install

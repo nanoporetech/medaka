@@ -1,8 +1,8 @@
 language: python
 python:
-    - "3.4"
+    - "3.5"
     - "3.6"
-dist: trusty
+dist: xenial
 
 before_install:
   - sudo apt-get -qq update
