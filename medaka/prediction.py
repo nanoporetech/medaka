@@ -93,14 +93,11 @@ def predict(args):
     logger.info('Processing region(s): {}'.format(
         ' '.join(str(r) for r in args.regions)))
 
-    # write class names to output
+    # create output and copy meta
     with medaka.datastore.DataStore(args.model) as ds:
-        metadata = ds.metadata
-    with medaka.datastore.DataStore(
-            args.output, 'w') as ds:
-        ds.metadata = metadata
+        ds.copy_meta(args.output)
+        feature_encoder = ds.get_meta('feature_encoder')
 
-    feature_encoder = metadata['feature_encoder']
     feature_encoder.tag_name = args.tag_name
     feature_encoder.tag_value = args.tag_value
     feature_encoder.tag_keep_missing = args.tag_keep_missing

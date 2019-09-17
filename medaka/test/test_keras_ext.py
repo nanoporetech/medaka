@@ -42,7 +42,10 @@ class ModelAndData(object):
         feature_len=10, num_classes=6, gru_size=128,
         classify_activation='softmax', time_steps=None,
         allow_cudnn=None)
-    model_meta = {'model_function': model_function}
+    model_meta = {
+        'model_function': model_function,
+        'label_scheme': None,
+        'feature_encoder': None}
 
     callback_opts = dict(verbose=0, save_best_only=True, mode='max')
     metrics = ['binary_accuracy']
@@ -84,13 +87,20 @@ class TestCheckpoint(unittest.TestCase, ModelAndData):
             batch_size=2, epochs=5, callbacks=callbacks)
 
         with medaka.datastore.DataStore(model_fname, 'r') as ds:
-           meta = ds.metadata
+           model_func = ds.get_meta('model_function')
            # we can not simply assert equality of partial functions
            # https://bugs.python.org/issue3564
            # we need to test .func, .args and. keywords separately
-           self.assertEqual(meta['model_function'].func, self.model_meta['model_function'].func)
-           self.assertEqual(meta['model_function'].args, self.model_meta['model_function'].args)
-           self.assertEqual(meta['model_function'].keywords, self.model_meta['model_function'].keywords)
+           self.assertEqual(model_func.func, self.model_meta['model_function'].func)
+           self.assertEqual(model_func.args, self.model_meta['model_function'].args)
+           self.assertEqual(model_func.keywords, self.model_meta['model_function'].keywords)
+
+    def test_001_checkpoint_raise_with_bad_meta(self):
+        meta = {'thing1': None}
+        model_file = tempfile.NamedTemporaryFile()
+        model_fname = model_file.name
+        with self.assertRaises(KeyError):
+            medaka.keras_ext.ModelMetaCheckpoint(meta, model_fname)
 
 
 class TestBatcher(unittest.TestCase, ModelAndData):
