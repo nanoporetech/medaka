@@ -33,7 +33,7 @@ def run_prediction(
         "Running inference for {:.1f}M draft bases.".format(
             total_region_mbases))
 
-    with medaka.datastore.DataStore(output, 'a', verify_on_close=False) as ds:
+    with medaka.datastore.DataStore(output, 'a') as ds:
         mbases_done = 0
         cache_size_log_interval = 5
 
@@ -97,7 +97,7 @@ def predict(args):
     with medaka.datastore.DataStore(args.model) as ds:
         metadata = ds.metadata
     with medaka.datastore.DataStore(
-            args.output, 'w', verify_on_close=False) as ds:
+            args.output, 'w') as ds:
         ds.metadata = metadata
 
     feature_encoder = metadata['feature_encoder']
