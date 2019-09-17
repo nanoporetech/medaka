@@ -585,7 +585,8 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         :returns: list of medaka.vcf.Variant objects
 
         """
-        self.ref_seq = ref_seq
+        # cast ref sequence to upper case
+        self.ref_seq = ref_seq.upper()
         self.secondary_threshold = threshold
         self.ref_vcf = medaka.vcf.VCFReader(ref_vcf) \
             if ref_vcf else None
@@ -805,6 +806,9 @@ class HaploidLabelScheme(BaseLabelScheme):
             self.decode_consensus(sample, with_gaps=True)))
 
         # get reference sequence with insertions marked as '*'
+        # cast reference symbols to upper case
+        ref_seq = ref_seq.upper()
+
         def get_symbol(p):
             return ref_seq[p['major']] if p['minor'] == 0 else '*'
 
@@ -1024,8 +1028,9 @@ class DiploidLabelScheme(BaseLabelScheme):
         is_reference = call == (ref_symbol, ref_symbol)
         contains_deletion = '*' in call
         contains_nonref = len([s for s in call if
-                               s is not ref_symbol and
+                               s != ref_symbol and
                                s != '*']) > 0
+
         is_het = not self._singleton(call)
 
         # homozygous non-reference
@@ -1043,7 +1048,7 @@ class DiploidLabelScheme(BaseLabelScheme):
         elif all((is_het,
                   not contains_deletion)):
 
-            alt = [s for s in call if s is not ref_symbol]
+            alt = [s for s in call if s != ref_symbol]
             gt = '0/1' if len(alt) == 1 else '1/2'
             genotype = {'GT': gt, 'GQ': qual}
 
@@ -1244,7 +1249,7 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
         is_reference = call == (ref_symbol, ref_symbol)
         contains_deletion = '*' in call
         contains_nonref = len([s for s in call if
-                               s is not ref_symbol and
+                               s != ref_symbol and
                                s != '*']) > 0
 
         # homozygous
@@ -1265,7 +1270,7 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
 
             err = 1 - 0.5 * (primary_prob + secondary_prob)
             qual = self._pfmt(self._phred(err))
-            alt = [s for s in call if s is not ref_symbol]
+            alt = [s for s in call if s != ref_symbol]
             gt = '0/1' if len(alt) == 1 else '1/2'
             genotype = {'GT': gt, 'GQ': qual}
 
