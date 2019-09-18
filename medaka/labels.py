@@ -60,6 +60,20 @@ class TruthAlignment(object):
         """
         # don't want to modify original alignments
         filtered_alignments = [copy(a) for a in alignments]
+
+        # git rid of any alignments with ambiguity bases in reference or query
+        def only_valid_symbols(al):
+            """`TruthAlignment` is free of ambiguous bases in ref and query."""
+            symbols = set(list('ACGT'))
+            ref = al.aln.get_reference_sequence().upper()
+            query = al.aln.query_sequence.upper()
+            result = all([set(ref).issubset(symbols),
+                          set(query).issubset(symbols)])
+            return result
+
+        filtered_alignments = [al for al in filtered_alignments
+                               if only_valid_symbols(al)]
+
         for al_i, al_j in itertools.combinations(filtered_alignments, 2):
             first, second = sorted((al_i, al_j),
                                    key=attrgetter('aln.reference_start'))
