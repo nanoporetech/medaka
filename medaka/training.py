@@ -61,9 +61,8 @@ def train(args):
     else:
         args.validation = args.validation_features
 
-    label_scheme = medaka.labels.label_schemes[args.label_scheme]()
     batcher = TrainBatcher(
-        args.features, label_scheme, args.max_label_len, args.validation,
+        args.features, args.validation,
         args.seed, args.batch_size, threads=args.threads_io)
 
     import tensorflow as tf
@@ -197,14 +196,11 @@ class TrainBatcher():
     """Batching of training and validation samples."""
 
     def __init__(
-            self, features, label_scheme, max_label_len,
-            validation=0.2, seed=0, batch_size=500, threads=1):
+            self, features, validation=0.2, seed=0,
+            batch_size=500, threads=1):
         """Serve up batches of training or validation data.
 
         :param features: iterable of str, training feature files.
-        :param label_scheme_cls: LabellingScheme class.
-        :param max_label_len: int, maximum label length, longer labels will be
-            truncated.
         :param validation: float, fraction of batches to use for validation, or
             iterable of str, validation feature files.
         :param seed: int, random seed for separation of batches into
@@ -216,15 +212,14 @@ class TrainBatcher():
         self.logger = medaka.common.get_named_logger('TrainBatcher')
 
         self.features = features
-        self.max_label_len = max_label_len
         self.validation = validation
         self.seed = seed
         self.batch_size = batch_size
 
         di = medaka.datastore.DataIndex(self.features, threads=threads)
         self.samples = di.samples.copy()
-        self.label_scheme = label_scheme
-        # TODO: label scheme is passed in, this probably should be too
+
+        self.label_scheme = di.metadata['label_scheme']
         self.feature_encoder = di.metadata['feature_encoder']
 
         # check sample size using first batch
