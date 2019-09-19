@@ -83,9 +83,10 @@ def run_training(
         optimizer='rmsprop', optim_args=None, allow_cudnn=True):
     """Run training."""
     from tensorflow.keras.callbacks import \
-        CSVLogger, TensorBoard, EarlyStopping
+        CSVLogger, EarlyStopping
     from tensorflow.keras import optimizers
-    from medaka.keras_ext import ModelMetaCheckpoint, SequenceBatcher
+    from medaka.keras_ext import \
+        ModelMetaCheckpoint, SequenceBatcher, TrainValTensorBoard
 
     logger = medaka.common.get_named_logger('RunTraining')
 
@@ -168,11 +169,11 @@ def run_training(
         EarlyStopping(monitor='val_loss', patience=20),
         # Log of epoch stats
         CSVLogger(os.path.join(train_name, 'training.log')),
-        # Allow us to run tensorboard to see how things are going. Some
-        #   features require validation data, not clear why.
-        TensorBoard(log_dir=os.path.join(train_name, 'logs'),
-                    histogram_freq=5, batch_size=100, write_graph=True,
-                    write_grads=True, write_images=True)
+        # Allow us to run tensorboard to see how things are going
+        TrainValTensorBoard(
+            log_dir=os.path.join(train_name, 'logs'),
+            histogram_freq=5, batch_size=100, write_graph=True,
+            write_grads=True, write_images=True)
     ])
 
     if n_mini_epochs == 1:

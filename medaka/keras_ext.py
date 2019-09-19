@@ -1,8 +1,10 @@
 """Extensions to keras API for medaka."""
+import os
 from timeit import default_timer as now
 
 import numpy as np
-from tensorflow.keras.callbacks import ModelCheckpoint
+import tensorflow as tf
+from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
 from tensorflow.keras.utils import Sequence
 
 import medaka.common
@@ -38,6 +40,49 @@ class ModelMetaCheckpoint(ModelCheckpoint):
         with medaka.datastore.DataStore(filepath, 'a') as ds:
             for k, v in self.medaka_meta.items():
                 ds.set_meta(v, k)
+
+
+class TrainValTensorBoard(TensorBoard):
+    """Modification of tensorboard to plot test and validation together."""
+
+    def __init__(self, log_dir='./logs', **kwargs):
+        """Initialise log writing."""
+        # the strategy here is to log training and validation to different
+        # subdirectories and rename validation metrics to be the same as
+        # the training metrics (remove their 'val' prefix)
+        training_log_dir = os.path.join(log_dir, 'training')
+        super(TrainValTensorBoard, self).__init__(training_log_dir, **kwargs)
+        self.val_log_dir = os.path.join(log_dir, 'validation')
+
+    def set_model(self, model):
+        """Set writer for validation metrics."""
+        self.val_writer = tf.summary.FileWriter(self.val_log_dir)
+        super(TrainValTensorBoard, self).set_model(model)
+
+    def on_epoch_end(self, epoch, logs=None):
+        """Write logs on epoch end."""
+        # take validation logs, save separately renaming keys.
+        # epoch is added as this is what `on_epoch_end` does
+        logs = logs or {}
+        val_logs = {
+            k.replace('val_', 'epoch_'): v
+            for k, v in logs.items() if k.startswith('val_')}
+        for name, value in val_logs.items():
+            summary = tf.Summary()
+            summary_value = summary.value.add()
+            summary_value.simple_value = value.item()
+            summary_value.tag = name
+            self.val_writer.add_summary(summary, epoch)
+        self.val_writer.flush()
+
+        # take remaining logs and handle normally
+        logs = {k: v for k, v in logs.items() if not k.startswith('val_')}
+        super(TrainValTensorBoard, self).on_epoch_end(epoch, logs)
+
+    def on_train_end(self, logs=None):
+        """Close the validation writer on exit."""
+        super(TrainValTensorBoard, self).on_train_end(logs)
+        self.val_writer.close()
 
 
 class SequenceBatcher(Sequence):
