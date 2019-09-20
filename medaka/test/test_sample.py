@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 import os
 
-from medaka.common import Region, Sample, OverlapException
+from medaka.common import Region, Relationship, Sample, OverlapException
 
 root_dir = os.path.abspath(os.path.dirname(__file__))
 test_file = os.path.join(root_dir, 'data/test_probs.hdf')
@@ -167,28 +167,28 @@ class TestSample(unittest.TestCase):
         sample_other = Sample(**sample_dict)
 
         samples_expt = [
-            ([self.samples[0], sample_other], Sample.Relationship.different_ref_name),
-            (self.samples[:2], Sample.Relationship.forward_overlap),  # overlap of minor positions
-            (self.samples[1:], Sample.Relationship.forward_overlap),  # overlap of major positions
-            (self.samples[:2][::-1], Sample.Relationship.reverse_overlap), # overlap of minor positions
-            (self.samples[1:][::-1], Sample.Relationship.reverse_overlap),  # overlap of major positions
-            (sliced[:2], Sample.Relationship.forward_abutted),  # (1,0) -> (2,0)
-            (sliced[1:3], Sample.Relationship.forward_abutted),  # (2,1) -> (2,2)
-            (sliced[::-1][2:], Sample.Relationship.reverse_abutted), # (2,0) -> (1,0)
-            (sliced[::-1][1:3], Sample.Relationship.reverse_abutted), # (2,2) -> (2,1)
-            ([sliced[0], sliced[2]], Sample.Relationship.forward_gapped), # (1,0) -> (2,2)
-            ([self.samples[0].slice(slice(0, 4)), sliced[2]], Sample.Relationship.forward_gapped), # (2,0) -> (2,2)
-            ([sliced[0], self.samples[0].slice(slice(6, None))], Sample.Relationship.forward_gapped), # (1,0) -> (3,0)
-            ([sliced[2], self.samples[0].slice(slice(0, 4))], Sample.Relationship.reverse_gapped), # (2,2) -> (2,0)
-            ([self.samples[0].slice(slice(6, None)), sliced[0]], Sample.Relationship.reverse_gapped), # (3,0) -> (1,0)
-            ([self.samples[0], sliced[0]], Sample.Relationship.s2_within_s1),
-            ([self.samples[0], sliced[1]], Sample.Relationship.s2_within_s1),
-            ([self.samples[0], sliced[2]], Sample.Relationship.s2_within_s1),
-            ([self.samples[0], sliced[3]], Sample.Relationship.s2_within_s1),
-            ([sliced[0], self.samples[0]], Sample.Relationship.s1_within_s2),
-            ([sliced[1], self.samples[0]], Sample.Relationship.s1_within_s2),
-            ([sliced[2], self.samples[0]], Sample.Relationship.s1_within_s2),
-            ([sliced[3], self.samples[0]], Sample.Relationship.s1_within_s2),
+            ([self.samples[0], sample_other], Relationship.different_ref_name),
+            (self.samples[:2], Relationship.forward_overlap),  # overlap of minor positions
+            (self.samples[1:], Relationship.forward_overlap),  # overlap of major positions
+            (self.samples[:2][::-1], Relationship.reverse_overlap), # overlap of minor positions
+            (self.samples[1:][::-1], Relationship.reverse_overlap),  # overlap of major positions
+            (sliced[:2], Relationship.forward_abutted),  # (1,0) -> (2,0)
+            (sliced[1:3], Relationship.forward_abutted),  # (2,1) -> (2,2)
+            (sliced[::-1][2:], Relationship.reverse_abutted), # (2,0) -> (1,0)
+            (sliced[::-1][1:3], Relationship.reverse_abutted), # (2,2) -> (2,1)
+            ([sliced[0], sliced[2]], Relationship.forward_gapped), # (1,0) -> (2,2)
+            ([self.samples[0].slice(slice(0, 4)), sliced[2]], Relationship.forward_gapped), # (2,0) -> (2,2)
+            ([sliced[0], self.samples[0].slice(slice(6, None))], Relationship.forward_gapped), # (1,0) -> (3,0)
+            ([sliced[2], self.samples[0].slice(slice(0, 4))], Relationship.reverse_gapped), # (2,2) -> (2,0)
+            ([self.samples[0].slice(slice(6, None)), sliced[0]], Relationship.reverse_gapped), # (3,0) -> (1,0)
+            ([self.samples[0], sliced[0]], Relationship.s2_within_s1),
+            ([self.samples[0], sliced[1]], Relationship.s2_within_s1),
+            ([self.samples[0], sliced[2]], Relationship.s2_within_s1),
+            ([self.samples[0], sliced[3]], Relationship.s2_within_s1),
+            ([sliced[0], self.samples[0]], Relationship.s1_within_s2),
+            ([sliced[1], self.samples[0]], Relationship.s1_within_s2),
+            ([sliced[2], self.samples[0]], Relationship.s1_within_s2),
+            ([sliced[3], self.samples[0]], Relationship.s1_within_s2),
         ]
         for samples, expt in samples_expt:
             self.assertIs(Sample.relative_position(*samples), expt)
@@ -224,7 +224,3 @@ class TestSample(unittest.TestCase):
         sliced = [self.samples[0].slice(sl) for sl in slices]
         for expt, got in zip(sliced, chunks):
             self.assertEqual(got, expt)
-
-
-if __name__ == '__main__':
-    unittest.main()
