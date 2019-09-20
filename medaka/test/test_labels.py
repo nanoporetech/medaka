@@ -772,6 +772,3 @@ class RLELabelSchemeTest(unittest.TestCase):
 
     def test_padding_vector(self):
         np.testing.assert_equal(self.ls.padding_vector, np.array([[0]]))
-
-if __name__ == '__main__':
-    unittest.main()

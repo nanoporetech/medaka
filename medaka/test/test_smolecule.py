@@ -45,9 +45,3 @@ class TestRead(unittest.TestCase):
         self.assertTrue(read._initialized, 'Read is initialized after poa.')
         self.assertEqual(cons, read.consensus, 'Returned sequence is self.consensus.')
         self.assertFalse(read._alignments_valid, '.alignments_valid is False after .poa_consensus.()')
-
-
-
-
-if __name__ == '__main__':
-    unittest.main()

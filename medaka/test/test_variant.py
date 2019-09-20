@@ -205,6 +205,3 @@ class TestJoinSamples(unittest.TestCase):
             for expt, got in zip(exp_sliced, joined):
                 self.assertEqual(got.name, expt.name)
                 self.assertEqual(got, expt)
-
-if __name__ == '__main__':
-    unittest.main()
