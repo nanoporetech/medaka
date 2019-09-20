@@ -305,7 +305,3 @@ class CompressBasecallsTest(unittest.TestCase):
                 got[read.name] = (read.sequence, lengths)
         print('Javi: {}'.format(got))
         self.assertEqual(expected, got)
-
-
-if __name__ == '__main__':
-    unittest.main()

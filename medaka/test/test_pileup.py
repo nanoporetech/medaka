@@ -135,6 +135,3 @@ class TruthAlignmentTest(unittest.TestCase):
         self.assertEqual(alignments[0][0].end, 417741)
         self.assertEqual(alignments[1][0].start, 417741)
         self.assertEqual(alignments[1][0].end, 422799)
-
-if __name__ == '__main__':
-    unittest.main()

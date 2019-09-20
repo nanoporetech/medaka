@@ -432,6 +432,3 @@ class TestClassifyVariant(unittest.TestCase):
         for klass, ref, alts in cases:
             var = Variant('20', 14369, ref, alt=alts)
             self.assertEqual(klass, classify_variant(var), 'Classification failed for {} {} {}'.format(ref, alts, klass))
-
-if __name__ == '__main__':
-    unittest.main()
