@@ -126,7 +126,7 @@ test: install
 	${IN_VENV} && pip install pytest pytest-cov flake8 flake8-rst-docstrings flake8-docstrings flake8-import-order
 	# TODO: add these exclusions back in after outstanding PRs
 	${IN_VENV} && flake8 medaka --import-order-style google --application-import-names medaka,libmedaka --exclude \
-		medaka/test/,medaka/medaka.py,medaka/common.py \
+		medaka/test/,medaka/medaka.py \
 		--statistics
 	${IN_VENV} && pytest medaka --doctest-modules \
 		--cov=medaka --cov-report html --cov-report term \
