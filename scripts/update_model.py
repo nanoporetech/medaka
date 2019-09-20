@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import functools
 import os
@@ -72,13 +73,15 @@ def main():
     # write new-style metadata
     with medaka.datastore.DataStore(args.output, mode='a') as ds:
 
-        ds.metadata['model_function'] = functools.partial(
-            build_model, feat_len, num_classes, gru_size=gru_size,
-            classigy_activation=classify_activation)
-
-        ds.metadata['label_scheme'] = medaka.labels.HaploidLabelScheme()
-        ds.metadata['feature_encoder'] = medaka.features.CountsFeatureEncoder(
-            normalise=normalise)
+        ds.set_meta(medaka.labels.HaploidLabelScheme(), 'label_scheme')
+        ds.set_meta(
+            medaka.features.CountsFeatureEncoder(normalise=normalise),
+            'feature_encoder')
+        ds.set_meta(
+            functools.partial(
+                build_model, feat_len, num_classes,
+                gru_size=gru_size, classify_activation=classify_activation),
+            'model_function')
 
 if __name__ == '__main__':
     main()
