@@ -66,16 +66,35 @@ class RLEConverter(object):
         self.compact_basecall = ''.join(self.rle_conversion['value'])
         self.homop_length = self.rle_conversion['length']
 
-    def coord_full_to_compact(self, coord):
-        """Map string index from basecall to encoded string.
+    def trimmed_compact(self, start, end):
+        """Return a trimmed compressed sequence.
 
-        :param coord: array_like, full coordinate(s) position to be converted
-            to compact
+        :param start: start co-ordinate in uncompressed sequence.
+        :param end: end co-ordinate in uncompressed sequence (exclusive).
 
-        :returns: numpy.ndarray of coordinates
+        :returns: the trimmed compressed sequence.
         """
-        return np.searchsorted(
-            self.rle_conversion['start'], coord, 'right') - 1
+        s, e = self.transform_coords(start, end)
+        return self.compact_basecall[s:e]
+
+    def transform_coords(self, start, end):
+        """Transform a slice co-ordinates from the input sequence.
+
+        :param start: start co-ordinate in uncompressed sequence.
+        :param end: end co-ordinate in uncompressed sequence (exclusive).
+
+        :returns: the trimmed compressed sequence.
+        """
+        # Visual explanation:
+        # seq         : AATTCCGG
+        # seq_i       : 01234567
+        # rle_i       : 00112233
+        # search right: 11223344
+        # => the slice [0:8] should map to [0:4]
+        # => subtract 1 from s; e is fine because we want exclusive
+        s, e = np.searchsorted(
+            self.rle_conversion['start'], [start, end - 1], 'right')
+        return s - 1, e
 
     def coord_compact_to_full(self, coord):
         """Map from encoded index to full basecall index.
@@ -96,9 +115,8 @@ def parasail_alignment(query, ref):
 
     :returns: reference start co-ordinate, cigar string
     """
-    result = parasail.sw_trace_striped_16(query, ref, 5, 3, parasail.dnafull)
+    result = parasail.sw_trace_striped_32(query, ref, 5, 3, parasail.dnafull)
     rstart, cigar = medaka.smolecule.parasail_to_sam(result, query)
-
     return rstart, cigar
 
 
@@ -192,16 +210,14 @@ def _compress_alignment(alignment, ref_rle):
     query_rle = RLEConverter(alignment.query_sequence)
 
     # Get aligned query in RLE
-    qstart = alignment.query_alignment_start
-    qend = alignment.query_alignment_end
-    q_compact_start = query_rle.coord_full_to_compact(qstart)
-    q_compact_end = query_rle.coord_full_to_compact(qend)
+    qstart, qend = (
+        alignment.query_alignment_start, alignment.query_alignment_end)
+    q_compact_start, q_compact_end = query_rle.transform_coords(qstart, qend)
     compact_query = query_rle.compact_basecall[q_compact_start:q_compact_end]
 
     # Get aligned reference in RLE
     rstart, rend = alignment.reference_start, alignment.reference_end
-    r_compact_start = ref_rle.coord_full_to_compact(rstart)
-    r_compact_end = ref_rle.coord_full_to_compact(rend)
+    r_compact_start, r_compact_end = ref_rle.transform_coords(rstart, rend)
     compact_ref = ref_rle.compact_basecall[r_compact_start:r_compact_end]
 
     # Calculate new alignment with compressed reads
