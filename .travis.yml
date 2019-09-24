@@ -20,3 +20,4 @@ deploy:
   target_branch: gh-pages
   on:
     branch: master
+    python: "3.6"
