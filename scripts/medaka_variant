@@ -273,7 +273,7 @@ run_samtools_index () {
 
     if [[ ! -e ${INDEX} ]]; then
         echo "Running samtools index on ${BAM}."
-        samtools index ${BAM} -@ ${THREADS} \
+        samtools index -@ ${THREADS} ${BAM}  \
             || (echo "Failed to index bam ${BAM}." && exit 1)
         echo "Bam index in ${OUTPUT}/${INDEX}."
     else
