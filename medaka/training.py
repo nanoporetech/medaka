@@ -104,7 +104,7 @@ def run_training(
             logger.info("Could not load weights from {}".format(model_fp))
 
     else:
-        num_classes = len(batcher.label_scheme._decoding)
+        num_classes = batcher.label_scheme.num_classes
         model_name = medaka.models.default_model
         model_function = medaka.models.model_builders[model_name]
         partial_model_function = functools.partial(
@@ -308,5 +308,5 @@ class TrainBatcher():
             raise ValueError("Sample {} in {} has no labels.".format(
                 sample_key, sample_file))
         x = s.features
-        y = label_scheme._encoded_labels_to_training_vectors(s.labels)
+        y = label_scheme.encoded_labels_to_training_vectors(s.labels)
         return x, y
