@@ -758,7 +758,7 @@ class Haploid2DiploidConverter(object):
                 strict=self.only_overlapping,
                 data_initializer=list(),
                 data_reducer=lambda x, y: x + [y])
-            ref_seq = self.fasta.fetch(chrom)
+            ref_seq = self.fasta.fetch(chrom).upper()
             for interval in comb.all_intervals:
                 merged.append(_merge_variants(
                     interval, trees, ref_seq,
