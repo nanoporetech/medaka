@@ -288,12 +288,19 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
     Encoding (conversion of truth alignments to training vectors):
 
-    The public method is `self.encode`.
-    These private methods must be implemented.
+    The public method `self.encode` converts alignments
+    to arrays of integer-encoded intermediate representations that
+    are saved to file during feature creation.
+    These private method must be implemented.
 
         - `_alignment_to_pairs` (called by _alignment_to_labels)
         - `_labels_to_encoded_labels`
-        - `_encoded_labels_to_training_vectors`
+
+    At training time, it is necessary to call the following public
+    method for the conversion of intermediate forms saved to file to
+    training vectors input to the model training process.
+
+        - `encoded_labels_to_training_vectors`
 
     Decoding (interpretation of network outputs):
 
@@ -327,11 +334,16 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
     @property
     @abc.abstractmethod
+    def num_classes(self):
+        """Return number of elements in output layer of neural network."""
+
+    @property
+    @abc.abstractmethod
     def padding_vector(self):
-        """Return the training vector used to denote a gap.
+        """Return the integer encoding used to denote a gap.
 
         Used to inform calling programs that need to expand
-        training vector arrays to align with feature arrays,
+        label arrays to align with feature arrays,
         where reads introduce minor positions.
         """
 
@@ -449,7 +461,7 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         """
 
     @abc.abstractmethod
-    def _encoded_labels_to_training_vectors(self, enc_labels):
+    def encoded_labels_to_training_vectors(self, enc_labels):
         """Convert integer (tuple) encoded labels to truth vectors.
 
         (e.g. one-hot encoded truth vectors) that represent the truth
@@ -504,12 +516,12 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
               (reference position index) and 'minor'
               (trailing insertion index) fields.
 
-            - training_vectors: nd.array of training vectors
+            - encoded: nd.array of encoded labels
 
         .. note ::
-            It is generally the case that the returned label vectors must be
-            padded with gap labels when aligned to corresponding training
-            feature data.
+            It is generally the case that the returned encoded labels must be
+            padded with encoded gap labels when aligned to corresponding
+            training feature data.
 
         """
         # Labels is a list of tuples with alleles ('A', ), ('A', 'C'), ('C', 3)
@@ -669,12 +681,15 @@ class HaploidLabelScheme(BaseLabelScheme):
         return 1
 
     @property
+    def num_classes(self):
+        """Return number of elements in output layer of neural network."""
+        return len(self._decoding)
+
+    @property
     def padding_vector(self):
-        """Return the training vector used to denote a gap."""
-        p = [('*',)]
-        e = self._labels_to_encoded_labels(p)
-        t = self._encoded_labels_to_training_vectors(e)
-        return t
+        """Return the integer encoding used to denote a gap."""
+        gap = [('*',)]
+        return self._labels_to_encoded_labels(gap)[0]
 
     @property
     @functools.lru_cache(1)
@@ -698,7 +713,7 @@ class HaploidLabelScheme(BaseLabelScheme):
         return np.fromiter(
             (self._encoding[x] for x in labels), dtype=int)
 
-    def _encoded_labels_to_training_vectors(self, enc_labels):
+    def encoded_labels_to_training_vectors(self, enc_labels):
         """Convert integer (tuple) encoded labels to truth vectors.
 
         (e.g. sparse one-hot encoded truth vectors) that represent the truth
@@ -963,7 +978,7 @@ class DiploidLabelScheme(BaseLabelScheme):
     Each label maps to an integer, and we make a direct diploid call.
     A categorical crossentropy loss is appropriate.
 
-    Encoding: ('A', 'C') -> 6 -> [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0].
+    Encoding: ('A', 'C') -> 6 -> [6] (a sparse one-hot encoded training vector)
 
     SNP decoding: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0] -> ('A', 'C')
     (network output is not constrained to be 0 or 1, but for simplicity
@@ -991,12 +1006,15 @@ class DiploidLabelScheme(BaseLabelScheme):
         return 2
 
     @property
+    def num_classes(self):
+        """Return number of elements in output layer of neural network."""
+        return len(self._decoding)
+
+    @property
     def padding_vector(self):
-        """Return the training vector used to denote a gap."""
-        p = [('*', '*')]
-        e = self._labels_to_encoded_labels(p)
-        t = self._encoded_labels_to_training_vectors(e)
-        return t
+        """Return the integer encoding used to denote a gap."""
+        gap = [('*', '*')]
+        return self._labels_to_encoded_labels(gap)[0]
 
     @property
     @functools.lru_cache(1)
@@ -1015,7 +1033,7 @@ class DiploidLabelScheme(BaseLabelScheme):
         return np.fromiter(
             (self._encoding[tuple(sorted(x))] for x in labels), dtype=int)
 
-    def _encoded_labels_to_training_vectors(self, enc_labels):
+    def encoded_labels_to_training_vectors(self, enc_labels):
         """Convert integer (tuple) encoded labels to truth vectors.
 
         (e.g. sparse one-hot encoded truth vectors) that represent the truth
@@ -1108,25 +1126,17 @@ class DiploidLabelScheme(BaseLabelScheme):
         return m
 
 
-class DiploidZygosityLabelScheme(BaseLabelScheme):
-    """This LabelScheme defines a two-part label per genomic position.
+class DiploidZygosityLabelScheme(DiploidLabelScheme):
+    """Diploid label scheme with an explicit heterozygosity element.
 
-    A two-tuple label defining symbols at a position, and an additional
-    element explicitly indicating heterozygosity.
-
-    Each symbol in the diploid label is encoded as a unitary symbol, exactly
-    as it is in the HaploidLabelScheme, i.e. ('A',) maps to 1.
-    The third element of the integer encoding is set to 1 when the label is
-    heterozygous, or 0 where the label is homozygous.
-
-    Encoding: ('A', 'C') -> ((1, 2), 1)
-              ('G', 'G') -> ((3, 3), 0)
+    The intermediate integer encoding is identical to the
+    DiploidLabelScheme.
 
     The training vector encoding is multi-hot. For example, to encode
     ('A', C') at a locus, three elements of the training vectors representing
     'A', 'C' and 'is_heterogygous' are set to 1.
 
-    ('A', 'C') -> ((1, 2), 1) -> [0, 1, 1, 0, 0, 1]
+    ('A', 'C') -> 6 -> [0, 1, 1, 0, 0, 1]
 
     During inference, we predict the probability of each base existing
     independently, and also (independently) the probability of the locus
@@ -1168,66 +1178,46 @@ class DiploidZygosityLabelScheme(BaseLabelScheme):
         return 2
 
     @property
+    def num_classes(self):
+        """Return number of elements in output layer of neural network."""
+        return len(self.symbols) + 1
+
+    @property
     def padding_vector(self):
-        """Return the training vector used to denote a gap."""
-        p = [('*', '*')]
-        e = self._labels_to_encoded_labels(p)
-        t = self._encoded_labels_to_training_vectors(e)
-        return t
+        """Return the integer encoding used to denote a gap."""
+        gap = [('*', '*')]
+        return self._labels_to_encoded_labels(gap)[0]
 
     def _is_het(self, l):
         return 1 if not self._singleton(l) else 0
 
-    @property
-    @functools.lru_cache(1)
-    def _encoding(self):
-        # (symbol, symbol, zygosity) encoding.
-        # ('C', 'G'): ((2, 3), (1,))
-
-        # diploid labels
-        dl = self._unordered_label_combinations()
-        # haploid encoding
-        he = self._unitary_encoding
-
-        encoding = dict()
-
-        for label in dl:
-            symbols = (tuple(symbol,) for symbol in label)
-            encoded_symbols = tuple(
-                he[symbol] for symbol in symbols)
-            encoded_zygosity = (self._is_het(label),)
-            encoding[label] = tuple(
-                [encoded_symbols, encoded_zygosity])
-
-        return encoding
-
-    def _alignment_to_pairs(self, aln):
-        """Convert `pysam.AlignedSegment` to aligned pairs."""
-        seq = aln.query_sequence
-        for qpos, rpos in aln.get_aligned_pairs():
-            yield rpos, seq[qpos].upper() if qpos is not None else '*'
-
-    def _labels_to_encoded_labels(self, label_array):
-        """Convert label array to array of integer (tuple) encoded labels."""
-        return np.array([self._encoding[tuple(sorted(i))]
-                        for i in label_array], dtype=object)
-
-    def _encoded_labels_to_training_vectors(self, enc_labels):
+    def encoded_labels_to_training_vectors(self, enc_labels):
         """Convert integer (tuple) encoded labels to truth vectors.
 
         (e.g. one-hot encoded truth vectors) that represent the truth
         for comparison with network output logits in
         e.g. metric(truth, pred) or loss(truth, pred)) functions.
         """
-        # ('C', 'G') -> ((2, 3), 1) -> [0, 0, 1, 1, 0, 1]
-        # C and G are set to 1, and het is set to 1.
-        n_class = len(self.symbols) + 1
-        vectors = np.zeros((len(enc_labels), n_class))
-        for i, l in enumerate(enc_labels):
-            symbols, het = l
-            for s in symbols:
-                vectors[i, s] = 1
-            vectors[i, -1] = het[0]
+        # we hardcode the conversion between intermediate integer
+        # encodings and the desired multi-hot vectors
+        to_training_vector = {0:  np.array([1, 0, 0, 0, 0, 0]),  # ('*', '*')
+                              1:  np.array([1, 1, 0, 0, 0, 1]),  # ('*', 'A')
+                              2:  np.array([1, 0, 1, 0, 0, 1]),  # ('*', 'C')
+                              3:  np.array([1, 0, 0, 1, 0, 1]),  # ('*', 'G')
+                              4:  np.array([1, 0, 0, 0, 1, 1]),  # ('*', 'T')
+                              5:  np.array([0, 1, 0, 0, 0, 0]),  # ('A', 'A')
+                              6:  np.array([0, 1, 1, 0, 0, 1]),  # ('A', 'C')
+                              7:  np.array([0, 1, 0, 1, 0, 1]),  # ('A', 'G')
+                              8:  np.array([0, 1, 0, 0, 1, 1]),  # ('A', 'T')
+                              9:  np.array([0, 0, 1, 0, 0, 0]),  # ('C', 'C')
+                              10: np.array([0, 0, 1, 1, 0, 1]),  # ('C', 'G')
+                              11: np.array([0, 0, 1, 0, 1, 1]),  # ('C', 'T')
+                              12: np.array([0, 0, 0, 1, 0, 0]),  # ('G', 'G')
+                              13: np.array([0, 0, 0, 1, 1, 1]),  # ('G', 'T')
+                              14: np.array([0, 0, 0, 0, 1, 0])}  # ('T', 'T')
+
+        vectors = np.stack([to_training_vector[x] for x in enc_labels])
+
         return vectors
 
     def _prob_to_snp(self, network_output, pos, ref_name,
@@ -1337,12 +1327,9 @@ class RLELabelScheme(HaploidLabelScheme):
 
     @property
     def padding_vector(self):
-        """Return the training vector used to denote a gap."""
-        p = [(('*', 1), )]
-        e = self._labels_to_encoded_labels(p)
-        t = self._encoded_labels_to_training_vectors(e)
-
-        return t
+        """Return the integer encoding used to denote a gap."""
+        gap = [(('*', 1), )]
+        return self._labels_to_encoded_labels(gap)[0]
 
     @property
     @functools.lru_cache(1)
