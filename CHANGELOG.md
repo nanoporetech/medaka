@@ -1,3 +1,21 @@
+v0.9.2
+------
+Minor fix release.
+
+* Additional fix to handling lowercase reference sequences.
+* Fix bug in creation of RLE alignments.
+* Update `update_model.py` script.
+* Remove option to select labelling scheme during training.
+* Unify how LabelSchemes store training data.
+
+v0.9.1
+------
+Minor fix release
+
+* Fix regression in medaka stitch and medaka snp speed.
+* Handle lowercase letters in reference sequences.
+* Remove dill and yaml requirements.
+
 v0.9.0
 ------
 Bugfix and training refactor release
