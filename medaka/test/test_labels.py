@@ -92,6 +92,9 @@ class HaploidLabelSchemeTest(unittest.TestCase):
     def test_n_element(self):
         self.assertEqual(self.ls.n_elements, 1)
 
+    def test_num_classes(self):
+        self.assertEqual(self.ls.num_classes, len(self.ls.symbols))
+
     def test_alignments_start_end(self):
         """Test all alignments start and end in the same position.
 
@@ -122,7 +125,7 @@ class HaploidLabelSchemeTest(unittest.TestCase):
                              [2],
                              [2],
                              [4]])
-        np.testing.assert_equal(self.ls._encoded_labels_to_training_vectors(dummy),
+        np.testing.assert_equal(self.ls.encoded_labels_to_training_vectors(dummy),
                                 expected)
 
     def test_encoding(self):
@@ -346,7 +349,7 @@ class HaploidLabelSchemeTest(unittest.TestCase):
             self.assertAlmostEqual(float(v.genotype_data['GQ']), gq, places=3)
 
     def test_padding_vector(self):
-        np.testing.assert_equal(self.ls.padding_vector, np.array([[0]]))
+        self.assertEqual(self.ls.padding_vector, 0)
 
 def diploid_sample_from_labels(ls=None,
                                ref=None,
@@ -395,6 +398,9 @@ class DiploidLabelSchemeTest(unittest.TestCase):
 
         self.assertEqual(self.ls.n_elements, 2)
 
+    def test_num_classes(self):
+        self.assertEqual(self.ls.num_classes, len(self.ls._encoding))
+
     def test_labels_to_encoded_labels(self):
 
         #expected output from truth alignment to labels
@@ -408,7 +414,7 @@ class DiploidLabelSchemeTest(unittest.TestCase):
                              [10],
                              [10],
                              [14]])
-        np.testing.assert_equal(self.ls._encoded_labels_to_training_vectors(dummy),
+        np.testing.assert_equal(self.ls.encoded_labels_to_training_vectors(dummy),
                                 expected)
 
     def test_encoding(self):
@@ -494,7 +500,7 @@ class DiploidLabelSchemeTest(unittest.TestCase):
             self.assertAlmostEqual(float(v.genotype_data['GQ']), qual, places=3)
 
     def test_padding_vector(self):
-        np.testing.assert_equal(self.ls.padding_vector, np.array([[0]]))
+        self.assertEqual(self.ls.padding_vector, 0)
 
 def diploid_zygosity_sample_from_labels(ls=None,
                                         ref=None,
@@ -545,40 +551,32 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
     def test_n_elements(self):
         self.assertEqual(self.ls.n_elements, 2)
 
+    def test_num_classes(self):
+        self.assertEqual(self.ls.num_classes, len(self.ls.symbols) + 1)
+
     def test_labels_to_encoded_labels(self):
 
         #expected output from truth alignment to labels
         dummy = [('A','A'), ('C','G'), ('G','C'), ('T','T')]
-        expected = np.array((((1, 1), (0,)),
-                             ((2, 3), (1,)),
-                             ((2, 3), (1,)),
-                             ((4, 4), (0,))), dtype=object)
+        expected = np.array([5, 10, 10, 14])
         np.testing.assert_equal(self.ls._labels_to_encoded_labels(dummy), expected)
 
     def test_encoded_labels_to_training_vectors(self):
-
-        dummy = [((1, 1), (0,)),
-                 ((2, 3), (1,)),
-                 ((2, 3), (1,)),
-                 ((4, 4), (0,))]
-
-        expected = np.array([[0,1,0,0,0,0],
-                             [0,0,1,1,0,1],
-                             [0,0,1,1,0,1],
-                             [0,0,0,0,1,0]])
-        np.testing.assert_equal(self.ls._encoded_labels_to_training_vectors(dummy),
+        dummy = np.array([5, 10, 10, 14])
+        expected = np.array([[0, 1, 0, 0, 0, 0],
+                             [0, 0, 1, 1, 0 ,1],
+                             [0, 0, 1, 1 ,0, 1],
+                             [0, 0 ,0 ,0 ,1 ,0]])
+        np.testing.assert_equal(self.ls.encoded_labels_to_training_vectors(dummy),
                                 expected)
 
     def test_encoding(self):
 
-        expected = {('A', 'C'): ((1, 2), (1,)), ('G', 'G'): ((3, 3), (0,)),
-                    ('*', '*'): ((0, 0), (0,)), ('C', 'C'): ((2, 2), (0,)),
-                    ('G', 'T'): ((3, 4), (1,)), ('*', 'A'): ((0, 1), (1,)),
-                    ('T', 'T'): ((4, 4), (0,)), ('A', 'T'): ((1, 4), (1,)),
-                    ('*', 'G'): ((0, 3), (1,)), ('A', 'A'): ((1, 1), (0,)),
-                    ('C', 'T'): ((2, 4), (1,)), ('C', 'G'): ((2, 3), (1,)),
-                    ('*', 'C'): ((0, 2), (1,)), ('*', 'T'): ((0, 4), (1,)),
-                    ('A', 'G'): ((1, 3), (1,))}
+        expected = {('A', 'C'): 6, ('G', 'G'): 12, ('*', '*'): 0,
+                    ('C', 'C'): 9, ('G', 'T'): 13, ('*', 'A'): 1,
+                    ('T', 'T'): 14, ('A', 'T'): 8, ('*', 'G'): 3,
+                    ('A', 'A'): 5, ('C', 'T'): 11, ('C', 'G'): 10,
+                    ('*', 'C'): 2, ('*', 'T'): 4, ('A', 'G'): 7}
         self.assertEqual(self.ls._encoding, expected)
 
     def test_prob_to_snp(self):
@@ -709,13 +707,16 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
             self.assertAlmostEqual(float(v.genotype_data['GQ']), gq, places=3)
 
     def test_padding_vector(self):
-        np.testing.assert_equal(self.ls.padding_vector, np.array([[1., 0., 0., 0., 0., 0.]]))
+        self.assertEqual(self.ls.padding_vector, 0)
 
 class RLELabelSchemeTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
         cls.ls = medaka.labels.RLELabelScheme(max_run=3)
+
+    def test_num_classes(self):
+        self.assertEqual(self.ls.num_classes, len(self.ls._encoding))
 
     def test_encoding(self):
         """Check some elements of the `_encoding`."""
@@ -771,7 +772,4 @@ class RLELabelSchemeTest(unittest.TestCase):
         self.assertEqual(expected, got)
 
     def test_padding_vector(self):
-        np.testing.assert_equal(self.ls.padding_vector, np.array([[0]]))
-
-if __name__ == '__main__':
-    unittest.main()
+        self.assertEqual(self.ls.padding_vector, 0)

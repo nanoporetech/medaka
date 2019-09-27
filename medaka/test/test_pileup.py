@@ -9,7 +9,18 @@ __truth_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'truth_to_ref.ba
 __ref_fasta__ = os.path.join(os.path.dirname(__file__), 'data', 'draft_ref.fasta')
 __ref_name__ = 'Consensus_Consensus_Consensus_Consensus_utg000001l'
 
-MockAlignment = namedtuple('MockAlignment', ['reference_start', 'reference_end', 'reference_length'])
+class MockAlignment():
+    def __init__(self, ref_start=None, ref_end=None, ref_len=None,
+                 query_seq='ACATGCAAGACACGAT',
+                 ref_seq='AAAGGCAAGACACGAT'):
+        self.reference_start = ref_start
+        self.reference_end = ref_end
+        self.reference_length = ref_len
+        self.query_sequence = query_seq
+        self.reference_sequence = ref_seq
+    def get_reference_sequence(self):
+        return self.reference_sequence
+
 full_region = Region('Mock', 0, float('inf'))
 
 class TruthAlignmentTest(unittest.TestCase):
@@ -124,6 +135,3 @@ class TruthAlignmentTest(unittest.TestCase):
         self.assertEqual(alignments[0][0].end, 417741)
         self.assertEqual(alignments[1][0].start, 417741)
         self.assertEqual(alignments[1][0].end, 422799)
-
-if __name__ == '__main__':
-    unittest.main()

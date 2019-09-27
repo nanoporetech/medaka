@@ -41,16 +41,30 @@ class RLEConversion(unittest.TestCase):
         self.assertEqual(basecall, got)
 
     def test_alignment_001(self):
-        """Check coordinate conversion between full and compact indices."""
+        """Check coordinate slicing between full and compact indices."""
         basecall = 'CCCTAGGTTA'
+        rle_seq = 'CTAGTA'
         rle_object = medaka.rle.RLEConverter(basecall)
-        full_indices = range(len(basecall))
+        self.assertEqual(rle_object.compact_basecall, rle_seq)
 
-        # each base in a homopolymer maps to a base in the compressed sequence
-        expected = (0, 0, 0) + (1, 2) + (3, 3) + (4, 4) + (5,)
-        got = [
-            rle_object.coord_full_to_compact(index) for index in full_indices]
-        self.assertSequenceEqual(expected, got)
+        slcs = [(0, 10), (1, 9), (2, 8), (3, 7), (4, 6), (5, 5)]
+        exp =  [(0,  6), (0, 5), (0, 5), (1, 4), (2, 4), (3, 3)]
+
+        for (in_s, in_e), (exp_s, exp_e) in zip(slcs, exp):
+            s, e = rle_object.transform_coords(in_s, in_e)
+            trimmed_input = basecall[in_s:in_e]
+            trimmed_input_compressed = medaka.rle.RLEConverter(trimmed_input).compact_basecall
+            trimmed_compressed = rle_object.trimmed_compact(in_s, in_e)
+
+            self.assertSequenceEqual(
+                (exp_s, exp_e), (s, e),
+                'Slice co-ordinates incorrect.')
+            self.assertEqual(
+                trimmed_compressed, rle_seq[s:e],
+                "Direct trimming did not give same result.")
+            self.assertEqual(
+                trimmed_input_compressed, trimmed_compressed,
+                "Trimming and compressing did not commute.")
 
     def test_alignment_002(self):
         """Check coordinate conversion from compact to full indices."""
@@ -303,9 +317,4 @@ class CompressBasecallsTest(unittest.TestCase):
             for read in output_handle:
                 lengths = tuple(read.get_quality_array())
                 got[read.name] = (read.sequence, lengths)
-        print('Javi: {}'.format(got))
         self.assertEqual(expected, got)
-
-
-if __name__ == '__main__':
-    unittest.main()

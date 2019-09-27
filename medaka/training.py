@@ -61,9 +61,8 @@ def train(args):
     else:
         args.validation = args.validation_features
 
-    label_scheme = medaka.labels.label_schemes[args.label_scheme]()
     batcher = TrainBatcher(
-        args.features, label_scheme, args.max_label_len, args.validation,
+        args.features, args.validation,
         args.seed, args.batch_size, threads=args.threads_io)
 
     import tensorflow as tf
@@ -84,9 +83,10 @@ def run_training(
         optimizer='rmsprop', optim_args=None, allow_cudnn=True):
     """Run training."""
     from tensorflow.keras.callbacks import \
-        CSVLogger, TensorBoard, EarlyStopping
+        CSVLogger, EarlyStopping
     from tensorflow.keras import optimizers
-    from medaka.keras_ext import ModelMetaCheckpoint, SequenceBatcher
+    from medaka.keras_ext import \
+        ModelMetaCheckpoint, SequenceBatcher, TrainValTensorBoard
 
     logger = medaka.common.get_named_logger('RunTraining')
 
@@ -104,7 +104,7 @@ def run_training(
             logger.info("Could not load weights from {}".format(model_fp))
 
     else:
-        num_classes = len(batcher.label_scheme._decoding)
+        num_classes = batcher.label_scheme.num_classes
         model_name = medaka.models.default_model
         model_function = medaka.models.model_builders[model_name]
         partial_model_function = functools.partial(
@@ -169,11 +169,11 @@ def run_training(
         EarlyStopping(monitor='val_loss', patience=20),
         # Log of epoch stats
         CSVLogger(os.path.join(train_name, 'training.log')),
-        # Allow us to run tensorboard to see how things are going. Some
-        #   features require validation data, not clear why.
-        TensorBoard(log_dir=os.path.join(train_name, 'logs'),
-                    histogram_freq=5, batch_size=100, write_graph=True,
-                    write_grads=True, write_images=True)
+        # Allow us to run tensorboard to see how things are going
+        TrainValTensorBoard(
+            log_dir=os.path.join(train_name, 'logs'),
+            histogram_freq=5, batch_size=100, write_graph=True,
+            write_grads=True, write_images=True)
     ])
 
     if n_mini_epochs == 1:
@@ -197,14 +197,11 @@ class TrainBatcher():
     """Batching of training and validation samples."""
 
     def __init__(
-            self, features, label_scheme, max_label_len,
-            validation=0.2, seed=0, batch_size=500, threads=1):
+            self, features, validation=0.2, seed=0,
+            batch_size=500, threads=1):
         """Serve up batches of training or validation data.
 
         :param features: iterable of str, training feature files.
-        :param label_scheme_cls: LabellingScheme class.
-        :param max_label_len: int, maximum label length, longer labels will be
-            truncated.
         :param validation: float, fraction of batches to use for validation, or
             iterable of str, validation feature files.
         :param seed: int, random seed for separation of batches into
@@ -216,15 +213,14 @@ class TrainBatcher():
         self.logger = medaka.common.get_named_logger('TrainBatcher')
 
         self.features = features
-        self.max_label_len = max_label_len
         self.validation = validation
         self.seed = seed
         self.batch_size = batch_size
 
         di = medaka.datastore.DataIndex(self.features, threads=threads)
         self.samples = di.samples.copy()
-        self.label_scheme = label_scheme
-        # TODO: label scheme is passed in, this probably should be too
+
+        self.label_scheme = di.metadata['label_scheme']
         self.feature_encoder = di.metadata['feature_encoder']
 
         # check sample size using first batch
@@ -312,5 +308,5 @@ class TrainBatcher():
             raise ValueError("Sample {} in {} has no labels.".format(
                 sample_key, sample_file))
         x = s.features
-        y = label_scheme._encoded_labels_to_training_vectors(s.labels)
+        y = label_scheme.encoded_labels_to_training_vectors(s.labels)
         return x, y

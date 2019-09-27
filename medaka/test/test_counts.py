@@ -237,7 +237,3 @@ class HardRLEFeatureEncoder(unittest.TestCase):
                 expected[pos[0], pos[1]] = value
 
         self.assertSequenceEqual(self.sample.features.tolist(), expected.tolist())
-
-
-if __name__ == '__main__':
-    unittest.main()
