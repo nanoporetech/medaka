@@ -400,12 +400,15 @@ class Region(_Region):
         >>> Region.from_string('Ecoli:500-') == Region(
         ...     ref_name='Ecoli', start=500, end=None)
         True
+        >>> Region.from_string('A:B:c:500-') == Region(
+        ...     ref_name='A:B:c', start=500, end=None)
+        True
         """
         if ':' not in region:
             ref_name, start, end = region, None, None
         else:
             start, end = None, None
-            ref_name, bounds = region.split(':')
+            ref_name, bounds = region.rsplit(':', 1)
             if bounds[0] == '-' or '-' not in bounds:
                 start = 0
                 end = int(bounds.replace('-', ''))
