@@ -69,6 +69,7 @@ if ! $dflag; then
 fi
 
 echo "Checking program versions"
+echo "This is ${medaka_version}"
 medaka_version_report || exit 1
 
 if [[ ! -e ${OUTPUT} ]]; then
