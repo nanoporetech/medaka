@@ -370,8 +370,8 @@ class Region(_Region):
     def __str__(self):
         """Return string representation of region."""
         # This will be zero-based, end exclusive
-        start = 0 if self.start is None else 0
-        end = '' if self.start is None else self.end
+        start = 0 if self.start is None else self.start
+        end = '' if self.end is None else self.end
         return '{}:{}-{}'.format(self.ref_name, start, end)
 
     @property
@@ -392,7 +392,7 @@ class Region(_Region):
         ...     ref_name='Ecoli', start=1000, end=2000)
         True
         >>> Region.from_string('Ecoli:1000') == Region(
-        ...     ref_name='Ecoli', start=0, end=1000)
+        ...     ref_name='Ecoli', start=1000, end=None)
         True
         >>> Region.from_string('Ecoli:-1000') == Region(
         ...     ref_name='Ecoli', start=0, end=1000)
@@ -409,9 +409,12 @@ class Region(_Region):
         else:
             start, end = None, None
             ref_name, bounds = region.rsplit(':', 1)
-            if bounds[0] == '-' or '-' not in bounds:
+            if bounds[0] == '-':
                 start = 0
                 end = int(bounds.replace('-', ''))
+            elif '-' not in bounds:
+                start = int(bounds)
+                end = None
             elif bounds[-1] == '-':
                 start = int(bounds[:-1])
                 end = None
@@ -420,7 +423,12 @@ class Region(_Region):
         return cls(ref_name, start, end)
 
     def split(region, size, overlap=0):
-        """Split region into sub-regions.
+        """Split region into sub-regions of a given length.
+
+        The final (right most) region will overlap the penultimate more
+        than the given overlap in the case where input region cannot be
+        evenly divided, i.e. all output are guaranteed to span the same
+        length rather than having a smaller of larger remainder.
 
         :param size: size of sub-regions.
         :param overlap: overlap between ends of sub-regions.
@@ -428,15 +436,17 @@ class Region(_Region):
         :returns: a list of sub-regions.
 
         """
-        regions = [
-            Region(region.ref_name, start, stop) for (start, stop) in
-            segment_limits(
-                region.start, region.end, segment_len=size,
-                overlap_len=overlap)
-        ]
-        # correct end co-ordinate of the last
-        last = regions[-1]
-        regions[-1] = Region(last.ref_name, last.start, last.end + 1)
+        regions = list()
+        for start in range(region.start, region.end, size - overlap):
+            end = min(start + size, region.end)
+            regions.append(Region(region.ref_name, start, end))
+        if len(regions) > 1:
+            if regions[-1].size < size:
+                del regions[-1]
+                end = region.end
+                start = end - size
+                if start > regions[-1].start:
+                    regions.append(Region(region.ref_name, start, end))
         return regions
 
     def overlaps(self, other):
@@ -516,20 +526,6 @@ def get_pairs(aln):
         for qp, rp, rb in aln.get_aligned_pairs(with_seq=True))
 
     return pairs
-
-
-def segment_limits(start, end, segment_len=20000, overlap_len=1000):
-    """Generate segments of a range [0, end_point].
-
-    :param start: startpoint of range.
-    :param end: endpoint of range.
-    :param segment_len: length of resultant segments.
-    :param overlap_len: length of overlap between segments.
-    :yields: tuples (start, end) indicating overlapping segments of
-        the input range.
-    """
-    for n in range(start, end, segment_len):
-        yield max(start, n - overlap_len), min(n + segment_len, end - 1)
 
 
 def sliding_window(a, window=3, step=1, axis=0):
