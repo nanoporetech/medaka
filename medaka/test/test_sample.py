@@ -42,6 +42,45 @@ class TestRegion(unittest.TestCase):
             self.assertFalse(a.overlaps(c))
             self.assertFalse(c.overlaps(a))
 
+    def test_name(self):
+        # tests for Region.from_string are in docs
+        # here we test round-tripping
+        cases = [
+            ['contig1:50-100'] * 2,
+            ['contig1:50-'] * 2,
+            ['contig1:-100', 'contig1:0-100'],
+            ['contig1', 'contig1:0-']
+        ]
+        for orig, parsed in cases:
+            a = Region.from_string(orig)
+            self.assertEqual(a.name, parsed)
+
+    def test_size(self):
+        a = Region('contig1', 50, 100)
+        self.assertEqual(a.size, 50)
+
+    def test_split(self):
+        a = Region('contig1', 50, 100)
+        regs = a.split(10)
+        starts = list(range(50, 100, 10))
+        ends = [s + 10 for s in starts]
+        self.assertEqual([x.start for x in regs], starts)
+        self.assertEqual([x.end for x in regs], ends)
+
+        # case with overlap, and triggering duplicate condition
+        regs = a.split(10, 5)
+        starts = list(range(50, 95, 5))
+        ends = [s + 10 for s in starts]
+        self.assertEqual([x.start for x in regs], starts)
+        self.assertEqual([x.end for x in regs], ends)
+
+        # case with odd sized remainder
+        regs = a.split(7)
+        starts = [50, 57, 64, 71, 78, 85, 92, 93]
+        ends = [57, 64, 71, 78, 85, 92, 99, 100]
+        self.assertEqual([x.start for x in regs], starts)
+        self.assertEqual([x.end for x in regs], ends)
+
 
 class TestSample(unittest.TestCase):
 
