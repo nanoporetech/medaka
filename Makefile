@@ -130,7 +130,7 @@ test: install
 		--statistics
 	${IN_VENV} && pytest medaka --doctest-modules \
 		--cov=medaka --cov-report html --cov-report term \
-		--cov-fail-under=70
+		--cov-fail-under=73
 
 
 clean: clean_htslib

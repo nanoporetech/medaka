@@ -242,25 +242,24 @@ class BaseFeatureEncoder(metaclass=FeatureEncoderMeta):
     @abc.abstractmethod
     def __init__(*args, **kwargs):
         """Initialize feature encoder."""
-        # This is expected to be defined in all derived classes
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _pileup_function(self, region, reads_bam):
         # Called to create pileup matrix and position arrays
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _post_process_pileup(self, matrix, positions, region):
         # A chance to mutate the output of pileup_function
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def bams_to_training_samples(
             self, truth_bam, bam, region, label_scheme, truth_haplotag=None):
         """Create labelled samples, should internally call bam_to_sample."""
         # TODO: should be moved outside this class?
-        pass
+        raise NotImplementedError
 
     @property
     @abc.abstractmethod
@@ -269,7 +268,7 @@ class BaseFeatureEncoder(metaclass=FeatureEncoderMeta):
 
         The length of a neural network input at a single time point.
         """
-        pass
+        raise NotImplementedError
 
     # this shouldn't be overridden
     def bam_to_sample(self, reads_bam, region):
