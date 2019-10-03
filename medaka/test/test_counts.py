@@ -1,6 +1,7 @@
 import array
 import numpy as np
 import os
+import pickle
 import tempfile
 import unittest
 
@@ -82,6 +83,7 @@ class CountsTest(unittest.TestCase):
         kwargs = {'normalise': None}
         encoder = medaka.features.CountsFeatureEncoder(**kwargs)
         sample = encoder.bam_to_sample(__reads_bam__, __region__)
+        self.assertEqual(len(sample), 1)
         sample = sample[0]
         assert tuple(sample.positions.shape) == (81730,)
         assert tuple(sample.positions[0]) == (50000, 0)
@@ -91,6 +93,25 @@ class CountsTest(unittest.TestCase):
         np.testing.assert_array_equal(sample.features[0], np.array([ 0, 21, 0, 1, 0, 14, 0, 0, 0, 0]))
         # test mean depth
         np.testing.assert_almost_equal(np.mean(np.sum(sample.features, axis=1)), 19.83996)
+
+    def test_002_raises_on_invalid_norm(self):
+        with self.assertRaises(ValueError):
+            kwargs = {'normalise': 'nonsense'}
+            encoder = medaka.features.CountsFeatureEncoder(**kwargs)
+
+    def test_010_pickleble(self):
+        kwargs = {'normalise': None}
+        encoder = medaka.features.CountsFeatureEncoder(**kwargs)
+        branston = pickle.loads(pickle.dumps(encoder))
+        self.assertTrue(hasattr(branston, 'logger'))
+        self.assertEqual(branston.normalise, None)
+
+    def test_020_feature_length(self):
+        # hardcode value here, if this genuinely needs to change at least
+        # the test will make develop think twice about consequences
+        kwargs = {'dtypes': ['r9','r10']}
+        encoder = medaka.features.CountsFeatureEncoder(**kwargs)
+        self.assertEqual(encoder.feature_vector_length, 20)
 
 
 class CountsSplittingTest(unittest.TestCase):
@@ -110,6 +131,42 @@ class CountsSplittingTest(unittest.TestCase):
             for i in (0, 1):
                 # check both pileup and positions
                 self.assertEqual(exp_len, len(chunk[i]))
+
+
+
+class SampleGenerator(unittest.TestCase):
+
+    def test_000_basic_sample_gen(self):
+        encoder = medaka.features.CountsFeatureEncoder()
+        sample_gen = medaka.features.SampleGenerator(
+            __reads_bam__, __region__, encoder, enable_chunking=False)
+        # fill features should fill in _source
+        sample_gen._fill_features()
+        self.assertEqual(len(sample_gen._source), 1)
+        self.assertEqual(sample_gen._source[0].positions.shape, (81730,))
+
+        # reset source to ensure calculated on fly
+        sample_gen._source = None
+        samples = sample_gen.samples
+        self.assertEqual(len(samples), 1, 'Have more than 1 chunk despite chunking disabled.')
+
+    def test_010_chunking(self):
+        chunk_len = 1000
+        encoder = medaka.features.CountsFeatureEncoder()
+        sample_gen = medaka.features.SampleGenerator(
+            __reads_bam__, __region__, encoder,
+            chunk_len=chunk_len, chunk_overlap=0)
+        samples = sample_gen.samples
+        self.assertEqual(len(samples), 81730 // chunk_len + 1)
+        self.assertEqual(len(sample_gen._quarantined), 0, 'Samples were quarantined incorrectly.')
+
+        sample_gen.chunk_len = 1000000
+        samples = sample_gen.samples
+        self.assertEqual(len(sample_gen._quarantined), 1)
+
+
+
+
 
 
 class CountsQscoreStratification(unittest.TestCase):
@@ -237,3 +294,15 @@ class HardRLEFeatureEncoder(unittest.TestCase):
                 expected[pos[0], pos[1]] = value
 
         self.assertSequenceEqual(self.sample.features.tolist(), expected.tolist())
+
+    def test_020_feature_length(self):
+        # hardcode value here, if this genuinely needs to change at least
+        # the test will make develop think twice about consequences
+        kwargs = {'dtypes': ['r9','r10']}
+
+        encoder = medaka.features.HardRLEFeatureEncoder(
+            num_qstrat=10, **kwargs)
+        self.assertEqual(encoder.feature_vector_length, 200)
+
+
+
