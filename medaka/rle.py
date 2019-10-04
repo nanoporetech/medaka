@@ -236,7 +236,8 @@ def _compress_alignment(alignment, ref_rle):
         alignment.query_name, alignment.reference_id,
         rstart, query_rle.compact_basecall,
         corrected_cigar, alignment.flag,
-        query_qualities=array.array('B', list(query_rle.homop_length)))
+        query_qualities=array.array(
+            'B', list(min(x, 255) for x in query_rle.homop_length)))
 
     return a
 
