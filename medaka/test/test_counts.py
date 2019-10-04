@@ -12,10 +12,9 @@ import medaka.features
 from medaka.common import Region
 
 __reads_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'test_reads.bam')
-__two_type_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'test_two_type.bam')
 __gapped_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'reads_gapped.bam')
-__region__ = Region('Consensus_Consensus_Consensus_Consensus_utg000001l', start=50000, end=100000)
-__region_start__ = Region('Consensus_Consensus_Consensus_Consensus_utg000001l', start=0, end=200)
+__region__ = Region('utg000001l', start=50000, end=100000)
+__region_start__ = Region('utg000001l', start=0, end=200)
 
 
 def create_rle_bam(fname):
@@ -79,20 +78,28 @@ def create_rle_bam(fname):
 
 class CountsTest(unittest.TestCase):
 
+    @classmethod
+    def setUpClass(self):
+        self.expected_width = 86294
+
     def test_001_basic_counting(self):
         kwargs = {'normalise': None}
         encoder = medaka.features.CountsFeatureEncoder(**kwargs)
         sample = encoder.bam_to_sample(__reads_bam__, __region__)
         self.assertEqual(len(sample), 1)
         sample = sample[0]
-        assert tuple(sample.positions.shape) == (81730,)
+        assert tuple(sample.positions.shape) == (self.expected_width,)
         assert tuple(sample.positions[0]) == (50000, 0)
         assert tuple(sample.positions[-1]) == (99999, 1)
-        assert sample.features.shape == (81730, 10)
+        assert sample.features.shape == (self.expected_width, 10)
         # test counts
-        np.testing.assert_array_equal(sample.features[0], np.array([ 0, 21, 0, 1, 0, 14, 0, 0, 0, 0]))
+        np.testing.assert_array_equal(
+            sample.features[0],
+            np.array([0., 22., 0., 0., 0., 15., 0., 0., 0., 0.]))
         # test mean depth
-        np.testing.assert_almost_equal(np.mean(np.sum(sample.features, axis=1)), 19.83996)
+        np.testing.assert_almost_equal(
+            np.mean(np.sum(sample.features, axis=1)),
+            18.696468, decimal=6)
 
     def test_002_raises_on_invalid_norm(self):
         with self.assertRaises(ValueError):
@@ -136,6 +143,10 @@ class CountsSplittingTest(unittest.TestCase):
 
 class SampleGenerator(unittest.TestCase):
 
+    @classmethod
+    def setUpClass(self):
+        self.expected_width = 86294
+
     def test_000_basic_sample_gen(self):
         encoder = medaka.features.CountsFeatureEncoder()
         sample_gen = medaka.features.SampleGenerator(
@@ -143,7 +154,7 @@ class SampleGenerator(unittest.TestCase):
         # fill features should fill in _source
         sample_gen._fill_features()
         self.assertEqual(len(sample_gen._source), 1)
-        self.assertEqual(sample_gen._source[0].positions.shape, (81730,))
+        self.assertEqual(sample_gen._source[0].positions.shape, (self.expected_width,))
 
         # reset source to ensure calculated on fly
         sample_gen._source = None
@@ -157,16 +168,12 @@ class SampleGenerator(unittest.TestCase):
             __reads_bam__, __region__, encoder,
             chunk_len=chunk_len, chunk_overlap=0)
         samples = sample_gen.samples
-        self.assertEqual(len(samples), 81730 // chunk_len + 1)
+        self.assertEqual(len(samples), self.expected_width // chunk_len + 1)
         self.assertEqual(len(sample_gen._quarantined), 0, 'Samples were quarantined incorrectly.')
 
         sample_gen.chunk_len = 1000000
         samples = sample_gen.samples
         self.assertEqual(len(sample_gen._quarantined), 1)
-
-
-
-
 
 
 class CountsQscoreStratification(unittest.TestCase):
@@ -303,6 +310,7 @@ class HardRLEFeatureEncoder(unittest.TestCase):
         encoder = medaka.features.HardRLEFeatureEncoder(
             num_qstrat=10, **kwargs)
         self.assertEqual(encoder.feature_vector_length, 200)
+
 
 
 
