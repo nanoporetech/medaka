@@ -422,16 +422,14 @@ class Region(_Region):
                 start, end = [int(b) for b in bounds.split('-')]
         return cls(ref_name, start, end)
 
-    def split(region, size, overlap=0):
+    def split(region, size, overlap=0, fixed_size=True):
         """Split region into sub-regions of a given length.
-
-        The final (right most) region will overlap the penultimate more
-        than the given overlap in the case where input region cannot be
-        evenly divided, i.e. all output are guaranteed to span the same
-        length rather than having a smaller of larger remainder.
 
         :param size: size of sub-regions.
         :param overlap: overlap between ends of sub-regions.
+        :param fixed_size: ensure all sub-regions are equal in size. If `False`
+            then the final chunk will be created as the smallest size to
+            conform with `overlap`.
 
         :returns: a list of sub-regions.
 
@@ -441,7 +439,7 @@ class Region(_Region):
             end = min(start + size, region.end)
             regions.append(Region(region.ref_name, start, end))
         if len(regions) > 1:
-            if regions[-1].size < size:
+            if fixed_size and regions[-1].size < size:
                 del regions[-1]
                 end = region.end
                 start = end - size
