@@ -74,9 +74,16 @@ class TestRegion(unittest.TestCase):
         self.assertEqual([x.start for x in regs], starts)
         self.assertEqual([x.end for x in regs], ends)
 
-        # case with odd sized remainder
+        # case with odd sized remainder - fixed size
         regs = a.split(7)
         starts = [50, 57, 64, 71, 78, 85, 92, 93]
+        ends = [57, 64, 71, 78, 85, 92, 99, 100]
+        self.assertEqual([x.start for x in regs], starts)
+        self.assertEqual([x.end for x in regs], ends)
+
+        # case with odd sized remainder - variable size
+        regs = a.split(7, fixed_size=False)
+        starts = [50, 57, 64, 71, 78, 85, 92, 99]
         ends = [57, 64, 71, 78, 85, 92, 99, 100]
         self.assertEqual([x.start for x in regs], starts)
         self.assertEqual([x.end for x in regs], ends)
