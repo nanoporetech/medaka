@@ -158,7 +158,7 @@ def pileup_counts(
         return np_counts, positions
 
     # split large regions for performance
-    regions = region.split(region_split)
+    regions = region.split(region_split, fixed_size=False)
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) \
             as executor:
         results = executor.map(_process_region, regions)

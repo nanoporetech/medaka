@@ -23,8 +23,11 @@ model_store = resource_filename(__package__, 'data')
 allowed_models = [
     'r941_min_fast', 'r941_min_high',
     'r941_prom_fast', 'r941_prom_high', 'r10_min_high',
+    'r941_min_diploid_snp'
 ]
-default_model = 'r941_min_high'
+default_consensus_model = 'r941_min_high'
+default_snp_model = 'r941_min_diploid_snp'
+default_variant_model = 'r941_min_high'
 model_dict = {
     k:os.path.join(model_store, '{}_model.hdf5'.format(k))
     for k in allowed_models
@@ -118,7 +121,9 @@ def print_model_path(args):
 
 def print_all_models(args):
     print('Available:', ', '.join(allowed_models))
-    print('Default:', default_model)
+    print('Default consensus: ', default_consensus_model)
+    print('Default SNP: ', default_snp_model)
+    print('Default variant: ', default_variant_model)
 
 
 class StoreDict(argparse.Action):
