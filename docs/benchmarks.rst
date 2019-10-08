@@ -3,11 +3,11 @@
 Benchmarks
 ==========
 
-The following demonstrates the utility of Medaka's neural network in forming an
+The following demonstrates the utility of ``medaka``'s neural network in forming an
 improved consensus from a pileup of reads.
 
 Results were obtained using the default models provided with ``medaka``. These models
-were trained using data obtained from E.coli, S.cerevisiae and H.sapiens samples.
+were trained using data obtained from a set of prokaroyotic samples.
 
 Error statistics were calculated using the `pomoxis
 <https://github.com/nanoporetech/pomoxis>`_ program ``assess_assembly`` after
@@ -18,41 +18,41 @@ median values over all chunks.
 Comparison of `medaka` and `nanopolish` 
 ---------------------------------------
 
-In this comparison the ``medaka`` E.coli :doc:`walkthrough` dataset was used.
+In this comparison *E. coli* data from the :doc:`walkthrough` was used.
 These data were not used to train the model. Basecalling was performed using
-``Guppy v2.2.1``; both the older transducer and the newer flip-flop algorithm
-were used for comparison. Basecalled reads were trimmed using `porechop
+``Guppy v3.2.3``. Basecalled reads were trimmed using `porechop
 <https://github.com/rrwick/Porechop>`_ to remove adapters, and assembly was
 performed using `canu v1.8 <https://github.com/marbl/canu>`_. The assembly was
-corrected using `racon v1.3.1 <https://github.com/isovic/racon>`_ before being passed
-to ``medaka`` or ``nanopolish``. `nanopolish v0.10.1
-<https://github.com/jts/nanopolish>`_ was run using :code:`--fix-homopolymers` option.
+optionally corrected using `racon v1.2.1 <https://github.com/isovic/racon>`_ before being passed
+to ``medaka`` or ``nanopolish``. A gpu-enabled version (commit ``896b8066``) of
+`nanopolish <https://github.com/jts/nanopolish>`_ was run from
+`PR661 <https://github.com/jts/nanopolish/pull/661>`_.
 
-The workflow used here includes four iterations of ``racon``. This should not be viewed as optimal for all
-datasets, see :ref:`draftorigin` for further details.
+The workflow used here optionally includes a **single** iteration of ``racon``, see
+:ref:`draftorigin` for further details.
 
+.. table::
+    Consensus calling of a 90-fold coverage *E. coli* data set using various methods. ``Medaka`` is seen
+    to work effectively, with or without prior application of racon.
 
-+-----------------+----------------------------------------+----------------------------------------+
-|                 | **flipflop**                           | **transducer**                         |
-+                 +--------------+----------+--------------+--------------+----------+--------------+
-|                 | *racon (x4)* | *medaka* | *nanopolish* | *racon (x4)* | *medaka* | *nanopolish* |
-+-----------------+--------------+----------+--------------+--------------+----------+--------------+
-| Q(accuracy)     |         26.8 |   34.2   |         32.0 |         25.2 |     31.9 |         31.0 |
-+-----------------+--------------+----------+--------------+--------------+----------+--------------+
-| Q(substitution) |         45.2 |   50.0   |         47.0 |         41.0 |     47.0 |         41.4 |
-+-----------------+--------------+----------+--------------+--------------+----------+--------------+
-| Q(deletion)     |         27.1 |   34.0   |         32.6 |         25.6 |     35.0 |         30.7 |
-+-----------------+--------------+----------+--------------+--------------+----------+--------------+
-| Q(insertion)    |         40.1 |   50.0   |         43.0 |         39.2 |     35.2 |         40.5 |
-+-----------------+--------------+----------+--------------+--------------+----------+--------------+
-| CPU time / hrs  |        00:50 |  00:07   |        49:10 |        00:50 |    00:07 |        50:24 |
-+-----------------+--------------+----------+--------------+--------------+----------+--------------+
+    +--------------------+--------+-------------------+--------------+----------+--------------+
+    |                    | *canu* | *medaka no racon* | *racon (x1)* | *medaka* | *nanopolish* |
+    +--------------------+--------+-------------------+--------------+----------+--------------+
+    | Q(accuracy)        |   25.4 |              36.9 |         28.8 |     37.2 |         31.4 |
+    +--------------------+--------+-------------------+--------------+----------+--------------+
+    | Q(substitution)    |   51.0 |              53.0 |         47.9 |     53.0 |         47.0 |
+    +--------------------+--------+-------------------+--------------+----------+--------------+
+    | Q(deletion)        |   25.4 |              37.3 |         29.2 |     37.7 |         31.7 |
+    +--------------------+--------+-------------------+--------------+----------+--------------+
+    | Q(insertion)       |   57.2 |              48.2 |         41.6 |     47.0 |         47.0 |
+    +--------------------+--------+-------------------+--------------+----------+--------------+
+    | CPU time / hr:min  |        |              0:05 |         0:26 |     0:05 |         1:54 |
+    +--------------------+--------+-------------------+--------------+----------+--------------+
 
-For this dataset the older transducer basecaller with ``medaka`` delivers
-similar results to ``nanopolish`` in a fraction of the time. The flip-flop
-workflow is seen to be superior to nanopolish. The runtime of ``medaka`` can be
-reduced further by utilizing a GPU, the runtime with a NVIDIA GTX1080Ti is
-found to be less than one minute!
+For ``racon`` and ``medaka`` the reported CPU times include read to draft
+overlapping performed by ``minimap2``. ``medaka`` was run using an 
+NVIDIA 1080Ti GPU, the total execution time for ``medaka`` itself was
+35 seconds. The wallclock time for ``nanopolish`` execution was 17 minutes.
 
 A particular advantage of ``medaka`` over other methods is its improved
 accuracy in recovering homopolymer lengths.
