@@ -20,8 +20,12 @@ def load_model(fname, time_steps=None, allow_cudnn=True):
         model_partial_function = ds.get_meta('model_function')
         model = model_partial_function(time_steps=time_steps,
                                        allow_cudnn=allow_cudnn)
-        model.load_weights(fname)
-        return model
+        try:
+            model.load_weights(fname)
+        except ValueError():
+            pass
+        finally:
+            return model
 
 
 def build_model(feature_len, num_classes, gru_size=128,
@@ -79,7 +83,43 @@ def build_model(feature_len, num_classes, gru_size=128,
     return model
 
 
+def build_majority(feature_len, num_classes, gru_size=128,
+                   classify_activation='softmax', time_steps=None,
+                   allow_cudnn=True):
+    """Build a mock model that simply sums counts.
+
+    :param feature_len: int, number of features for each pileup column.
+    :param num_classes: int, number of output class labels.
+    :param gru_size: int, size of each GRU layer.
+    :param classify_activation: str, activation to use in classification layer.
+    :param time_steps: int, number of pileup columns in a sample.
+    :param allow_cudnn: bool, opt-in to cudnn when using a GPU.
+
+    :returns: `keras.models.Sequential` object.
+
+    """
+    import tensorflow as tf
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Lambda, Activation
+
+    def sum_counts(f):
+        """Sum forward and reverse counts."""
+        # TODO write to handle multiple dtypes
+        # acgtACGTdD
+        # sum base counts
+        b = f[:, :, 0:4] + f[:, :, 4:8]
+        # sum deletion counts (indexing in this way retains correct shape)
+        d = f[:, :, 8:9] + f[:, :, 9:10]
+        return tf.concat([d, b], axis=-1)
+
+    model = Sequential()
+    model.add(Lambda(sum_counts, output_shape=(time_steps, num_classes)))
+    model.add(Activation('softmax'))
+    return model
+
+
 default_model = 'two_layer_bidirectional_CuDNNGRU'
 model_builders = {
     'two_layer_bidirectional_CuDNNGRU': build_model,
+    'majority_vote': build_majority
 }
