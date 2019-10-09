@@ -159,16 +159,16 @@ class CountsTest(unittest.TestCase):
         encoder = medaka.features.CountsFeatureEncoder(normalise='total')
         label_scheme = medaka.labels.HaploidLabelScheme()
         region = Region(
-            'Consensus_Consensus_Consensus_Consensus_utg000001l',
+            'utg000001l',
             149744, 318288)
         result = encoder.bams_to_training_samples(
             __reads_truth__, __reads_bam__, region, label_scheme)[0]
 
-        expected_feature_shape = (161462, 10)
+        expected_feature_shape = (177981, 10)
         got_feature_shape = result.features.shape
         self.assertEqual(expected_feature_shape, got_feature_shape)
 
-        expected_label_shape = (161462,)
+        expected_label_shape = (177981,)
         got_label_shape = result.labels.shape
         self.assertEqual(expected_label_shape, got_label_shape)
 
