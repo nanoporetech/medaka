@@ -221,7 +221,7 @@ def main():
     # TODO: enable other label schemes.
     fparser.add_argument('--label_scheme', default='HaploidLabelScheme', help='Labelling scheme.',
                          choices=sorted(medaka.labels.label_schemes))
-    fparser.add_argument('--label_scheme_args', action=StoreDict,
+    fparser.add_argument('--label_scheme_args', action=StoreDict, nargs='+',
         default=dict(), metavar="KEY1=VAL1 KEY2=VAL2a,VAL2b...",
         help="Label scheme key-word arguments.")
     fparser.add_argument('--feature_encoder', default='CountsFeatureEncoder',
@@ -248,7 +248,8 @@ def main():
     tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
     tparser.add_argument('--device', type=int, default=0, help='GPU device to use.')
     tparser.add_argument('--optimizer', type=str, default='rmsprop', choices=['nadam','rmsprop'], help='Optimizer to use.')
-    tparser.add_argument('--optim_args', action=StoreDict, default=None, metavar="KEY1=VAL1,KEY2=VAL2...", help="Optimizer key-word arguments.")
+    tparser.add_argument('--optim_args', action=StoreDict, default=None, nargs='+',
+        metavar="KEY1=VAL1,KEY2=VAL2...", help="Optimizer key-word arguments.")
 
     vgrp = tparser.add_mutually_exclusive_group()
     vgrp.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
