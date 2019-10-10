@@ -252,41 +252,82 @@ class Sample(_Sample):
 
         :returns: (end1, start2
         :raises: `OverlapException` if samples do not overlap nor abut.
+
         """
+        heuristic = False
         rel = Sample.relative_position(s1, s2)
 
         # trivial case
         if rel is Relationship.forward_abutted:
-            return None, None
+            return None, None, heuristic
 
         if rel is not Relationship.forward_overlap:
             msg = 'Cannot overlap samples {} and {} with relationhip {}'
             raise OverlapException(msg.format(s1.name, s2.name, repr(rel)))
 
-        # find where the overlap starts in s1 indices
+        # find where the overlap starts (ends) in s1 (s2) indices
         ovl_start_ind1 = np.searchsorted(s1.positions, s2.positions[0])
-
-        # find where the overlap ends in s2 indices
         ovl_end_ind2 = np.searchsorted(
             s2.positions, s1.positions[-1], side='right')
+
+        end_1_ind, start_2_ind = None, None
         pos1_ovl = s1.positions[ovl_start_ind1:]
         pos2_ovl = s2.positions[0:ovl_end_ind2]
-        # check overlap length is the same in both
-        assert len(pos1_ovl) == len(pos2_ovl)
-        overlap_len = len(pos1_ovl)
-        # find mid-point
-        pad_1 = overlap_len // 2
-        pad_2 = overlap_len - pad_1
-        end_1_ind = ovl_start_ind1 + pad_1
-        start_2_ind = ovl_end_ind2 - pad_2
+        try:
+            # the nice case where everything lines up
+            if not np.array_equal(pos1_ovl['minor'], pos2_ovl['minor']):
+                raise OverlapException("Overlaps are not equal in structure")
+            overlap_len = len(pos1_ovl)
+            # take mid point as break point
+            pad_1 = overlap_len // 2
+            pad_2 = overlap_len - pad_1
+            end_1_ind = ovl_start_ind1 + pad_1
+            start_2_ind = ovl_end_ind2 - pad_2
 
-        # check the length of the overlap obtained using our indices
-        # is the same in each sample
-        contr_1 = s1.positions[ovl_start_ind1:end_1_ind]
-        contr_2 = s2.positions[start_2_ind:ovl_end_ind2]
-        assert len(contr_1) + len(contr_2) == overlap_len
+            contr_1 = s1.positions[ovl_start_ind1:end_1_ind]
+            contr_2 = s2.positions[start_2_ind:ovl_end_ind2]
+            if len(contr_1) + len(contr_2) != overlap_len:
+                raise OverlapException(
+                    "Resultant is not same length as overlap.")
+        except OverlapException:
+            heuristic = True
+            # Some sample producing methods will not create 1-to-1 mappings
+            # in their sets of columns, e.g. where chunking has affected the
+            # reads used. Here we find a split point near the middle where
+            # the two halfs have the same number of minor positions
+            # (i.e. look similar).
+            # Require seeing a number of major positions
+            UNIQ_MAJ = 3
+            end_1_ind, start_2_ind = None, None
+            if (len(np.unique(pos1_ovl['major'])) > UNIQ_MAJ and
+                    len(np.unique(pos2_ovl['major'])) > UNIQ_MAJ):
 
-        return end_1_ind, start_2_ind
+                start, end = pos1_ovl['major'][0], pos1_ovl['major'][-1]
+                mid = start + (end - start) // 2
+                offset = 1
+                while end_1_ind is None:
+
+                    if (mid + offset > max(s1.positions['major']) and
+                            mid - offset < min(s2.positions['major'])):
+                        # run off the edge
+                        break
+                    for test in (+offset, -offset):
+                        left = np.where(
+                            s1.positions['major'] == mid + test)[0]
+                        right = np.where(
+                            s2.positions['major'] == mid + test)[0]
+                        if len(left) == len(right):
+                            # found a nice junction
+                            end_1_ind = left[0]
+                            start_2_ind = right[0]
+                            break
+                    offset += 1
+            if end_1_ind is None or start_2_ind is None:
+                raise OverlapException(
+                    "Could not find viable junction for {} and {}".format(
+                        s1.name, s2.name))
+
+        return end_1_ind, start_2_ind, heuristic
 
     def chunks(self, chunk_len=1000, overlap=200):
         """Create overlapping chunks of self.

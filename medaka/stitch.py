@@ -2,7 +2,7 @@
 
 import itertools
 
-import medaka.common
+from medaka import common
 import medaka.datastore
 import medaka.labels
 
@@ -31,7 +31,7 @@ def stitch_from_probs(h5_fp, regions=None):
 
     :returns: list of (region string, sequence)
     """
-    logger = medaka.common.get_named_logger('Stitch')
+    logger = common.get_named_logger('Stitch')
 
     index = medaka.datastore.DataIndex(h5_fp)
     label_scheme = index.metadata['label_scheme']
@@ -44,7 +44,7 @@ def stitch_from_probs(h5_fp, regions=None):
         regions = sorted(index.index)
 
     regions = [
-        medaka.common.Region.from_string(r)
+        common.Region.from_string(r)
         for r in regions]
 
     def get_pos(sample, i):
@@ -83,9 +83,13 @@ def stitch_from_probs(h5_fp, regions=None):
                     end_1, start_2 = None, None
                 else:
                     try:
-                        end_1, start_2 = medaka.common.Sample.overlap_indices(
-                            s1, s2)
-                    except medaka.common.OverlapException as e:
+                        end_1, start_2, heuristic = \
+                            common.Sample.overlap_indices(s1, s2)
+                        if heuristic:
+                            logger.info(
+                                "Used heuristic to stitch {} and {}.".format(
+                                    s1.name, s2.name))
+                    except common.OverlapException as e:
                         logger.info(
                             "Unhandled overlap type whilst stitching chunks.")
                         raise(e)
