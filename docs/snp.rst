@@ -16,8 +16,8 @@ repeat regions as defined by the
 Variants were filtered by their ``QUAL`` values (separately for SNP and Indel classes)
 to maximise the F1 score.
 
-v0.9.3 SNP and Indel calling
-----------------------------
+SNP and Indel calling
+---------------------
 
 *October 2019*
 

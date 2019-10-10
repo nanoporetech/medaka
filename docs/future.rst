@@ -24,14 +24,12 @@ of orientated bases and indels as this is known to be a relavant consideration.
 Medaka allows researchers to experiment with their own consensus ideas without
 having to write much of the tedious data preparation code. Researchers can
 extend the tools provided to achieve better results that those obtained
-currently. There are certainly obvious extension which can be made, including:
+currently. A few core concepts have been isolated to provide flexibility:
 
-* use of quality scores from the basecaller,
-* relax contraints on how features are selected: there are currently some
-  shortcuts taken which could better handle alignment subtleties,
-* modifying the feature vectors to take wider windows of data,
-* altering the size, structure, and connections between the RNN layers
-* use of convolutional layers.
+* arbitrary network inputs calculated from a ``.bam`` file,
+* artitrary network output targets (including multiple targets),
+* freedom to design any neural network architecture with seemless
+  integration with different choices or network inputs and outputs.
 
 Using lower level data directly (not basecalls alone) can provide a more
 powerful method; this is something which is being actively researched. Early
