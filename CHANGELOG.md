@@ -5,6 +5,7 @@ Feature release
 * Switched variant calling to an explicitely diploid calling model.
 * Added a `-f` force overwrite option to `medaka_consenses`.
 * Refreshed *E. coli* benchmark to include effect of `racon`.
+* Refreshed variant calling benchmarks.
 * Added *C. elegans* assembly benchmarks to documentation.
 * Fixed bug causing larger than requested overlap in inference chunks.
 * Corrected parsing of region strings with multiple `:` charaters
