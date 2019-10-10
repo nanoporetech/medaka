@@ -49,7 +49,7 @@ $(basename "$0") [-h] -i <fastx>
         If not provided, will process all contigs in bam. 
     -o  output folder (default: ${OUTPUT}).
     -s  medaka model for initial SNP calling from mixed reads prior to phasing,
-        (default: ${MODEL}).
+        (default: ${SNPMODEL}).
         ${modeldata[0]}.
         Alternatively a .hdf file from 'medaka train'. 
     -m  medaka model for final variant calling from phased reads,
