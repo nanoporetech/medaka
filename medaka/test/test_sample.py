@@ -42,6 +42,52 @@ class TestRegion(unittest.TestCase):
             self.assertFalse(a.overlaps(c))
             self.assertFalse(c.overlaps(a))
 
+    def test_name(self):
+        # tests for Region.from_string are in docs
+        # here we test round-tripping
+        cases = [
+            ['contig1:50-100'] * 2,
+            ['contig1:50-'] * 2,
+            ['contig1:-100', 'contig1:0-100'],
+            ['contig1', 'contig1:0-']
+        ]
+        for orig, parsed in cases:
+            a = Region.from_string(orig)
+            self.assertEqual(a.name, parsed)
+
+    def test_size(self):
+        a = Region('contig1', 50, 100)
+        self.assertEqual(a.size, 50)
+
+    def test_split(self):
+        a = Region('contig1', 50, 100)
+        regs = a.split(10)
+        starts = list(range(50, 100, 10))
+        ends = [s + 10 for s in starts]
+        self.assertEqual([x.start for x in regs], starts)
+        self.assertEqual([x.end for x in regs], ends)
+
+        # case with overlap, and triggering duplicate condition
+        regs = a.split(10, 5)
+        starts = list(range(50, 95, 5))
+        ends = [s + 10 for s in starts]
+        self.assertEqual([x.start for x in regs], starts)
+        self.assertEqual([x.end for x in regs], ends)
+
+        # case with odd sized remainder - fixed size
+        regs = a.split(7)
+        starts = [50, 57, 64, 71, 78, 85, 92, 93]
+        ends = [57, 64, 71, 78, 85, 92, 99, 100]
+        self.assertEqual([x.start for x in regs], starts)
+        self.assertEqual([x.end for x in regs], ends)
+
+        # case with odd sized remainder - variable size
+        regs = a.split(7, fixed_size=False)
+        starts = [50, 57, 64, 71, 78, 85, 92, 99]
+        ends = [57, 64, 71, 78, 85, 92, 99, 100]
+        self.assertEqual([x.start for x in regs], starts)
+        self.assertEqual([x.end for x in regs], ends)
+
 
 class TestSample(unittest.TestCase):
 
@@ -206,16 +252,57 @@ class TestSample(unittest.TestCase):
         sliced = [self.samples[0].slice(sl) for sl in slices]
 
         samples_expt = [
-            (self.samples[:2], (9, 1)),  # overlap of minor inds with odd number of overlapping positions
-            (self.samples[1:], (6, 2)),  # overlap of major inds with even number of overlapping positions
-            (sliced[:2], (None, None)),  # abuts
-            (sliced[1:3], (None, None)),  # abuts
-            (sliced[2:], (None, None)),  # abuts
+            (self.samples[:2], (9, 1, False)),  # overlap of minor inds with odd number of overlapping positions
+            (self.samples[1:], (6, 2, False)),  # overlap of major inds with even number of overlapping positions
+            (sliced[:2], (None, None, False)),  # abuts
+            (sliced[1:3], (None, None, False)),  # abuts
+            (sliced[2:], (None, None, False)),  # abuts
         ]
         for samples, expt in samples_expt:
             self.assertEqual(Sample.overlap_indices(*samples), expt)
 
         self.assertRaises(OverlapException, Sample.overlap_indices, samples[1], samples[0])
+
+
+    def test_messy_overlap(self):
+        dtype = [('major', int), ('minor', int)]
+        pos = [
+            np.array([
+                (0, 0), (1, 0), (2, 0), (2, 1), (2, 2), (3, 0), (4, 0), (4, 1), (4, 2), (4, 3),
+                (5, 0), (6, 0), (7, 0), (8, 0), (8, 1), (9, 0),
+            ], dtype=dtype),
+            np.array([
+                (3, 0), (4, 0), (4, 1), (4, 2),  # (4,3) missing
+                (5, 0), (6, 0), (7, 0), (8, 0), (8, 1), (9, 0), (10, 0), (10, 1), (10, 2),
+            ], dtype=dtype),
+            np.array([
+                (3, 0), (4, 0), (4, 1), (4, 2),
+                (5, 0), (6, 0), (6, 1), (7, 0), (7, 1), (8, 0), (8, 1), (9, 0), (10, 0), (10, 1), (10, 2),
+            ], dtype=dtype),
+            np.array([
+                (3, 0), (4, 0), (4, 1), (4, 2),  # (4,3) missing
+                (5, 0), (5, 1), (6, 0), (6, 1), (7, 0), (7, 1), (8, 0), (8, 1), (9, 0), (10, 0), (10, 1), (10, 2),
+            ], dtype=dtype),
+            np.array([
+                (3, 0), (4, 0), (4, 1), (4, 2),  # (4,3) missing
+                (5, 0), (5, 1), (6, 0), (6, 1), (7, 0), (7, 1), (8, 0), (9, 0), (10, 0), (10, 1), (10, 2),
+            ], dtype=dtype),
+        ]
+
+        sample = [Sample(ref_name='contig1', features=None, ref_seq=None, labels=None, positions=p, label_probs=None)
+            for p in pos]
+
+        expected = [
+            (12, 6),  # (7, 0) is junction
+            (10, 4),  # (5, 0) is junction
+            (13, 10),  # (8, 0) is junction
+            (15, 11),  # (9, 0) is junction
+        ]
+        for other, exp in enumerate(expected, 1):
+            end, start, heuristic = Sample.overlap_indices(sample[0], sample[other])
+            self.assertTrue(heuristic)
+            self.assertEqual((end, start), exp)
+            self.assertEqual(pos[0][exp[0]], pos[other][exp[1]])
 
 
     def test_chunks(self):

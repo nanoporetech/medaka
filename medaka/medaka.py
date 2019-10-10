@@ -23,8 +23,11 @@ model_store = resource_filename(__package__, 'data')
 allowed_models = [
     'r941_min_fast', 'r941_min_high',
     'r941_prom_fast', 'r941_prom_high', 'r10_min_high',
+    'r941_min_diploid_snp'
 ]
-default_model = 'r941_min_high'
+default_consensus_model = 'r941_min_high'
+default_snp_model = 'r941_min_diploid_snp'
+default_variant_model = 'r941_min_high'
 model_dict = {
     k:os.path.join(model_store, '{}_model.hdf5'.format(k))
     for k in allowed_models
@@ -92,8 +95,8 @@ def _log_level():
 def _model_arg():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
-    parser.add_argument('--model', action=ResolveModel, default=model_dict[default_model],
-            help='Model definition, default is equivalent to {}.'.format(default_model))
+    parser.add_argument('--model', action=ResolveModel, default=model_dict[default_consensus_model],
+            help='Model definition, default is equivalent to {}.'.format(default_consensus_model))
     parser.add_argument('--allow_cudnn', dest='allow_cudnn', default=True, action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--disable_cudnn', dest='allow_cudnn', default=False, action='store_false',
             help='Disable use of cuDNN model layers.')
@@ -118,7 +121,9 @@ def print_model_path(args):
 
 def print_all_models(args):
     print('Available:', ', '.join(allowed_models))
-    print('Default:', default_model)
+    print('Default consensus: ', default_consensus_model)
+    print('Default SNP: ', default_snp_model)
+    print('Default variant: ', default_variant_model)
 
 
 class StoreDict(argparse.Action):
@@ -216,7 +221,7 @@ def main():
     # TODO: enable other label schemes.
     fparser.add_argument('--label_scheme', default='HaploidLabelScheme', help='Labelling scheme.',
                          choices=sorted(medaka.labels.label_schemes))
-    fparser.add_argument('--label_scheme_args', action=StoreDict,
+    fparser.add_argument('--label_scheme_args', action=StoreDict, nargs='+',
         default=dict(), metavar="KEY1=VAL1 KEY2=VAL2a,VAL2b...",
         help="Label scheme key-word arguments.")
     fparser.add_argument('--feature_encoder', default='CountsFeatureEncoder',
@@ -243,7 +248,8 @@ def main():
     tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
     tparser.add_argument('--device', type=int, default=0, help='GPU device to use.')
     tparser.add_argument('--optimizer', type=str, default='rmsprop', choices=['nadam','rmsprop'], help='Optimizer to use.')
-    tparser.add_argument('--optim_args', action=StoreDict, default=None, metavar="KEY1=VAL1,KEY2=VAL2...", help="Optimizer key-word arguments.")
+    tparser.add_argument('--optim_args', action=StoreDict, default=None, nargs='+',
+        metavar="KEY1=VAL1,KEY2=VAL2...", help="Optimizer key-word arguments.")
 
     vgrp = tparser.add_mutually_exclusive_group()
     vgrp.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
@@ -289,7 +295,7 @@ def main():
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cfparser.add_argument('features', nargs='+', help='Pregenerated features (from medaka features).')
-    cfparser.add_argument('--model', action=ResolveModel, default=default_model, help='Model definition.')
+    cfparser.add_argument('--model', action=ResolveModel, default=default_consensus_model, help='Model definition.')
 
     # Post-processing of consensus outputs
     sparser = subparsers.add_parser('stitch',

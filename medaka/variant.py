@@ -44,7 +44,8 @@ def trim_samples(sample_gen):
                     s2_name, s1_name))
                 continue
             elif rel is medaka.common.Relationship.forward_overlap:
-                end_1, start_2 = medaka.common.Sample.overlap_indices(s1, s2)
+                end_1, start_2, _ = medaka.common.Sample.overlap_indices(
+                    s1, s2)
             elif rel is medaka.common.Relationship.forward_gapped:
                 is_last_in_contig = True
                 end_1, start_2 = (None, None)

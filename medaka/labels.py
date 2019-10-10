@@ -122,7 +122,7 @@ class TruthAlignment(object):
         return filtered_alignments
 
     @staticmethod
-    def bam_to_alignments(truth_bam, region, haplotag=None):
+    def bam_to_alignments(truth_bam, region, haplotag=None, min_length=1000):
         """Get processed truth alignments.
 
         :param truth_bam: (sorted indexed) bam with true sequence
@@ -132,14 +132,19 @@ class TruthAlignment(object):
             start:end will be retrieved)
         :param haplotag: bam tag specifying which haplotype the alignment
             belongs to (for polyploid labels)
+        :param min_length: minimum length for valid alignments.
+
         :returns: list of tuples where each tuple contains `TruthAlignment`
             for each haplotype trimmed to common genomic window.
+
         """
         algns = TruthAlignment._load_alignments(truth_bam, region, haplotag)
         # filter truth alignments to restrict ourselves to regions of the
         # ref where the truth is unambiguous in each haplotype
-        algns = {h: TruthAlignment._filter_alignments(h_algns, region=region)
-                 for h, h_algns in algns.items()}
+        algns = {
+            h: TruthAlignment._filter_alignments(
+                h_algns, region=region, min_length=min_length)
+            for h, h_algns in algns.items()}
         # Group truth alignments from the haplotypes by genomic window and trim
         # to common genomic range
         if len(algns) == 0:
@@ -229,8 +234,9 @@ class TruthAlignment(object):
         """
         alignments = collections.defaultdict(list)
         with pysam.AlignmentFile(truth_bam, 'rb') as bamfile:
-            aln_reads = bamfile.fetch(reference=region.ref_name,
-                                      start=region.start, end=region.end)
+            aln_reads = bamfile.fetch(
+                reference=region.ref_name,
+                start=region.start, end=region.end)
             for r in aln_reads:
                 if (r.is_unmapped or r.is_secondary):
                     continue

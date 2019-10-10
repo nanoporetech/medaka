@@ -124,7 +124,10 @@ def predict(args):
     regions = []
     for region in args.regions:
         if region.size > MAX_REGION_SIZE:
-            regs = region.split(MAX_REGION_SIZE, args.chunk_ovlp)
+            # chunk_ovlp is mostly used in overlapping pileups (which generally
+            # end up being expanded compared to the draft coordinate system)
+            regs = region.split(
+                MAX_REGION_SIZE, overlap=args.chunk_ovlp, fixed_size=False)
         else:
             regs = [region]
         regions.extend(regs)

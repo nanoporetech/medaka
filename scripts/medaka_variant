@@ -5,7 +5,11 @@ medaka_version=$(medaka --version)
 modeldata=()
 while read -r line; do
     modeldata+=("$line")
-done < <(medaka tools list_models) # Available models on first line, default on next line
+done < <(medaka tools list_models)
+# 0: Available models
+# 1: default consensus model
+# 2: default SNP model
+# 3: default variant model
 
 function follow_link {
   python -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' $1
@@ -24,8 +28,8 @@ REGIONS=""
 iflag=false
 fflag=false
 DELETE=false
-MODEL=${modeldata[1]##* }
-SNPMODEL=${MODEL}
+SNPMODEL=${modeldata[2]##* }
+MODEL=${modeldata[3]##* }
 
 
 usage="
@@ -45,7 +49,7 @@ $(basename "$0") [-h] -i <fastx>
         If not provided, will process all contigs in bam. 
     -o  output folder (default: ${OUTPUT}).
     -s  medaka model for initial SNP calling from mixed reads prior to phasing,
-        (default: ${MODEL}).
+        (default: ${SNPMODEL}).
         ${modeldata[0]}.
         Alternatively a .hdf file from 'medaka train'. 
     -m  medaka model for final variant calling from phased reads,

@@ -7,7 +7,7 @@ from medaka.labels import TruthAlignment
 
 __truth_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'truth_to_ref.bam')
 __ref_fasta__ = os.path.join(os.path.dirname(__file__), 'data', 'draft_ref.fasta')
-__ref_name__ = 'Consensus_Consensus_Consensus_Consensus_utg000001l'
+__ref_name__ = 'utg000001l'
 
 class MockAlignment():
     def __init__(self, ref_start=None, ref_end=None, ref_len=None,

@@ -252,41 +252,82 @@ class Sample(_Sample):
 
         :returns: (end1, start2
         :raises: `OverlapException` if samples do not overlap nor abut.
+
         """
+        heuristic = False
         rel = Sample.relative_position(s1, s2)
 
         # trivial case
         if rel is Relationship.forward_abutted:
-            return None, None
+            return None, None, heuristic
 
         if rel is not Relationship.forward_overlap:
             msg = 'Cannot overlap samples {} and {} with relationhip {}'
             raise OverlapException(msg.format(s1.name, s2.name, repr(rel)))
 
-        # find where the overlap starts in s1 indices
+        # find where the overlap starts (ends) in s1 (s2) indices
         ovl_start_ind1 = np.searchsorted(s1.positions, s2.positions[0])
-
-        # find where the overlap ends in s2 indices
         ovl_end_ind2 = np.searchsorted(
             s2.positions, s1.positions[-1], side='right')
+
+        end_1_ind, start_2_ind = None, None
         pos1_ovl = s1.positions[ovl_start_ind1:]
         pos2_ovl = s2.positions[0:ovl_end_ind2]
-        # check overlap length is the same in both
-        assert len(pos1_ovl) == len(pos2_ovl)
-        overlap_len = len(pos1_ovl)
-        # find mid-point
-        pad_1 = overlap_len // 2
-        pad_2 = overlap_len - pad_1
-        end_1_ind = ovl_start_ind1 + pad_1
-        start_2_ind = ovl_end_ind2 - pad_2
+        try:
+            # the nice case where everything lines up
+            if not np.array_equal(pos1_ovl['minor'], pos2_ovl['minor']):
+                raise OverlapException("Overlaps are not equal in structure")
+            overlap_len = len(pos1_ovl)
+            # take mid point as break point
+            pad_1 = overlap_len // 2
+            pad_2 = overlap_len - pad_1
+            end_1_ind = ovl_start_ind1 + pad_1
+            start_2_ind = ovl_end_ind2 - pad_2
 
-        # check the length of the overlap obtained using our indices
-        # is the same in each sample
-        contr_1 = s1.positions[ovl_start_ind1:end_1_ind]
-        contr_2 = s2.positions[start_2_ind:ovl_end_ind2]
-        assert len(contr_1) + len(contr_2) == overlap_len
+            contr_1 = s1.positions[ovl_start_ind1:end_1_ind]
+            contr_2 = s2.positions[start_2_ind:ovl_end_ind2]
+            if len(contr_1) + len(contr_2) != overlap_len:
+                raise OverlapException(
+                    "Resultant is not same length as overlap.")
+        except OverlapException:
+            heuristic = True
+            # Some sample producing methods will not create 1-to-1 mappings
+            # in their sets of columns, e.g. where chunking has affected the
+            # reads used. Here we find a split point near the middle where
+            # the two halfs have the same number of minor positions
+            # (i.e. look similar).
+            # Require seeing a number of major positions
+            UNIQ_MAJ = 3
+            end_1_ind, start_2_ind = None, None
+            if (len(np.unique(pos1_ovl['major'])) > UNIQ_MAJ and
+                    len(np.unique(pos2_ovl['major'])) > UNIQ_MAJ):
 
-        return end_1_ind, start_2_ind
+                start, end = pos1_ovl['major'][0], pos1_ovl['major'][-1]
+                mid = start + (end - start) // 2
+                offset = 1
+                while end_1_ind is None:
+
+                    if (mid + offset > max(s1.positions['major']) and
+                            mid - offset < min(s2.positions['major'])):
+                        # run off the edge
+                        break
+                    for test in (+offset, -offset):
+                        left = np.where(
+                            s1.positions['major'] == mid + test)[0]
+                        right = np.where(
+                            s2.positions['major'] == mid + test)[0]
+                        if len(left) == len(right):
+                            # found a nice junction
+                            end_1_ind = left[0]
+                            start_2_ind = right[0]
+                            break
+                    offset += 1
+            if end_1_ind is None or start_2_ind is None:
+                raise OverlapException(
+                    "Could not find viable junction for {} and {}".format(
+                        s1.name, s2.name))
+
+        return end_1_ind, start_2_ind, heuristic
 
     def chunks(self, chunk_len=1000, overlap=200):
         """Create overlapping chunks of self.
@@ -370,8 +411,8 @@ class Region(_Region):
     def __str__(self):
         """Return string representation of region."""
         # This will be zero-based, end exclusive
-        start = 0 if self.start is None else 0
-        end = '' if self.start is None else self.end
+        start = 0 if self.start is None else self.start
+        end = '' if self.end is None else self.end
         return '{}:{}-{}'.format(self.ref_name, start, end)
 
     @property
@@ -392,7 +433,7 @@ class Region(_Region):
         ...     ref_name='Ecoli', start=1000, end=2000)
         True
         >>> Region.from_string('Ecoli:1000') == Region(
-        ...     ref_name='Ecoli', start=0, end=1000)
+        ...     ref_name='Ecoli', start=1000, end=None)
         True
         >>> Region.from_string('Ecoli:-1000') == Region(
         ...     ref_name='Ecoli', start=0, end=1000)
@@ -400,15 +441,21 @@ class Region(_Region):
         >>> Region.from_string('Ecoli:500-') == Region(
         ...     ref_name='Ecoli', start=500, end=None)
         True
+        >>> Region.from_string('A:B:c:500-') == Region(
+        ...     ref_name='A:B:c', start=500, end=None)
+        True
         """
         if ':' not in region:
             ref_name, start, end = region, None, None
         else:
             start, end = None, None
-            ref_name, bounds = region.split(':')
-            if bounds[0] == '-' or '-' not in bounds:
+            ref_name, bounds = region.rsplit(':', 1)
+            if bounds[0] == '-':
                 start = 0
                 end = int(bounds.replace('-', ''))
+            elif '-' not in bounds:
+                start = int(bounds)
+                end = None
             elif bounds[-1] == '-':
                 start = int(bounds[:-1])
                 end = None
@@ -416,24 +463,29 @@ class Region(_Region):
                 start, end = [int(b) for b in bounds.split('-')]
         return cls(ref_name, start, end)
 
-    def split(region, size, overlap=0):
-        """Split region into sub-regions.
+    def split(region, size, overlap=0, fixed_size=True):
+        """Split region into sub-regions of a given length.
 
         :param size: size of sub-regions.
         :param overlap: overlap between ends of sub-regions.
+        :param fixed_size: ensure all sub-regions are equal in size. If `False`
+            then the final chunk will be created as the smallest size to
+            conform with `overlap`.
 
         :returns: a list of sub-regions.
 
         """
-        regions = [
-            Region(region.ref_name, start, stop) for (start, stop) in
-            segment_limits(
-                region.start, region.end, segment_len=size,
-                overlap_len=overlap)
-        ]
-        # correct end co-ordinate of the last
-        last = regions[-1]
-        regions[-1] = Region(last.ref_name, last.start, last.end + 1)
+        regions = list()
+        for start in range(region.start, region.end, size - overlap):
+            end = min(start + size, region.end)
+            regions.append(Region(region.ref_name, start, end))
+        if len(regions) > 1:
+            if fixed_size and regions[-1].size < size:
+                del regions[-1]
+                end = region.end
+                start = end - size
+                if start > regions[-1].start:
+                    regions.append(Region(region.ref_name, start, end))
         return regions
 
     def overlaps(self, other):
@@ -513,20 +565,6 @@ def get_pairs(aln):
         for qp, rp, rb in aln.get_aligned_pairs(with_seq=True))
 
     return pairs
-
-
-def segment_limits(start, end, segment_len=20000, overlap_len=1000):
-    """Generate segments of a range [0, end_point].
-
-    :param start: startpoint of range.
-    :param end: endpoint of range.
-    :param segment_len: length of resultant segments.
-    :param overlap_len: length of overlap between segments.
-    :yields: tuples (start, end) indicating overlapping segments of
-        the input range.
-    """
-    for n in range(start, end, segment_len):
-        yield max(start, n - overlap_len), min(n + segment_len, end - 1)
 
 
 def sliding_window(a, window=3, step=1, axis=0):

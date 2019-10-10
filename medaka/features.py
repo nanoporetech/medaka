@@ -158,7 +158,7 @@ def pileup_counts(
         return np_counts, positions
 
     # split large regions for performance
-    regions = region.split(region_split)
+    regions = region.split(region_split, fixed_size=False)
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) \
             as executor:
         results = executor.map(_process_region, regions)
@@ -242,25 +242,25 @@ class BaseFeatureEncoder(metaclass=FeatureEncoderMeta):
     @abc.abstractmethod
     def __init__(*args, **kwargs):
         """Initialize feature encoder."""
-        # This is expected to be defined in all derived classes
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _pileup_function(self, region, reads_bam):
         # Called to create pileup matrix and position arrays
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _post_process_pileup(self, matrix, positions, region):
         # A chance to mutate the output of pileup_function
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def bams_to_training_samples(
-            self, truth_bam, bam, region, label_scheme, truth_haplotag=None):
+            self, truth_bam, bam, region, label_scheme, truth_haplotag=None,
+            min_length=1000):
         """Create labelled samples, should internally call bam_to_sample."""
         # TODO: should be moved outside this class?
-        pass
+        raise NotImplementedError
 
     @property
     @abc.abstractmethod
@@ -269,7 +269,7 @@ class BaseFeatureEncoder(metaclass=FeatureEncoderMeta):
 
         The length of a neural network input at a single time point.
         """
-        pass
+        raise NotImplementedError
 
     # this shouldn't be overridden
     def bam_to_sample(self, reads_bam, region):
@@ -414,7 +414,8 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         return sample
 
     def bams_to_training_samples(
-            self, truth_bam, bam, region, label_scheme, truth_haplotag=None):
+            self, truth_bam, bam, region, label_scheme, truth_haplotag=None,
+            min_length=1000):
         """Prepare training data chunks.
 
         :param truth_bam: .bam file of truth aligned to ref to generate labels.
@@ -423,6 +424,7 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         :param label_scheme: a `LabelScheme` describing network outputs.
         :param truth_haplotag: two letter tag name used for grouping truth
             labels by haplotype.
+        :param min_length: minimum length for valid alignments.
 
         :returns: tuple of `medaka.common.Sample` objects.
 
@@ -432,7 +434,8 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         """
         # Find truth alignments (with some filtering).
         alns = medaka.labels.TruthAlignment.bam_to_alignments(
-            truth_bam, region, haplotag=truth_haplotag)
+            truth_bam, region, haplotag=truth_haplotag,
+            min_length=min_length)
         if len(alns) == 0:
             self.logger.info(
                 "Filtering and grouping removed all alignments "
@@ -517,7 +520,8 @@ class SampleGenerator(object):
 
     def __init__(self, bam, region, feature_encoder, truth_bam=None,
                  label_scheme=None, truth_haplotag=None, chunk_len=1000,
-                 chunk_overlap=200, enable_chunking=True):
+                 chunk_overlap=200, enable_chunking=True,
+                 min_truth_length=1000):
         """Generate chunked inference (or training) samples.
 
         :param bam: `.bam` containing alignments from which to generate
@@ -533,6 +537,8 @@ class SampleGenerator(object):
             labels by haplotype.
         :param reference: reference `.fasta`, should correspond to `bam`.
         :param enable_chunking: when yielding samples, do so in chunks.
+        :param min_truth_length: minimum length of truth alignments to accepts
+            for generation of truth labels.
 
         """
         self.logger = medaka.common.get_named_logger("Sampler")
@@ -548,6 +554,7 @@ class SampleGenerator(object):
         self.chunk_len = chunk_len
         self.chunk_overlap = chunk_overlap
         self.enable_chunking = enable_chunking
+        self.min_truth_length = min_truth_length
         self._source = None  # the base data to be chunked
         self._quarantined = list()  # samples which are shorter than chunk size
 
@@ -562,7 +569,8 @@ class SampleGenerator(object):
             if self.truth_bam is not None:
                 self._source = self.fencoder.bams_to_training_samples(
                     self.truth_bam, self.bam, self.region, self.label_scheme,
-                    truth_haplotag=self.truth_haplotag)
+                    truth_haplotag=self.truth_haplotag,
+                    min_length=self.min_truth_length)
             else:
                 self._source = self.fencoder.bam_to_sample(
                     self.bam, self.region)

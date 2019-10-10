@@ -1,4 +1,4 @@
-.PHONY: docs clean_samtools wheels sdist
+.PHONY: docs clean_samtools wheels sdist check_lfs
 
 # Builds a cache of binaries which can just be copied for CI
 BINARIES=samtools minimap2 tabix bgzip spoa racon
@@ -116,8 +116,11 @@ venv/bin/activate:
 	test -d venv || virtualenv venv --python=python3 --prompt "(medaka) "
 	${IN_VENV} && pip install pip --upgrade
 
+check_lfs: venv
+	${IN_VENV} && python -c "from setup import check_model_lfs; check_model_lfs()"
 
-install: venv scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
+
+install: venv check_lfs scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 	${IN_VENV} && pip install -r requirements.txt
 	${IN_VENV} && MEDAKA_BINARIES=1 python setup.py install
 
@@ -130,7 +133,7 @@ test: install
 		--statistics
 	${IN_VENV} && pytest medaka --doctest-modules \
 		--cov=medaka --cov-report html --cov-report term \
-		--cov-fail-under=70
+		--cov-fail-under=75 --cov-report term-missing
 
 
 clean: clean_htslib

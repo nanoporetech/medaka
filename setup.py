@@ -9,9 +9,8 @@ from setuptools.command.install import install
 from setuptools.command.build_ext import build_ext
 import subprocess
 
-#TODO: fill in these
 __pkg_name__ = 'medaka'
-__author__ = 'syoung'
+__author__ = 'ont-research'
 __description__ = 'Neural network sequence error correction.'
 
 # Use readme as long description and say its github-flavour markdown
@@ -25,6 +24,7 @@ __long_description_content_type__ = 'text/markdown'
 __path__ = os.path.dirname(__file__)
 __pkg_path__ = os.path.join(os.path.join(__path__, __pkg_name__))
 
+# find version
 verstrline = open(os.path.join(__pkg_name__, '__init__.py'), 'r').read()
 vsre = r"^__version__ = ['\"]([^'\"]*)['\"]"
 mo = re.search(vsre, verstrline, re.M)
@@ -33,7 +33,29 @@ if mo:
 else:
     raise RuntimeError('Unable to find version string in "{}/__init__.py".'.format(__pkg_name__))
 
+def check_model_lfs():
+    # determine if data files look like LFS stubs, fail if they are
+    defmodel = open(os.path.join(__pkg_name__, '{}.py'.format(__pkg_name__)), 'r').read()
+    modelsre = r"^default_consensus_model = '(.*)'"
+    mo = re.search(modelsre, defmodel, re.M)
+    model = mo.group(1)
+    default_model = os.path.join(__pkg_path__, 'data', '{}_model.hdf5'.format(model))
+    stub_signature = "ASCII text"
+    if os.path.exists(default_model):
+        stdout = subprocess.check_output(['file', default_model])
+    else:
+        print("Failed to determine filetype of {}.".format(default_model))
+        sys.exit(1)
+    github_link = "github.com/nanoporetech/{}".format(__pkg_name__)
+    if stub_signature in stdout.decode():
+        print(
+            "\nModel files appear to be git lfs stubs. Please refer to README.md\n"
+            "for instructions regarding git lfs. If you obtained {} through\n"
+            "a method other than cloning the repository from github, please raise\n"
+            "an issue on {}.".format(__pkg_name__, github_link))
+        sys.exit(1)
 
+# create requirements from requirements.txt
 dir_path = os.path.dirname(__file__)
 install_requires = []
 with open(os.path.join(dir_path, 'requirements.txt')) as fh:
@@ -46,7 +68,7 @@ with open(os.path.join(dir_path, 'requirements.txt')) as fh:
             req = req.split('/')[-1].split('@')[0]
         install_requires.append(req)
 
-
+# locate and any third party binaries
 data_files = []
 if os.environ.get("MEDAKA_BINARIES") is not None:
     with open(os.path.join(dir_path, 'Makefile')) as fh:
@@ -72,47 +94,6 @@ class HTSBuild(build_ext):
         self.execute(compile_hts, [], 'Compiling htslib using Makefile')
         build_ext.run(self)
 
-
-pymajor, pyminor = sys.version_info[0:2]
-if (pymajor < 3) or (pyminor not in {5, 6}):
-    raise RuntimeError(
-        '`medaka` is unsupported on your version of python, '
-        'please use python 3.5 or python 3.6.')
-
-setup(
-    name='medaka',
-    version=__version__,
-    url='https://github.com/nanoporetech/{}'.format(__pkg_name__),
-    author=__author__,
-    author_email='{}@nanoporetech.com'.format(__author__),
-    description=__description__,
-    long_description=__long_description__,
-    long_description_content_type=__long_description_content_type__,
-    python_requires='>=3.5.*,<3.7',
-    packages=find_packages(exclude=['*.test', '*.test.*', 'test.*', 'test']),
-    package_data={
-        __pkg_name__:[os.path.join('data','*.hdf5')],
-    },
-    cffi_modules=["build.py:ffibuilder"],
-    install_requires=install_requires,
-    #place binaries as package data, below we'll copy them to standard path in dist
-    data_files=data_files,
-    entry_points = {
-        'console_scripts': [
-            '{0} = {0}.{0}:main'.format(__pkg_name__),
-            '{0}_counts = {0}.medaka_counts:main'.format(__pkg_name__),
-            '{0}_data_path = {0}.{1}:{2}'.format(__pkg_name__, 'common', 'print_data_path'),
-            '{0}_version_report = {0}:report_binaries'.format(__pkg_name__, )
-        ]
-    },
-    scripts=['scripts/medaka_consensus', 'scripts/medaka_variant', 'scripts/mini_align'],
-    zip_safe=False,
-    cmdclass={
-        'build_ext': HTSBuild
-    },
-)
-
-
 # Nasty hack to get binaries into bin path
 class GetPaths(install):
     def run(self):
@@ -135,6 +116,48 @@ def get_setuptools_script_dir():
         shutil.copy(exe, dist.install_scripts)
     return dist.install_libbase, dist.install_scripts
 
-if os.environ.get('MEDAKA_BINARIES') is not None:
-    print("\nCopying utility binaries to your path.")
-    get_setuptools_script_dir()
+
+if __name__ == '__main__':
+    check_model_lfs()
+
+    pymajor, pyminor = sys.version_info[0:2]
+    if (pymajor < 3) or (pyminor not in {5, 6}):
+        raise RuntimeError(
+            '`medaka` is unsupported on your version of python, '
+            'please use python 3.5 or python 3.6.')
+
+    setup(
+        name='medaka',
+        version=__version__,
+        url='https://github.com/nanoporetech/{}'.format(__pkg_name__),
+        author=__author__,
+        description=__description__,
+        long_description=__long_description__,
+        long_description_content_type=__long_description_content_type__,
+        python_requires='>=3.5.*,<3.7',
+        packages=find_packages(exclude=['*.test', '*.test.*', 'test.*', 'test']),
+        package_data={
+            __pkg_name__:[os.path.join('data','*.hdf5')],
+        },
+        cffi_modules=["build.py:ffibuilder"],
+        install_requires=install_requires,
+        #place binaries as package data, below we'll copy them to standard path in dist
+        data_files=data_files,
+        entry_points = {
+            'console_scripts': [
+                '{0} = {0}.{0}:main'.format(__pkg_name__),
+                '{0}_counts = {0}.medaka_counts:main'.format(__pkg_name__),
+                '{0}_data_path = {0}.{1}:{2}'.format(__pkg_name__, 'common', 'print_data_path'),
+                '{0}_version_report = {0}:report_binaries'.format(__pkg_name__, )
+            ]
+        },
+        scripts=['scripts/medaka_consensus', 'scripts/medaka_variant', 'scripts/mini_align'],
+        zip_safe=False,
+        cmdclass={
+            'build_ext': HTSBuild
+        },
+    )
+
+    if os.environ.get('MEDAKA_BINARIES') is not None:
+        print("\nCopying utility binaries to your path.")
+        get_setuptools_script_dir()

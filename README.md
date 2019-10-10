@@ -87,30 +87,17 @@ Medaka can be installed from its source quite easily on most systems.
  > Before installing medaka it may be required to install some
  > prerequisite libraries, best installed by a package manager. On Ubuntu
  > theses are:
- > * bzip2
- > * gcc
- > * zlib1g-dev
- > * libbz2-dev
- > * liblzma-dev
- > * libffi-dev
- > * libncurses5-dev
- > * libcurl4-gnutls-dev
- > * libssl-dev
- > * curl
- > * make
- > * cmake
- > * wget
- > * python3-all-dev
- > * python-virtualenv
-
-
+ >     bzip2, gcc, zlib1g-dev, libbz2-dev, liblzma-dev, libffi-dev, libncurses5-dev,
+ >     libcurl4-gnutls-dev, libssl-dev, curl, make, cmake, wget, python3-all-dev,
+ >     python-virtualenv
+ > In addition it is required to install and set up git LFS before cloning
+ > the repository.
 
 A Makefile is provided to fetch, compile and install all direct dependencies
 into a python virtual environment. To set-up the environment run:
 
     # Note: certain files are stored in git-lfs, https://git-lfs.github.com/,
     #       which must therefore be installed first.
-    git-lfs before cloning the repository*
     git clone https://github.com/nanoporetech/medaka.git
     cd medaka
     make install
@@ -129,6 +116,8 @@ may be necessary to modify the requirements of the `medaka` package for it
 to run without complaining. Using the source code from github a working
 GPU-powered `medaka` can be configured with:
 
+    # Note: certain files are stored in git-lfs, https://git-lfs.github.com/,
+    #       which must therefore be installed first.
     git clone https://github.com/nanoporetech/medaka.git
     cd medaka
     sed -i 's/tensorflow/tensorflow-gpu/' requirements.txt

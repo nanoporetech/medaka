@@ -13,9 +13,10 @@ medaka_version=$(medaka --version)
 modeldata=()
 while read -r line; do
     modeldata+=("$line")
-done < <(medaka tools list_models) # Available models on first line, default on next line
+done < <(medaka tools list_models) # Available models on first line, default consensus model on next line
 MODEL=${modeldata[1]##* }
 BATCH_SIZE=100
+FORCE=false
 
 iflag=false
 dflag=false
@@ -35,17 +36,20 @@ $(basename "$0") [-h] -i <fastx>
     -o  output folder (default: medaka).
     -m  medaka model, (default: ${MODEL}).
         ${modeldata[0]}.
-        Alternatively a .hdf file from 'medaka train'. 
+        Alternatively a .hdf file from 'medaka train'.
+    -f  Force overwrite of outputs (default will reuse existing outputs).
     -t  number of threads with which to create features (default: 1).
     -b  batchsize, controls memory use (default: ${BATCH_SIZE})."
 
-while getopts ':hi::d:o:m:t:b:' option; do
+
+while getopts ':hi::d:o:m:ft:b:' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
     d  ) dflag=true; DRAFT=$(follow_link $OPTARG);;
     o  ) OUTPUT=$OPTARG;;
     m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
+    f  ) FORCE=true;;
     t  ) THREADS=$OPTARG;;
     b  ) BATCH_SIZE=$OPTARG;;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
@@ -69,6 +73,7 @@ if ! $dflag; then
 fi
 
 echo "Checking program versions"
+echo "This is ${medaka_version}"
 medaka_version_report || exit 1
 
 if [[ ! -e ${OUTPUT} ]]; then
@@ -80,30 +85,35 @@ fi
 cd ${OUTPUT}
 
 CALLS2DRAFT=calls_to_draft
-if [[ ! -e ${CALLS2DRAFT}.bam ]]; then
+if [[ ! -e ${CALLS2DRAFT}.bam ]] || ${FORCE}; then
     echo "Aligning basecalls to draft"
-    mini_align -i ${BASECALLS} -r ${DRAFT} -P -m -p ${CALLS2DRAFT} -t ${THREADS} \
+    mini_align -i ${BASECALLS} -r ${DRAFT} -p ${CALLS2DRAFT} -t ${THREADS} -m -f \
         || (echo "Failed to run alignment of reads to draft." && exit 1)
+    FORCE=true
 else
     echo "Not aligning basecalls to draft, ${CALLS2DRAFT}.bam exists."
 fi
 
 CONSENSUSPROBS=consensus_probs.hdf
-if [[ ! -e ${CONSENSUSPROBS} ]]; then
+if [[ ! -e ${CONSENSUSPROBS} ]] || ${FORCE}; then
     echo "Running medaka consensus"
+    rm -rf ${CONSENSUSPROBS}
     medaka consensus ${CALLS2DRAFT}.bam ${CONSENSUSPROBS} \
         --model ${MODEL} --batch_size ${BATCH_SIZE} --threads ${THREADS} \
         || (echo "Failed to run medaka consensus." && exit 1)
+    FORCE=true
 else 
     echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
 fi
 
 CONSENSUS=consensus.fasta
-if [[ ! -e ${CONSENSUS} ]]; then
+if [[ ! -e ${CONSENSUS} ]] || ${FORCE}; then
     echo "Running medaka stitch"
+    rm -rf ${CONSENSUS}
     medaka stitch ${CONSENSUSPROBS} ${CONSENSUS} \
         || (echo "Failed to stitch consensus chunks." && exit 1)
     echo "Polished assembly written to ${OUTPUT}/${CONSENSUS}, have a nice day."
+    FORCE=true
 else
     echo "Consensus ${OUTPUT}/${CONSENSUS} exists, remove ${OUTPUT} and try again."
 fi
