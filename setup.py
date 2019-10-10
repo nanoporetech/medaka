@@ -9,9 +9,8 @@ from setuptools.command.install import install
 from setuptools.command.build_ext import build_ext
 import subprocess
 
-#TODO: fill in these
 __pkg_name__ = 'medaka'
-__author__ = 'syoung'
+__author__ = 'ont-research'
 __description__ = 'Neural network sequence error correction.'
 
 # Use readme as long description and say its github-flavour markdown
@@ -132,7 +131,6 @@ if __name__ == '__main__':
         version=__version__,
         url='https://github.com/nanoporetech/{}'.format(__pkg_name__),
         author=__author__,
-        author_email='{}@nanoporetech.com'.format(__author__),
         description=__description__,
         long_description=__long_description__,
         long_description_content_type=__long_description_content_type__,
