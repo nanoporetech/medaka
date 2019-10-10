@@ -234,8 +234,9 @@ class TruthAlignment(object):
         """
         alignments = collections.defaultdict(list)
         with pysam.AlignmentFile(truth_bam, 'rb') as bamfile:
-            aln_reads = bamfile.fetch(reference=region.ref_name,
-                                      start=region.start, end=region.end)
+            aln_reads = bamfile.fetch(
+                reference=region.ref_name,
+                start=region.start, end=region.end)
             for r in aln_reads:
                 if (r.is_unmapped or r.is_secondary):
                     continue

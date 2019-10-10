@@ -9,7 +9,7 @@ import pysam
 
 import libmedaka
 import medaka.features
-from medaka.common import Region
+from medaka.common import Region, Sample
 import medaka.labels
 
 __reads_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'test_reads.bam')
@@ -19,26 +19,67 @@ __region__ = Region('utg000001l', start=50000, end=100000)
 __region_start__ = Region('utg000001l', start=0, end=200)
 
 
+#  Ref          A    C    A    T    *    G    A    T    G
+# 
+# Basecall1:   2A   1C   4A   5T        1G   1A   2T   1G
+# Basecall2:   3A   1C   4A    *        1G   1A   1T   2G
+# Basecall3:   2a   1c   4a   5t   1a   1g   1a   2t   1g
+# Basecall4:   2a   1c   4a   1c        1g   1a   2t   1g
+
+simple_data = {
+    'ref': 'ACATGATG',
+    'truth': {
+        'seq': 'ACATAGATCTG', # the A from third below and another CT
+        'quality':  array.array('B', [2, 1, 4, 5, 1, 1, 1, 2, 1, 1, 1]),
+        'cigarstring': '4=1I3=2I1=',
+        'flag': 0,
+        'tags': {'MD':('Z','8')}
+    },
+    'calls': [
+        {
+            'seq': 'ACATGATG',  # exactly ref
+            'quality': array.array('B', [2, 1, 4, 5, 1, 1, 2, 1]),
+            'cigarstring': '8=',
+            'flag': 0},
+        {
+            'seq': 'ACAGATG',  # deletion of T in the middle
+            'quality': array.array('B', [3, 1, 4, 1, 1, 1, 2]),
+            'cigarstring': '3=1D4=',
+            'flag': 0},
+        {
+            'seq': 'ACATAGATG',  # insertion of A in the middle
+            'quality':  array.array('B', [2, 1, 4, 5, 1, 1, 1, 2, 1]),
+            'cigarstring': '4=1I4=',
+            'flag': 16},
+        {
+            'seq': 'ACACGATG',  # substitution T->C
+            'quality': array.array('B', [2, 1, 4, 1, 1, 1, 2, 1]),
+            'cigarstring': '3=1X4=',
+            'flag': 16},
+    ]
+}
+
+
 def create_dtypes_tags_bam(fname):
     """ Create a small bam file with 2 dtypes."""
     bam_fname = tempfile.NamedTemporaryFile(suffix='.bam').name
-    create_rle_bam(bam_fname)
+    create_rle_bam(bam_fname, simple_data['calls'])
 
     # Add r9/r10 to the reads in the file
     with pysam.AlignmentFile(bam_fname) as input_bam:
         tmp_file = '{}.tmp'.format(fname)
         with pysam.AlignmentFile(tmp_file, 'wb', header=input_bam.header) as output_bam:
-            for ii, alignment in enumerate(input_bam):
+            for i, alignment in enumerate(input_bam):
                 # Add dtype tag
-                if ii % 2:
+                if i % 2:
                     alignment.set_tag('DT', 'r9')
                 else:
                     alignment.set_tag('DT', 'r10')
 
                 # Add tag to some of the reads
-                if ii in (0, 1):
+                if i in (0, 1):
                     alignment.set_tag('AA', 1)
-                elif ii == 2:
+                elif i == 2:
                     alignment.set_tag('AA', 2)
 
                 output_bam.write(alignment)
@@ -48,52 +89,18 @@ def create_dtypes_tags_bam(fname):
     pysam.index(fname)
 
 
-def create_rle_bam(fname):
-    """ Create a small bam file with RLE encoding coded in the qscores.
-
-     Ref          A    C    A    T    *    G    A    T    G
-
-    Basecall1:   2A   1C   4A   5T        1G   1A   2T   1G
-    Basecall2:   3A   1C   4A    *        1G   1A   1T   2G
-    Basecall3:   2a   1c   4a   5t   1a   1g   1a   2t   1g
-    Basecall4:   2a   1c   4a   1c        1g   1a   2t   1g
-
-    """
-
-    ref = 'ACATGATG'
-    basecall1 = {
-        'seq': 'ACATGATG',  # exactly ref
-        'quality': array.array('B', [2, 1, 4, 5, 1, 1, 2, 1]),
-        'cigarstring': '8=',
-        'flag': 0}
-
-    basecall2 = {
-        'seq': 'ACAGATG',  # deletion of T in the middle
-        'quality': array.array('B', [3, 1, 4, 1, 1, 1, 2]),
-        'cigarstring': '3=1D4=',
-        'flag': 0}
-
-    basecall3 = {
-        'seq': 'ACATAGATG',  # insertion of A in the middle
-        'quality':  array.array('B', [2, 1, 4, 5, 1, 1, 1, 2, 1]),
-        'cigarstring': '4=1I4=',
-        'flag': 16}
-
-    basecall4 = {
-        'seq': 'ACACGATG',  # substitution T->C
-        'quality': array.array('B', [2, 1, 4, 1, 1, 1, 2, 1]),
-        'cigarstring': '3=1X4=',
-        'flag': 16}
+def create_rle_bam(fname, calls):
+    """Create a small bam file with RLE encoding coded in the qscores."""
+    ref_len = len(simple_data['ref'])
 
     header = {'HD': {'VN': '1.0'},
-              'SQ': [{'LN': 8, 'SN': 'ref'}]}
+              'SQ': [{'LN': ref_len, 'SN': 'ref'}]}
 
     tmp_file = '{}.tmp'.format(fname)
     with pysam.AlignmentFile(
             tmp_file, 'wb', reference_names=['ref', ],
-            reference_lengths=[8, ], header=header) as output:
-        for index, basecall in enumerate(
-                (basecall1, basecall2, basecall3, basecall4)):
+            reference_lengths=[ref_len, ], header=header) as output:
+        for index, basecall in enumerate(calls):
             a = pysam.AlignedSegment()
             a.query_name = "basecall_{}".format(index)
             a.reference_id = 0
@@ -104,6 +111,9 @@ def create_rle_bam(fname):
             a.flag = basecall['flag']
             a.mapping_quality = 50
             a.query_qualities = basecall['quality']
+            if 'tags' in basecall:
+                for name, (val_type, val) in basecall['tags'].items():
+                    a.set_tag(name, val, val_type)
             output.write(a)
 
     pysam.sort("-o", fname, tmp_file)
@@ -155,7 +165,46 @@ class CountsTest(unittest.TestCase):
         encoder = medaka.features.CountsFeatureEncoder(**kwargs)
         self.assertEqual(encoder.feature_vector_length, 20)
 
-    def test_030_bams_to_training_samples(self):
+    def test_030_bams_to_training_samples_simple(self):
+        reads_bam = tempfile.NamedTemporaryFile(suffix='.bam').name
+        truth_bam = tempfile.NamedTemporaryFile(suffix='.bam').name
+
+        create_rle_bam(reads_bam, simple_data['calls'])
+        create_rle_bam(truth_bam, [simple_data['truth']])
+        encoder = medaka.features.CountsFeatureEncoder(normalise='total')
+        label_scheme = medaka.labels.HaploidLabelScheme()
+        region = Region('ref', 0, 100)
+        result = encoder.bams_to_training_samples(
+            truth_bam, reads_bam, region, label_scheme, min_length=0)[0]
+
+        expected = Sample(
+            ref_name='ref',
+            features=np.array([
+                [0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.  , 0.  ],
+                [0.  , 0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.  ],
+                [0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.  , 0.  ],
+                [0.  , 0.25, 0.  , 0.25, 0.  , 0.  , 0.  , 0.25, 0.  , 0.25],
+                [0.25, 0.  , 0.  , 0.  , 0.  , 0.  , 0.  , 0.  , 0.  , 0.  ],
+                [0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  ],
+                [0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.  , 0.  ],
+                [0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  ],
+                [0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  ]],
+                dtype='float32'),
+            # the two insertions with respect to the draft are dropped
+            labels=np.array([1, 2, 1, 4, 1, 3, 1, 4, 3]),  # A C A T A G A T C
+            ref_seq=None,
+            positions=np.array([
+                (0, 0), (1, 0), (2, 0), (3, 0), (3, 1), (4, 0), (5, 0), (6, 0), (7, 0)],
+                dtype=[('major', '<i8'), ('minor', '<i8')]),
+            label_probs=None
+        )
+
+        np.testing.assert_equal(result.labels, expected.labels)
+        np.testing.assert_equal(result.positions, expected.positions)
+        np.testing.assert_equal(result.features, expected.features)
+
+
+    def test_031_bams_to_training_samples_regression(self):
         encoder = medaka.features.CountsFeatureEncoder(normalise='total')
         label_scheme = medaka.labels.HaploidLabelScheme()
         region = Region(
@@ -171,6 +220,7 @@ class CountsTest(unittest.TestCase):
         expected_label_shape = (177981,)
         got_label_shape = result.labels.shape
         self.assertEqual(expected_label_shape, got_label_shape)
+
 
 
 class CountsSplittingTest(unittest.TestCase):
@@ -388,7 +438,7 @@ class HardRLEFeatureEncoder(unittest.TestCase):
 
         # Create a bam file where we know the alignments
         RLE_bam = tempfile.NamedTemporaryFile(suffix='.bam').name
-        create_rle_bam(RLE_bam)
+        create_rle_bam(RLE_bam, simple_data['calls'])
         sample = encoder.bam_to_sample(RLE_bam, Region('ref', 0, 11))
         cls.bam_fname = RLE_bam
         cls.sample = sample[0]
