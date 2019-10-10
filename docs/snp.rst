@@ -107,7 +107,7 @@ phased ``.vcf`` variant file.
 
 
 Further Improvements
-====================
+--------------------
 
 Medaka SNP and indel calling is an extremely active area of research.
 We anticipate that the final step of variant calling, which amounts to a
@@ -115,3 +115,4 @@ consensus call on a relatively pure haplotyped set of reads, will benefit
 (along with consensus calling) from further innovations in feature encoding,
 network architecture and training strategy. Future releases may also exploit
 direct snp and variant calling from mixed read populations.
+
