@@ -95,8 +95,8 @@ def _log_level():
 def _model_arg():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
-    parser.add_argument('--model', action=ResolveModel, default=model_dict[default_model],
-            help='Model definition, default is equivalent to {}.'.format(default_model))
+    parser.add_argument('--model', action=ResolveModel, default=model_dict[default_consensus_model],
+            help='Model definition, default is equivalent to {}.'.format(default_consensus_model))
     parser.add_argument('--allow_cudnn', dest='allow_cudnn', default=True, action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--disable_cudnn', dest='allow_cudnn', default=False, action='store_false',
             help='Disable use of cuDNN model layers.')
@@ -294,7 +294,7 @@ def main():
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cfparser.add_argument('features', nargs='+', help='Pregenerated features (from medaka features).')
-    cfparser.add_argument('--model', action=ResolveModel, default=default_model, help='Model definition.')
+    cfparser.add_argument('--model', action=ResolveModel, default=default_consensus_model, help='Model definition.')
 
     # Post-processing of consensus outputs
     sparser = subparsers.add_parser('stitch',
