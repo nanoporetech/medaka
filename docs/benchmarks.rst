@@ -18,7 +18,7 @@ median values over all chunks.
 Comparison of `medaka` and `nanopolish` 
 ---------------------------------------
 
-In this comparison *E. coli* data from the :doc:`walkthrough` was used.
+In this comparison R9.4.1 *E. coli* data from the :doc:`walkthrough` were used.
 These data were not used to train the model. Basecalling was performed using
 ``Guppy v3.2.3``. Basecalled reads were trimmed using `porechop
 <https://github.com/rrwick/Porechop>`_ to remove adapters, and assembly was
@@ -67,9 +67,9 @@ Evaluation across samples and depths
 ------------------------------------
 
 The comparison below illustrates results at various coverage depths for a
-collection of further organisms. Assemblies were performed as above with
-canu and racon, using the ``Guppy v3.0.3`` high accuracy basecaller and
-``medaka v0.6.5``.
+collection of further organisms using the R9.4.1 pore. Assemblies were
+performed as above with canu and racon, using the ``Guppy v3.0.3`` high accuracy
+basecaller and ``medaka v0.6.5``.
 
 .. image:: images/cov_acc.png
     :align: center
@@ -83,8 +83,8 @@ dataset, with median read length of 34kb (all reads >20kb) using the
 `flye <https://github.com/fenderglass/Flye>`_ and
 `shasta <https://github.com/chanzuckerberg/shasta>`_ assemblers.
 In this experiment, training sets for flip-flop basecallers and medaka models
-included a subset of the *C. elegans* genome. Medaka was applied to drafts direct from
-the assemblers *with no additional racon consensus polishing*.
+included a subset of the *C. elegans* genome. For brevity ``medaka`` was
+applied to drafts direct from the assemblers *with no intermediate racon consensus polishing*.
 
 
 Assembly metrics
@@ -168,3 +168,20 @@ Curiously it is found that the canu and shasta assemblies show a higher complete
 the reference sequence (`WBcel235 <https://www.ncbi.nlm.nih.gov/assembly/GCF_000002985.6/>`_).
 
 
+Future Work
+***********
+
+We have illustrated ``medaka``'s role in efficiently creating quality consensus
+sequences, and the role of long nanopore reads in creating highly contiguous assemblies
+with modest compute requirements. The assemblies are in agreement with recent studies
+from `Tyson et. al. <https://genome.cshlp.org/content/12/5/669.full.html>`_ and
+`Yoshimura et. al. <https://genome.cshlp.org/content/29/6/1009.full>`_ in suggesting
+that the *C. elegans* reference has missing sequence. The assemblies above are not the
+final word on assembly with nanopore sequencing data; in contrast to latter preceding
+reference we have expended relatively little effort in the assembly process, relying
+entirely on off-the-shelf automated methods.
+
+Aside from improving assembly methodology we are exploring improved chemistries, 
+basecallers, and consensus algorithms. Our current algorithmic focus is on so-called
+run-length encoded (RLE) methods for both basecalling and consensus. Early work
+in this area has shown promise in further reducing homopolymer error in particular.
