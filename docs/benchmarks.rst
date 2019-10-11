@@ -67,7 +67,7 @@ Evaluation across samples and depths
 ------------------------------------
 
 The comparison below illustrates results at various coverage depths for a
-collection of further organisms using the R9.4.1 pore. Assemblies were
+collection of further organisms using both the R9.4.1 and R10 pores. Assemblies were
 performed as above with canu and racon, using the ``Guppy v3.0.3`` high accuracy
 basecaller and ``medaka v0.6.5``.
 
@@ -77,8 +77,9 @@ basecaller and ``medaka v0.6.5``.
 Complex organism genome assembly
 --------------------------------
 
-The 100Mbase genome of the nematode worm *C. elegans* was assembled from a 100-fold coverage R10
-dataset, with median read length of 34kb (all reads >20kb) using the
+The 100Mbase genome of the nematode worm *C. elegans* was assembled from a
+`100-fold coverage R10 dataset <https://ont-research.s3-eu-west-1.amazonaws.com/r10_celegans.fq.gz>`_,
+with median read length of 34kb (all reads >20kb) using the
 `canu <https://canu.readthedocs.io/en/latest/index.html>`_,
 `flye <https://github.com/fenderglass/Flye>`_ and
 `shasta <https://github.com/chanzuckerberg/shasta>`_ assemblers.
