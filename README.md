@@ -87,8 +87,8 @@ Medaka can be installed from its source quite easily on most systems.
  Before installing medaka it may be required to install some
  prerequisite libraries, best installed by a package manager. On Ubuntu
  theses are:
- >     bzip2, gcc, zlib1g-dev, libbz2-dev, liblzma-dev, libffi-dev, libncurses5-dev,
- >     libcurl4-gnutls-dev, libssl-dev, curl, make, cmake, wget, python3-all-dev,
+ >     bzip2 g++ zlib1g-dev libbz2-dev liblzma-dev libffi-dev libncurses5-dev
+ >     libcurl4-gnutls-dev libssl-dev curl make cmake wget python3-all-dev
  >     python-virtualenv
  In addition it is required to install and set up git LFS before cloning
  the repository.
