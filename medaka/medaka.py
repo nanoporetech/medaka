@@ -306,6 +306,7 @@ def main():
     sparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
     sparser.add_argument('output', help='Output .fasta.', default='consensus.fasta')
     sparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
+    sparser.add_argument('--jobs', default=1, type=int, help='Number of worker processes to use.')
 
     pparser = subparsers.add_parser('variant',
         help='Decode probabilities to VCF.',

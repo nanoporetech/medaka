@@ -1,5 +1,6 @@
 """Creation of contiguous consensus sequences from chunked network outputs."""
-
+import concurrent.futures
+import functools
 import itertools
 
 from medaka import common
@@ -32,6 +33,9 @@ def stitch_from_probs(h5_fp, regions=None):
     :returns: list of (region string, sequence)
     """
     logger = common.get_named_logger('Stitch')
+    if isinstance(regions, medaka.common.Region):
+        regions = [regions]
+    logger.info("Stitching regions: {}".format([str(r) for r in regions]))
 
     index = medaka.datastore.DataIndex(h5_fp)
     label_scheme = index.metadata['label_scheme']
@@ -39,13 +43,6 @@ def stitch_from_probs(h5_fp, regions=None):
     logger.debug("Label decoding is:\n{}".format(
         '\n'.join('{}: {}'.format(k, v)
                   for k, v in label_scheme._decoding.items())))
-
-    if regions is None:
-        regions = sorted(index.index)
-
-    regions = [
-        common.Region.from_string(r)
-        for r in regions]
 
     def get_pos(sample, i):
         return '{}.{}'.format(
@@ -56,6 +53,8 @@ def stitch_from_probs(h5_fp, regions=None):
         logger.info("Processing {}.".format(reg))
         data_gen = index.yield_from_feature_files(regions=[reg])
         seq_parts = list()
+        cur_ref_name = ''
+        cur_segment = None
         # first sample
         s1 = next(data_gen)
         start = get_pos(s1, 0)
@@ -100,9 +99,15 @@ def stitch_from_probs(h5_fp, regions=None):
             seq_parts.append(new_seq)
 
             if end_1 is None:
-                region_string = '{}:{}-{}'.format(s1.ref_name, start,
-                                                  get_pos(s1, -1))
-                ref_assemblies.append((region_string, ''.join(seq_parts)))
+                if s1.ref_name != cur_ref_name:
+                    cur_ref_name = s1.ref_name
+                    cur_segment = 0
+                else:
+                    cur_segment += 1
+                ref_assemblies.append((
+                    '{}_segment{}'.format(cur_ref_name, cur_segment),
+                    '{}:{}-{}'.format(cur_ref_name, start, get_pos(s1, -1)),
+                    ''.join(seq_parts)))
                 seq_parts = list()
 
                 if s2 is not None and start_2 is None:
@@ -117,5 +122,18 @@ def stitch_from_probs(h5_fp, regions=None):
 
 def stitch(args):
     """Entry point for stitching program."""
-    joined = stitch_from_probs(args.inputs, regions=args.regions)
-    write_fasta(args.output, joined)
+    index = medaka.datastore.DataIndex(args.inputs)
+    if args.regions is None:
+        args.regions = sorted(index.index)
+    # batch size is a simple empirical heuristic
+    regions = medaka.common.grouper(
+        (common.Region.from_string(r) for r in args.regions),
+        batch_size=max(1, len(args.regions) // (2 * args.jobs)))
+
+    with open(args.output, 'w') as fasta:
+        Executor = concurrent.futures.ProcessPoolExecutor
+        with Executor(max_workers=args.jobs) as executor:
+            worker = functools.partial(stitch_from_probs, args.inputs)
+            for contigs in executor.map(worker, regions):
+                for name, info, seq in contigs:
+                    fasta.write('>{} {}\n{}\n'.format(name, info, seq))
