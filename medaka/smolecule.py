@@ -6,6 +6,7 @@ import re
 import subprocess
 import tempfile
 from timeit import default_timer as now
+import warnings
 
 import mappy
 import numpy as np
@@ -207,12 +208,6 @@ class Read(object):
 
     def _run_racon(self, fasta):
         tname = 'consensus_{}'.format(self.name)
-        file_ext = 'sam'  # paf route is not enabled since mappy no faster
-        source = self._alignments
-        if not self._alignments_valid:
-            self._alignments = self.align_to_template(self.consensus, tname)
-            self._alignments_valid = True
-            source = self._alignments
 
         header = {
             'HD': {'VN': 1.0},
@@ -226,13 +221,8 @@ class Read(object):
             with open(ref_fasta, 'w') as fh:
                 fh.write(">{}\n{}\n".format(tname, self.consensus))
 
-            overlaps = os.path.join(tmpdir, 'racon_in.{}'.format(file_ext))
-            if file_ext == 'sam':
-                write_bam(overlaps, [self._alignments], header, bam=False)
-            else:  # paf
-                with open(overlaps, 'w') as fh:
-                    for src in source:
-                        fh.write('{}\n'.format(src))
+            overlaps = os.path.join(tmpdir, 'racon_in.sam')
+            write_bam(overlaps, [self._alignments], header, bam=False)
 
             opts = ['-m', '8', '-x', '-6', '-g', '-8']
             try:
@@ -241,10 +231,7 @@ class Read(object):
                     stderr=subprocess.PIPE
                 )
             except subprocess.CalledProcessError as e:
-                print("RACON FAILED", file_ext)
-                print(e.stdout)
-                print(e.stderr)
-                print(e.cmd)
+                print("\n".join("RACON FAILED", e.cmd, e.stdout, e.stderr))
             racon_seq = out.decode().splitlines()[1]
         return racon_seq
 
@@ -289,6 +276,7 @@ class Read(object):
         :returns: `Alignment` tuples.
 
         """
+        self.initialize()
         alignments = []
         for orient, sr in zip(self._orient, self.subreads):
             if orient:
@@ -317,9 +305,10 @@ class Read(object):
         :returns: `Alignment` tuples.
 
         """
-        # align False requires forked minimap2, and isn't much faster for
-        # a small number of sequences due to index construction time.
-        align = True
+        if not align:
+            # align False requires forked minimap2, and isn't much faster for
+            # a small number of sequences due to index construction time.
+            warnings.warn("`align` is ignored", DeprecationWarning)
         alignments = []
         aligner = mappy.Aligner(seq=template, preset='map-ont')
         for sr in self.subreads:
@@ -333,22 +322,14 @@ class Read(object):
                     seq = sr.seq
                 else:
                     seq = medaka.common.reverse_complement(sr.seq)
-                if align:
-                    clip = [
-                        '' if x == 0 else '{}S'.format(x)
-                        for x in (hit.q_st, len(sr.seq) - hit.q_en)]
-                    if hit.strand == -1:
-                        clip = clip[::-1]
-                    cigstr = ''.join((clip[0], hit.cigar_str, clip[1]))
-                    aln = Alignment(
-                        template_name, sr.name, flag, hit.r_st, seq, cigstr)
-                else:
-                    # return paf string
-                    aln = '\t'.join(str(x) for x in (
-                        sr.name, len(sr.seq), hit.q_st, hit.q_en,
-                        '+' if hit.strand == +1 else '-', template_name,
-                        hit.ctg_len, hit.r_st, hit.r_en, hit.mlen, hit.blen,
-                        hit.mapq, 'tp:A:P', 'ts:A:.', 'cg:Z:' + hit.cigar_str))
+                clip = [
+                    '' if x == 0 else '{}S'.format(x)
+                    for x in (hit.q_st, len(sr.seq) - hit.q_en)]
+                if hit.strand == -1:
+                    clip = clip[::-1]
+                cigstr = ''.join((clip[0], hit.cigar_str, clip[1]))
+                aln = Alignment(
+                    template_name, sr.name, flag, hit.r_st, seq, cigstr)
                 alignments.append(aln)
                 hit = None
         return alignments

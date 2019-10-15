@@ -1,8 +1,11 @@
+import io
 import os
 import types
 import unittest
+import warnings
 
 from medaka import smolecule
+import medaka.common
 
 root_dir = os.path.abspath(os.path.dirname(__file__))
 test_fasta = os.path.join(root_dir, 'data/smolecule.fasta')
@@ -10,7 +13,6 @@ test_mfasta = os.path.join(root_dir, 'data/smolecule_multi.fasta')
 
 
 class TestRead(unittest.TestCase):
-
 
     def test_00_read_single(self):
         read = smolecule.Read.from_fastx(test_fasta)
@@ -45,3 +47,37 @@ class TestRead(unittest.TestCase):
         self.assertTrue(read._initialized, 'Read is initialized after poa.')
         self.assertEqual(cons, read.consensus, 'Returned sequence is self.consensus.')
         self.assertFalse(read._alignments_valid, '.alignments_valid is False after .poa_consensus.()')
+
+    def test_30_parasail_align(self):
+        revcom = medaka.common.reverse_complement
+        seq_mult = 100
+        seq = 'ACGACTACGACTACGACT' * seq_mult
+        sub_reads = [
+            (smolecule.Subread('read_0', seq), 0),
+            (smolecule.Subread('read_1', seq), 0),
+            (smolecule.Subread('read_2', revcom(seq)), 16)]
+        read = smolecule.Read('test', [s[0] for s in sub_reads])
+
+        expected = [
+            smolecule.Alignment(
+                'test', sr.name, flag, 0,
+                sr.seq if flag == 0 else revcom(sr.seq),
+                '{}='.format(len(seq)))
+            for i, (sr, flag) in enumerate(sub_reads)]
+
+        for aligner in ('align_to_template', 'mappy_to_template'):
+            func = getattr(read, aligner)
+            alignments = func(sub_reads[0][0].seq, 'test')
+            self.assertEqual(len(alignments), len(expected))
+            for aln, exp in zip(alignments, expected):
+                for attr, exp_attr in zip(aln, exp):
+                    # mappy doesn't report equality, just match
+                    if aligner == 'mappy_to_template' and exp_attr == '{}='.format(len(seq)):
+                        exp_attr = '{}M'.format(len(seq))
+                    self.assertEqual(attr, exp_attr)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            read.mappy_to_template(sub_reads[0][0].seq, 'test', align=False)
+            assert issubclass(w[-1].category, DeprecationWarning)
+
