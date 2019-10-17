@@ -181,17 +181,6 @@ def main():
     parser.add_argument('--version', action='version',
         version='%(prog)s {}'.format(__version__))
 
-    # Transformation of sequence data
-    pparser = subparsers.add_parser('compress_basecalls',
-        help='Transform basecalls and draft assemblies.',
-        parents=[_log_level()],
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    pparser.set_defaults(func=medaka.rle.compress_basecalls)
-    pparser.add_argument('input', help='.fasta/fastq file.')
-    pparser.add_argument('--output', default=None, help='Output file, default it stdout.')
-    pparser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
-
-
     # Compress bam file_ext
     rparser = subparsers.add_parser('compress_bam',
         help='Compress an alignment into RLE form. ',

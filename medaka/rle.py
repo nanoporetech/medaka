@@ -3,11 +3,8 @@ import array
 import concurrent.futures
 import functools
 import itertools
-from multiprocessing import Pool
 import os
 import re
-import sys
-from timeit import default_timer as now
 
 import numpy as np
 import parasail
@@ -165,7 +162,7 @@ def add_extra_clipping(cigar, start_clipped, end_clipped):
 def initialise_alignment(
         query_name, reference_id, reference_start,
         query_sequence, cigarstring, flag, mapping_quality=60,
-        query_qualities=None):
+        query_qualities=None, tags=None):
     """Create a `Pysam.AlignedSegment` object.
 
     :param query_name: name of the query sequence
@@ -184,6 +181,9 @@ def initialise_alignment(
 
     :returns: `pysam.AlignedSegment` object
     """
+    if tags is None:
+        tags = dict()
+
     a = pysam.AlignedSegment()
     a.query_name = query_name
     a.reference_id = reference_id
@@ -194,6 +194,9 @@ def initialise_alignment(
     a.mapping_quality = mapping_quality
     if query_qualities is not None:
         a.query_qualities = query_qualities
+
+    for tag_name, (tag_type, tag_value) in tags.items():
+        a.set_tag(tag_name, tag_value, tag_type)
 
     return a
 
@@ -315,33 +318,6 @@ def compress_seq(read):
         quality=coded_lengths)
 
     return compressed_record
-
-
-def compress_basecalls(args):
-    """Entry point for RLE compression of a fasta/q file."""
-    logger = medaka.common.get_named_logger('Compress_basecalls')
-
-    reads = pysam.FastxFile(args.input)
-    if args.threads > 1:
-        pool = Pool(args.threads)
-        compressed = pool.imap(compress_seq, reads)
-    else:
-        compressed = (compress_seq(r) for r in reads)
-
-    t0 = now()
-    if args.output is None:
-        fh = sys.stdout
-    else:
-        fh = open(args.output, 'w')
-
-    for read in compressed:
-        fh.write('@{} {}\n{}\n'.format(read.name, read.comment, read.sequence))
-        fh.write('{}\n{}\n'.format('+', read.quality))
-    t1 = now()
-    logger.info('Compressing {} took {:.3f}s.'.format(args.input, t1 - t0))
-
-    if args.output is not None:
-        fh.close()
 
 
 def compress_bam(args):

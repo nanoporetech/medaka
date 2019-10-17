@@ -5,10 +5,119 @@ import unittest
 
 import intervaltree
 
-from medaka.vcf import VCFWriter, VCFReader, Variant, Haploid2DiploidConverter, split_variants, classify_variant, _merge_variants
+from medaka.vcf import VCFWriter, VCFReader, Variant, Haploid2DiploidConverter, split_variants, classify_variant, _merge_variants, MetaInfo
 
 root_dir = os.path.abspath(os.path.dirname(__file__))
 test1_file = os.path.join(root_dir, 'data/test1.vcf')
+
+
+class TestMetaInfo(unittest.TestCase):
+    """Test medaka.vcf.MetaInfo."""
+
+    def test_010_valid_case(self):
+        ident = 'ref_prob'
+        descr = 'Allele probability'
+        for group in ('INFO', 'FILTER', 'FORMAT'):
+            for number in ('A', 'R', 'G', '.', 1):
+                for typ in ('Integer', 'Float', 'Flag', 'Character', 'String'):
+                    try:
+                        meta_info = MetaInfo(group, ident, number, typ, descr)
+                    except Exception:
+                        self.fail('Correct input is raising Exception.')
+
+                    # Check repr() is correctly
+                    expected = '{}=<ID={},Number={},Type={},'\
+                          'Description="{}">'.format(
+                              group, ident, number, typ, descr)
+
+                    got = repr(meta_info)
+                    self.assertEqual(expected, got)
+
+    def test_020_invalid_group(self):
+        """Any group not in MetaInfo.__valid_groups__ raises ValueError."""
+        with self.assertRaises(ValueError):
+            meta_info = MetaInfo(
+                'nonsense', 'ref_prob', 1, 'Float',
+                'Allele probability')
+
+    def test_030_invalid_number(self):
+        """Int needs to be an integer or 'A', 'R', 'G' or '.'."""
+        with self.assertRaises(ValueError):
+            meta_info = MetaInfo(
+                'INFO', 'ref_prob', 'T', 'Float',
+                'Allele probability')
+
+    def test_040_invalid_type(self):
+        """When an invalid data type is entered, ValueError is raised."""
+        with self.assertRaises(ValueError):
+            meta_info = MetaInfo(
+                'INFO', 'ref_prob', 1, 'Double',
+                'Allele probability')
+
+
+class TestVariant(unittest.TestCase):
+    """Test medaka.vcf.Variant."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.base_parameters = {
+            'chrom': 'chr1', 'pos': 14369, 'ref': 'G', 'alt': ['A'],
+            'ident': 'rs6054257', 'qual': 29, 'filt': 'PASS',
+            'info': {'NS': 3, 'DP': 14, 'AF': 0.5, 'DB': True, 'H2': True},
+            'genotype_data': OrderedDict(
+                [('GT', '1|0'), ('DP', '8'), ('GQ', '48'), ('HQ', '51,51')])}
+        cls.variant = Variant(**cls.base_parameters)
+
+    def test_010_initialisation(self):
+        """Test attributes are correct after initialising an instance."""
+
+        expected = self.base_parameters
+        for key, exp in expected.items():
+            got = getattr(self.variant, key)
+            self.assertEqual(got, exp)
+
+    def test_020_inequalities(self):
+        """Check equality of two variants."""
+
+        # Create an alternative parameters with all values different
+        alternative_parameters = {
+            'chrom': 'chr2', 'pos': 1, 'ref': 'T', 'alt': ['C'],
+            'ident': 'rt', 'qual': 1, 'filt': '.',
+            'info': {'NS': 1, 'DP': 1, 'AF': 0.1, 'DB': False, 'H2': False},
+            'genotype_data': OrderedDict(
+                [('GT', '0|0'), ('DP', '7'), ('GQ', '12'), ('HQ', '5,5')])
+        }
+
+        # A variant created with the same parameters should be equal,
+        # but not the same object
+        variant1 = Variant(**self.base_parameters)
+        self.assertTrue(id(self.variant) != id(variant1))
+        self.assertTrue(self.variant == variant1)
+
+        # Changing one thing at a time
+        for changing_key in alternative_parameters.keys():
+            new_parameters = self.base_parameters.copy()
+            new_parameters[changing_key] = alternative_parameters[changing_key]
+            variant1 = Variant(**new_parameters)
+            self.assertTrue(variant1 != self.variant)
+
+    def test_030_genotype_info(self):
+        # self.variant has genotype information, variant2 will not have any
+        variant2 =  Variant(
+            'chr1', 14369, 'G', alt=['A'], ident='rs6054257', qual=29)
+
+        expected_genotype_keys = 'GT:DP:GQ:HQ'  # Resorted keys
+        self.assertEqual(self.variant.genotype_keys, expected_genotype_keys)
+
+        expected_genotype_values = '1|0:8:48:51,51'
+        self.assertEqual(self.variant.genotype_values, expected_genotype_values)
+
+        expected_gt = (1, 0)
+        self.assertEqual(self.variant.gt, expected_gt)
+
+        # If no genotype info is present, expected None
+        expected_gt = None
+        self.assertEqual(variant2.gt, expected_gt)
 
 
 class TestReader(unittest.TestCase):
@@ -86,7 +195,6 @@ class TestReader(unittest.TestCase):
         ]
         result = list(self.vcf_reader.fetch())
         self.assertSequenceEqual(result, expected)
-
 
     def test_060_using_cache_does_not_affect_results(self):
         uncached = list(VCFReader(test1_file, cache=False).fetch())

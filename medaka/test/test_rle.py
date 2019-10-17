@@ -1,9 +1,11 @@
 """Testing for medaka.rle module."""
 import array
 from collections import namedtuple
+import os
 import tempfile
 import unittest
 
+import numpy as np
 import pysam
 
 import medaka.rle
@@ -27,6 +29,13 @@ class RLE(unittest.TestCase):
         high_mem = medaka.rle.rle(basecall, low_mem=False)
         self.assertTrue(all(low_mem == high_mem))
 
+    def test_input_must_be_1D(self):
+        """Test that passing in a 2D array raises TypeError"""
+        invalid = np.array([
+            ['A', 'C', 'A'],
+            ['C', 'T', 'G']], dtype='U1')
+        with self.assertRaises(TypeError):
+            medaka.rle.rle(invalid)
 
 class RLEConversion(unittest.TestCase):
     """Test medaka.rle.RLEConverter class."""
@@ -259,6 +268,14 @@ class CompressAlignment(unittest.TestCase):
             got = getattr(compressed_alignment, key)
             self.assertEqual(got, expected)
 
+    def test_unmapped_return_None(self):
+        """Unmapped or secondary reads are skipped"""
+        expected = None
+        alignment = pysam.AlignedSegment()
+        alignment.is_unmapped = True
+        got = medaka.rle._compress_alignment(alignment, None)
+        self.assertEqual(expected, got)
+
 
 class CompressSeq(unittest.TestCase):
     """Test medaka.rle.compress_seq function."""
@@ -281,40 +298,77 @@ class CompressSeq(unittest.TestCase):
             self.assertEqual(got, expected)
 
 
-class CompressBasecallsTest(unittest.TestCase):
-    """Test medaka.rle.compress_basecalls function."""
+args_class = namedtuple(
+    'args',
+    ['bam_input', 'bam_output', 'ref_fname', 'threads', 'regions'])
+
+
+class CompressBamTest(unittest.TestCase):
+    """Test medaka.rle.compress_bam"""
 
     @classmethod
     def setUpClass(cls):
-        """Prepare for tests.
+        """Create temporary files and bam file
 
-        Create an input fasta, prepare an args object with correct attributes.
+        Ref     T  T  A  A    C  T  T  T  G
+        Read1         A  A    C  T  T  T  G
+        Read2      T  A  A  A C  T  T  T  G
         """
-        tmp_input = tempfile.NamedTemporaryFile(suffix='.fa').name
-        with open(tmp_input, 'w') as input_handle:
-            input_handle.write('>{}\n{}\n'.format('input1', 'AGTTTGGCTCCCCCA'))
-            input_handle.write('>{}\n{}\n'.format('input2', 'AAACTTTCCCC'))
+        cls.bam_input = tempfile.NamedTemporaryFile(suffix='.bam').name
+        cls.bam_output = tempfile.NamedTemporaryFile(suffix='.bam').name
+        cls.ref_fname = tempfile.NamedTemporaryFile(suffix='.fasta').name
 
-        tmp_output = tempfile.NamedTemporaryFile(suffix='.fq').name
+        with open(cls.ref_fname, 'w') as fasta:
+            fasta.write('>ref\n')
+            fasta.write('TTAACTTTG\n')
 
-        args = namedtuple('args', ['input', 'output', 'threads'])
-        cls.args = args(tmp_input, tmp_output, 2)
+        header = {
+            'HD': {'VN': '1.0'},
+            'SQ': [{'LN': 9, 'SN': 'ref'}, ]}
 
-    def test_compress_runs(self):
-        """Test the code runs without raising exceptions."""
-        try:
-            medaka.rle.compress_basecalls(self.args)
-        except Exception:
-            self.fail('medaka.rle.compress_basecalls() raised an exception.')
+        basecalls = {
+            'read1': {
+                'query_name': 'read1',
+                'reference_id': 0,
+                'reference_start': 2,
+                'query_sequence': 'AACTTTG',
+                'cigarstring': '7=',
+                'flag': 0,
+                'mapping_quality': 50},
+            'read2': {
+                'query_name': 'read2',
+                'reference_id': 0,
+                'reference_start': 1,
+                'query_sequence': 'TAAACTTTG',
+                'cigarstring': '3=1I5=',
+                'flag': 0,
+                'mapping_quality': 50}}
 
-    def test_output(self):
-        """Compare output fastq to expected sequence and scores."""
+        tmp_file = '{}.tmp'.format(cls.bam_input)
+        with pysam.AlignmentFile(tmp_file, 'wb', header=header) as bam:
+            for basecall in basecalls.values():
+                record = medaka.rle.initialise_alignment(**basecall)
+                bam.write(record)
+
+        pysam.sort("-o", cls.bam_input, tmp_file)
+        os.remove(tmp_file)
+        pysam.index(cls.bam_input)
+
+
+    def test_output_rle_bam(self):
         expected = {
-            'input1': ('AGTGCTCA', (1, 1, 3, 2, 1, 1, 5, 1)),
-            'input2': ('ACTC', (3, 1, 3, 4))}
-        got = {}
-        with pysam.FastqFile(self.args.output) as output_handle:
-            for read in output_handle:
-                lengths = tuple(read.get_quality_array())
-                got[read.name] = (read.sequence, lengths)
-        self.assertEqual(expected, got)
+            ('read1', 1, 'ACTG',  '4=', (2, 1, 3, 1)),
+            ('read2', 0, 'TACTG', '5=', (1, 3, 1, 3, 1))}
+
+        # None vs full region, no difference
+        for regions in (None, ['ref:0-10']):
+            args = args_class(
+                self.bam_input, self.bam_output, self.ref_fname, 2, regions)
+            medaka.rle.compress_bam(args)
+            got = set()
+            for read in pysam.AlignmentFile(self.bam_output):
+                data = (
+                    read.query_name, read.reference_start, read.query_sequence,
+                    read.cigarstring, tuple(read.get_forward_qualities()))
+                got.add(data)
+            self.assertEqual(got, expected)
