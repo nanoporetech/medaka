@@ -26,6 +26,7 @@ __region_start__ = Region('utg000001l', start=0, end=200)
 # Basecall3:   2a   1c   4a   5t   1a   1g   1a   2t   1g
 # Basecall4:   2a   1c   4a   1c        1g   1a   2t   1g
 
+
 simple_data = {
     'ref': 'ACATGATG',
     'truth': {
@@ -33,63 +34,61 @@ simple_data = {
         'quality':  array.array('B', [2, 1, 4, 5, 1, 1, 1, 2, 1, 1, 1]),
         'cigarstring': '4=1I3=2I1=',
         'flag': 0,
-        'tags': {'MD':('Z','8')}
+        'tags': {'MD': ('Z','8')}
     },
     'calls': [
         {
             'seq': 'ACATGATG',  # exactly ref
             'quality': array.array('B', [2, 1, 4, 5, 1, 1, 2, 1]),
             'cigarstring': '8=',
-            'flag': 0},
+            'flag': 0,
+            'tags': {
+                'cs': ('Z','=ACATGATG'),
+                'AA': ('I', 1),
+                'WL': ('B', [1.0] * 8),
+                'WK': ('B', [1.0] * 8),
+                'DT': ('Z', 'r9')}
+            },
         {
             'seq': 'ACAGATG',  # deletion of T in the middle
             'quality': array.array('B', [3, 1, 4, 1, 1, 1, 2]),
             'cigarstring': '3=1D4=',
-            'flag': 0},
+            'flag': 0,
+            'tags': {
+                'cs': ('Z','=ACA-t=GATG'),
+                'AA': ('I', 1),
+                'WL': ('B', [1.0] * 7),
+                'WK': ('B', [1.0] * 7),
+                'DT': ('Z', 'r9')}
+            },
         {
             'seq': 'ACATAGATG',  # insertion of A in the middle
             'quality':  array.array('B', [2, 1, 4, 5, 1, 1, 1, 2, 1]),
             'cigarstring': '4=1I4=',
-            'flag': 16},
+            'flag': 16,
+            'tags': {
+                'cs': ('Z','=ACAT+a=GATG'),
+                'AA': ('I', 2),
+                'WL': ('B', [1.0] * 9),
+                'WK': ('B', [1.0] * 9),
+                'DT': ('Z', 'r9')}
+            },
         {
             'seq': 'ACACGATG',  # substitution T->C
             'quality': array.array('B', [2, 1, 4, 1, 1, 1, 2, 1]),
             'cigarstring': '3=1X4=',
-            'flag': 16},
+            'flag': 16,
+            'tags': {
+                'cs': ('Z','=ACA*tc=GATG'),
+                'WL': ('B', [1.0] * 8),
+                'WK': ('B', [1.0] * 8),
+                'DT': ('Z', 'r10')}
+            }
     ]
 }
 
 
-def create_dtypes_tags_bam(fname):
-    """ Create a small bam file with 2 dtypes."""
-    bam_fname = tempfile.NamedTemporaryFile(suffix='.bam').name
-    create_rle_bam(bam_fname, simple_data['calls'])
-
-    # Add r9/r10 to the reads in the file
-    with pysam.AlignmentFile(bam_fname) as input_bam:
-        tmp_file = '{}.tmp'.format(fname)
-        with pysam.AlignmentFile(tmp_file, 'wb', header=input_bam.header) as output_bam:
-            for i, alignment in enumerate(input_bam):
-                # Add dtype tag
-                if i % 2:
-                    alignment.set_tag('DT', 'r9')
-                else:
-                    alignment.set_tag('DT', 'r10')
-
-                # Add tag to some of the reads
-                if i in (0, 1):
-                    alignment.set_tag('AA', 1)
-                elif i == 2:
-                    alignment.set_tag('AA', 2)
-
-                output_bam.write(alignment)
-
-    pysam.sort("-o", fname, tmp_file)
-    os.remove(tmp_file)
-    pysam.index(fname)
-
-
-def create_rle_bam(fname, calls):
+def create_simple_bam(fname, calls):
     """Create a small bam file with RLE encoding coded in the qscores."""
     ref_len = len(simple_data['ref'])
 
@@ -113,7 +112,10 @@ def create_rle_bam(fname, calls):
             a.query_qualities = basecall['quality']
             if 'tags' in basecall:
                 for name, (val_type, val) in basecall['tags'].items():
-                    a.set_tag(name, val, val_type)
+                    if val_type == 'B':  # unsure why pysam cannot deal with float array and 'B'
+                        a.set_tag(name, val)
+                    else:
+                        a.set_tag(name, val, val_type)
             output.write(a)
 
     pysam.sort("-o", fname, tmp_file)
@@ -169,8 +171,8 @@ class CountsTest(unittest.TestCase):
         reads_bam = tempfile.NamedTemporaryFile(suffix='.bam').name
         truth_bam = tempfile.NamedTemporaryFile(suffix='.bam').name
 
-        create_rle_bam(reads_bam, simple_data['calls'])
-        create_rle_bam(truth_bam, [simple_data['truth']])
+        create_simple_bam(reads_bam, simple_data['calls'])
+        create_simple_bam(truth_bam, [simple_data['truth']])
         encoder = medaka.features.CountsFeatureEncoder(normalise='total')
         label_scheme = medaka.labels.HaploidLabelScheme()
         region = Region('ref', 0, 100)
@@ -289,7 +291,7 @@ class PileupCounts(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         bam_fname = tempfile.NamedTemporaryFile(suffix='.bam').name
-        create_dtypes_tags_bam(bam_fname)
+        create_simple_bam(bam_fname, simple_data['calls'])
         cls.region = Region(
             'ref',
             start=0, end=8)
@@ -371,7 +373,7 @@ class CountsQscoreStratification(unittest.TestCase):
     def test_000_positions_indifferent_to_qstrat(self):
         """The positions in a bam is indifferent to the stratification by qscores."""
 
-        self.assertSequenceEqual(self.positions_strat1.tolist(), self.positions_strat2.tolist())
+        np.testing.assert_equal(self.positions_strat1, self.positions_strat2)
 
     def test_001_num_columns(self):
         """The number of columns does not depend on the stratification
@@ -390,9 +392,8 @@ class CountsQscoreStratification(unittest.TestCase):
 
         self.assertEqual(columns_strat1 * 2, columns_strat2)
 
-    def test_003_marginalise_qstrat(self):
-        """When you add all sections of the stratified counts, you need
-            to get the non-stratified one."""
+    def test_003_check_values(self):
+        """Sum of stratified counts should be equal to non-straified counts."""
         strat2_q0 = self.counts_strat2[:,0:10]
         strat2_q1 = self.counts_strat2[:,10:]
 
@@ -400,10 +401,38 @@ class CountsQscoreStratification(unittest.TestCase):
         self.assertTrue(np.all(added == self.counts_strat1))
 
 
+class WeibullSummation(CountsQscoreStratification):
+    
+    @classmethod
+    def setUpClass(cls):
+        temp_file=tempfile.NamedTemporaryFile(suffix='.bam')
+        bam_fname = temp_file.name
+        region = Region('ref', 0, 100)
+        create_simple_bam(bam_fname, simple_data['calls'])
+        (counts_strat1, positions_strat1) = medaka.features.pileup_counts(
+            region, bam_fname, num_qstrat=1, weibull_summation=True)[0]
+        (counts_strat2, positions_strat2) = medaka.features.pileup_counts(
+            region, bam_fname, num_qstrat=2, weibull_summation=True)[0]
+
+        cls.counts_strat1 = counts_strat1
+        cls.positions_strat1 = positions_strat1
+        cls.counts_strat2 = counts_strat2
+        cls.positions_strat2 = positions_strat2
+
+    def test_003_check_values(self):
+        """Partial array should be the same regardless of stratifications."""
+        np.testing.assert_equal(self.counts_strat1, self.counts_strat2[:,:10])
+        for i in range(2):
+            # for the given parameters we should have non-zero values
+            # in both stratifications
+            non_zeros = np.sum(self.counts_strat2[:,10*i:10*(i+1)] > 0)
+            self.assertTrue(non_zeros > 0)
+
+
 class PileupCountsNormIndices(unittest.TestCase):
 
     def test_000_single_dtype_no_qstrat(self):
-        """ If there is a single dtype, no qscore stratification the codes are: acgtACGTdD. """
+        """If there is a single dtype, no qscore stratification the codes are: acgtACGTdD. """
         expected = {('', True): [0, 1, 2, 3, 8],
                     ('', False): [4, 5, 6, 7, 9]}
         got = medaka.features.pileup_counts_norm_indices(['',], num_qstrat=1)
@@ -421,7 +450,8 @@ class PileupCountsNormIndices(unittest.TestCase):
         self.assertDictEqual(expected, got)
 
     def test_002_one_dtype_two_qstrat(self):
-        """Single qtype, but two layers of qscore stratification:  acgtACGTdDacgtACGTdD
+        """Single qtype, but two layers of qscore stratification:
+        acgtACGTdDacgtACGTdD
         """
         expected = {('', True): [0, 1, 2, 3, 8, 10, 11, 12, 13, 18],
                     ('', False): [4, 5, 6, 7, 9, 14, 15, 16, 17, 19]}
@@ -438,7 +468,7 @@ class HardRLEFeatureEncoder(unittest.TestCase):
 
         # Create a bam file where we know the alignments
         RLE_bam = tempfile.NamedTemporaryFile(suffix='.bam').name
-        create_rle_bam(RLE_bam, simple_data['calls'])
+        create_simple_bam(RLE_bam, simple_data['calls'])
         sample = encoder.bam_to_sample(RLE_bam, Region('ref', 0, 11))
         cls.bam_fname = RLE_bam
         cls.sample = sample[0]
@@ -462,7 +492,7 @@ class HardRLEFeatureEncoder(unittest.TestCase):
         self.assertEqual(self.sample.features.shape, (9, featlen * self.num_qstrat))
 
     def test_004_check_counts(self):
-        """Check the counts themselves. See above `create_rle_bam` to understand
+        """Check the counts themselves. See above `create_simple_bam` to understand
          the values in the counts. For example, 3 basecalls believe the first
          column of the alignment is `2A`, while one has `3A`. Thus, index
          [0, 14] should contain 3 and [0, 24] should show a 1.

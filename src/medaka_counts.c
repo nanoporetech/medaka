@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <errno.h>
+#include <math.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -19,21 +20,21 @@
  *
  *  @param n_cols number of pileup columns.
  *  @param num_dtypes number of datatypes in pileup.
- *  @param num_qstrat number of layers in the qscore stratification.
+ *  @param num_homop maximum homopolymer length to consider.
  *  @see destroy_plp_data
  *  @returns a plp_data pointer.
  *
  *  The return value can be freed with destroy_plp_data.
  *
  */
-plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_qstrat) {
+plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_homop) {
     assert(buffer_cols >= n_cols);
     plp_data data = xalloc(1, sizeof(*data), "plp_data");
     data->buffer_cols = buffer_cols;
     data->num_dtypes = num_dtypes;
-    data->num_qstrat = num_qstrat;
+    data->num_homop = num_homop;
     data->n_cols = n_cols;
-    data->matrix = xalloc(featlen * num_dtypes * buffer_cols * num_qstrat, sizeof(size_t), "matrix");
+    data->matrix = xalloc(featlen * num_dtypes * buffer_cols * num_homop, sizeof(size_t), "matrix");
     data->major = xalloc(buffer_cols, sizeof(size_t), "major");
     data->minor = xalloc(buffer_cols, sizeof(size_t), "minor");
     return data;
@@ -48,8 +49,8 @@ plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, s
  */
 void enlarge_plp_data(plp_data pileup, size_t buffer_cols) {
     assert(buffer_cols > pileup->buffer_cols);
-    size_t old_size = featlen * pileup->num_dtypes * pileup->num_qstrat * pileup->buffer_cols;
-    size_t new_size = featlen * pileup->num_dtypes * pileup->num_qstrat * buffer_cols;
+    size_t old_size = featlen * pileup->num_dtypes * pileup->num_homop * pileup->buffer_cols;
+    size_t new_size = featlen * pileup->num_dtypes * pileup->num_homop * buffer_cols;
     pileup->matrix = xrealloc(pileup->matrix, new_size * sizeof(size_t), "matrix");
     pileup->major = xrealloc(pileup->major, buffer_cols * sizeof(size_t), "major");
     pileup->minor = xrealloc(pileup->minor, buffer_cols * sizeof(size_t), "minor");
@@ -80,34 +81,79 @@ void destroy_plp_data(plp_data data) {
  *  @param pileup a pileup structure.
  *  @param num_dtypes number of datatypes in the pileup.
  *  @param dtypes datatype prefix strings.
- *  @param num_qstrat number of layers in the qscore stratification.
+ *  @param num_homop maximum homopolymer length to consider.
  *  @returns void
  *
  */
-void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_t num_qstrat){
+void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_t num_homop){
     fprintf(stdout, "pos\tins\t");
-    if (num_dtypes > 1) {
+    if (num_dtypes > 1) {  //TODO header for multiple dtypes and num_homop > 1
         for (size_t i = 0; i < num_dtypes; ++i) {
             for (size_t j = 0; j < featlen; ++j){
                 fprintf(stdout, "%s.%c\t", dtypes[i], plp_bases[j]);
             }
         }
     } else {
-        for (size_t j = 0; j < featlen; ++j){
-            fprintf(stdout, "%c\t", plp_bases[j]);
+        for (size_t k = 0; k < num_homop; ++k) {
+            for (size_t j = 0; j < featlen; ++j){
+                fprintf(stdout, "%c.%lu\t", plp_bases[j], k+1);
+            }
         }
     }
     fprintf(stdout, "depth\n");
     for (size_t j = 0; j < pileup->n_cols; ++j) {
         int s = 0;
         fprintf(stdout, "%zu\t%zu\t", pileup->major[j], pileup->minor[j]);
-        for (size_t i = 0; i < num_dtypes * featlen * num_qstrat; ++i){
-            size_t c = pileup->matrix[j * num_dtypes * featlen * num_qstrat + i];
+        for (size_t i = 0; i < num_dtypes * featlen * num_homop; ++i){
+            size_t c = pileup->matrix[j * num_dtypes * featlen * num_homop + i];
             s += c;
             fprintf(stdout, "%zu\t", c);
         }
         fprintf(stdout, "%d\n", s);
     }
+}
+
+
+float* _get_weibull_scores(const bam_pileup1_t *p, const size_t indel, const size_t num_homop) {
+    static const char* wtags[] = {"WL", "WK"};  // scale, shape
+    float* fraction_counts = xalloc(num_homop, sizeof(float), "weibull_counts");
+    double wtag_vals[2] = {0.0, 0.0};
+    for (size_t i=0; i < 2; ++i) {
+        uint8_t *tag = bam_aux_get(p->b, wtags[i]);
+        if (tag == NULL) {
+            fprintf(stderr, "Failed to retrieve tag for Weibull parameter %s.\n",
+                    wtags[i]);
+            exit(1);
+        }
+        uint32_t taglen = bam_auxB_len(tag);
+        if (p->qpos + indel >= taglen) {
+            fprintf(stderr, "%s tag was out of range for %s position %lu. taglen: %i\n",
+                    wtags[i], bam_get_qname(p->b), p->qpos + indel, taglen);
+            exit(1);
+        }
+        wtag_vals[i] = bam_auxB2f(tag, p->qpos + indel);
+
+        /* TODO: understand why errno comes back set even when value found ok,
+         *       could then skip our own test above
+        if (errno == ERANGE) {
+            uint32_t taglen = bam_auxB_len(tag);
+            if (errno == EINVAL) {
+                fprintf(stderr, "%s tag was not a binary tag\n", wtags[i]);
+            } else {
+                fprintf(stderr, "%s tag was out of range for %s position %lu. taglen: %i\n",
+                        wtags[i], bam_get_qname(p->b), p->qpos + indel, taglen);
+                exit(1);
+            }
+        }
+        */
+    }
+
+    float wl = wtag_vals[0];
+    float wk = wtag_vals[1];
+    for (size_t x = 1; x < num_homop + 1; ++x) {
+        fraction_counts[x-1] = exp(-pow(x / wl, wk)) - exp(-pow((x + 1) / wl, wk));
+    }
+    return fraction_counts;
 }
 
 
@@ -117,7 +163,11 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_
  *  @param bam_file input aligment file.
  *  @param num_dtypes number of datatypes in bam.
  *  @param dtypes prefixes on query names indicating datatype.
- *  @param num_qstrat number of layers of the qscore stratification.
+ *  @param num_homop maximum homopolymer length to consider.
+ *  @param tag_name by which to filter alignments.
+ *  @param tag_value by which to filter data.
+ *  @param keep_missing alignments which do not have tag.
+ *  @param weibull_summation use predefined bam tags to perform homopolymer partial counts.
  *  @returns a pileup data pointer.
  *
  *  The return value can be freed with destroy_plp_data.
@@ -132,12 +182,15 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_
  *  determined by keep_missing.
  *
  */
-plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[], size_t num_qstrat, const char tag_name[2], const int tag_value, const bool keep_missing) {
+plp_data calculate_pileup(
+        const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[],
+        size_t num_homop, const char tag_name[2], const int tag_value, const bool keep_missing,
+        bool weibull_summation) {
     if (num_dtypes == 1 && dtypes != NULL) {
         fprintf(stderr, "Recieved invalid num_dtypes and dtypes args.\n");
         exit(1);
     }
-    const size_t dtype_featlen = featlen * num_dtypes * num_qstrat;
+    const size_t dtype_featlen = featlen * num_dtypes * num_homop;
 
     // extract `chr`:`start`-`end` from `region`
     //   (start is one-based and end-inclusive),
@@ -179,7 +232,7 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
     // allocate output assuming one insertion per ref position
     int n_cols = 0;
     size_t buffer_cols = 2 * (end - start);
-    plp_data pileup = create_plp_data(n_cols, buffer_cols, num_dtypes, num_qstrat);
+    plp_data pileup = create_plp_data(n_cols, buffer_cols, num_dtypes, num_homop);
 
     // get counts
     size_t major_col = 0;  // index into `pileup` corresponding to pos
@@ -250,7 +303,7 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
                 int qstrat = 0;
                 base_i = bam_is_rev(p->b) ? rev_del : fwd_del;
                 //base = plp_bases[base_i];
-                pileup->matrix[major_col + featlen * dtype * num_qstrat + featlen * qstrat + base_i] += 1;
+                pileup->matrix[major_col + featlen * dtype * num_homop + featlen * qstrat + base_i] += 1;
             } else { // handle pos and any following ins
                 int max_j = p->indel > 0 ? p->indel : 0;
                 for (int j = 0; j <= max_j; ++j){
@@ -260,13 +313,27 @@ plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_d
                         base_j += 16;
                     }
 
-                    //find layer in the stratified qscore scheme.
-                    //layer corresponding to 1 should be at q0, hence the -1
-                    int qstrat = min(bam_get_qual(p->b)[p->qpos + j], num_qstrat) - 1;
-
                     base_i = num2countbase[base_j];
-                    if (base_i != -1) //not an ambiguity code
-                        pileup->matrix[major_col + dtype_featlen * j + featlen * dtype * num_qstrat + featlen * qstrat + base_i] += 1;
+                    if (base_i != -1) {  // not an ambiguity code
+                        size_t partial_index = 
+                            major_col + dtype_featlen * j  // skip to column
+                            + featlen * dtype * num_homop  // skip to datatype
+                            //+ featlen * qstrat           // skip to qstrat/homop
+                            + base_i;                      // the base
+
+                        if (weibull_summation) {
+                            float* fraction_counts = _get_weibull_scores(p, j, num_homop);
+                            for (size_t qstrat = 0; qstrat < num_homop; ++qstrat) {
+                                static const int scale = 10000;
+                                pileup->matrix[partial_index + featlen * qstrat] += 
+                                    scale * fraction_counts[qstrat];
+                            }
+                            free(fraction_counts);
+                        } else {
+                            int qstrat = min(bam_get_qual(p->b)[p->qpos + j], num_homop) - 1;
+                            pileup->matrix[partial_index + featlen * qstrat] += 1;
+                        }
+                    }
                 }
             }
         }
@@ -307,13 +374,14 @@ int main(int argc, char *argv[]) {
     char tag_name[2] = "";
     int tag_value = 0;
     bool keep_missing = false;
-    size_t num_qstrat = 1;
+    size_t num_homop = 2;
+    bool weibull_summation = true;
 
     plp_data pileup = calculate_pileup(
         reg, bam_file, num_dtypes, dtypes,
-        num_qstrat,
-        tag_name, tag_value, keep_missing);
-    print_pileup_data(pileup, num_dtypes, dtypes, num_qstrat);
+        num_homop, tag_name, tag_value, keep_missing,
+        weibull_summation);
+    print_pileup_data(pileup, num_dtypes, dtypes, num_homop);
     fprintf(stdout, "pileup is length %zu, with buffer of %zu columns\n", pileup->n_cols, pileup->buffer_cols);
     destroy_plp_data(pileup);
     exit(0); 
