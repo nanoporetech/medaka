@@ -108,7 +108,8 @@ def __enforce_pileup_chunk_contiguity(pileups):
 
 def pileup_counts(
         region, bam, dtype_prefixes=None, region_split=100000, workers=8,
-        tag_name=None, tag_value=None, keep_missing=False, num_qstrat=1):
+        tag_name=None, tag_value=None, keep_missing=False, num_qstrat=1,
+        weibull_summation=False):
     """Create pileup counts feature array for region.
 
     :param region: `medaka.common.Region` object
@@ -121,10 +122,13 @@ def pileup_counts(
     :param tag_value: integer value of tag for reads to keep.
     :param keep_missing: whether to keep reads when tag is missing.
     :param num_qstrat: number of layers for qscore stratification.
+    :param weibull_summation: use a Weibull partial-counts approach,
+        requires 'WL' and 'WK' float-array tags.
 
     :returns: pileup counts array, reference positions, insertion postions
     """
     ffi, lib = libmedaka.ffi, libmedaka.lib
+    # TODO: plumb this in
 
     if dtype_prefixes is None or isinstance(dtype_prefixes, str) \
             or len(dtype_prefixes) == 1:
@@ -150,7 +154,7 @@ def pileup_counts(
 
         counts = lib.calculate_pileup(
             region_str.encode(), bam.encode(), num_dtypes, dtypes, num_qstrat,
-            tag_name, tag_value, keep_missing
+            tag_name, tag_value, keep_missing, weibull_summation
         )
         np_counts, positions = __plp_data_to_numpy(
             counts, featlen * num_dtypes * num_qstrat)

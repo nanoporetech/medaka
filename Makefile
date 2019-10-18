@@ -142,10 +142,10 @@ clean: clean_htslib
 	find . -name '*.pyc' -delete
 
 pileup: libhts.a
-	gcc -pthread -pg -g -Wall -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -std=c99 -msse3 -O3 \
+	gcc -pthread  -g -Wall -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -std=c99 -msse3 -O3 \
 		-Isrc -Isubmodules/samtools-1.9/htslib-1.9 \
 		src/medaka_common.c src/medaka_counts.c src/medaka_bamiter.c libhts.a \
-		-lz -llzma -lbz2 -lpthread -lcurl -lcrypto \
+		-lm -lz -llzma -lbz2 -lpthread -lcurl -lcrypto \
 		-o $(@) -std=c99 -msse3 -O3
 
 

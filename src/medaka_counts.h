@@ -3,7 +3,7 @@
 typedef struct _plp_data {
     size_t buffer_cols;
     size_t num_dtypes;
-    size_t num_qstrat;
+    size_t num_homop;
     size_t n_cols;
     size_t *matrix;
     size_t *major;
@@ -36,14 +36,14 @@ static const int num2countbase[32] = {
  *  @param n_cols number of pileup columns.
  *  @param buffer_cols number of pileup columns for which to allocate memory
  *  @param num_dtypes number of datatypes in pileup.
- *  @param num_qstrat number of layes in the qscores stratification.
+ *  @param num_homop maximum homopolymer length to consider.
  *  @see destroy_plp_data
  *  @returns a plp_data pointer.
  *
  *  The return value can be freed with destroy_plp_data.
  *
  */
-plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_qstrat);
+plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_homop);
 
 
 /** Enlarge the internal buffers of a pileup data structure.
@@ -69,11 +69,11 @@ void destroy_plp_data(plp_data data);
  *  @param pileup a pileup counts structure.
  *  @param num_dtypes number of datatypes in the pileup.
  *  @param dtypes datatype prefix strings.
- *  @param num_qstrat number of layers in the qscore stratification.
+ *  @param num_homop maximum homopolymer length to consider.
  *  @returns void
  *
  */
-void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_t num_qstrat);
+void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_t num_homop);
 
 /** Generates medaka-style feature data in a region of a bam.
  *
@@ -81,10 +81,11 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_
  *  @param bam_file input aligment file.
  *  @param num_dtypes number of datatypes in bam.
  *  @param dtypes prefixes on query names indicating datatype.
- *  @param num_qstrat number of layers in the qscore stratification.
+ *  @param num_homop maximum homopolymer length to consider.
  *  @param tag_name by which to filter alignments
  *  @param tag_value by which to filter data
  *  @param keep_missing alignments which do not have tag
+ *  @param weibull_summation use predefined bam tags to perform homopolymer partial counts.
  *  @returns a pileup counts data pointer.
  *
  *  The return value can be freed with destroy_plp_data.
@@ -99,5 +100,8 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_
  *  determined by keep_missing.
  *
  */
-plp_data calculate_pileup(const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[], size_t num_qstrat, const char tag_name[2], const int tag_value, const _Bool keep_missing);
+plp_data calculate_pileup(
+        const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[],
+        size_t num_homop, const char tag_name[2], const int tag_value, const _Bool keep_missing,
+        bool weibull_summation);
 

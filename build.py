@@ -6,7 +6,7 @@ from cffi import FFI
 samver="1.9"
 htslib_dir=os.path.join('submodules', 'samtools-{}'.format(samver), 'htslib-{}'.format(samver))
 
-libraries=['z', 'lzma', 'bz2', 'pthread', 'curl', 'crypto']
+libraries=['m', 'z', 'lzma', 'bz2', 'pthread', 'curl', 'crypto']
 library_dirs=[htslib_dir]
 src_dir='src'
 
