@@ -163,6 +163,32 @@ class HaploidLabelSchemeTest(unittest.TestCase):
         self.assertEqual(var.alt, ['T'])
         self.assertEqual(var.genotype_data['GT'], '0/1')
 
+        # homozygous deletion: ('C',) -> ('*', '*')
+        # defined to be ignored
+        var = self.ls._prob_to_snp(np.array([1.0, 0, 0, 0, 0]),
+            10, 'aref', 'C')
+        self.assertEqual(var, None)
+
+        # heterozygous ref deletion: ('C',) - > ('C', '*')
+        # defined to be ignored
+        var = self.ls._prob_to_snp(np.array([0.5, 0, 0.5, 0, 0]),
+            10, 'aref', 'C')
+        self.assertEqual(var, None)
+
+        # heterozygous alt deletion: ('C',) - > ('T', '*')
+        # defined to be ignored when del is not secondary, and
+        # deletion is mutated into primary alt
+        var = self.ls._prob_to_snp(np.array([0.55, 0, 0, 0, 0.45]),
+            10, 'aref', 'C')
+        self.assertEqual(var, None)
+        var = self.ls._prob_to_snp(np.array([0.45, 0, 0, 0, 0.55]),
+            10, 'aref', 'C')
+        self.assertTrue(var is not None)
+        self.assertEqual(var.ref, 'C')
+        self.assertEqual(var.alt, ['T'])
+        self.assertEqual(var.genotype_data['GT'], '1/1')
+
+
     def test_decode_consensus(self):
 
         s = unittest.mock.Mock()
@@ -455,6 +481,27 @@ class DiploidLabelSchemeTest(unittest.TestCase):
         self.assertEqual(var.alt, ['T'])
         self.assertEqual(var.genotype_data['GT'], '0/1')
 
+        # homozygous deletion: ('C',) -> ('*', '*')
+        # defined to be ignored
+        var = self.ls._prob_to_snp(np.array([1,0,0,0,0,0,0,0,0,0,0,1,0,0,0]),
+            10, 'aref', 'C')
+        self.assertEqual(var, None)
+
+        # heterozygous ref deletion: ('C',) - > ('C', '*')
+        # defined to be ignored
+        var = self.ls._prob_to_snp(np.array([0,0,1,0,0,0,0,0,0,0,0,1,0,0,0]),
+            10, 'aref', 'C')
+        self.assertEqual(var, None)
+
+        # heterozygous alt deletion: ('C',) - > ('T', '*')
+        # deletion is mutated into primary alt
+        var = self.ls._prob_to_snp(np.array([0,0,0,0,1.0,0,0,0,0,0,0,0,0,0,0]),
+            10, 'aref', 'C')
+        self.assertTrue(var is not None)
+        self.assertEqual(var.ref, 'C')
+        self.assertEqual(var.alt, ['T'])
+        self.assertEqual(var.genotype_data['GT'], '1/1')
+
     def test_decode_snps(self):
 
         # minor position => not a SNP
@@ -607,6 +654,33 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
         self.assertEqual(var.ref, 'C')
         self.assertEqual(var.alt, ['T'])
         self.assertEqual(var.genotype_data['GT'], '0/1')
+
+        # homozygous deletion: ('C',) -> ('*', '*')
+        # defined to be ignored
+        var = self.ls._prob_to_snp(np.array([1.0, 0, 0, 0, 0, 0]),
+            10, 'aref', 'C')
+        self.assertEqual(var, None)
+
+        # heterozygous ref deletion: ('C',) - > ('C', '*')
+        # defined to be ignored
+        var = self.ls._prob_to_snp(np.array([0.5, 0, 0.5, 0, 0, 1]),
+            10, 'aref', 'C')
+        self.assertEqual(var, None)
+
+        # heterozygous alt deletion: ('C',) - > ('T', '*')
+        # deletion is mutated into primary alt
+        var = self.ls._prob_to_snp(np.array([0.55, 0, 0, 0, 0.45, 1]),
+            10, 'aref', 'C')
+        self.assertTrue(var is not None)
+        self.assertEqual(var.ref, 'C')
+        self.assertEqual(var.alt, ['T'])
+        self.assertEqual(var.genotype_data['GT'], '1/1')
+        var = self.ls._prob_to_snp(np.array([0.45, 0, 0, 0, 0.55, 1]),
+            10, 'aref', 'C')
+        self.assertTrue(var is not None)
+        self.assertEqual(var.ref, 'C')
+        self.assertEqual(var.alt, ['T'])
+        self.assertEqual(var.genotype_data['GT'], '1/1')
 
     def test_decode_snps_is_het_always_true(self):
 
