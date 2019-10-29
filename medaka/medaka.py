@@ -196,6 +196,13 @@ def main():
     rparser.add_argument('--regions', default=None, nargs='+',
                          help='Genomic regions to analyse.')
 
+    rparser.add_argument(
+        '--use_fast5_info', metavar='<fast5_dir> <index>', default=None,
+        nargs=2, help=(
+            'Root directory containing the fast5 files and .tsv file with '
+            'columns filename and read_id.'))
+
+
     # Creation of feature files
     fparser = subparsers.add_parser('features',
         help='Create features for inference.',
