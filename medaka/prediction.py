@@ -67,10 +67,10 @@ def run_prediction(
 
             for sample, prob, feat in zip(data, class_probs, x_data):
                 # write out positions and predictions for later analysis
-                sample_d = sample._asdict()
-                sample_d['label_probs'] = prob
-                sample_d['features'] = feat if save_features else None
-                ds.write_sample(medaka.common.Sample(**sample_d))
+                features = feat if save_features else None
+                new_sample = sample.amend(
+                    label_probs=prob, features=features)
+                ds.write_sample(new_sample)
 
     remainder_regions = loader.remainders
     logger.info("All done, {} remainder regions.".format(

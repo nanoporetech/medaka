@@ -1,5 +1,5 @@
 """Commonly used data structures and functions."""
-from collections import namedtuple
+import collections
 from distutils.version import LooseVersion
 import enum
 import errno
@@ -14,7 +14,7 @@ from pkg_resources import resource_filename
 import pysam
 
 
-ComprAlignPos = namedtuple(
+ComprAlignPos = collections.namedtuple(
     'ComprAlignPos',
     ('qpos', 'qbase', 'qlen', 'rpos', 'rbase', 'rlen'))
 
@@ -39,14 +39,27 @@ class Relationship(enum.Enum):
     s1_within_s2 = 's1 is fully contained within s2.'
 
 
-# TODO: refactor all this..
-_Sample = namedtuple(
+# provide read only access to key sample attrs
+_Sample = collections.namedtuple(
     'Sample',
     ['ref_name', 'features', 'labels', 'ref_seq', 'positions', 'label_probs'])
 
 
 class Sample(_Sample):
     """Represents a pileup range."""
+
+    def _asdict(self):
+        # https://bugs.python.org/issue24931
+        return collections.OrderedDict(zip(self._fields, self))
+
+    def amend(self, **kwargs):
+        """Create new `Sample` with some attributes changed."""
+        d = self._asdict()
+        for k, v in kwargs.items():
+            if k not in self._fields:
+                raise KeyError('Invalid key for Sample: {}'.format(k))
+            d[k] = v
+        return Sample(**d)
 
     def _get_pos(self, index):
         p = self.positions
@@ -341,17 +354,16 @@ class Sample(_Sample):
         chunker = functools.partial(
             sliding_window,
             window=chunk_len, step=chunk_len - overlap, axis=0)
-        sample = self._asdict()
         chunkers = {
-            field: chunker(sample[field])
-            if sample[field] is not None else itertools.repeat(None)
-            for field in sample.keys()
+            field: chunker(getattr(self, field))
+            if getattr(self, field) is not None else itertools.repeat(None)
+            for field in self._fields
         }
 
-        for i, pos in enumerate(chunkers['positions']):
-            fields = set(sample.keys()) - set(['positions', 'ref_name'])
+        for pos in chunkers['positions']:
+            fields = set(self._fields) - set(['positions', 'ref_name'])
             new_sample = {
-                'positions': pos, 'ref_name': sample['ref_name']}
+                'positions': pos, 'ref_name': self.ref_name}
             for field in fields:
                 new_sample[field] = next(chunkers[field])
             yield Sample(**new_sample)
@@ -396,8 +408,8 @@ class Sample(_Sample):
         return True
 
 
-# TODO: refactor this
-_Region = namedtuple('Region', 'ref_name start end')
+# provide read only access to key region attrs
+_Region = collections.namedtuple('Region', 'ref_name start end')
 
 
 class Region(_Region):
