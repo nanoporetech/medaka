@@ -5,11 +5,39 @@ import os
 import tempfile
 import unittest
 
+import h5py
 import numpy as np
 import pysam
 
 import medaka.rle
 
+
+def mock_fast5_file(read_info):
+    """Create a fast5 file with fake shape/scale rle data"""
+    fast5_file = tempfile.NamedTemporaryFile(suffix='.fast5').name
+    data_path = (
+        'read_{}/Analyses/Basecall_1D_000/'
+        'BaseCalled_template/RunlengthBasecall')
+
+    with h5py.File(fast5_file, 'w') as h:
+        for read_id, (bases, shapes, scales) in read_info.items():
+            arr = np.fromiter(
+                [(b, s, sc) for (b, s, sc) in zip(bases, shapes, scales)],
+                dtype=[('base', 'S1'), ('shape', '>f4'), ('scale', '>f4')])
+            h.create_dataset(data_path.format(read_id), data=arr)
+
+    return fast5_file
+
+
+def mock_summary_file(read_ids, fast5_fnames):
+    """Create a summary file to link read_id and fast5 filename"""
+    summary_file = tempfile.NamedTemporaryFile(suffix='.txt').name
+    with open(summary_file, 'w') as output:
+        output.write('read_id\tfilename\n')
+        for read_id, filename in zip(read_ids, fast5_fnames):
+            output.write('{}\t{}\n'.format(read_id, filename))
+
+    return summary_file
 
 class RLE(unittest.TestCase):
     """Test medaka.rle.rle function."""
@@ -299,8 +327,9 @@ class CompressSeq(unittest.TestCase):
 
 
 args_class = namedtuple(
-    'args',
-    ['bam_input', 'bam_output', 'ref_fname', 'threads', 'regions'])
+    'args', [
+        'bam_input', 'bam_output', 'ref_fname', 'threads', 'regions',
+        'use_fast5_info'])
 
 
 class CompressBamTest(unittest.TestCase):
@@ -354,7 +383,6 @@ class CompressBamTest(unittest.TestCase):
         os.remove(tmp_file)
         pysam.index(cls.bam_input)
 
-
     def test_output_rle_bam(self):
         expected = {
             ('read1', 1, 'ACTG',  '4=', (2, 1, 3, 1)),
@@ -363,7 +391,8 @@ class CompressBamTest(unittest.TestCase):
         # None vs full region, no difference
         for regions in (None, ['ref:0-10']):
             args = args_class(
-                self.bam_input, self.bam_output, self.ref_fname, 2, regions)
+                self.bam_input, self.bam_output, self.ref_fname,
+                2, regions, None)
             medaka.rle.compress_bam(args)
             got = set()
             for read in pysam.AlignmentFile(self.bam_output):
@@ -372,3 +401,38 @@ class CompressBamTest(unittest.TestCase):
                     read.cigarstring, tuple(read.get_forward_qualities()))
                 got.add(data)
             self.assertEqual(got, expected)
+
+    def test_bam_compression_with_RLE_parameters(self):
+        read_info = {
+            'read1': (
+                ['A', 'C', 'T', 'G'],
+                [0.1, 0.2, 0.1, 0.5],
+                [1., 2., 3., 4.]),
+            'read2': (
+                ['T', 'A', 'C', 'T', 'G'],
+                [0.3, 0.1, 0.7, 0.1, 0.2],
+                [5., 6., 7., 8., 9.])}
+
+        # Create a mock fast5 file with only an RLE table
+        fast5_path = mock_fast5_file(read_info)
+        fast5_dir = os.path.dirname(fast5_path)
+        fast5_fname = os.path.basename(fast5_path)
+
+        # Create a mock summary file with read_id and filename
+        read_ids = list(read_info.keys())
+        summary_file = mock_summary_file(read_ids, [fast5_fname] * len(read_ids))
+
+        regions = ['ref:0-10']
+        args = args_class(
+            self.bam_input, self.bam_output, self.ref_fname,
+            2, regions, (fast5_dir, summary_file))
+        medaka.rle.compress_bam(args)
+
+        for read in pysam.AlignmentFile(self.bam_output):
+            expected = read_info[read.query_name][1]
+            got = list(read.get_tag('WL'))
+            np.testing.assert_allclose(got, expected)
+
+            expected = read_info[read.query_name][2]
+            got = list(read.get_tag('WK'))
+            np.testing.assert_allclose(got, expected)

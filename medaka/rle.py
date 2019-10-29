@@ -4,8 +4,10 @@ import concurrent.futures
 import functools
 import itertools
 import os
+from pathlib import Path
 import re
 
+import h5py
 import numpy as np
 import parasail
 import pysam
@@ -195,13 +197,30 @@ def initialise_alignment(
     if query_qualities is not None:
         a.query_qualities = query_qualities
 
-    for tag_name, (tag_type, tag_value) in tags.items():
-        a.set_tag(tag_name, tag_value, tag_type)
+    for tag_name, tag_value in tags.items():
+        a.set_tag(tag_name, tag_value)
 
     return a
 
 
-def _compress_alignment(alignment, ref_rle):
+def get_rl_params(read_name, read_fast5):
+    """Get shape and scale parameters from fast5 for read."""
+    data_path = (
+        'read_{}/Analyses/Basecall_1D_000/'
+        'BaseCalled_template/RunlengthBasecall')
+
+    with h5py.File(read_fast5) as h:
+        data = h[data_path.format(read_name)][()]
+
+    params = dict()
+    params['base'] = list(x.decode() for x in data['base'])
+    params['WL'] = array.array('f', data['shape'])
+    params['WK'] = array.array('f', data['scale'])
+
+    return params
+
+
+def _compress_alignment(alignment, ref_rle, fast5_dir=None, file_index=None):
     logger = medaka.common.get_named_logger('Compress_bam')
     logger.info('Processing: {}'.format(alignment.query_name))
 
@@ -234,23 +253,59 @@ def _compress_alignment(alignment, ref_rle):
         cigar, extra_start_clip, extra_end_clip)
     rstart += r_compact_start
 
+    # If file_index is present, retrive RLE parameters from fast5 files.
+    if file_index:
+        try:
+            fast5_fname = file_index[alignment.query_name]
+        except KeyError:
+            logger.warning('Not found in summary file: {}'.format(
+                alignment.query_name))
+            return None
+
+        # Get full path from a root path. There should be only ONE file found
+        # with that name.
+        fast5_path = list(Path(fast5_dir).glob('**/{}'.format(fast5_fname)))
+        if len(fast5_path) > 1:
+            logger.warning(
+                'Found several fast5 with name {}'.format(fast5_fname))
+            return None
+        fast5_path = fast5_path[0]
+
+        params = get_rl_params(alignment.query_name, fast5_path)
+
+        # ocasional errors where bases are repeated
+        # may lead to discrepancies, discard these
+        basecall_from_file = ''.join(params['base'])
+        if basecall_from_file != query_rle.compact_basecall:
+            logger.warning(
+                'RLE table within fast5 file is inconsistent with '
+                'compressed basecall for read {}'.format(alignment.query_name))
+            return None
+        tags = {'WL': params['WL'], 'WK': params['WK']}
+    else:
+        tags = dict()
+
     # Create alignment object
     a = initialise_alignment(
-        alignment.query_name, alignment.reference_id,
-        rstart, query_rle.compact_basecall,
-        corrected_cigar, alignment.flag,
+        alignment.query_name, alignment.reference_id, rstart,
+        query_rle.compact_basecall, corrected_cigar, alignment.flag, tags=tags,
         query_qualities=array.array(
             'B', list(min(x, 255) for x in query_rle.homop_length)))
 
     return a
 
 
-def _compress_bam(bam_input, bam_output, ref_fname, regions=None, threads=1):
+def _compress_bam(bam_input, bam_output, ref_fname,
+                  fast5_dir=None, summary=None, regions=None, threads=1):
     """Compress a bam into run length encoding (RLE).
 
     :param bam_input: str, name of the bam file to be compressed
     :param bam_output: str, name of the bam to be produced
     :param ref_fname: str, reference filename, used to produce bam_input
+    :param fast5_dir: str, root directory to find the fast5 files
+    :param summary: str, filename of a summary name, with the columns
+        to link the read id to the fast5 file containing it. Must contain
+        columns 'read_id' and 'filename'
     :param regions: list, genomic regions to be extracted
     :param threads: int, number of workers to be used
 
@@ -258,6 +313,15 @@ def _compress_bam(bam_input, bam_output, ref_fname, regions=None, threads=1):
     """
     regions = medaka.common.get_regions(bam_input, regions)
     ref_fasta = pysam.FastaFile(ref_fname)
+
+    # If fast_dir is passed, create an index
+    if fast5_dir:
+        summ_table = np.genfromtxt(
+            summary, dtype=None, names=True, delimiter='\t', encoding=None)
+
+        file_index = dict(zip(summ_table['read_id'], summ_table['filename']))
+    else:
+        file_index = None
 
     with pysam.AlignmentFile(bam_input, 'r') as alignments_bam:
         tmp_output = '{}.tmp'.format(bam_output)
@@ -272,7 +336,9 @@ def _compress_bam(bam_input, bam_output, ref_fname, regions=None, threads=1):
                 ref_rle = RLEConverter(ref_sequence)
                 func = functools.partial(
                     _compress_alignment,
-                    ref_rle=ref_rle)
+                    ref_rle=ref_rle,
+                    fast5_dir=fast5_dir,
+                    file_index=file_index)
                 with concurrent.futures.ThreadPoolExecutor(
                         max_workers=threads) as executor:
                     for chunk in medaka.common.grouper(bam_current, 100):
@@ -322,6 +388,12 @@ def compress_seq(read):
 
 def compress_bam(args):
     """Compress a bam alignment file into an RLE system of reference."""
+    if args.use_fast5_info:
+        fast5_dir, summary = args.use_fast5_info
+    else:
+        fast5_dir = summary = None
+
     _compress_bam(
         args.bam_input, args.bam_output, args.ref_fname,
+        fast5_dir=fast5_dir, summary=summary,
         threads=args.threads, regions=args.regions)
