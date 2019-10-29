@@ -107,49 +107,39 @@ class TestSample(unittest.TestCase):
                 Sample(ref_name='contig1', features=data, ref_seq=None, labels=data, positions=pos, label_probs=data)
             )
 
-
     def test_eq(self):
         for sample in self.samples:
            self.assertEqual(sample, sample)
            self.assertEqual(sample, deepcopy(sample))
 
-
     def test_not_eq(self):
         for sample1, sample2 in zip(self.samples[:-1], self.samples[1:]):
            self.assertFalse(sample1 == sample2)
-
 
     def test_first_pos(self):
         for expt, sample in zip([(0, 0), (4, 1)], self.samples):
            self.assertEqual(expt, sample.first_pos)
 
-
     def test_last_pos(self):
-
         for expt, sample in zip([(4, 3), (7, 0)], self.samples):
            self.assertEqual(expt, sample.last_pos)
-
 
     def test_span(self):
         for expt, sample in zip([4, 3], self.samples):
            self.assertEqual(expt, sample.span)
 
-
     def test_size(self):
         for sample in self.samples:
            self.assertEqual(len(sample.positions), sample.size)
-
 
     def test_is_empty(self):
         self.assertFalse(self.samples[0].is_empty)
         empty_sample = Sample('contig', None, None, None, self.samples[0][0:0], None)
         self.assertTrue(empty_sample.is_empty)
 
-
     def test_name(self):
         for expt, sample in zip(['contig1:0.0-4.3', 'contig1:4.1-7.0'], self.samples):
            self.assertEqual(expt, sample.name)
-
 
     def test_decode_sample_name(self):
         expected = [
@@ -159,7 +149,6 @@ class TestSample(unittest.TestCase):
 
         for expt, sample in zip(expected, self.samples):
            self.assertEqual(expt, Sample.decode_sample_name(sample.name))
-
 
     def test_slice(self):
         sl = slice(1, 5)
@@ -171,7 +160,6 @@ class TestSample(unittest.TestCase):
             np.testing.assert_allclose(getattr(sliced, field), getattr(self.samples[0], field)[sl])
         for field in ['ref_name', 'ref_seq']:  # non-sliceable (ref_seq is None)
             self.assertEqual(getattr(sliced, field), getattr(self.samples[0], field))
-
 
     def test_from_samples(self):
         # check we can concat a single sample
@@ -187,7 +175,6 @@ class TestSample(unittest.TestCase):
 
         # also check raises an exception if not forward abutting
         self.assertRaises(ValueError, Sample.from_samples, sliced[::-1])
-
 
     def test_relative_position(self):
         # all 9 cases plus major and minor variations of overlapping, abutting and gapped
@@ -208,9 +195,7 @@ class TestSample(unittest.TestCase):
             slice(8, 11) # (4.1) -> (4.3) in self.samples[0]
         ]
         sliced = [self.samples[0].slice(sl) for sl in slices]
-        sample_dict = self.samples[0]._asdict()
-        sample_dict['ref_name'] = 'other'
-        sample_other = Sample(**sample_dict)
+        sample_other = self.samples[0].amend(ref_name='other')
 
         samples_expt = [
             ([self.samples[0], sample_other], Relationship.different_ref_name),
@@ -239,7 +224,6 @@ class TestSample(unittest.TestCase):
         for samples, expt in samples_expt:
             self.assertIs(Sample.relative_position(*samples), expt)
 
-
     def test_overlap_indices(self):
         # check we get right thing for overlap and abutting major and minor
         # and that we get an exception if we give it any other case.
@@ -262,7 +246,6 @@ class TestSample(unittest.TestCase):
             self.assertEqual(Sample.overlap_indices(*samples), expt)
 
         self.assertRaises(OverlapException, Sample.overlap_indices, samples[1], samples[0])
-
 
     def test_messy_overlap(self):
         dtype = [('major', int), ('minor', int)]
@@ -304,10 +287,25 @@ class TestSample(unittest.TestCase):
             self.assertEqual((end, start), exp)
             self.assertEqual(pos[0][exp[0]], pos[other][exp[1]])
 
-
     def test_chunks(self):
         chunks = self.samples[0].chunks(chunk_len=4, overlap=2)
         slices = [slice(i, i + 4) for i in range(0, len(self.samples[0]) - 4, 2)]
         sliced = [self.samples[0].slice(sl) for sl in slices]
         for expt, got in zip(sliced, chunks):
             self.assertEqual(got, expt)
+
+    def test_amend(self):
+        for s in self.samples:
+            new = s.amend()
+            self.assertEqual(s, new)
+
+            new = s.amend(ref_name='new_ref')
+            self.assertEqual(new.ref_name, 'new_ref')
+
+            new = new.amend(ref_name = s.ref_name)
+            self.assertEqual(s, new)
+
+        with self.assertRaises(KeyError):
+            s.amend(fake_attr=None)
+
+

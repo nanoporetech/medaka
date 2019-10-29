@@ -471,9 +471,8 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
 
                 padded_labels[sample_inds] = truth_labels[truth_inds]
 
-                sample = sample._asdict()
-                sample['labels'] = padded_labels
-                samples.append(medaka.common.Sample(**sample))
+                sample = sample.amend(labels=padded_labels)
+                samples.append(sample)
         return tuple(samples)
 
 
