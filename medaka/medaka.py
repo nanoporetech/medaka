@@ -265,7 +265,7 @@ def main():
     # Consensus from single-molecules with subreads
     smparser = subparsers.add_parser('smolecule',
         help='Create consensus sequences from single-molecule reads.',
-        parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500)],
+        parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500), _model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     smparser.add_argument('fasta', nargs='+', help='Single-molecule reads, one file per read.')
     smparser.set_defaults(func=medaka.smolecule.main)
