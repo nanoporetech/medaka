@@ -189,14 +189,14 @@ def snps_from_hdf(args):
         for reg in regions:
             logger.info("Processing {}.".format(reg))
             ref_seq = pysam.FastaFile(args.ref_fasta).fetch(
-                reference=reg.ref_name)
+                reference=reg.ref_name).upper()
 
             samples = index.yield_from_feature_files(regions=[reg])
             trimmed_samples = trim_samples(samples)
 
             for sample, is_last in trimmed_samples:
-                snps = label_scheme.decode_snps(sample, ref_seq,
-                                                threshold=args.threshold)
+                snps = label_scheme.decode_snps(
+                    sample, ref_seq, threshold=args.threshold)
                 vcf_writer.write_variants(snps, sort=True)
 
 
@@ -249,7 +249,7 @@ def variants_from_hdf(args):
         for reg in regions:
             logger.info("Processing {}.".format(reg))
             ref_seq = pysam.FastaFile(args.ref_fasta).fetch(
-                reference=reg.ref_name)
+                reference=reg.ref_name).upper()
 
             samples = index.yield_from_feature_files([reg])
             trimmed_samples = trim_samples(samples)

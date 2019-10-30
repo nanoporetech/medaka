@@ -376,7 +376,7 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         # RuntimeWarning: divide by zero encountered in log10
         err += np.finfo(float).tiny
         q = -10 * np.log10(err)
-        return min(q, cap)
+        return np.minimum(q, cap)
 
     @staticmethod
     def _pfmt(p):
@@ -569,7 +569,8 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
                 ref_name=ref_name, start=sample.first_pos,
                 end=sample.end_pos)}
 
-            snps = []
+            indices = list()
+            ref_symbols = list()
             for i in range(len(probs)):
                 reference_symbol = self.ref_seq[pos['major'][i]]
                 # insertions are ignored
@@ -578,29 +579,28 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
                             pos['minor'][i] == 0,
                             reference_symbol in self.symbols)):
                     continue
+                indices.append(i)
+                ref_symbols.append(reference_symbol)
 
-                snp = self._prob_to_snp(probs[i],
-                                        pos['major'][i],
-                                        ref_name,
-                                        reference_symbol,
-                                        return_all=True)
-                snps.append(snp)
+            snps = self._prob_to_snp(
+                probs[indices], pos['major'][indices], ref_name,
+                ref_symbols, return_all=True)
 
         else:
             # process all loci but only retain variant loci
-            snps = []
+            indices = list()
+            ref_symbols = list()
             for i in range(len(probs)):
                 reference_symbol = self.ref_seq[pos['major'][i]]
                 if not all((pos['minor'][i] == 0,
                             reference_symbol in self.symbols)):
                     continue
+                indices.append(i)
+                ref_symbols.append(reference_symbol)
 
-                snp = self._prob_to_snp(probs[i],
-                                        pos['major'][i],
-                                        ref_name,
-                                        reference_symbol)
-                if snp is not None:
-                    snps.append(snp)
+            snps = self._prob_to_snp(
+                probs[indices], pos['major'][indices], ref_name,
+                ref_symbols, return_all=False)
 
         return snps
 
@@ -609,16 +609,15 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
         Optionally, SNPs are returned at ALL loci specified in suplied ref_vcf.
 
-        :param sample: medaka.common.Sample
-        :param ref_seq: str, reference sequence
-        :param ref_vcf: VCF file
+        :param sample: `medaka.common.Sample`
+        :param ref_seq: reference sequence, should be upper case.
+        :param ref_vcf: `.vcf` file
         :param threshold: threshold for acceptance of secondary call.
 
-        :returns: list of medaka.vcf.Variant objects
+        :returns: list of `medaka.vcf.Variant` objects
 
         """
-        # cast ref sequence to upper case
-        self.ref_seq = ref_seq.upper()
+        self.ref_seq = ref_seq
         self.secondary_threshold = threshold
         self.ref_vcf = medaka.vcf.VCFReader(ref_vcf) \
             if ref_vcf else None
@@ -626,22 +625,23 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         return self._decode_snps(sample)
 
     @abc.abstractmethod
-    def _prob_to_snp(self, network_output, pos, ref_name,
-                     ref_symbol, return_all=False):
-        """Convert network output for a single locus to medaka.common.Variant.
+    def _prob_to_snp(
+            self, outputs, positions, ref_name, ref_symbols,
+            return_all=False):
+        """Convert network output to `medaka.common.Variant` s.
 
         This method contains all logic for converting network
         output into SNP Variants.
 
-        :param network_output: np.ndarray of class probabilites
-            for a single locus
-        :param pos: genomic index
+        :param outputs: np.ndarray of network outputs
+            for multiple loci
+        :param pos: array of genomic indices
         :param ref_name: reference name
-        :param ref_symbol: the symbol at ref_seq[pos]
-        :param return_all: return a medaka.vcf.Variant even if
-            there is no SNP at the locus.
+        :param ref_symbols: the symbols at ref_seq[pos]
+        :param return_all: return a `medaka.vcf.Variant` even if
+            there is no SNP at a locus.
 
-        :returns: medaka.vcf.Variant
+        :returns: a list of `medaka.vcf.Variant` s
         """
 
     @property
@@ -734,9 +734,10 @@ class HaploidLabelScheme(BaseLabelScheme):
                 [max(0, x[0] - 4) for x in enc_labels], dtype='int64')
         return np.expand_dims(enc_labels, axis=1)  # sparse 1-hot
 
-    def _prob_to_snp(self, network_output, pos, ref_name,
-                     ref_symbol, return_all=False):
-        """Convert networkout output for single locus to medaka.common.Variant.
+    def _prob_to_snp(
+            self, outputs, positions, ref_name, ref_symbols,
+            return_all=False):
+        """Convert networkout output to `medaka.common.Variant` s.
 
         A threshold is used to define significant secondary calls
         allowing the prediciton of homozygous and heterozygous
@@ -745,79 +746,82 @@ class HaploidLabelScheme(BaseLabelScheme):
         Where a significant secondary call is a deletion, the
         SNP is considered homozygous in the primary call.
         """
-        secondary_call, primary_call = (self._decoding[p][0]
-                                        for p in np.argsort(
-                                            network_output)[-2:])
+        results = list()
+        for network_output, pos, ref_symbol in zip(
+                outputs, positions, ref_symbols):
+            # TODO: some optimisation here?
+            secondary_call, primary_call = (
+                self._decoding[p][0] for p in np.argsort(network_output)[-2:])
 
-        secondary_prob, primary_prob = np.sort(network_output)[-2:]
-        ref_prob = network_output[self._encoding[(ref_symbol,)]]
+            secondary_prob, primary_prob = np.sort(network_output)[-2:]
+            ref_prob = network_output[self._encoding[(ref_symbol,)]]
 
-        info = {'ref_prob': self._pfmt(ref_prob),
+            info = {
+                'ref_prob': self._pfmt(ref_prob),
                 'primary_prob': self._pfmt(primary_prob),
                 'primary_call': primary_call,
                 'secondary_prob': self._pfmt(secondary_prob),
                 'secondary_call': secondary_call}
 
-        # logical tests
-        primary_is_reference = primary_call == ref_symbol
-        primary_is_deletion = primary_call == '*'
-        secondary_is_deletion = secondary_call == '*'
-        secondary_exceeds_threshold = (secondary_prob >=
-                                       self.secondary_threshold)
+            # logical tests
+            primary_is_reference = primary_call == ref_symbol
+            primary_is_deletion = primary_call == '*'
+            secondary_is_deletion = secondary_call == '*'
+            secondary_exceeds_threshold = \
+                secondary_prob >= self.secondary_threshold
 
-        # homozygous snp
-        if all((not primary_is_reference,
-                not primary_is_deletion,
-                not secondary_exceeds_threshold)):
+            # homozygous snp
+            if all((not primary_is_reference,
+                    not primary_is_deletion,
+                    not secondary_exceeds_threshold)):
 
-            alt = primary_call
-            qual = self._pfmt(self._phred(1 - primary_prob))
-            genotype = {'GT': '1/1', 'GQ': qual}
-            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
-                                      alt, filt='PASS', info=info,
-                                      qual=qual, genotype_data=genotype)
-
-        # heterozygous, no deletions
-        elif all((not primary_is_deletion,
-                  not secondary_is_deletion,
-                  secondary_exceeds_threshold)):
-
-            err = 1 - (primary_prob + secondary_prob)
-            qual = self._pfmt(self._phred(err))
-            # filtering by list comp maintains order
-            alt = [c for c in [primary_call, secondary_call]
-                   if not c == ref_symbol]
-            gt = '0/1' if len(alt) == 1 else '1/2'
-            genotype = {'GT': gt, 'GQ': qual}
-
-            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
-                                      alt, filt='PASS', info=info,
-                                      qual=qual, genotype_data=genotype)
-
-        # heterozygous, secondary deletion
-        elif all((not primary_is_reference,
-                  not primary_is_deletion,
-                  secondary_is_deletion,
-                  secondary_exceeds_threshold)):
-
-            alt = primary_call
-            qual = self._pfmt(self._phred(1 - primary_prob))
-            genotype = {'GT': '1/1', 'GQ': qual}
-            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
-                                      alt, filt='PASS', info=info,
-                                      qual=qual, genotype_data=genotype)
-
-        # no snp at this location
-        else:
-            if not return_all:
-                return None
-            else:
-                # return variant even though it is not a snp
+                alt = primary_call
                 qual = self._pfmt(self._phred(1 - primary_prob))
-                genotype = {'GT': 0, 'GQ': qual}
-                return medaka.vcf.Variant(ref_name, pos, ref_symbol,
-                                          alt='.', filt='PASS', info=info,
-                                          qual=qual, genotype_data=genotype)
+                genotype = {'GT': '1/1', 'GQ': qual}
+                results.append(medaka.vcf.Variant(
+                    ref_name, pos, ref_symbol, alt, filt='PASS', info=info,
+                    qual=qual, genotype_data=genotype))
+
+            # heterozygous, no deletions
+            elif all((not primary_is_deletion,
+                      not secondary_is_deletion,
+                      secondary_exceeds_threshold)):
+
+                err = 1 - (primary_prob + secondary_prob)
+                qual = self._pfmt(self._phred(err))
+                # filtering by list comp maintains order
+                alt = [c for c in [primary_call, secondary_call]
+                       if not c == ref_symbol]
+                gt = '0/1' if len(alt) == 1 else '1/2'
+                genotype = {'GT': gt, 'GQ': qual}
+
+                results.append(medaka.vcf.Variant(
+                    ref_name, pos, ref_symbol, alt, filt='PASS',
+                    info=info, qual=qual, genotype_data=genotype))
+
+            # heterozygous, secondary deletion
+            elif all((not primary_is_reference,
+                      not primary_is_deletion,
+                      secondary_is_deletion,
+                      secondary_exceeds_threshold)):
+
+                alt = primary_call
+                qual = self._pfmt(self._phred(1 - primary_prob))
+                genotype = {'GT': '1/1', 'GQ': qual}
+                results.append(medaka.vcf.Variant(
+                    ref_name, pos, ref_symbol, alt, filt='PASS',
+                    info=info, qual=qual, genotype_data=genotype))
+
+            # no snp at this location
+            else:
+                if return_all:
+                    # return variant even though it is not a snp
+                    qual = self._pfmt(self._phred(1 - primary_prob))
+                    genotype = {'GT': '0/0', 'GQ': qual}
+                    results.append(medaka.vcf.Variant(
+                        ref_name, pos, ref_symbol, alt='.', filt='PASS',
+                        info=info, qual=qual, genotype_data=genotype))
+        return results
 
     def decode_variants(self, sample, ref_seq):
         """Convert network output in sample to a set of `medaka.vcf.Variant` s.
@@ -826,10 +830,10 @@ class HaploidLabelScheme(BaseLabelScheme):
         Both substitution and indel variants that may be multi-base will be
         reported in the output `medaka.vcf.Variant` s.
 
-        :param sample: medaka.common.Sample
-        :param ref_seq: str, reference sequence
+        :param sample: `medaka.common.Sample`.
+        :param ref_seq: reference sequence, should be upper case.
 
-        :returns: list of medaka.vcf.Variant objects
+        :returns: list of `medaka.vcf.Variant` objects.
         """
         pos = sample.positions
         probs = sample.label_probs
@@ -841,8 +845,6 @@ class HaploidLabelScheme(BaseLabelScheme):
             self.decode_consensus(sample, with_gaps=True)))
 
         # get reference sequence with insertions marked as '*'
-        # cast reference symbols to upper case
-        ref_seq = ref_seq.upper()
 
         def get_symbol(p):
             return ref_seq[p['major']] if p['minor'] == 0 else '*'
@@ -1048,75 +1050,73 @@ class DiploidLabelScheme(BaseLabelScheme):
         """
         return np.expand_dims(enc_labels, axis=1)  # sparse 1-hot
 
-    def _prob_to_snp(self, network_output, pos, ref_name,
-                     ref_symbol, return_all=False):
+    def _prob_to_snp(
+            self, outputs, positions, ref_name,
+            ref_symbols, return_all=False):
         """Convert network output single locus to medaka.common.Variant."""
-        call = self._decoding[np.argmax(network_output)]
-        prob = np.max(network_output)
-        qual = self._pfmt(self._phred(1 - prob))
-        # probability of homozygous reference
-        ref_prob = network_output[
-            self._encoding[(ref_symbol, ref_symbol)]]
+        argmax = outputs.argmax(axis=1)
+        probs = outputs[np.arange(outputs.shape[0]), argmax]
+        quals = self._phred(1 - probs)
 
-        info = {'ref_prob': self._pfmt(ref_prob),
-                'prob': self._pfmt(prob),
-                'call': call}
+        def _make_info(rs, p, c):
+            # helper for variant info formating
+            rp = network_output[self._encoding[(rs, rs)]]
+            info = {
+                'ref_prob': self._pfmt(rp), 'prob': self._pfmt(p), 'call': c}
+            return info
 
-        # logical tests
-        is_reference = call == (ref_symbol, ref_symbol)
-        contains_deletion = '*' in call
-        contains_nonref = len([s for s in call if
-                               s != ref_symbol and
-                               s != '*']) > 0
+        results = list()
+        data = zip(outputs, argmax, probs, quals, positions, ref_symbols)
+        for network_output, amax, prob, qual, pos, ref_symbol in data:
+            call = self._decoding[amax]
 
-        is_het = not self._singleton(call)
-
-        # homozygous non-reference
-        if all((not is_reference,
-                not is_het,
-                not contains_deletion)):
-
-            alt = call[0]
-            genotype = {'GT': '1/1', 'GQ': qual}
-            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
-                                      alt, filt='PASS', info=info,
-                                      qual=qual, genotype_data=genotype)
-
-        # heterozygous, no deletions
-        elif all((is_het,
-                  not contains_deletion)):
-
-            alt = [s for s in call if s != ref_symbol]
-            gt = '0/1' if len(alt) == 1 else '1/2'
-            genotype = {'GT': gt, 'GQ': qual}
-
-            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
-                                      alt, filt='PASS', info=info,
-                                      qual=qual, genotype_data=genotype)
-
-        # heterozygous, one deletion
-        elif all((is_het,
-                  contains_nonref,
-                  contains_deletion)):
-
-            alt = [s for s in call if s != '*']
-            gt = '1/1'
-            genotype = {'GT': gt, 'GQ': qual}
-
-            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
-                                      alt, filt='PASS', info=info,
-                                      qual=qual, genotype_data=genotype)
-
-        # no snp at this location
-        else:
-            if not return_all:
-                return None
-            else:
-                # return variant even though it is not a snp
-                genotype = {'GT': 0, 'GQ': qual}
-                return medaka.vcf.Variant(ref_name, pos, ref_symbol,
-                                          alt='.', filt='PASS', info=info,
-                                          qual=qual, genotype_data=genotype)
+            # notes: we output only variants with one or more substitutions,
+            #        and deletions are masked from the records. TODO: is this
+            #        really the behaviour we want?
+            if call == (ref_symbol, ref_symbol):  # is reference
+                if return_all:
+                    # return variant even though it is not a snp
+                    q = self._pfmt(qual)
+                    genotype = {'GT': '0/0', 'GQ': q}
+                    info = _make_info(ref_symbol, prob, call)
+                    results.append(medaka.vcf.Variant(
+                        ref_name, pos, ref_symbol, alt='.', filt='PASS',
+                        info=info, qual=q, genotype_data=genotype))
+            else:  # is variant
+                contains_deletion = '*' in call
+                if not self._singleton(call):  # heterozygous
+                    if not contains_deletion:
+                        alt = [s for s in call if s != ref_symbol]
+                        gt = '0/1' if len(alt) == 1 else '1/2'
+                        q = self._pfmt(qual)
+                        genotype = {'GT': gt, 'GQ': q}
+                        info = _make_info(ref_symbol, prob, call)
+                        results.append(medaka.vcf.Variant(
+                            ref_name, pos, ref_symbol, alt, filt='PASS',
+                            info=info, qual=q, genotype_data=genotype))
+                    else:  # with deletion
+                        # disallow (ref, *), and record (alt, *) as (alt, alt)
+                        contains_nonref_nondel = len(
+                            [s for s in call
+                                if s != ref_symbol and s != '*']) > 0
+                        if contains_nonref_nondel:
+                            alt = [s for s in call if s != '*']
+                            gt = '1/1'
+                            q = self._pfmt(qual)
+                            genotype = {'GT': gt, 'GQ': q}
+                            info = _make_info(ref_symbol, prob, call)
+                            results.append(medaka.vcf.Variant(
+                                ref_name, pos, ref_symbol, alt, filt='PASS',
+                                info=info, qual=q, genotype_data=genotype))
+                elif not contains_deletion:  # homozygous (alt, alt)
+                    alt = call[0]
+                    q = self._pfmt(qual)
+                    genotype = {'GT': '1/1', 'GQ': q}
+                    info = _make_info(ref_symbol, prob, call)
+                    results.append(medaka.vcf.Variant(
+                        ref_name, pos, ref_symbol, alt, filt='PASS',
+                        info=info, qual=q, genotype_data=genotype))
+        return results
 
     @property
     def snp_metainfo(self):
@@ -1226,93 +1226,98 @@ class DiploidZygosityLabelScheme(DiploidLabelScheme):
 
         return vectors
 
-    def _prob_to_snp(self, network_output, pos, ref_name,
-                     ref_symbol, return_all=False):
-        """Convert network output for single locus to medaka.common.Variant."""
+    def _prob_to_snp(
+            self, outputs, positions, ref_name, ref_symbols,
+            return_all=False):
+        """Convert network output to `medaka.common.Variant` s."""
         # where probability of heterozygosity > 0.5,
         # we make a heterozygous call, taking the two most
         # probable symbols.
+        # TODO: optimise this!
 
-        het_prob = network_output[-1]
-        symbol_probs = network_output[:-1]
+        results = list()
+        for network_output, pos, ref_symbol in zip(
+                outputs, positions, ref_symbols):
+            het_prob = network_output[-1]
+            symbol_probs = network_output[:-1]
 
-        is_het = het_prob > 0.5
+            is_het = het_prob > 0.5
 
-        secondary_call, primary_call = (self._unitary_decoding[i][0]
-                                        for i in np.argsort(symbol_probs)[-2:])
-        secondary_prob, primary_prob = np.sort(symbol_probs)[-2:]
+            secondary_call, primary_call = (
+                self._unitary_decoding[i][0]
+                for i in np.argsort(symbol_probs)[-2:])
+            secondary_prob, primary_prob = np.sort(symbol_probs)[-2:]
 
-        ref_prob = symbol_probs[self._unitary_encoding[(ref_symbol,)]]
+            ref_prob = symbol_probs[self._unitary_encoding[(ref_symbol,)]]
 
-        if not is_het:
-            call = tuple((primary_call, primary_call))
-        else:
-            call = tuple((primary_call, secondary_call))
+            if not is_het:
+                call = tuple((primary_call, primary_call))
+            else:
+                call = tuple((primary_call, secondary_call))
 
-        info = {'ref_prob': self._pfmt(ref_prob),
+            info = {
+                'ref_prob': self._pfmt(ref_prob),
                 'primary_prob': self._pfmt(primary_prob),
                 'primary_call': primary_call,
                 'secondary_prob': self._pfmt(secondary_prob),
                 'secondary_call': secondary_call}
 
-        # logical tests
-        is_reference = call == (ref_symbol, ref_symbol)
-        contains_deletion = '*' in call
-        contains_nonref = len([s for s in call if
-                               s != ref_symbol and
-                               s != '*']) > 0
+            # logical tests
+            is_reference = call == (ref_symbol, ref_symbol)
+            contains_deletion = '*' in call
+            contains_nonref = len(
+                [s for s in call if s != ref_symbol and s != '*']) > 0
 
-        # homozygous
-        if all((not is_reference,
-                not is_het,
-                not contains_deletion)):
+            # homozygous
+            if all((not is_reference,
+                    not is_het,
+                    not contains_deletion)):
 
-            qual = self._pfmt(self._phred(1 - primary_prob))
-            alt = call[0]
-            genotype = {'GT': '1/1', 'GQ': qual}
-            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
-                                      alt, filt='PASS', info=info,
-                                      qual=qual, genotype_data=genotype)
+                qual = self._pfmt(self._phred(1 - primary_prob))
+                alt = call[0]
+                genotype = {'GT': '1/1', 'GQ': qual}
+                results.append(medaka.vcf.Variant(
+                    ref_name, pos, ref_symbol, alt, filt='PASS',
+                    info=info, qual=qual, genotype_data=genotype))
 
-        # heterozygous, no deletions
-        elif all((is_het,
-                  not contains_deletion)):
+            # heterozygous, no deletions
+            elif all((is_het,
+                      not contains_deletion)):
 
-            err = 1 - 0.5 * (primary_prob + secondary_prob)
-            qual = self._pfmt(self._phred(err))
-            alt = [s for s in call if s != ref_symbol]
-            gt = '0/1' if len(alt) == 1 else '1/2'
-            genotype = {'GT': gt, 'GQ': qual}
+                err = 1 - 0.5 * (primary_prob + secondary_prob)
+                qual = self._pfmt(self._phred(err))
+                alt = [s for s in call if s != ref_symbol]
+                gt = '0/1' if len(alt) == 1 else '1/2'
+                genotype = {'GT': gt, 'GQ': qual}
 
-            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
-                                      alt, filt='PASS', info=info,
-                                      qual=qual, genotype_data=genotype)
+                results.append(medaka.vcf.Variant(
+                    ref_name, pos, ref_symbol, alt, filt='PASS',
+                    info=info, qual=qual, genotype_data=genotype))
 
-        # heterozygous, one deletion
-        elif all((is_het,
-                  contains_nonref,
-                  contains_deletion)):
+            # heterozygous, one deletion
+            elif all((is_het,
+                      contains_nonref,
+                      contains_deletion)):
 
-            qual = self._pfmt(self._phred(1 - primary_prob))
-            alt = [s for s in call if s != '*']
-            gt = '1/1'
-            genotype = {'GT': gt, 'GQ': qual}
+                qual = self._pfmt(self._phred(1 - primary_prob))
+                alt = [s for s in call if s != '*']
+                gt = '1/1'
+                genotype = {'GT': gt, 'GQ': qual}
 
-            return medaka.vcf.Variant(ref_name, pos, ref_symbol,
-                                      alt, filt='PASS', info=info,
-                                      qual=qual, genotype_data=genotype)
+                results.append(medaka.vcf.Variant(
+                    ref_name, pos, ref_symbol, alt, filt='PASS',
+                    info=info, qual=qual, genotype_data=genotype))
 
-        # no snp at this location
-        else:
-            if not return_all:
-                return None
+            # no snp at this location
             else:
-                qual = self._pfmt(ref_prob)
-                # return variant even though it is not a snp
-                genotype = {'GT': 0, 'GQ': qual}
-                return medaka.vcf.Variant(ref_name, pos, ref_symbol,
-                                          alt='.', filt='PASS', info=info,
-                                          qual=qual, genotype_data=genotype)
+                if return_all:
+                    qual = self._pfmt(ref_prob)
+                    # return variant even though it is not a snp
+                    genotype = {'GT': '0/0', 'GQ': qual}
+                    results.append(medaka.vcf.Variant(
+                        ref_name, pos, ref_symbol, alt='.', filt='PASS',
+                        info=info, qual=qual, genotype_data=genotype))
+        return results
 
 
 class RLELabelScheme(HaploidLabelScheme):
