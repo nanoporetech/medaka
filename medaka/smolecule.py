@@ -464,13 +464,14 @@ def main(args):
     args.bam = bam_file
     out_dir = args.output
     args.output = os.path.join(out_dir, 'consensus.hdf')
-    medaka.inference.predict(args)
+    medaka.prediction.predict(args)
     t3 = now()
 
     logger.info("Running medaka stitch.")
     args.inputs = [args.output]
     args.output = os.path.join(out_dir, 'consensus.fasta')
     args.regions = None
+    args.jobs = args.threads
     medaka.stitch.stitch(args)
     logger.info(
         "Single-molecule consensus sequences written to {}.".format(
