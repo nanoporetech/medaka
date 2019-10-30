@@ -34,10 +34,11 @@ MODEL=${modeldata[3]##* }
 
 usage="
 ${medaka_version}
-------------
+-------------
 
 Variant calling via neural networks. The input bam should be aligned to the
-reference against which to call variants.
+reference against which to call variants. Note: that although configurable
+it is unlikely that the model arguments should be changed from their defaults.
 
 $(basename "$0") [-h] -i <fastx>
 
