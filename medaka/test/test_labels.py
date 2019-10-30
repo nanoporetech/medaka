@@ -75,19 +75,32 @@ def haploid_sample_from_labels(ls=None,
     return s, ref
 
 
-class HaploidLabelSchemeTest(unittest.TestCase):
+class LabelSchemeTest(object):
+
+    def _test_snp_to_prob(self, prob, pos, sym, exp_ref, exp_alt, exp_gt, return_all=False, empty=False):
+        prob, pos, sym = np.expand_dims(prob, axis=0).astype(float), [pos], [sym]
+        var = self.ls._prob_to_snp(
+            prob, pos, 'ref', sym, return_all=return_all)
+        if empty:
+            self.assertEqual(len(var), 0)
+        else:
+            var = var[0]
+            self.assertEqual(var.ref, exp_ref)
+            self.assertEqual(var.alt, exp_alt)
+            self.assertEqual(var.genotype_data['GT'], exp_gt)
+
+    def test_picklable(self):
+        with open('data.pickle', 'wb') as f:
+            pickle.dump(self.ls, f, pickle.HIGHEST_PROTOCOL)
+        with open('data.pickle', 'rb') as f:
+            data = pickle.load(f)
+
+
+class HaploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
 
     @classmethod
     def setUpClass(cls):
         cls.ls = medaka.labels.HaploidLabelScheme()
-
-    def test_picklable(self):
-
-        with open('data.pickle', 'wb') as f:
-            pickle.dump(self.ls, f, pickle.HIGHEST_PROTOCOL)
-
-        with open('data.pickle', 'rb') as f:
-            data = pickle.load(f)
 
     def test_n_element(self):
         self.assertEqual(self.ls.n_elements, 1)
@@ -112,14 +125,12 @@ class HaploidLabelSchemeTest(unittest.TestCase):
                 self.ls._alignments_to_labels(incorrect)
 
     def test_labels_to_encoded_labels(self):
-
         dummy = [('A',), ('C',), ('C',), ('T',)]
         expected = np.array([1,2,2,4])
         np.testing.assert_equal(self.ls._labels_to_encoded_labels(dummy),
                                 expected)
 
     def test_encoded_labels_to_training_vectors(self):
-
         dummy = np.array([1,2,2,4])
         expected = np.array([[1],
                              [2],
@@ -129,64 +140,57 @@ class HaploidLabelSchemeTest(unittest.TestCase):
                                 expected)
 
     def test_encoding(self):
-
         expected = {('C',): 2, ('G',): 3, ('T',): 4, ('*',): 0, ('A',): 1}
         self.assertEqual(self.ls._encoding, expected)
 
     def test_prob_to_snp(self):
-
         self.ls.secondary_threshold = 0.4
+
         #homozygous ref: ('C',) -> ('C','C')
-        var = self.ls._prob_to_snp(np.array([0, 0, 1, 0, 0]),
-            10, 'aref', 'C', return_all=True)
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['.'])
+        self._test_snp_to_prob(
+            np.array([0, 0, 1, 0, 0]), 10, 'C',
+            'C', ['.'], '0/0',
+            return_all=True)
 
         #homozygous alt: ('C',) -> ('A','A'))
-        var = self.ls._prob_to_snp(np.array([0, 1, 0, 0, 0]),
-            10, 'aref', 'C')
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['A'])
-        self.assertEqual(var.genotype_data['GT'], '1/1')
+        self._test_snp_to_prob(
+            np.array([0, 1, 0, 0, 0]), 10, 'C',
+            'C', ['A'], '1/1')
 
         #heterozygous double: ('C',) -> ('A','T')
-        var = self.ls._prob_to_snp(np.array([0, 0.55, 0, 0, 0.45]),
-            10, 'aref', 'C')
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['A', 'T'])
-        self.assertEqual(var.genotype_data['GT'], '1/2')
+        self._test_snp_to_prob(
+            np.array([0, 0.55, 0, 0, 0.45]), 10, 'C',
+            'C', ['A', 'T'], '1/2')
 
         #heterozygous single: ('C',) -> ('C','T')
-        var = self.ls._prob_to_snp(np.array([0, 0, 0.55, 0, 0.45]),
-            10, 'aref', 'C')
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['T'])
-        self.assertEqual(var.genotype_data['GT'], '0/1')
+        self._test_snp_to_prob(
+            np.array([0, 0, 0.55, 0, 0.45]), 10, 'C',
+            'C', ['T'], '0/1')
 
         # homozygous deletion: ('C',) -> ('*', '*')
         # defined to be ignored
-        var = self.ls._prob_to_snp(np.array([1.0, 0, 0, 0, 0]),
-            10, 'aref', 'C')
-        self.assertEqual(var, None)
+        self._test_snp_to_prob(
+            np.array([1.0, 0, 0, 0, 0]), 10, 'C',
+            None, None, None,
+            empty=True)
 
         # heterozygous ref deletion: ('C',) - > ('C', '*')
         # defined to be ignored
-        var = self.ls._prob_to_snp(np.array([0.5, 0, 0.5, 0, 0]),
-            10, 'aref', 'C')
-        self.assertEqual(var, None)
+        self._test_snp_to_prob(
+            np.array([0.5, 0, 0.5, 0, 0]), 10, 'C',
+            None, None, None,
+            empty=True)
 
         # heterozygous alt deletion: ('C',) - > ('T', '*')
         # defined to be ignored when del is not secondary, and
         # deletion is mutated into primary alt
-        var = self.ls._prob_to_snp(np.array([0.55, 0, 0, 0, 0.45]),
-            10, 'aref', 'C')
-        self.assertEqual(var, None)
-        var = self.ls._prob_to_snp(np.array([0.45, 0, 0, 0, 0.55]),
-            10, 'aref', 'C')
-        self.assertTrue(var is not None)
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['T'])
-        self.assertEqual(var.genotype_data['GT'], '1/1')
+        self._test_snp_to_prob(
+            np.array([0.55, 0, 0, 0, 0.45]), 10, 'C',
+            None, None, None,
+            empty=True)
+        self._test_snp_to_prob(
+            np.array([0.45, 0, 0, 0, 0.55]), 10, 'C',
+            'C', ['T'], '1/1')
 
 
     def test_decode_consensus(self):
@@ -406,29 +410,19 @@ def diploid_sample_from_labels(ls=None,
     return s, ref
 
 
-class DiploidLabelSchemeTest(unittest.TestCase):
+class DiploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
 
     @classmethod
     def setUpClass(cls):
         cls.ls = medaka.labels.DiploidLabelScheme()
 
-    def test_picklable(self):
-
-        with open('data.pickle', 'wb') as f:
-            pickle.dump(self.ls, f, pickle.HIGHEST_PROTOCOL)
-
-        with open('data.pickle', 'rb') as f:
-            data = pickle.load(f)
-
     def test_n_elements(self):
-
         self.assertEqual(self.ls.n_elements, 2)
 
     def test_num_classes(self):
         self.assertEqual(self.ls.num_classes, len(self.ls._encoding))
 
     def test_labels_to_encoded_labels(self):
-
         #expected output from truth alignment to labels
         dummy = [('A','A'), ('C','G'), ('G','C'), ('T','T')]
         expected = np.array([5, 10, 10, 14])
@@ -444,7 +438,6 @@ class DiploidLabelSchemeTest(unittest.TestCase):
                                 expected)
 
     def test_encoding(self):
-
         expected = {('A', 'C'): 6, ('G', 'G'): 12, ('*', '*'): 0,
                     ('C', 'C'): 9, ('G', 'T'): 13, ('*', 'A'): 1,
                     ('T', 'T'): 14, ('A', 'T'): 8, ('*', 'G'): 3,
@@ -453,59 +446,49 @@ class DiploidLabelSchemeTest(unittest.TestCase):
         self.assertEqual(self.ls._encoding, expected)
 
     def test_prob_to_snp(self):
-
         #homozygous ref: ('C',) -> ('C','C')
-        var = self.ls._prob_to_snp(np.array([0,0,0,0,0,0,0,0,0,1,0,0,0,0,0]),
-            10, 'aref', 'C', return_all=True)
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['.'])
+        self._test_snp_to_prob(
+            np.array([0,0,0,0,0,0,0,0,0,1,0,0,0,0,0]), 10, 'C',
+            'C', ['.'], '0/0',
+            return_all=True)
 
         #homozygous alt: ('C',) -> ('A','A'))
-        var = self.ls._prob_to_snp(np.array([0,0,0,0,0,1,0,0,0,0,0,0,0,0,0]),
-            10, 'aref', 'C')
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['A'])
-        self.assertEqual(var.genotype_data['GT'], '1/1')
+        self._test_snp_to_prob(
+            np.array([0,0,0,0,0,1,0,0,0,0,0,0,0,0,0]), 10, 'C',
+            'C', ['A'], '1/1')
 
         #heterozygous double: ('C',) -> ('A','T')
-        var = self.ls._prob_to_snp(np.array([0,0,0,0,0,0,0,0,1,0,0,0,0,0,0]),
-            10, 'aref', 'C')
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['A', 'T'])
-        self.assertEqual(var.genotype_data['GT'], '1/2')
+        self._test_snp_to_prob(
+            np.array([0,0,0,0,0,0,0,0,1,0,0,0,0,0,0]), 10, 'C',
+            'C', ['A', 'T'], '1/2')
 
         #heterozygous single: ('C',) -> ('C','T')
-        var = self.ls._prob_to_snp(np.array([0,0,0,0,0,0,0,0,0,0,0,1,0,0,0]),
-            10, 'aref', 'C')
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['T'])
-        self.assertEqual(var.genotype_data['GT'], '0/1')
+        self._test_snp_to_prob(
+            np.array([0,0,0,0,0,0,0,0,0,0,0,1,0,0,0]), 10, 'C',
+            'C', ['T'], '0/1')
 
         # homozygous deletion: ('C',) -> ('*', '*')
         # defined to be ignored
-        var = self.ls._prob_to_snp(np.array([1,0,0,0,0,0,0,0,0,0,0,1,0,0,0]),
-            10, 'aref', 'C')
-        self.assertEqual(var, None)
+        self._test_snp_to_prob(
+            np.array([1,0,0,0,0,0,0,0,0,0,0,1,0,0,0]), 10, 'C',
+            None, None, None,
+            empty=True)
 
         # heterozygous ref deletion: ('C',) - > ('C', '*')
         # defined to be ignored
-        var = self.ls._prob_to_snp(np.array([0,0,1,0,0,0,0,0,0,0,0,1,0,0,0]),
-            10, 'aref', 'C')
-        self.assertEqual(var, None)
+        self._test_snp_to_prob(
+            np.array([0,0,1,0,0,0,0,0,0,0,0,1,0,0,0]), 10, 'C',
+            None, None, None,
+            empty=True)
 
         # heterozygous alt deletion: ('C',) - > ('T', '*')
         # deletion is mutated into primary alt
-        var = self.ls._prob_to_snp(np.array([0,0,0,0,1.0,0,0,0,0,0,0,0,0,0,0]),
-            10, 'aref', 'C')
-        self.assertTrue(var is not None)
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['T'])
-        self.assertEqual(var.genotype_data['GT'], '1/1')
+        self._test_snp_to_prob(
+            np.array([0,0,0,0,1.0,0,0,0,0,0,0,0,0,0,0]), 10, 'C',
+            'C', ['T'], '1/1')
 
     def test_decode_snps(self):
-
         # minor position => not a SNP
-
         ref = 'CATGCGTCGATGCAT*G'
         hp1 = 'gAgGTGatacT*CATCG'.upper()
         hp2 = 'Cca***T*c**a**c**'.upper()
@@ -534,7 +517,6 @@ class DiploidLabelSchemeTest(unittest.TestCase):
         # Using a threshold equal to the secondary_prob we should get heterozygous calls
         variants = self.ls.decode_snps(s, ref.replace('*', ''))
         variants = sorted(variants, key=lambda x: x.pos)
-
 
         self.assertEqual(len(variants), len(pos_ref_alt_gt))
 
@@ -581,19 +563,11 @@ def diploid_zygosity_sample_from_labels(ls=None,
     return s, ref
 
 
-class DiploidZygosityLabelSchemeTest(unittest.TestCase):
+class DiploidZygosityLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
 
     @classmethod
     def setUpClass(cls):
         cls.ls = medaka.labels.DiploidZygosityLabelScheme()
-
-    def test_picklable(self):
-
-        with open('data.pickle', 'wb') as f:
-            pickle.dump(self.ls, f, pickle.HIGHEST_PROTOCOL)
-
-        with open('data.pickle', 'rb') as f:
-            data = pickle.load(f)
 
     def test_n_elements(self):
         self.assertEqual(self.ls.n_elements, 2)
@@ -602,7 +576,6 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
         self.assertEqual(self.ls.num_classes, len(self.ls.symbols) + 1)
 
     def test_labels_to_encoded_labels(self):
-
         #expected output from truth alignment to labels
         dummy = [('A','A'), ('C','G'), ('G','C'), ('T','T')]
         expected = np.array([5, 10, 10, 14])
@@ -618,7 +591,6 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
                                 expected)
 
     def test_encoding(self):
-
         expected = {('A', 'C'): 6, ('G', 'G'): 12, ('*', '*'): 0,
                     ('C', 'C'): 9, ('G', 'T'): 13, ('*', 'A'): 1,
                     ('T', 'T'): 14, ('A', 'T'): 8, ('*', 'G'): 3,
@@ -627,60 +599,50 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase):
         self.assertEqual(self.ls._encoding, expected)
 
     def test_prob_to_snp(self):
-
         #homozygous ref: ('C',) -> ('C','C')
-        var = self.ls._prob_to_snp(np.array([0, 0, 1, 0, 0, 0]),
-            10, 'aref', 'C', return_all=True)
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['.'])
+        self._test_snp_to_prob(
+            np.array([0, 0, 1, 0, 0, 0]), 10, 'C',
+            'C', ['.'], '0/0',
+            return_all=True)
 
         #homozygous alt: ('C',) -> ('A','A'))
-        var = self.ls._prob_to_snp(np.array([0, 1, 0, 0, 0, 0]),
-            10, 'aref', 'C')
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['A'])
-        self.assertEqual(var.genotype_data['GT'], '1/1')
+        self._test_snp_to_prob(
+            np.array([0, 1, 0, 0, 0, 0]), 10, 'C',
+            'C', ['A'], '1/1')
 
         #heterozygous double: ('C',) -> ('A','T')
-        var = self.ls._prob_to_snp(np.array([0, 0.8, 0, 0, 0.6, 1]),
-            10, 'aref', 'C')
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['A', 'T'])
-        self.assertEqual(var.genotype_data['GT'], '1/2')
+        self._test_snp_to_prob(
+            np.array([0, 0.8, 0, 0, 0.6, 1]), 10, 'C',
+            'C', ['A', 'T'], '1/2')
 
         #heterozygous single: ('C',) -> ('C','T')
-        var = self.ls._prob_to_snp(np.array([0, 0, 0.8, 0, 0.6, 1]),
-            10, 'aref', 'C')
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['T'])
-        self.assertEqual(var.genotype_data['GT'], '0/1')
+        self._test_snp_to_prob(
+            np.array([0, 0, 0.8, 0, 0.6, 1]), 10, 'C',
+            'C', ['T'], '0/1')
 
         # homozygous deletion: ('C',) -> ('*', '*')
         # defined to be ignored
-        var = self.ls._prob_to_snp(np.array([1.0, 0, 0, 0, 0, 0]),
-            10, 'aref', 'C')
-        self.assertEqual(var, None)
+        self._test_snp_to_prob(
+            np.array([1.0, 0, 0, 0, 0, 0]), 10, 'C',
+            None, None, None,
+            empty=True)
 
         # heterozygous ref deletion: ('C',) - > ('C', '*')
         # defined to be ignored
-        var = self.ls._prob_to_snp(np.array([0.5, 0, 0.5, 0, 0, 1]),
-            10, 'aref', 'C')
-        self.assertEqual(var, None)
+        self._test_snp_to_prob(
+            np.array([0.5, 0, 0.5, 0, 0, 1]), 10, 'C',
+            None, None, None,
+            empty=True)
 
         # heterozygous alt deletion: ('C',) - > ('T', '*')
-        # deletion is mutated into primary alt
-        var = self.ls._prob_to_snp(np.array([0.55, 0, 0, 0, 0.45, 1]),
-            10, 'aref', 'C')
-        self.assertTrue(var is not None)
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['T'])
-        self.assertEqual(var.genotype_data['GT'], '1/1')
-        var = self.ls._prob_to_snp(np.array([0.45, 0, 0, 0, 0.55, 1]),
-            10, 'aref', 'C')
-        self.assertTrue(var is not None)
-        self.assertEqual(var.ref, 'C')
-        self.assertEqual(var.alt, ['T'])
-        self.assertEqual(var.genotype_data['GT'], '1/1')
+        # deletion is mutated into primary alt, regardless of primary/secondary
+        # note this is different to the Haploid case
+        self._test_snp_to_prob(
+            np.array([0.55, 0, 0, 0, 0.45, 1]), 10, 'C',
+            'C', ['T'], '1/1')
+        self._test_snp_to_prob(
+            np.array([0.45, 0, 0, 0, 0.55, 1]), 10, 'C',
+            'C', ['T'], '1/1')
 
     def test_decode_snps_is_het_always_true(self):
 
