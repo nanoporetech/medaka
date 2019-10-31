@@ -116,7 +116,6 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_
 
 float* _get_weibull_scores(const bam_pileup1_t *p, const size_t indel, const size_t num_homop) {
     static const char* wtags[] = {"WL", "WK"};  // scale, shape
-    float* fraction_counts = xalloc(num_homop, sizeof(float), "weibull_counts");
     double wtag_vals[2] = {0.0, 0.0};
     for (size_t i=0; i < 2; ++i) {
         uint8_t *tag = bam_aux_get(p->b, wtags[i]);
@@ -132,26 +131,15 @@ float* _get_weibull_scores(const bam_pileup1_t *p, const size_t indel, const siz
             exit(1);
         }
         wtag_vals[i] = bam_auxB2f(tag, p->qpos + indel);
-
-        /* TODO: understand why errno comes back set even when value found ok,
-         *       could then skip our own test above
-        if (errno == ERANGE) {
-            uint32_t taglen = bam_auxB_len(tag);
-            if (errno == EINVAL) {
-                fprintf(stderr, "%s tag was not a binary tag\n", wtags[i]);
-            } else {
-                fprintf(stderr, "%s tag was out of range for %s position %lu. taglen: %i\n",
-                        wtags[i], bam_get_qname(p->b), p->qpos + indel, taglen);
-                exit(1);
-            }
-        }
-        */
     }
 
-    float wl = wtag_vals[0];
-    float wk = wtag_vals[1];
+    float scale = wtag_vals[0];  //wl
+    float shape = wtag_vals[1];  //wk
+    float* fraction_counts = xalloc(num_homop, sizeof(float), "weibull_counts");
     for (size_t x = 1; x < num_homop + 1; ++x) {
-        fraction_counts[x-1] = exp(-pow(x / wl, wk)) - exp(-pow((x + 1) / wl, wk));
+        float a = pow((x-1) / scale, shape);
+        float b = pow(x / scale, shape);
+        fraction_counts[x-1] = max(0.0, -exp(-a) * expm1(a - b));
     }
     return fraction_counts;
 }
@@ -379,8 +367,8 @@ int main(int argc, char *argv[]) {
     char tag_name[2] = "";
     int tag_value = 0;
     bool keep_missing = false;
-    size_t num_homop = 1;
-    bool weibull_summation = false;
+    size_t num_homop = 5;
+    bool weibull_summation = true;
 
     plp_data pileup = calculate_pileup(
         reg, bam_file, num_dtypes, dtypes,
