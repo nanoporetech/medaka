@@ -44,18 +44,15 @@ class RLE(unittest.TestCase):
 
     def test_rle(self):
         """Test conversion of a basecall to RLE."""
-        basecall = 'ACCGTTTA'
+        basecalls = ['ACCGTTTA', 'AA', 'AT', 'A']
         expected = [
-            (1, 0, 'A'), (2, 1, 'C'), (1, 3, 'G'), (3, 4, 'T'), (1, 7, 'A')]
-        got = medaka.rle.rle(basecall).tolist()
-        self.assertTrue(expected, got)
-
-    def test_low_mem_vs_high_mem(self):
-        """Test consistent output whether low_mem is True or False."""
-        basecall = 'ACCGTTTA'
-        low_mem = medaka.rle.rle(basecall, low_mem=True)
-        high_mem = medaka.rle.rle(basecall, low_mem=False)
-        self.assertTrue(all(low_mem == high_mem))
+            [(1, 0, 'A'), (2, 1, 'C'), (1, 3, 'G'), (3, 4, 'T'), (1, 7, 'A')],
+            [(2, 0, 'A'),],
+            [(1, 0, 'A'), (1, 1, 'T')],
+            [(1, 0, 'A'),]]
+        for call, exp in zip(basecalls, expected):
+            got = medaka.rle.rle(call).tolist()
+            self.assertTrue(exp, got)
 
     def test_input_must_be_1D(self):
         """Test that passing in a 2D array raises TypeError"""
@@ -65,17 +62,19 @@ class RLE(unittest.TestCase):
         with self.assertRaises(TypeError):
             medaka.rle.rle(invalid)
 
+
 class RLEConversion(unittest.TestCase):
     """Test medaka.rle.RLEConverter class."""
 
     def test_compression(self):
         """Check recovery of original basecall from RLE version."""
-        basecall = 'CCCTAGGTTA'
-        rle_object = medaka.rle.RLEConverter(basecall)
-        bases = rle_object.compact_basecall
-        lengths = rle_object.homop_length
-        got = ''.join(b * l for b, l in zip(bases, lengths))
-        self.assertEqual(basecall, got)
+        basecalls = ['CCCTAGGTTA', 'AA', 'AT', 'A']
+        for basecall in basecalls:
+            rle_object = medaka.rle.RLEConverter(basecall)
+            bases = rle_object.compact_basecall
+            lengths = rle_object.homop_length
+            got = ''.join(b * l for b, l in zip(bases, lengths))
+            self.assertEqual(basecall, got)
 
     def test_alignment_001(self):
         """Check coordinate slicing between full and compact indices."""
@@ -84,8 +83,8 @@ class RLEConversion(unittest.TestCase):
         rle_object = medaka.rle.RLEConverter(basecall)
         self.assertEqual(rle_object.compact_basecall, rle_seq)
 
-        slcs = [(0, 10), (1, 9), (2, 8), (3, 7), (4, 6), (5, 5)]
-        exp =  [(0,  6), (0, 5), (0, 5), (1, 4), (2, 4), (3, 3)]
+        slcs = [(0, 10), (1, 9), (2, 8), (3, 7), (4, 6)]
+        exp =  [(0,  6), (0, 5), (0, 5), (1, 4), (2, 4)]
 
         for (in_s, in_e), (exp_s, exp_e) in zip(slcs, exp):
             s, e = rle_object.transform_coords(in_s, in_e)
@@ -102,6 +101,7 @@ class RLEConversion(unittest.TestCase):
             self.assertEqual(
                 trimmed_input_compressed, trimmed_compressed,
                 "Trimming and compressing did not commute.")
+
 
     def test_alignment_002(self):
         """Check coordinate conversion from compact to full indices."""
