@@ -49,8 +49,8 @@ simple_data = {
             'tags': {
                 'cs': ('Z','=ACATGATG'),
                 'AA': ('I', 1),
-                'WL': ('B', [1.0] * 8),
-                'WK': ('B', [1.0] * 8),
+                'WL': ('B', [1.5, 0.5, 3.5, 4.5, 0.5, 0.5, 1.5, 0.5]),
+                'WK': ('B', [1e3] * 8),  # sharply peaked, on wl + 0.5
                 'DT': ('Z', 'r9')}
             },
         {
@@ -436,6 +436,23 @@ class WeibullSummation(CountsQscoreStratification):
             # in both stratifications
             non_zeros = np.sum(self.counts_strat2[:,10*i:10*(i+1)] > 0)
             self.assertTrue(non_zeros > 0)
+
+    def test_004_check_specifics(self):
+        temp_file=tempfile.NamedTemporaryFile(suffix='.bam', delete=False)
+        bam_fname = temp_file.name
+        region = Region('ref', 0, 8)
+        create_simple_bam(bam_fname, simple_data['calls'][0:1])
+        counts, _ = medaka.features.pileup_counts(
+            region, bam_fname, num_qstrat=6, weibull_summation=True)[0]
+
+        # should have only one non-zero per row
+        non_zeroes = np.nonzero(counts)
+        np.testing.assert_equal(non_zeroes[0], np.arange(0,8))
+        np.testing.assert_equal(
+            non_zeroes[1],
+            # acgtACGTdD...
+            #         2A  1C  4A  5T  1G  1A  2T  1G
+            np.array([14,  5, 34, 47,  6,  4, 17,  6]))
 
 
 class PileupCountsNormIndices(unittest.TestCase):
