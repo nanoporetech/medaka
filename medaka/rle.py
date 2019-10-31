@@ -2,7 +2,6 @@
 import array
 import concurrent.futures
 import functools
-import itertools
 import os
 from pathlib import Path
 import re
@@ -16,11 +15,10 @@ import medaka.common
 import medaka.smolecule
 
 
-def rle(iterable, low_mem=False):
+def rle(iterable):
     """Calculate a run length encoding (rle), of an input iterable.
 
     :param iterable: input iterable.
-    :param low_mem: use a lower memory implementation
 
     :returns: structured array with fields `start`, `length`, and `value`.
     """
@@ -33,23 +31,13 @@ def rle(iterable, low_mem=False):
         raise TypeError("Input array must be one dimensional.")
     dtype = [('length', int), ('start', int), ('value', array.dtype)]
 
-    if not low_mem:
-        pos = np.where(array[:-1] != array[1:])[0]
-        pos = np.concatenate(([0], pos+1, [len(array)]))
-
-        return np.fromiter((
-            (end - start, start, array[start])
-            for (start, end) in zip(pos[:-1], pos[1:])),
-            dtype, count=len(pos) - 1,)
-    else:
-        def _gen():
-            start = 0
-            for key, group in itertools.groupby(array):
-                length = sum(1 for x in group)
-                yield length, start, key
-                start += length
-
-        return np.fromiter(_gen(), dtype=dtype)
+    n = len(array)
+    starts = np.r_[0, np.flatnonzero(array[1:] != array[:-1]) + 1]
+    rle = np.empty(len(starts), dtype=dtype)
+    rle['start'] = starts
+    rle['length'] = np.diff(np.r_[starts, n])
+    rle['value'] = array[starts]
+    return rle
 
 
 class RLEConverter(object):
@@ -61,9 +49,12 @@ class RLEConverter(object):
         :param basecall: string to be converted to RLE.
         """
         self.basecall = basecall
-        self.rle_conversion = rle(basecall, low_mem=True)
+        self.rle_conversion = rle(basecall)
         self.compact_basecall = ''.join(self.rle_conversion['value'])
         self.homop_length = self.rle_conversion['length']
+        self.inverse = np.repeat(
+            np.arange(0, len(self.rle_conversion)),
+            self.rle_conversion['length'])
 
     def trimmed_compact(self, start, end):
         """Return a trimmed compressed sequence.
@@ -91,9 +82,12 @@ class RLEConverter(object):
         # search right: 11223344
         # => the slice [0:8] should map to [0:4]
         # => subtract 1 from s; e is fine because we want exclusive
-        s, e = np.searchsorted(
-            self.rle_conversion['start'], [start, end - 1], 'right')
-        return s - 1, e
+
+        # older implementation
+        # s, e = np.searchsorted(
+        #     self.rle_conversion['start'], [start, end - 1], 'right')
+        # return s - 1, e
+        return self.inverse[start], self.inverse[end - 1] + 1
 
     def coord_compact_to_full(self, coord):
         """Map from encoded index to full basecall index.
@@ -222,7 +216,6 @@ def get_rl_params(read_name, read_fast5):
 
 def _compress_alignment(alignment, ref_rle, fast5_dir=None, file_index=None):
     logger = medaka.common.get_named_logger('Compress_bam')
-    logger.info('Processing: {}'.format(alignment.query_name))
 
     if alignment.is_unmapped or alignment.is_secondary:
         msg = 'Alignment of read {} is unmapped or secondary. Skip.'
@@ -290,7 +283,7 @@ def _compress_alignment(alignment, ref_rle, fast5_dir=None, file_index=None):
         alignment.query_name, alignment.reference_id, rstart,
         query_rle.compact_basecall, corrected_cigar, alignment.flag, tags=tags,
         query_qualities=array.array(
-            'B', list(min(x, 255) for x in query_rle.homop_length)))
+            'B', np.minimum(query_rle.homop_length, 255)))
 
     return a
 
