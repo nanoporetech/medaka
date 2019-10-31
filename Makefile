@@ -1,4 +1,3 @@
-.PHONY: docs clean_samtools wheels sdist check_lfs
 
 # Builds a cache of binaries which can just be copied for CI
 BINARIES=samtools minimap2 tabix bgzip spoa racon
@@ -44,7 +43,7 @@ $(BINCACHEDIR)/tabix: | libhts.a $(BINCACHEDIR)
 $(BINCACHEDIR)/bgzip: | libhts.a $(BINCACHEDIR)
 	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$(@F) $@
 
-
+.PHONY: clean_htslib
 clean_htslib:
 	cd submodules/samtools-${SAMVER} && make clean || exit 0
 	cd submodules/samtools-${SAMVER}/htslib-${SAMVER} && make clean || exit 0
@@ -116,15 +115,19 @@ venv/bin/activate:
 	test -d venv || virtualenv venv --python=python3 --prompt "(medaka) "
 	${IN_VENV} && pip install pip --upgrade
 
+
+.PHONY: check_lfs
 check_lfs: venv
 	${IN_VENV} && python -c "from setup import check_model_lfs; check_model_lfs()"
 
 
+.PHONY: install
 install: venv check_lfs scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 	${IN_VENV} && pip install -r requirements.txt
 	${IN_VENV} && MEDAKA_BINARIES=1 python setup.py install
 
 
+.PHONY: test
 test: install
 	${IN_VENV} && pip install pytest pytest-cov flake8 flake8-rst-docstrings flake8-docstrings flake8-import-order
 	# TODO: add these exclusions back in after outstanding PRs
@@ -136,10 +139,19 @@ test: install
 		--cov-fail-under=79 --cov-report term-missing
 
 
+.PHONY: mem_check
+mem_check: install pileup
+	${IN_VENV} && python -c "import medaka.test.test_counts as tc; tc.create_simple_bam('mem_test.bam', tc.simple_data['calls'])"
+	valgrind --error-exitcode=1 --tool=memcheck ./pileup mem_test.bam ref:1-8 || (ret=$$?; rm mem_test.bam* && exit $$ret)
+	rm -rf mem_test.bam*
+
+
+.PHONY: clean
 clean: clean_htslib
 	(${IN_VENV} && python setup.py clean) || echo "Failed to run setup.py clean"
 	rm -rf libhts.a libmedaka.abi3.so venv build dist/ medaka.egg-info/ __pycache__ medaka.egg-info
 	find . -name '*.pyc' -delete
+
 
 pileup: libhts.a
 	gcc -pthread  -g -Wall -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -std=c99 -msse3 -O3 \
@@ -148,11 +160,11 @@ pileup: libhts.a
 		-lm -lz -llzma -lbz2 -lpthread -lcurl -lcrypto \
 		-o $(@) -std=c99 -msse3 -O3
 
-
+.PHONY: wheels
 wheels:
 	docker run -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/build-wheels.sh /io 5 6
 
-
+.PHONY: build
 build: pypi_build/bin/activate
 IN_BUILD=. ./pypi_build/bin/activate
 pypi_build/bin/activate:
@@ -160,7 +172,7 @@ pypi_build/bin/activate:
 	${IN_BUILD} && pip install pip --upgrade
 	${IN_BUILD} && pip install --upgrade pip setuptools twine wheel readme_renderer[md]
 
-
+.PHONY: sdist
 sdist: pypi_build/bin/activate scripts/mini_align submodules/samtools-$(SAMVER)/Makefile
 	${IN_BUILD} && python setup.py sdist
 
@@ -175,6 +187,7 @@ PAPEROPT_letter = -D latex_paper_size=letter
 ALLSPHINXOPTS   = -d $(BUILDDIR)/doctrees $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) .
 DOCSRC = docs
 
+.PHONY: docs
 docs: venv
 	${IN_VENV} && pip install sphinx sphinx_rtd_theme sphinx-argparse
 	${IN_VENV} && cd $(DOCSRC) && $(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html

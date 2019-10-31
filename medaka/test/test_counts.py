@@ -1,10 +1,11 @@
 import array
-import numpy as np
+import copy
 import os
 import pickle
 import tempfile
 import unittest
 
+import numpy as np
 import pysam
 
 import libmedaka
@@ -22,9 +23,12 @@ __region_start__ = Region('utg000001l', start=0, end=200)
 #  Ref          A    C    A    T    *    G    A    T    G
 # 
 # Basecall1:   2A   1C   4A   5T        1G   1A   2T   1G
-# Basecall2:   3A   1C   4A    *        1G   1A   1T   2G
+# Basecall2:   0A   1C   4A    *        1G   1A   1T   2G
 # Basecall3:   2a   1c   4a   5t   1a   1g   1a   2t   1g
 # Basecall4:   2a   1c   4a   1c        1g   1a   2t   1g
+#
+# The zero entry is deliberate to trigger edge case, it should be
+# treated as a 1, previously caused invalid memory access.
 
 
 simple_data = {
@@ -51,7 +55,7 @@ simple_data = {
             },
         {
             'seq': 'ACAGATG',  # deletion of T in the middle
-            'quality': array.array('B', [3, 1, 4, 1, 1, 1, 2]),
+            'quality': array.array('B', [0, 1, 4, 1, 1, 1, 2]), # zero, see above
             'cigarstring': '3=1D4=',
             'flag': 0,
             'tags': {
@@ -109,7 +113,8 @@ def create_simple_bam(fname, calls):
 
             a.flag = basecall['flag']
             a.mapping_quality = 50
-            a.query_qualities = basecall['quality']
+            if basecall['quality'] is not None:
+                a.query_qualities = basecall['quality']
             if 'tags' in basecall:
                 for name, (val_type, val) in basecall['tags'].items():
                     if val_type == 'B':  # unsure why pysam cannot deal with float array and 'B'
@@ -171,7 +176,11 @@ class CountsTest(unittest.TestCase):
         reads_bam = tempfile.NamedTemporaryFile(suffix='.bam').name
         truth_bam = tempfile.NamedTemporaryFile(suffix='.bam').name
 
-        create_simple_bam(reads_bam, simple_data['calls'])
+        # we had a bug caused by missing qualities and bad indexing...
+        data = copy.deepcopy(simple_data['calls'])
+        data[0]['quality'] = None
+
+        create_simple_bam(reads_bam, data)
         create_simple_bam(truth_bam, [simple_data['truth']])
         encoder = medaka.features.CountsFeatureEncoder(normalise='total')
         label_scheme = medaka.labels.HaploidLabelScheme()
@@ -402,7 +411,7 @@ class CountsQscoreStratification(unittest.TestCase):
 
 
 class WeibullSummation(CountsQscoreStratification):
-    
+
     @classmethod
     def setUpClass(cls):
         temp_file=tempfile.NamedTemporaryFile(suffix='.bam')
@@ -493,24 +502,27 @@ class HardRLEFeatureEncoder(unittest.TestCase):
 
     def test_004_check_counts(self):
         """Check the counts themselves. See above `create_simple_bam` to understand
-         the values in the counts. For example, 3 basecalls believe the first
-         column of the alignment is `2A`, while one has `3A`. Thus, index
-         [0, 14] should contain 3 and [0, 24] should show a 1.
+        the values in the counts. For example, 1 basecalls believe the first
+        column of the alignment is `2A`, while two have `2a`. One has `0A` which
+        will become a `1A` when corrected.
+         
+        Thus:
+        [0, 4] (1A) contains 1
+        [0,10] (2a) contains 2
+        [0,14] (2A) contains 1
         """
-
-        # dictionary with value: index encoding
         values_for_positions = {
-            1: ([0, 14], [0, 24], [3, 1], [3, 9], [3, 43], [3, 47],
-                [4, 0], [7, 7], [7, 17], [8, 6], [8, 16]),
-            2: ([0, 10], [1, 1], [1, 5], [2, 30], [2, 34], [5, 2],
-                [5, 6], [6, 0], [6, 4], [7, 13], [8, 2])}
+            1.0: [
+                (0, 4), (0, 14), (3, 1), (3, 9), (3, 43), (3, 47),
+                (4, 0), (7, 7), (7, 17), (8, 6), (8, 16)],
+            2.0: [
+                (0, 10), (1, 1), (1, 5), (2, 30), (2, 34), (5, 2),
+                (5, 6), (6, 0), (6, 4), (7, 13), (8, 2)]}
         expected = np.zeros_like(self.sample.features)
         for value, positions in values_for_positions.items():
             for pos in positions:
                 expected[pos[0], pos[1]] = value
-
-        self.assertSequenceEqual(
-            self.sample.features.tolist(), expected.tolist())
+        np.testing.assert_equal(self.sample.features, expected)
 
     def test_005_check_fwd_rev(self):
         """Split normalisation between fwd and rev reads. """
@@ -518,20 +530,18 @@ class HardRLEFeatureEncoder(unittest.TestCase):
         region = Region('ref', 0, 11)
         sample = encoder.bam_to_sample(self.bam_fname, region)[0]
         values_for_positions = {
-            0.5: ([0, 14], [0, 24], [3, 1], [3, 9], [3, 43], [3, 47],
-                  [4, 0], [7, 7], [7, 17], [8, 6], [8, 16]),
-            1: ([0, 10], [1, 1], [1, 5], [2, 30], [2, 34], [5, 2],
-                [5, 6], [6, 0], [6, 4], [7, 13],  [8, 2])}
+            0.5: [
+                (0, 4), (0, 14), (3, 1), (3, 9), (3, 43), (3, 47),
+                (4, 0), (7, 7), (7, 17), (8, 6), (8, 16)],
+            1.0: [
+                (0, 10), (1, 1), (1, 5), (2, 30), (2, 34), (5, 2),
+                (5, 6), (6, 0), (6, 4), (7, 13), (8, 2)]}
         expected = np.zeros_like(sample.features)
         for value, positions in values_for_positions.items():
             for pos in positions:
                 expected[pos[0], pos[1]] = value
-
-        self.assertSequenceEqual(
-            sample.features.tolist(), expected.tolist())
-
-
-
+        np.testing.assert_equal(sample.features, expected)
+            
     def test_020_feature_length(self):
         # hardcode value here, if this genuinely needs to change at least
         # the test will make develop think twice about consequences

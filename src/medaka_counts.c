@@ -330,7 +330,12 @@ plp_data calculate_pileup(
                             }
                             free(fraction_counts);
                         } else {
-                            int qstrat = min(bam_get_qual(p->b)[p->qpos + j], num_homop) - 1;
+                            int qstrat = 0;
+                            if (num_homop > 1) {
+                                // want something in [0, num_homop-1]
+                                qstrat = min(bam_get_qual(p->b)[p->qpos + j], num_homop);
+                                qstrat = max(0, qstrat - 1);
+                            }
                             pileup->matrix[partial_index + featlen * qstrat] += 1;
                         }
                     }
@@ -374,8 +379,8 @@ int main(int argc, char *argv[]) {
     char tag_name[2] = "";
     int tag_value = 0;
     bool keep_missing = false;
-    size_t num_homop = 2;
-    bool weibull_summation = true;
+    size_t num_homop = 1;
+    bool weibull_summation = false;
 
     plp_data pileup = calculate_pileup(
         reg, bam_file, num_dtypes, dtypes,
