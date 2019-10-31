@@ -206,12 +206,11 @@ def get_rl_params(read_name, read_fast5):
     with h5py.File(read_fast5) as h:
         data = h[data_path.format(read_name)][()]
 
-    params = dict()
-    params['base'] = list(x.decode() for x in data['base'])
-    params['WL'] = array.array('f', data['shape'])
-    params['WK'] = array.array('f', data['scale'])
+    call = ''.join(x.decode() for x in data['base'])
+    wl = array.array('f', data['shape'])
+    wk = array.array('f', data['scale'])
 
-    return params
+    return call, wl, wk
 
 
 def _compress_alignment(alignment, ref_rle, fast5_dir=None, file_index=None):
@@ -264,17 +263,22 @@ def _compress_alignment(alignment, ref_rle, fast5_dir=None, file_index=None):
             return None
         fast5_path = fast5_path[0]
 
-        params = get_rl_params(alignment.query_name, fast5_path)
+        fast5_call, wl, wk = get_rl_params(alignment.query_name, fast5_path)
+
+        # params needs flipping for reverse alignments
+        if alignment.is_reverse:
+            wl = wl[::-1]
+            wk = wk[::-1]
+            fast5_call = medaka.common.reverse_complement(fast5_call)
 
         # ocasional errors where bases are repeated
         # may lead to discrepancies, discard these
-        basecall_from_file = ''.join(params['base'])
-        if basecall_from_file != query_rle.compact_basecall:
+        if fast5_call != query_rle.compact_basecall:
             logger.warning(
                 'RLE table within fast5 file is inconsistent with '
                 'compressed basecall for read {}'.format(alignment.query_name))
             return None
-        tags = {'WL': params['WL'], 'WK': params['WK']}
+        tags = {'WL': wl, 'WK': wk}
     else:
         tags = dict()
 
