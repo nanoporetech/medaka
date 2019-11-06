@@ -313,10 +313,15 @@ def _compress_bam(bam_input, bam_output, ref_fname,
 
     # If fast_dir is passed, create an index
     if fast5_dir:
-        summ_table = np.genfromtxt(
-            summary, dtype=None, names=True, delimiter='\t', encoding=None)
+        with open(summary) as input_file:
+            # Summary files can be huge, avoid loading to memory
+            col_names = input_file.readline().replace('#', '').split()
+            col_filename = col_names.index('filename')
+            col_readid = col_names.index('read_id')
 
-        file_index = dict(zip(summ_table['read_id'], summ_table['filename']))
+            file_index = dict(
+                (line.split()[col_readid], line.split()[col_filename])
+                for line in input_file)
     else:
         file_index = None
 
