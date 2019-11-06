@@ -2,8 +2,8 @@
 import array
 import concurrent.futures
 import functools
+from glob import glob
 import os
-from pathlib import Path
 import re
 
 import h5py
@@ -255,12 +255,19 @@ def _compress_alignment(alignment, ref_rle, fast5_dir=None, file_index=None):
             return None
 
         # Get full path from a root path. There should be only ONE file found
-        # with that name.
-        fast5_path = list(Path(fast5_dir).glob('**/{}'.format(fast5_fname)))
+        # with that name. The recursive is needed to follow symlinks
+        fast5_path = glob(
+            '{}/**/{}'.format(fast5_dir, fast5_fname), recursive=True)
+
         if len(fast5_path) > 1:
             logger.warning(
                 'Found several fast5 with name {}'.format(fast5_fname))
             return None
+        elif len(fast5_path) == 0:
+            logger.warning(
+                'Found no fast5 with name {}'.format(fast5_fname))
+            return None
+
         fast5_path = fast5_path[0]
 
         fast5_call, wl, wk = get_rl_params(alignment.query_name, fast5_path)
