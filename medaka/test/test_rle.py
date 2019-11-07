@@ -5,39 +5,14 @@ import os
 import tempfile
 import unittest
 
-import h5py
 import numpy as np
 import pysam
 
+from medaka import common
+from .mock_data import create_simple_bam, mock_summary_file, \
+    mock_fast5_file, simple_data
 import medaka.rle
 
-
-def mock_fast5_file(read_info):
-    """Create a fast5 file with fake shape/scale rle data"""
-    fast5_file = tempfile.NamedTemporaryFile(suffix='.fast5').name
-    data_path = (
-        'read_{}/Analyses/Basecall_1D_000/'
-        'BaseCalled_template/RunlengthBasecall')
-
-    with h5py.File(fast5_file, 'w') as h:
-        for read_id, (bases, shapes, scales) in read_info.items():
-            arr = np.fromiter(
-                [(b, s, sc) for (b, s, sc) in zip(bases, shapes, scales)],
-                dtype=[('base', 'S1'), ('shape', '>f4'), ('scale', '>f4')])
-            h.create_dataset(data_path.format(read_id), data=arr)
-
-    return fast5_file
-
-
-def mock_summary_file(read_ids, fast5_fnames):
-    """Create a summary file to link read_id and fast5 filename"""
-    summary_file = tempfile.NamedTemporaryFile(suffix='.txt').name
-    with open(summary_file, 'w') as output:
-        output.write('read_id\tfilename\n')
-        for read_id, filename in zip(read_ids, fast5_fnames):
-            output.write('{}\t{}\n'.format(read_id, filename))
-
-    return summary_file
 
 class RLE(unittest.TestCase):
     """Test medaka.rle.rle function."""
@@ -47,9 +22,9 @@ class RLE(unittest.TestCase):
         basecalls = ['ACCGTTTA', 'AA', 'AT', 'A']
         expected = [
             [(1, 0, 'A'), (2, 1, 'C'), (1, 3, 'G'), (3, 4, 'T'), (1, 7, 'A')],
-            [(2, 0, 'A'),],
+            [(2, 0, 'A'), ],
             [(1, 0, 'A'), (1, 1, 'T')],
-            [(1, 0, 'A'),]]
+            [(1, 0, 'A'), ]]
         for call, exp in zip(basecalls, expected):
             got = medaka.rle.rle(call).tolist()
             self.assertTrue(exp, got)
@@ -84,12 +59,13 @@ class RLEConversion(unittest.TestCase):
         self.assertEqual(rle_object.compact_basecall, rle_seq)
 
         slcs = [(0, 10), (1, 9), (2, 8), (3, 7), (4, 6)]
-        exp =  [(0,  6), (0, 5), (0, 5), (1, 4), (2, 4)]
+        exp = [(0,  6), (0, 5), (0, 5), (1, 4), (2, 4)]
 
         for (in_s, in_e), (exp_s, exp_e) in zip(slcs, exp):
             s, e = rle_object.transform_coords(in_s, in_e)
             trimmed_input = basecall[in_s:in_e]
-            trimmed_input_compressed = medaka.rle.RLEConverter(trimmed_input).compact_basecall
+            trimmed_input_compressed = medaka.rle.RLEConverter(
+                trimmed_input).compact_basecall
             trimmed_compressed = rle_object.trimmed_compact(in_s, in_e)
 
             self.assertSequenceEqual(
@@ -101,7 +77,6 @@ class RLEConversion(unittest.TestCase):
             self.assertEqual(
                 trimmed_input_compressed, trimmed_compressed,
                 "Trimming and compressing did not commute.")
-
 
     def test_alignment_002(self):
         """Check coordinate conversion from compact to full indices."""
@@ -227,7 +202,7 @@ class Clipping(unittest.TestCase):
 
 
 class InitialiseAlignment(unittest.TestCase):
-    """Test medaka.rle.initialise_alignment."""
+    """Test `medaka.common.initialise_alignment`."""
 
     input_kwargs = {
         'query_name': 'test',
@@ -242,14 +217,14 @@ class InitialiseAlignment(unittest.TestCase):
 
     def test_inputs(self):
         """Test inputs are correctly passed to alignment."""
-        alignment = medaka.rle.initialise_alignment(**self.input_kwargs)
+        alignment = common.initialise_alignment(**self.input_kwargs)
         for key, expected in self.input_kwargs.items():
             got = getattr(alignment, key)
             self.assertEqual(expected, got)
 
     def test_derived(self):
         """Test arguments derived from inputs."""
-        alignment = medaka.rle.initialise_alignment(**self.input_kwargs)
+        alignment = common.initialise_alignment(**self.input_kwargs)
         expected_kwargs = {
             'query_alignment_start': 1,
             'query_alignment_end': 12,
@@ -280,7 +255,7 @@ class CompressAlignment(unittest.TestCase):
         seq:  gCCCA*GTTGATCtt -->  gCA*GTGATCt
         cigar:    1S4=1D7=2S  -->  1S2=1D6=1S
         """
-        alignment = medaka.rle.initialise_alignment(**self.alignment_kwargs)
+        alignment = common.initialise_alignment(**self.alignment_kwargs)
         ref_rle = medaka.rle.RLEConverter(self.ref)
         compressed_alignment = medaka.rle._compress_alignment(
             alignment, ref_rle)
@@ -376,7 +351,7 @@ class CompressBamTest(unittest.TestCase):
         tmp_file = '{}.tmp'.format(cls.bam_input)
         with pysam.AlignmentFile(tmp_file, 'wb', header=header) as bam:
             for basecall in basecalls.values():
-                record = medaka.rle.initialise_alignment(**basecall)
+                record = common.initialise_alignment(**basecall)
                 bam.write(record)
 
         pysam.sort("-o", cls.bam_input, tmp_file)
@@ -402,37 +377,44 @@ class CompressBamTest(unittest.TestCase):
                 got.add(data)
             self.assertEqual(got, expected)
 
-    def test_bam_compression_with_RLE_parameters(self):
-        read_info = {
-            'read1': (
-                ['A', 'C', 'T', 'G'],
-                [0.1, 0.2, 0.1, 0.5],
-                [1., 2., 3., 4.]),
-            'read2': (
-                ['T', 'A', 'C', 'T', 'G'],
-                [0.3, 0.1, 0.7, 0.1, 0.2],
-                [5., 6., 7., 8., 9.])}
 
-        # Create a mock fast5 file with only an RLE table
-        fast5_path = mock_fast5_file(read_info)
-        fast5_dir = os.path.dirname(fast5_path)
-        fast5_fname = os.path.basename(fast5_path)
+class RLEParamsBam(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+
+        cls.bam_input = tempfile.NamedTemporaryFile(suffix='.bam').name
+        create_simple_bam(cls.bam_input, simple_data['calls'])
+
+        cls.bam_output = tempfile.NamedTemporaryFile(suffix='.bam').name
+        cls.ref_fname = tempfile.NamedTemporaryFile(suffix='.fasta').name
+
+        with open(cls.ref_fname, 'w') as fasta:
+            fasta.write('>ref\n')
+            fasta.write('{}\n'.format(simple_data['ref']))
+
+        # The mock fast5 file contains the RLE table
+        fast5_path = mock_fast5_file()
+        cls.fast5_dir = os.path.dirname(fast5_path)
+        cls.fast5_fname = os.path.basename(fast5_path)
 
         # Create a mock summary file with read_id and filename
-        read_ids = list(read_info.keys())
-        summary_file = mock_summary_file(read_ids, [fast5_fname] * len(read_ids))
+        cls.summary_file = mock_summary_file(cls.fast5_fname)
 
         regions = ['ref:0-10']
         args = args_class(
-            self.bam_input, self.bam_output, self.ref_fname,
-            2, regions, (fast5_dir, summary_file))
+            cls.bam_input, cls.bam_output, cls.ref_fname,
+            2, regions, (cls.fast5_dir, cls.summary_file))
         medaka.rle.compress_bam(args)
 
-        for read in pysam.AlignmentFile(self.bam_output):
-            expected = read_info[read.query_name][1]
-            got = list(read.get_tag('WL'))
-            np.testing.assert_allclose(got, expected)
+    def test_bam_compression_with_RLE_parameters(self):
+        """Test RLE parameter extraction from fast5 file."""
 
-            expected = read_info[read.query_name][2]
-            got = list(read.get_tag('WK'))
+        for read in pysam.AlignmentFile(self.bam_output):
+            for tag_name in ['WL', 'WK']:
+                expected = [
+                    x['tags'][tag_name] for x in simple_data['calls']
+                    if x['query_name'] == read.query_name][0]
+
+            got = read.get_tag(tag_name)
             np.testing.assert_allclose(got, expected)

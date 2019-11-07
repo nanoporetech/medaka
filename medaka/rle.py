@@ -155,48 +155,6 @@ def add_extra_clipping(cigar, start_clipped, end_clipped):
     return ''.join((head, body, tail))
 
 
-def initialise_alignment(
-        query_name, reference_id, reference_start,
-        query_sequence, cigarstring, flag, mapping_quality=60,
-        query_qualities=None, tags=None):
-    """Create a `Pysam.AlignedSegment` object.
-
-    :param query_name: name of the query sequence
-    :param reference_id: index to the reference name
-    :param reference_start: 0-based index of first leftmost reference
-        coordinate
-    :param query_sequence: read sequence bases, including those soft clipped
-    :param cigarstring: cigar string representing the alignment of query
-        and reference
-    :param flag: bitwise flag representing some properties of the alignment
-        (see SAM format)
-    :param mapping_quality: optional quality of the mapping or query to
-        reference
-    :param query_qualities: optional base qualities of the query, including
-        soft-clipped ones!
-
-    :returns: `pysam.AlignedSegment` object
-    """
-    if tags is None:
-        tags = dict()
-
-    a = pysam.AlignedSegment()
-    a.query_name = query_name
-    a.reference_id = reference_id
-    a.reference_start = reference_start
-    a.query_sequence = query_sequence
-    a.cigarstring = cigarstring
-    a.flag = flag
-    a.mapping_quality = mapping_quality
-    if query_qualities is not None:
-        a.query_qualities = query_qualities
-
-    for tag_name, tag_value in tags.items():
-        a.set_tag(tag_name, tag_value)
-
-    return a
-
-
 def get_rl_params(read_name, read_fast5):
     """Get shape and scale parameters from fast5 for read."""
     data_path = (
@@ -270,7 +228,13 @@ def _compress_alignment(alignment, ref_rle, fast5_dir=None, file_index=None):
 
         fast5_path = fast5_path[0]
 
-        fast5_call, wl, wk = get_rl_params(alignment.query_name, fast5_path)
+        try:
+            fast5_call, wl, wk = get_rl_params(
+                alignment.query_name, fast5_path)
+        except KeyError:
+            msg = 'RLE table not found for file {}, read {}'
+            logger.info(msg.format(fast5_path, alignment.query_name))
+            return None
 
         # params needs flipping for reverse alignments
         if alignment.is_reverse:
@@ -283,14 +247,17 @@ def _compress_alignment(alignment, ref_rle, fast5_dir=None, file_index=None):
         if fast5_call != query_rle.compact_basecall:
             logger.warning(
                 'RLE table within fast5 file is inconsistent with '
-                'compressed basecall for read {}'.format(alignment.query_name))
+                'compressed basecall for read {}. {} != {}'.format(
+                    alignment.query_name,
+                    fast5_call,
+                    query_rle.compact_basecall))
             return None
         tags = {'WL': wl, 'WK': wk}
     else:
         tags = dict()
 
     # Create alignment object
-    a = initialise_alignment(
+    a = medaka.common.initialise_alignment(
         alignment.query_name, alignment.reference_id, rstart,
         query_rle.compact_basecall, corrected_cigar, alignment.flag, tags=tags,
         query_qualities=array.array(

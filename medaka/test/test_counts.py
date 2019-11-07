@@ -8,6 +8,7 @@ import unittest
 import numpy as np
 import pysam
 
+from .mock_data import simple_data, create_simple_bam 
 import libmedaka
 import medaka.features
 from medaka.common import Region, Sample
@@ -18,115 +19,6 @@ __reads_truth__ = os.path.join(os.path.dirname(__file__), 'data', 'truth_to_ref.
 __gapped_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'reads_gapped.bam')
 __region__ = Region('utg000001l', start=50000, end=100000)
 __region_start__ = Region('utg000001l', start=0, end=200)
-
-
-#  Ref          A    C    A    T    *    G    A    T    G
-# 
-# Basecall1:   2A   1C   4A   5T        1G   1A   2T   1G
-# Basecall2:   0A   1C   4A    *        1G   1A   1T   2G
-# Basecall3:   2a   1c   4a   5t   1a   1g   1a   2t   1g
-# Basecall4:   2a   1c   4a   1c        1g   1a   2t   1g
-#
-# The zero entry is deliberate to trigger edge case, it should be
-# treated as a 1, previously caused invalid memory access.
-
-
-simple_data = {
-    'ref': 'ACATGATG',
-    'truth': {
-        'seq': 'ACATAGATCTG', # the A from third below and another CT
-        'quality':  array.array('B', [2, 1, 4, 5, 1, 1, 1, 2, 1, 1, 1]),
-        'cigarstring': '4=1I3=2I1=',
-        'flag': 0,
-        'tags': {'MD': ('Z','8')}
-    },
-    'calls': [
-        {
-            'seq': 'ACATGATG',  # exactly ref
-            'quality': array.array('B', [2, 1, 4, 5, 1, 1, 2, 1]),
-            'cigarstring': '8=',
-            'flag': 0,
-            'tags': {
-                'cs': ('Z','=ACATGATG'),
-                'AA': ('I', 1),
-                'WL': ('B', [1.5, 0.5, 3.5, 4.5, 0.5, 0.5, 1.5, 0.5]),
-                'WK': ('B', [1e3] * 8),  # sharply peaked, on wl + 0.5
-                'DT': ('Z', 'r9')}
-            },
-        {
-            'seq': 'ACAGATG',  # deletion of T in the middle
-            'quality': array.array('B', [0, 1, 4, 1, 1, 1, 2]), # zero, see above
-            'cigarstring': '3=1D4=',
-            'flag': 0,
-            'tags': {
-                'cs': ('Z','=ACA-t=GATG'),
-                'AA': ('I', 1),
-                'WL': ('B', [1.0] * 7),
-                'WK': ('B', [1.0] * 7),
-                'DT': ('Z', 'r9')}
-            },
-        {
-            'seq': 'ACATAGATG',  # insertion of A in the middle
-            'quality':  array.array('B', [2, 1, 4, 5, 1, 1, 1, 2, 1]),
-            'cigarstring': '4=1I4=',
-            'flag': 16,
-            'tags': {
-                'cs': ('Z','=ACAT+a=GATG'),
-                'AA': ('I', 2),
-                'WL': ('B', [1.0] * 9),
-                'WK': ('B', [1.0] * 9),
-                'DT': ('Z', 'r9')}
-            },
-        {
-            'seq': 'ACACGATG',  # substitution T->C
-            'quality': array.array('B', [2, 1, 4, 1, 1, 1, 2, 1]),
-            'cigarstring': '3=1X4=',
-            'flag': 16,
-            'tags': {
-                'cs': ('Z','=ACA*tc=GATG'),
-                'WL': ('B', [1.0] * 8),
-                'WK': ('B', [1.0] * 8),
-                'DT': ('Z', 'r10')}
-            }
-    ]
-}
-
-
-def create_simple_bam(fname, calls):
-    """Create a small bam file with RLE encoding coded in the qscores."""
-    ref_len = len(simple_data['ref'])
-
-    header = {'HD': {'VN': '1.0'},
-              'SQ': [{'LN': ref_len, 'SN': 'ref'}]}
-
-    tmp_file = '{}.tmp'.format(fname)
-    with pysam.AlignmentFile(
-            tmp_file, 'wb', reference_names=['ref', ],
-            reference_lengths=[ref_len, ], header=header) as output:
-        for index, basecall in enumerate(calls):
-            a = pysam.AlignedSegment()
-            a.query_name = "basecall_{}".format(index)
-            a.reference_id = 0
-            a.reference_start = 0
-            a.query_sequence = basecall['seq']
-            a.cigarstring = basecall['cigarstring']
-
-            a.flag = basecall['flag']
-            a.mapping_quality = 50
-            if basecall['quality'] is not None:
-                a.query_qualities = basecall['quality']
-            if 'tags' in basecall:
-                for name, (val_type, val) in basecall['tags'].items():
-                    if val_type == 'B':  # unsure why pysam cannot deal with float array and 'B'
-                        a.set_tag(name, val)
-                    else:
-                        a.set_tag(name, val, val_type)
-            output.write(a)
-
-    pysam.sort("-o", fname, tmp_file)
-    os.remove(tmp_file)
-    pysam.index(fname)
-
 
 class CountsTest(unittest.TestCase):
 
@@ -181,7 +73,8 @@ class CountsTest(unittest.TestCase):
         data[0]['quality'] = None
 
         create_simple_bam(reads_bam, data)
-        create_simple_bam(truth_bam, [simple_data['truth']])
+        create_simple_bam(
+            truth_bam, [simple_data['truth']])
         encoder = medaka.features.CountsFeatureEncoder(normalise='total')
         label_scheme = medaka.labels.HaploidLabelScheme()
         region = Region('ref', 0, 100)
@@ -441,7 +334,8 @@ class WeibullSummation(CountsQscoreStratification):
         temp_file=tempfile.NamedTemporaryFile(suffix='.bam', delete=False)
         bam_fname = temp_file.name
         region = Region('ref', 0, 8)
-        create_simple_bam(bam_fname, simple_data['calls'][0:1])
+        create_simple_bam(
+            bam_fname, simple_data['calls'][0:1])
         counts, _ = medaka.features.pileup_counts(
             region, bam_fname, num_qstrat=6, weibull_summation=True)[0]
 
@@ -522,7 +416,7 @@ class HardRLEFeatureEncoder(unittest.TestCase):
         the values in the counts. For example, 1 basecalls believe the first
         column of the alignment is `2A`, while two have `2a`. One has `0A` which
         will become a `1A` when corrected.
-         
+
         Thus:
         [0, 4] (1A) contains 1
         [0,10] (2a) contains 2
@@ -558,7 +452,7 @@ class HardRLEFeatureEncoder(unittest.TestCase):
             for pos in positions:
                 expected[pos[0], pos[1]] = value
         np.testing.assert_equal(sample.features, expected)
-            
+
     def test_020_feature_length(self):
         # hardcode value here, if this genuinely needs to change at least
         # the test will make develop think twice about consequences
