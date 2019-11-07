@@ -2,13 +2,11 @@ import array
 import unittest
 from collections import namedtuple
 import pickle
-import tempfile
 
 import numpy as np
 
-import medaka.common
+from medaka import common
 import medaka.labels
-import medaka.rle
 
 
 def mock_positions_array(ref):
@@ -24,8 +22,8 @@ def mock_positions_array(ref):
             major += 1
             minor = 0
             positions.append((major, minor))
-    pos = np.array(positions, dtype=[('major', int),
-        ('minor', int)])
+    pos = np.array(
+        positions, dtype=[('major', int), ('minor', int)])
     pos['major'] -= 1
 
     return pos
@@ -37,7 +35,7 @@ def haploid_sample_from_labels(ls=None,
                                sec=None,
                                pri_prob=0.6,
                                sec_prob=0.3):
-    """Create medaka.common.Sample objects from a specified
+    """Create `medaka.common.Sample` objects from a specified
     reference string and predicted sequence string for easily
     mocking variant calling scenarios.
     """
@@ -69,9 +67,10 @@ def haploid_sample_from_labels(ls=None,
             other_ind = other_inds[0]
         probs[i, other_ind] = 1 - np.sum(probs[i])
 
-    s = medaka.common.Sample(ref_name='contig1', features=None,
-                             labels=None, ref_seq=None,
-                             positions=pos, label_probs=probs)
+    s = common.Sample(
+        ref_name='contig1', features=None,
+        labels=None, ref_seq=None,
+        positions=pos, label_probs=probs)
     return s, ref
 
 
@@ -385,7 +384,7 @@ def diploid_sample_from_labels(ls=None,
                                ref=None,
                                hp1=None,
                                hp2=None):
-    """Create medaka.common.Sample objects from a specified
+    """Create `medaka.common.Sample` objects from a specified
     reference string and haplotype strings for easily
     mocking variant calling scenarios.
     """
@@ -404,7 +403,7 @@ def diploid_sample_from_labels(ls=None,
         diploid_label = tuple(sorted((hp1[i], hp2[i])))
         probs[i, ls._encoding[diploid_label]] = 1
 
-    s = medaka.common.Sample(ref_name='contig1', features=None,
+    s = common.Sample(ref_name='contig1', features=None,
                              labels=None, ref_seq=None,
                              positions=pos, label_probs=probs)
     return s, ref
@@ -538,7 +537,7 @@ def diploid_zygosity_sample_from_labels(ls=None,
                                         pri_prob=None,
                                         sec_prob=None,
                                         het=None):
-    """Create medaka.common.Sample objects from a specified
+    """Create `medaka.common.Sample` objects from a specified
     reference string and haplotype strings for easily
     mocking variant calling scenarios.
     """
@@ -557,9 +556,11 @@ def diploid_zygosity_sample_from_labels(ls=None,
         # het is always true
         probs[i,-1] = int(het[i])
 
-    s = medaka.common.Sample(ref_name='contig1', features=None,
-                             labels=None, ref_seq=None,
-                             positions=pos, label_probs=probs)
+    s = common.Sample(
+        ref_name='contig1', features=None,
+        labels=None, ref_seq=None,
+        positions=pos, label_probs=probs)
+
     return s, ref
 
 
@@ -781,7 +782,7 @@ class RLELabelSchemeTest(unittest.TestCase):
         cigarstring = '3=1I2=1D5='
         flag = 0
         qualities = array.array('B', [2, 1, 4, 5, 1, 1, 2, 16, 2, 3, 4])
-        aln = medaka.rle.initialise_alignment(
+        aln = common.initialise_alignment(
             query_name, reference_id, reference_start, query_sequence,
             cigarstring, flag, query_qualities=qualities)
         expected = (
@@ -802,7 +803,7 @@ class RLELabelSchemeTest(unittest.TestCase):
         label_probs[3, 3] = 0.95   # (A, 3)
         label_probs[4, 8] = 0.9    # (G, 2)
         label_probs[5, 5] = 0.9    # (C, 2)
-        mock = medaka.common.Sample(None, None, None, None, None, label_probs)
+        mock = common.Sample(None, None, None, None, None, label_probs)
         expected = 'TCCAAAGGCC'
         got = self.ls.decode_consensus(mock)
         self.assertEqual(expected, got)
