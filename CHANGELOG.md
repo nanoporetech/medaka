@@ -1,3 +1,14 @@
+v0.10.1
+-------
+Minor fix release
+
+* Fix bug where feature matrix was misaligned with coordinate system.
+* Add missing arguments from `smolecule` command.
+* Output contig names are no longer written as samtools-style regions.
+* Fixed issue with `medaka_variant` failing on zero-coverage regions.
+* Rename incorrectly named diploid SNP calling model.
+* Made variant calling faster by resolving trivial bottleneck in variant classification.
+
 v0.10.0
 -------
 Feature release
