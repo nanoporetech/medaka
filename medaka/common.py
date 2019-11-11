@@ -564,21 +564,6 @@ def ref_name_from_region_str(region_str):
     return tuple(set(ref_names))
 
 
-def get_pairs(aln):
-    """Return generator of pairs.
-
-    :param aln: `pysam.AlignedSegment` object.
-    :returns: generator of `ComprAlignPos` objects.
-    """
-    seq = aln.query_sequence
-    pairs = (
-        ComprAlignPos(qp, seq[qp], 1, rp, rb, 1) if qp is not None
-        else ComprAlignPos(qp, None, 1, rp, rb, 1)
-        for qp, rp, rb in aln.get_aligned_pairs(with_seq=True))
-
-    return pairs
-
-
 def sliding_window(a, window=3, step=1, axis=0):
     """Sliding window across an array.
 

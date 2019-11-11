@@ -1,3 +1,4 @@
+import copy
 import functools
 import os
 import tempfile
@@ -9,6 +10,7 @@ import tensorflow as tf
 import medaka.models
 import medaka.keras_ext
 import medaka.datastore
+import medaka.training
 
 def get_test_data(num_train=1000, num_test=500, input_shape=(10,),
                   output_shape=(2,),
@@ -130,5 +132,64 @@ class TestCallbacks(ModelAndData):
                 self.assertTrue(found, "Failed to find correctly named metric for {}".format(group))
 
 
-class TestBatcher(ModelAndData):
-    pass
+training_features = os.path.join(os.path.dirname(__file__), 'data', 'training_features.hdf5')
+
+class TestSequenceBatcher(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(self):
+        self.batch_size = 5
+
+        self.tb = medaka.training.TrainBatcher(
+            [training_features], batch_size=self.batch_size)
+
+        self.n_training_samples = len(self.tb.train_samples)
+        self.n_valid_samples = len(self.tb.valid_samples)
+
+        self.sb_train = medaka.keras_ext.SequenceBatcher(
+            self.tb, dataset='train')
+
+        self.sb_valid = medaka.keras_ext.SequenceBatcher(
+            self.tb, dataset='validation')
+
+        self.mini_epochs = 3
+
+        self.sb_mini = medaka.keras_ext.SequenceBatcher(
+            self.tb, mini_epochs=self.mini_epochs)
+
+    def test_000_correct_batch_size(self):
+        first_batch = self.sb_train.__getitem__(0)
+        self.assertEqual(len(first_batch[0]), self.batch_size) # features
+        self.assertEqual(len(first_batch[1]), self.batch_size) # labels
+
+    def test_001_correct_num_train_batches(self):
+        self.assertEqual(len(self.sb_train),
+            self.n_training_samples // self.batch_size)
+
+    def test_002_correct_num_validation_batches(self):
+        self.assertEqual(len(self.sb_valid),
+            self.n_valid_samples // self.batch_size)
+
+    def test_003_shuffle_occurs_on_epoch_end(self):
+        pre_shuffle = copy.deepcopy(self.sb_train.data)
+        self.sb_train.on_epoch_end()
+        post_shuffle = self.sb_train.data
+        self.assertNotEqual(pre_shuffle, post_shuffle)
+        self.assertEqual(set(pre_shuffle), set(post_shuffle))
+
+    def test_004_correct_num_batches_with_miniepochs(self):
+        self.assertEqual(len(self.sb_mini),
+            self.n_training_samples // self.batch_size // self.mini_epochs)
+
+    def test_005_validation_init_with_miniepochs_gt_1_fails(self):
+        with self.assertRaises(ValueError) as context:
+            sb = medaka.keras_ext.SequenceBatcher(
+                self.tb, dataset='validation', mini_epochs=3)
+
+    def test_006_sb_init_with_incorrect_dataset_name_fails(self):
+        with self.assertRaises(ValueError) as context:
+            sb = medaka.keras_ext.SequenceBatcher(
+                self.tb, dataset='sasquatch') # only 'train' or 'validation' permitted
+
+    def test_007_sb_with_random_seed(self):
+        sb = medaka.keras_ext.SequenceBatcher(self.tb, seed=2)

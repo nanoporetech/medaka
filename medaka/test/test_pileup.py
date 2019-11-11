@@ -2,7 +2,7 @@ import os
 import unittest
 from collections import namedtuple
 
-from medaka.common import Region, get_pairs
+from medaka.common import Region
 from medaka.labels import TruthAlignment
 
 __truth_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'truth_to_ref.bam')

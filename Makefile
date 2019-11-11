@@ -136,7 +136,7 @@ test: install
 		--statistics
 	${IN_VENV} && pytest medaka --doctest-modules \
 		--cov=medaka --cov-report html --cov-report term \
-		--cov-fail-under=79 --cov-report term-missing
+		--cov-fail-under=83 --cov-report term-missing
 
 
 .PHONY: mem_check
