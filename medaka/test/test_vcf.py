@@ -411,6 +411,7 @@ class TestMergeAndSplitVCFs(unittest.TestCase):
                 expected = getattr(expt, key)
                 result = getattr(found, key)
                 self.assertEqual(expected, result, 'Merging failed for {}:{} {}.'.format(expt.chrom, expt.pos+1, key))
+        self.assertEqual(len(converter.meta_info), 10)
 
 
     def test_002_check_merge_snps(self):

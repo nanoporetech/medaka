@@ -380,6 +380,12 @@ class HaploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
     def test_padding_vector(self):
         self.assertEqual(self.ls.padding_vector, 0)
 
+    def test_snp_metainfo(self):
+        self.assertEqual(len(self.ls.snp_metainfo), 7)
+
+    def test_variant_metainfo(self):
+        self.assertEqual(len(self.ls.variant_metainfo), 9)
+
 def diploid_sample_from_labels(ls=None,
                                ref=None,
                                hp1=None,
@@ -562,6 +568,12 @@ def diploid_zygosity_sample_from_labels(ls=None,
         positions=pos, label_probs=probs)
 
     return s, ref
+
+    def test_snp_metainfo(self):
+        self.assertEqual(len(self.ls.snp_metainfo), 7)
+
+    def test_variant_metainfo(self):
+        self.assertEqual(len(self.ls.variant_metainfo), 9)
 
 
 class DiploidZygosityLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
@@ -746,6 +758,10 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
     def test_padding_vector(self):
         self.assertEqual(self.ls.padding_vector, 0)
 
+    def test_snp_metainfo(self):
+        self.assertEqual(len(self.ls.snp_metainfo), 5)
+
+
 class RLELabelSchemeTest(unittest.TestCase):
 
     @classmethod
@@ -810,3 +826,9 @@ class RLELabelSchemeTest(unittest.TestCase):
 
     def test_padding_vector(self):
         self.assertEqual(self.ls.padding_vector, 0)
+
+    def test_snp_metainfo(self):
+        self.assertEqual(len(self.ls.snp_metainfo), 7)
+
+    def test_variant_metainfo(self):
+        self.assertEqual(len(self.ls.variant_metainfo), 9)

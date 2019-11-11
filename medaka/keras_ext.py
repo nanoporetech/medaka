@@ -17,7 +17,7 @@ class ModelMetaCheckpoint(ModelCheckpoint):
     """Custom ModelCheckpoint to add medaka-specific metadata."""
 
     def __init__(self, medaka_meta, *args, **kwargs):
-        """Initilize checkpointing.
+        """Initialize checkpointing.
 
         :param medaka_meta: dictionary of meta data to store in checkpoint
             files.
@@ -31,7 +31,7 @@ class ModelMetaCheckpoint(ModelCheckpoint):
         self.medaka_meta = medaka_meta
         if not set(medaka_meta.keys()).issubset(required_meta):
             raise KeyError(
-                '`medaka_meta must contain: {}'.format(required_meta))
+                '`medaka_meta may only contain: {}'.format(required_meta))
 
     def on_epoch_end(self, epoch, logs=None):
         """Perform actions at the end of an epoch."""
