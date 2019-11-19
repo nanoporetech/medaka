@@ -208,7 +208,7 @@ class TruthAlignment(object):
                 # skip this group
                 if len(group) != len(haplotypes):
                     msg = 'Skipping {}:{}-{}; missing alignment for haplotype'
-                    logger.info(msg.format(a.alignment.ref_name,
+                    logger.info(msg.format(a.aln.reference_name,
                                            a.start, a.end))
                     continue
                 else:
