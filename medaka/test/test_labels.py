@@ -536,45 +536,6 @@ class DiploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
     def test_padding_vector(self):
         self.assertEqual(self.ls.padding_vector, 0)
 
-def diploid_zygosity_sample_from_labels(ls=None,
-                                        ref=None,
-                                        pri=None,
-                                        sec=None,
-                                        pri_prob=None,
-                                        sec_prob=None,
-                                        het=None):
-    """Create `medaka.common.Sample` objects from a specified
-    reference string and haplotype strings for easily
-    mocking variant calling scenarios.
-    """
-
-    assert len(ref) == len(pri) == len(sec)
-
-    pos = mock_positions_array(ref)
-
-    probs = np.zeros((len(pos), len(ls._decoding)))
-
-    for i in range(len(ref)):
-
-        probs[i, ls._unitary_encoding[(pri[i],)]] = pri_prob
-        probs[i, ls._unitary_encoding[(sec[i],)]] = sec_prob
-
-        # het is always true
-        probs[i,-1] = int(het[i])
-
-    s = common.Sample(
-        ref_name='contig1', features=None,
-        labels=None, ref_seq=None,
-        positions=pos, label_probs=probs)
-
-    return s, ref
-
-    def test_snp_metainfo(self):
-        self.assertEqual(len(self.ls.snp_metainfo), 7)
-
-    def test_variant_metainfo(self):
-        self.assertEqual(len(self.ls.variant_metainfo), 9)
-
 
 class RLELabelSchemeTest(unittest.TestCase):
 
