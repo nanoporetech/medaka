@@ -83,7 +83,7 @@ def run_training(
         optimizer='rmsprop', optim_args=None, allow_cudnn=True):
     """Run training."""
     from tensorflow.keras.callbacks import \
-        CSVLogger, EarlyStopping
+        CSVLogger, EarlyStopping, TerminateOnNaN
     from tensorflow.keras import optimizers
     from medaka.keras_ext import \
         ModelMetaCheckpoint, SequenceBatcher
@@ -168,12 +168,14 @@ def run_training(
         # Stop when no improvement
         EarlyStopping(monitor='val_loss', patience=20),
         # Log of epoch stats
-        CSVLogger(os.path.join(train_name, 'training.log')),
+        CSVLogger(os.path.join(train_name, 'training.log'), separator='\t'),
         # Allow us to run tensorboard to see how things are going
         # TrainValTensorBoard(
         #    log_dir=os.path.join(train_name, 'logs'),
         #    histogram_freq=5, batch_size=100, write_graph=True,
         #    write_grads=True, write_images=True)
+        # terminate training when a Nan loss is encountered
+        TerminateOnNaN()
     ])
 
     if n_mini_epochs == 1:
