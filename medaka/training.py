@@ -118,19 +118,10 @@ def run_training(
 
     opts = dict(verbose=1, save_best_only=True, mode='max')
 
-    if isinstance(batcher.label_scheme,
-                  medaka.labels.DiploidZygosityLabelScheme):
-
-        metrics = ['binary_accuracy']
-        call_back_metrics = metrics
-        loss = 'binary_crossentropy'
-        logger.info(
-            "Using {} loss function for multi-label training".format(loss))
-    else:
-        metrics = [cat_acc, qscore]
-        call_back_metrics = {'cat_acc': cat_acc}
-        loss = 'sparse_categorical_crossentropy'
-        logger.info("Using {} loss function".format(loss))
+    metrics = [cat_acc, qscore]
+    call_back_metrics = {'cat_acc': cat_acc}
+    loss = 'sparse_categorical_crossentropy'
+    logger.info("Using {} loss function".format(loss))
 
     if optimizer == 'nadam':
         if optim_args is None:
