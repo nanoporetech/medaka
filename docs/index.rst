@@ -20,6 +20,7 @@ Features
 
   * Requires only basecalled data (`.fasta` or `.fastq`).
   * Improved accurary over graph-based methods (e.g. Racon).
+  * Methylation aggregation from Guppy `.fast5` files.
   * 50X faster than Nanopolish (and can run on GPUs)..
   * Benchmarks are provided (see :doc:`benchmarks`).
   * Includes extras for implementing and training bespoke correction
@@ -65,6 +66,7 @@ Table of contents
    installation
    benchmarks
    snp
+   methylation
    walkthrough
    draft_origin
    development
