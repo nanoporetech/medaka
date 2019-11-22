@@ -1,3 +1,12 @@
+v0.11.0
+-------
+Feature release
+
+* Consensus models for guppy 3.3 and 3.4.
+* Aggregation of Guppy modified base probability tables.
+* Multi-thread stitching of inference chunks in `medaka_consensus`.
+* Optionally run whatshap phase at the end of `medaka_variant`.
+
 v0.10.1
 -------
 Minor fix release
