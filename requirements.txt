@@ -7,6 +7,7 @@ intervaltree
 tensorflow==1.14.0
 numpy==1.16.1       # tensorflow needs numpy>=1.13.3, travis needs this forced
 mappy
+ont_fast5_api
 parasail
 pysam==0.15.2       # latest with non-broken wheels (21Aug2019)
 whatshap==0.18      # added --ignore-read-groups to haplotag
