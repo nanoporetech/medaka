@@ -22,7 +22,7 @@ through conda; medaka is available via the
 
 
 **Installation with pip**
-  
+
 Medaka can be installed using the python package manager, pip:
 
 .. code-block:: bash
@@ -63,7 +63,7 @@ Medaka can be installed from its source quite easily on most systems.
     Before installing medaka it may be required to install some
     prerequisite libraries, best installed by a package manager. On Ubuntu
     theses are:
-    
+
     bzip2 g++ zlib1g-dev libbz2-dev liblzma-dev libffi-dev libncurses5-dev
     libcurl4-gnutls-dev libssl-dev curl make cmake wget python3-all-dev python-virtualenv
 
@@ -100,7 +100,7 @@ GPU-powered ``medaka`` can be configured with:
     make install
 
 However, note that The ``tensorflow-gpu`` GPU package is compiled against
-specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the 
+specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the
 `tensorflow installation <https://www.tensorflow.org/install/gpu>`_ pages
 for further information. cuDNN can be obtained from the
 `cuDNN Archive <https://developer.nvidia.com/rdp/cudnn-archive>`_, whilst CUDA
@@ -125,7 +125,7 @@ In this situation a further reduction in batch size may be required.
 
 Sequence correction
 -------------------
- 
+
 After installing the software (see :ref:`installation`), `medaka` can be run
 using its default settings through the `medaka_consensus` program. An
 assembly in `.fasta` format and basecalls in `.fasta` or `.fastq` format are
@@ -145,7 +145,7 @@ within the medaka environment, else they will need to be provided by the user.
     BASECALLS=basecalls.fa
     DRAFT=draft_assm/assm_final.fa
     OUTDIR=medaka_consensus
-    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r94
+    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r941_min_fast_g330
 
 The variables ``BASECALLS``, ``DRAFT``, and ``OUTDIR`` in the above should be set
 appropriately. When ``medaka_consensus`` has finished running, the consensus
@@ -153,14 +153,27 @@ will be saved to ``${OUTDIR}/consensus.fasta``.
 
 .. warning::
 
-    For best results it is recommended to specify the correct model, ``-m`` in the
-    above, according to the basecaller used. Allowed values can be found by
-    running ``medaka tools list\_models``.
-    
-    For guppy v3.0.3 models are named similarly to their basecalling
-    counterparts with a "fast" and "high accuracy" model, for example
-    ``r941_min_fast`` and ``r941_min_high``. The medaka models are equal in
-    computational performance regardless of basecaller speed/accuracy.
+
+  For best results it is important to specify the correct model, ``-m`` in the
+  above, according to the basecaller used. Allowed values can be found by
+  running ``medaka tools list_models``.
+
+
+Medaka models are named to indicate i) the pore type, ii) the sequencing
+device (MinION or PromethION), iii) the basecaller variant, and iv) the
+basecaller version:
+
+.. code-block:: bash
+
+      {pore}_{device}_{caller variant}_{caller version}
+
+For example the model named ``r941_min_fast_g303`` should be used with data from
+MinION (or GridION) R9.4.1 flowcells using the fast Guppy basecaller version
+3.0.3. By contrast the model ``r941_prom_hac_g303`` should be used with PromethION
+data and the high accuracy basecaller (termed "hac" in Guppy configuration
+files). Where a version of Guppy has been used without an exactly corresponding
+medaka model, the medaka model with the highest version equal to or less than
+the guppy version should be selected.
 
 
 Improving parallelism
@@ -196,7 +209,7 @@ So in summary something like this is possible:
     # run lots of jobs like this, change model as appropriate
     mkdir results
     medaka consensus calls_to_draft.bam results/contigs1-4.hdf \
-        --model r941_flip235 --batch 200 --threads 8 \
+        --model r941_min_fast_g303 --batch 200 --threads 8 \
         --region contig1 contig2 contig3 contig4
     ...
     # wait for jobs, then collate results
@@ -207,4 +220,3 @@ It is not recommended to specify a value of ``--threads`` greater than 8 for
 Note also that ``medaka consensus`` may been seen to use resource equivalent to
 ``<threads> + 4`` as an additional 4 threads are used for reading and preparing
 input data.
-

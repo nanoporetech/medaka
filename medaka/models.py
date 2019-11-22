@@ -18,8 +18,8 @@ def load_model(fname, time_steps=None, allow_cudnn=True):
     """
     with medaka.datastore.DataStore(fname) as ds:
         model_partial_function = ds.get_meta('model_function')
-        model = model_partial_function(time_steps=time_steps,
-                                       allow_cudnn=allow_cudnn)
+        model = model_partial_function(
+            time_steps=time_steps, allow_cudnn=allow_cudnn)
         try:
             model.load_weights(fname)
         except ValueError():

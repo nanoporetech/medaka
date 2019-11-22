@@ -11,12 +11,12 @@ ligation sequencing kit.
 .. note:: The below assumes a Linux environment, some
     changes may need to be made on macOS. Windows environments are not
     supported. Environment variables set in one code block are assumed to
-    persist through to other code blocks. 
+    persist through to other code blocks.
 
 The below serves to demonstrate the process at a simple level. It does not
 represent a best-practices or state-of-the-art workflow. To train models
 which generalise well to other datasets more careful preparation of a larger
-dataset is required. Medaka's standard models are trained using 
+dataset is required. Medaka's standard models are trained using
 `katuali <https://nanoporetech.github.io/katuali/medaka_train.html>`_.
 
 
@@ -46,7 +46,7 @@ The necessary software can be sourced using:
     cd ${WALKTHROUGH}
     git clone https://github.com/nanoporetech/pomoxis --recursive
     git clone https://github.com/nanoporetech/medaka
-    
+
     # While it is possible to install pomoxis and medaka into the same
     #   virtual environment, we will install each package into its own
     #   environment for simplicity. For more details see the readme for
@@ -64,7 +64,7 @@ The necessary software can be sourced using:
 Creating a Draft Assembly
 -------------------------
 
-A draft assembly can be formed from the provided basecalls using the 
+A draft assembly can be formed from the provided basecalls using the
 `miniasm <https://github.com/lh3/miniasm>`_ and
 `racon <https://github.com/isovic/racon>`_ based pipeline from ``pomoxis``.
 Alternatively one could use `canu <https://github.com/marbl/canu>`_ at this step.
@@ -94,7 +94,7 @@ The number and length of the assembled contigs can be checked
     DRAFT=draft_assm/assm_final.fa
     awk '{if(/>/){n=$1}else{print n " " length($0)}}' ${DRAFT}
 
-The expected output is a contig 4,703,280 bases long (utg000001c). 
+The expected output is a contig 4,703,280 bases long (utg000001c).
 
 .. _polishing:
 
@@ -104,7 +104,7 @@ Polishing a Consensus
 After performing all steps up to :ref:`basecalling_and_draft_assembly`, the
 following commands can be run to yield a consensus using ``medaka``'s default
 model. This model was trained using data obtained from E.coli, S.cerevisaie,
-and H.sapiens samples. 
+and H.sapiens samples.
 
 .. code-block:: bash
 
@@ -118,7 +118,7 @@ To polish an assembly using another model, use
 the ``-m`` option to specify the filepath of the model.
 
 Alignment statistics can be calculated using the ``assess_assembly`` program from
-pomoxis: 
+pomoxis:
 
 .. code-block:: bash
 
@@ -140,7 +140,7 @@ Training a Consensus Network
 ----------------------------
 
 In order to train a bespoke network first perform all the steps up to and
-including :ref:`basecalling_and_draft_assembly` above. 
+including :ref:`basecalling_and_draft_assembly` above.
 
 The ultimate aim of the consensus network is to predict the truth sequence from
 the alignment of basecalls to the draft. This requires understanding how the
@@ -179,7 +179,7 @@ model is used to make predictions.
     TRAINEND=3762624
     TRAINFEATURES=train_features.hdf
     BATCHSIZE=100
-    medaka features ${CALLS2DRAFT}.bam ${TRAINFEATURES} --truth ${TRUTH2DRAFT}.bam --threads ${NPROC} --region ${REFNAME}:-${TRAINEND} --batch_size ${BATCHSIZE} --chunk_len 1000 --chunk_ovlp 0 
+    medaka features ${CALLS2DRAFT}.bam ${TRAINFEATURES} --truth ${TRUTH2DRAFT}.bam --threads ${NPROC} --region ${REFNAME}:-${TRAINEND} --batch_size ${BATCHSIZE} --chunk_len 1000 --chunk_ovlp 0
 
 Now everything is in place to train a consensus network with ``medaka train``:
 
@@ -195,10 +195,10 @@ During training, models are regularly checkpointed so that training may be
 easily resumed if interrupted. At the end of training, we have a number of
 output models including in particular:
 
-    * ``model.best.hdf5``: model with the best accuracy over the training set  
+    * ``model.best.hdf5``: model with the best accuracy over the training set
     * ``model.best.val.hdf5``: model with the best accuracy over the validation set
 
-Other ancilliary output are also produced. 
+Other ancilliary output are also produced.
 
 To use a model run ``medaka_consensus``, specifying the full absolute path to
 the model using the ``-m`` option:
@@ -267,4 +267,3 @@ Running the above will
 
 For further information concerning settig-up adnd running katuali, refer to
 its `documentation <https://nanoporetech.github.io/>`_.
-
