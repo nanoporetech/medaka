@@ -21,13 +21,14 @@ import medaka.vcf
 
 model_store = resource_filename(__package__, 'data')
 allowed_models = [
-    'r941_min_fast', 'r941_min_high',
-    'r941_prom_fast', 'r941_prom_high', 'r10_min_high',
+    'r941_min_fast_g303', 'r941_min_high_g303', 'r941_min_high_g330',
+    'r941_prom_fast_g303', 'r941_prom_high_g303',
+    'r941_prom_high_g330', 'r10_min_high_g303', 'r10_min_high_g340',
     'r941_prom_diploid_snp'
 ]
-default_consensus_model = 'r941_min_high'
+default_consensus_model = 'r941_min_high_g330'
 default_snp_model = 'r941_prom_diploid_snp'
-default_variant_model = 'r941_prom_high'
+default_variant_model = 'r941_prom_high_g330'
 model_dict = {
     k:os.path.join(model_store, '{}_model.hdf5'.format(k))
     for k in allowed_models

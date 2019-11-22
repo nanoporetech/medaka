@@ -54,7 +54,7 @@ through conda; medaka is available via the
     conda create -n medaka -c conda-forge -c bioconda medaka
 
 **Installation with pip**
-  
+
 For those who prefer python's native pacakage manager, medaka is also available
 on pypi and can be installed using pip:
 
@@ -124,7 +124,7 @@ GPU-powered `medaka` can be configured with:
     make install
 
 However, note that The `tensorflow-gpu` GPU package is compiled against
-specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the 
+specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the
 [tensorflow installation](https://www.tensorflow.org/install/gpu) pages
 for further information. cuDNN can be obtained from the
 [cuDNN Archive](https://developer.nvidia.com/rdp/cudnn-archive), whilst CUDA
@@ -150,18 +150,22 @@ Usage
 program. An assembly in `.fasta` format and basecalls in `.fasta` or `.fastq`
 formats are required. The program uses both `samtools` and `minimap2`. If
 medaka has been installed using the from-source method these will be present
-within the medaka environment, otherwise they will need to be provided by the user.
+within the medaka environment, otherwise they will need to be provided by
+the user.
 
     source ${MEDAKA}  # i.e. medaka/venv/bin/activate
     NPROC=$(nproc)
     BASECALLS=basecalls.fa
     DRAFT=draft_assm/assm_final.fa
     OUTDIR=medaka_consensus
-    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r941_min_high
+    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r941_min_high_g303
 
 The variables `BASECALLS`, `DRAFT`, and `OUTDIR` in the above should be set
-appropriately. When `medaka_consensus` has finished running, the consensus
-will be saved to `${OUTDIR}/consensus.fasta`.
+appropriately. For the selection of the model (`-m r941_min_high_g303` in the
+example above) see the Model section following.
+
+When `medaka_consensus` has finished running, the consensus will be saved to
+`${OUTDIR}/consensus.fasta`.
 
 Models
 ------
@@ -170,10 +174,20 @@ For best results it is important to specify the correct model, `-m` in the
 above, according to the basecaller used. Allowed values can be found by
 running `medaka tools list\_models`.
 
-For guppy v3.0.3 models are named similarly to their basecalling counterparts
-with a "fast" and "high accuracy" model, for example `r941_min_fast` and
-`r941_min_high`. The medaka models are equal in computation performance
-regardless of basecaller speed/accuracy.
+
+Medaka models are named to indicate i) the pore type, ii) the sequencing
+device (MinION or PromethION), iii) the basecaller variant, and iv) the
+basecaller version, with the format:
+
+    {pore}_{device}_{caller variant}_{caller version}
+
+For example the model named `r941_min_fast_g303` should be used with data from
+MinION (or GridION) R9.4.1 flowcells using the fast Guppy basecaller version
+3.0.3. By contrast the model `r941_prom_hac_g303` should be used with PromethION
+data and the high accuracy basecaller (termed "hac" in Guppy configuration
+files). Where a version of Guppy has been used without an exactly corresponding
+medaka model, the medaka model with the highest version equal to or less than
+the guppy version should be selected.
 
 
 ### Origin of the draft sequence
@@ -220,7 +234,7 @@ access to features or stimulate Community development of tools. Support for
 this software will be minimal and is only provided directly by the developers.
 Feature requests, improvements, and discussions are welcome and can be
 implemented by forking and pull requests. However much as we would
-like to rectify every issue and piece of feedback users may have, the 
+like to rectify every issue and piece of feedback users may have, the
 developers may have limited resource for support of this software. Research
 releases may be unstable and subject to rapid iteration by Oxford Nanopore
 Technologies.
