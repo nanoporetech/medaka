@@ -24,6 +24,7 @@ BATCH_SIZE=100
 REGIONS=""
 iflag=false
 fflag=false
+PHASEOUT=false
 DELETE=false
 SNPMODEL=${modeldata[2]##* }
 MODEL=${modeldata[3]##* }
@@ -55,11 +56,12 @@ $(basename "$0") [-h] -i <fastx>
         ${modeldata[0]}.
         Alternatively a .hdf file from 'medaka train'. 
     -t  number of threads with which to create features (default: 1).
+    -p  output phased vcf.
     -b  batchsize, controls memory use (default: ${BATCH_SIZE}).
     -d  delete intermediate files. (default: keep)."
 
 
-while getopts ':hi::f:r:o:m:s:T:t:b:d' option; do
+while getopts ':hi::f:r:o:m:s:T:t:pb:d' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; CALLS2REF=$(follow_link $OPTARG);;
@@ -69,6 +71,7 @@ while getopts ':hi::f:r:o:m:s:T:t:b:d' option; do
     m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
     s  ) SNPMODEL=$(medaka tools resolve_model --model $OPTARG);;
     t  ) THREADS=$OPTARG;;
+    p  ) PHASEOUT=true;;
     b  ) BATCH_SIZE=$OPTARG;;
     d  ) DELETE=true;;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
@@ -336,12 +339,12 @@ run_medaka_consensus ${CALLS2REF} ${CONSENSUSPROBS} ${SNPMODEL}
 run_medaka_snp ${CONSENSUSPROBS} ${UNPHASEDVCF}
 
 # check empty vcf, write empty final output
-FINALPHASED=round_1_phased.vcf
+FINAL=round_1.vcf
 
 nvars=$(grep -c -m 1 -v "#" ${UNPHASEDVCF} || echo 0)
 if [[ "${nvars}" -eq "0" ]]; then
     echo "- First pass vcf has no records, writing empty vcf and finishing."
-    cp ${UNPHASEDVCF} ${FINALPHASED}  # this gets us the header
+    cp ${UNPHASEDVCF} ${FINAL}  # this gets us the header
 else
     PHASEDVCF=round_${ROUND}_hap_mixed_phased.vcf
     PHASEDVCFGZ=${PHASEDVCF}.gz
@@ -365,7 +368,13 @@ else
     
     run_medaka_haploid2diploid \
         round_${ROUND}_hap_1.vcf round_${ROUND}_hap_2.vcf \
-        ${REF} ${FINALPHASED}
+        ${REF} ${FINAL}
+
+    if ${PHASEOUT}; then
+        FINALPHASED=round_1_phased.vcf
+        run_phase_vcf ${FINAL} ${FINALPHASED}
+        FINAL=${FINALPHASED}
+    fi
 fi
 
 ###
@@ -379,4 +388,4 @@ if ${DELETE}; then
   echo "${files}"
   rm ${files}
 fi
-echo "- Final phased VCF written to ${OUTPUT}/${FINALPHASED}"
+echo "- Final VCF written to ${OUTPUT}/${FINAL}"
