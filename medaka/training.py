@@ -137,12 +137,12 @@ def run_training(
             # defaults from docs as of 01/09/2019
             optim_args = {
                 'lr': 0.002, 'beta_1': 0.9, 'beta_2': 0.999,
-                'epsilon': None, 'schedule_decay': 0.004}
+                'epsilon': 1e-07, 'schedule_decay': 0.004}
         optimizer = optimizers.Nadam(**optim_args)
     elif optimizer == 'rmsprop':
         if optim_args is None:
             optim_args = {
-                'lr': 0.001, 'rho': 0.9, 'epsilon': None, 'decay': 0.0}
+                'lr': 0.001, 'rho': 0.9, 'epsilon': 1e-07, 'decay': 0.0}
         optimizer = optimizers.RMSprop(**optim_args)
     else:
         raise ValueError('Unknown optimizer: {}'.format(optimizer))
