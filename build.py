@@ -16,17 +16,20 @@ ffibuilder.set_source("libmedaka",
     #include "medaka_bamiter.h"
     #include "medaka_common.h"
     #include "medaka_counts.h"
+    #include "fastrle.h"
+    #include "kseq.h"
+
     """,
     libraries=libraries,
     library_dirs=library_dirs,
     include_dirs=[src_dir, htslib_dir],
-    sources=[os.path.join(src_dir, x) for x in ('medaka_bamiter.c', 'medaka_common.c', 'medaka_counts.c')],
+    sources=[os.path.join(src_dir, x) for x in ('medaka_bamiter.c', 'medaka_common.c', 'medaka_counts.c', 'fastrle.c')],
     extra_compile_args=['-std=c99', '-msse3', '-O3'],
     extra_objects=['libhts.a']
 )
 
 cdef = []
-for header in ('medaka_counts.h',):
+for header in ('medaka_counts.h','fastrle.h'):
     with open(os.path.join(src_dir, header), 'r') as fh:
         cdef.append(fh.read())
 
