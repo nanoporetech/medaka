@@ -128,6 +128,11 @@ def print_all_models(args):
     print('Default variant: ', default_variant_model)
 
 
+def fastrle(args):
+    import libmedaka
+    libmedaka.lib.fastrle(args.input.encode())
+
+
 class StoreDict(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         """Converts 'key1=value1 key2=value1a,value2a' to a dictionary.
@@ -295,6 +300,14 @@ def main():
     cfparser.add_argument('features', nargs='+', help='Pregenerated features (from medaka features).')
     cfparser.add_argument('--model', action=ResolveModel, default=default_consensus_model, help='Model definition.')
 
+    # Compression of fasta/q to quality-RLE fastq
+    rleparser = subparsers.add_parser('fastrle',
+        help='Create run-length encoded fastq (lengths in quality track).',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    rleparser.set_defaults(func=fastrle)
+    rleparser.add_argument('input', help='Input fasta/q. may be gzip compressed.')
+
     # Post-processing of consensus outputs
     sparser = subparsers.add_parser('stitch',
         help='Stitch together output from medaka consensus into final output.',
@@ -347,7 +360,6 @@ def main():
     hdf2samparser.add_argument('reference', help='.fasta containing reference sequence(s).')
     hdf2samparser.add_argument('--workers', type=int, default=1, help='Number of worker processes.')
     hdf2samparser.add_argument('--recursive', action='store_true', help='Search for .fast5s recursively.')
-
 
     methcallparser = methsubparsers.add_parser('call',
         help='Call methylation from .bam file.',
