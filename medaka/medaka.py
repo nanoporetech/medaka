@@ -121,6 +121,15 @@ def print_model_path(args):
     print(os.path.abspath(args.model))
 
 
+def is_rle_encoder(args):
+    rle_encoders = [medaka.features.HardRLEFeatureEncoder]
+    model = medaka.datastore.DataStore(args.model)
+    encoder = model.get_meta('feature_encoder')
+    is_rle = any((isinstance(encoder, x) for x in rle_encoders))
+    print(is_rle)
+
+
+
 def print_all_models(args):
     print('Available:', ', '.join(allowed_models))
     print('Default consensus: ', default_consensus_model)
@@ -445,6 +454,13 @@ def main():
         parents=[_log_level(), _model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     rmparser.set_defaults(func=print_model_path)
+
+    # check if feature encoder is RLE
+    rleparser = toolsubparsers.add_parser('is_rle_model',
+        help='Check if a model is an RLE model.',
+        parents=[_model_arg()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    rleparser.set_defaults(func=is_rle_encoder)
 
     # print all model tags followed by default
     lmparser = toolsubparsers.add_parser('list_models',

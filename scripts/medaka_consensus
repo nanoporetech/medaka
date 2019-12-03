@@ -32,7 +32,7 @@ $(basename "$0") [-h] -i <fastx>
 
     -h  show this help text.
     -i  fastx input basecalls (required).
-    -d  fasta input assembly (required). 
+    -d  fasta input assembly (required).
     -o  output folder (default: medaka).
     -m  medaka model, (default: ${MODEL}).
         ${modeldata[0]}.
@@ -78,11 +78,31 @@ medaka_version_report || exit 1
 
 if [[ ! -e ${OUTPUT} ]]; then
   mkdir -p ${OUTPUT}
+elif [[ ${FORCE} ]]; then
+  echo "Warning: Output will be overwritten (-f flag)"
 else
   echo "Warning: Output ${OUTPUT} already exists, may use old results."
 fi
 
 cd ${OUTPUT}
+
+rflag=$(medaka tools is_rle_model --model $MODEL)
+if [[ $rflag == "True" ]]; then
+  COMPRESSED_BASECALLS=basecalls.fastrle.gz
+  COMPRESSED_DRAFT=draft.fastrle.gz
+  if [[ ! -e ${COMPRESSED_BASECALLS} ]] ||  [[ ! -e ${COMPRESSED_DRAFT} ]] || ${FORCE}; then
+    echo "Compressing draft and basecalls."
+
+    medaka fastrle ${BASECALLS} | gzip > ${COMPRESSED_BASECALLS}
+    medaka fastrle ${DRAFT} | gzip > ${COMPRESSED_DRAFT}
+
+    BASECALLS=${COMPRESSED_BASECALLS}
+    DRAFT=${COMPRESSED_DRAFT}
+    FORCE=true
+  else
+    echo "Not compressing basecalls and draft, ${COMPRESSED_BASECALLS} and ${COMPRESSED_DRAFT} exist."
+  fi
+fi
 
 CALLS2DRAFT=calls_to_draft
 if [[ ! -e ${CALLS2DRAFT}.bam ]] || ${FORCE}; then
@@ -102,7 +122,7 @@ if [[ ! -e ${CONSENSUSPROBS} ]] || ${FORCE}; then
         --model ${MODEL} --batch_size ${BATCH_SIZE} --threads ${THREADS} \
         || (echo "Failed to run medaka consensus." && exit 1)
     FORCE=true
-else 
+else
     echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
 fi
 
