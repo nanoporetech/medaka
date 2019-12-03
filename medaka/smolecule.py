@@ -231,7 +231,7 @@ class Read(object):
                     stderr=subprocess.PIPE
                 )
             except subprocess.CalledProcessError as e:
-                print("\n".join("RACON FAILED", e.cmd, e.stdout, e.stderr))
+                print("\n".join(("RACON FAILED", e.cmd, e.stdout, e.stderr)))
             racon_seq = out.decode().splitlines()[1]
         return racon_seq
 
