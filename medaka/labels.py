@@ -1359,15 +1359,14 @@ class RLELabelScheme(HaploidLabelScheme):
     def _alignment_to_pairs(self, aln):
         """Convert `pysam.AlignedSegment` to aligned pairs."""
         seq = aln.query_sequence
+        # pysam gives back 0-based, but we skip the 0 for sanity
         run_lengths = aln.query_qualities
         for qpos, rpos in aln.get_aligned_pairs():
             qbase = seq[qpos] if qpos is not None else '*'
             # A deletion will have length 1
             qlen = run_lengths[qpos] if qpos is not None else 1
-
             # A larger run length that our maximum run length will be clipped
             qlen = min(qlen, self.max_run)
-
             yield rpos, (qbase, qlen)
 
     def _labels_to_encoded_labels(self, labels):
