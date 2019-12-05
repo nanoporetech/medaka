@@ -230,9 +230,13 @@ class Read(object):
                     ['racon', fasta, overlaps, ref_fasta] + opts,
                     stderr=subprocess.PIPE
                 )
+                racon_seq = out.decode().splitlines()[1]
             except subprocess.CalledProcessError as e:
-                print("\n".join(("RACON FAILED", e.cmd, e.stdout, e.stderr)))
-            racon_seq = out.decode().splitlines()[1]
+                print("RACON FAILED\nRACON COMMAND IS:")
+                print(' '.join(str(v) for v in e.cmd))
+                print(e.stderr.decode('UTF-8'))
+                print(e.stdout.decode('UTF-8'))
+                racon_seq = self.consensus
         return racon_seq
 
     def orient_subreads(self):
