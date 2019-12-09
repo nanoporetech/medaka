@@ -13,6 +13,7 @@ import numpy as np
 from pkg_resources import resource_filename
 import pysam
 
+import libmedaka
 
 ComprAlignPos = collections.namedtuple(
     'ComprAlignPos',
@@ -672,6 +673,29 @@ def reverse_complement(seq):
 
     """
     return seq.translate(comp_trans)[::-1]
+
+
+def read_key_value_tsv(fname):
+    """Read a dictionary from a .tsv file.
+
+    :param fname: a .tsv file with two columns: keys and values.
+
+    :returns: a dictionary.
+
+    """
+    try:
+        as_string = libmedaka.ffi.string
+        text = libmedaka.lib.read_key_value(fname.encode())
+        data = dict()
+        for i in range(0, text.n, 2):
+            key = as_string(text.strings[i]).decode()
+            value = as_string(text.strings[i+1]).decode()
+            data[key] = value
+        libmedaka.lib.destroy_string_set(text)
+    except Exception:
+        raise RuntimeError(
+            'Failed to parse {} as two-column .tsv file.'.format(fname))
+    return data
 
 
 def initialise_alignment(

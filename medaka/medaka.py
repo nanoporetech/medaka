@@ -129,7 +129,6 @@ def is_rle_encoder(args):
     print(is_rle)
 
 
-
 def print_all_models(args):
     print('Available:', ', '.join(allowed_models))
     print('Default consensus: ', default_consensus_model)
@@ -461,6 +460,14 @@ def main():
         parents=[_model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     rleparser.set_defaults(func=is_rle_encoder)
+
+    # append RLE tags to a bam from hdf
+    rlebamparser = toolsubparsers.add_parser('rlebam',
+        description='Add RLE tags from HDF to bam. (input bam from stdin)',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    rlebamparser.add_argument('read_index', help='Two column .tsv mapping read_ids to .hdf filepaths.')
+    rlebamparser.add_argument('--workers', type=int, default=4, help='Number of worker processes.')
+    rlebamparser.set_defaults(func=medaka.rle.rlebam)
 
     # print all model tags followed by default
     lmparser = toolsubparsers.add_parser('list_models',

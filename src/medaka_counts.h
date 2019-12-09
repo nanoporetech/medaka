@@ -1,4 +1,3 @@
-
 // medaka-style feature data
 typedef struct _plp_data {
     size_t buffer_cols;
@@ -9,8 +8,35 @@ typedef struct _plp_data {
     size_t *major;
     size_t *minor;
 } _plp_data;
-
 typedef _plp_data *plp_data;
+
+
+// Simple container for strings
+typedef struct string_set {
+    size_t n;
+    char **strings;
+} string_set;
+
+
+/** Destroys a string set
+ *
+ *  @param data the object to cleanup.
+ *  @returns void.
+ *
+ */
+void destroy_string_set(string_set strings);
+
+
+/** Retrieves contents of key-value tab delimited file.
+ *
+ *  @param fname input file path.
+ *  @returns a string_set
+ *
+ *  The return value can be free'd with destroy_string_set.
+ *  key-value pairs are stored sequentially in the string set
+ *
+ */
+string_set read_key_value(char * fname);
 
 
 // medaka-style base encoding
