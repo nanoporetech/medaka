@@ -5,9 +5,11 @@ import functools
 from glob import glob
 import os
 import re
+import sys
 
 import h5py
 import numpy as np
+from ont_fast5_api.fast5_interface import get_fast5_file
 import parasail
 import pysam
 
@@ -373,3 +375,67 @@ def compress_bam(args):
         args.bam_input, args.bam_output, args.ref_fname,
         fast5_dir=fast5_dir, summary=summary,
         threads=args.threads, regions=args.regions)
+
+
+def _rle_bam_hdf_worker(data):
+    """Append RLE tags to a sam record.
+
+    :param data: a tuple: sam record, read_id, is_rev, fname.
+
+    :returns: new sam record. If RLE data could not be retrieved the input
+        is returned unchanged.
+    """
+    logger = medaka.common.get_named_logger('BAMDecor')
+    line, read_id, is_rev, fname = data
+    hdf_dset = 'Analyses/{}/BaseCalled_template/RunlengthBasecall'
+    if read_id is None:
+        new_line = line  # parent passes header lines
+    else:
+        with get_fast5_file(fname, mode="r") as f5:
+            # this gives an error
+            # run_lengths = read.get_analysis_dataset(
+            #     latest, 'BaseCalled_template/RunlengthBasecall')
+            read = f5.get_read(read_id)
+            latest = read.get_latest_analysis('Basecall_1D')
+            dset = read.handle[hdf_dset.format(latest)]
+            bases = dset['base'][()]
+            if any(x == y for (x, y) in zip(bases[1:], bases[:-1])):
+                logger.info(
+                    "Invalid RLE/basecall dataset for {} in file {}.".format(
+                        read_id, fname))
+                new_line = line
+            else:
+                w_scale = dset['scale']  # wl
+                w_shape = dset['shape']  # wk
+                # reverse tags if necessary:
+                if is_rev:
+                    w_scale = w_scale[::-1]
+                    w_shape = w_shape[::-1]
+                new_line = '{}\t{}\t{}'.format(
+                    line,
+                    'WL:B:f,{}'.format(','.join(str(x) for x in w_scale)),
+                    'WK:B:f,{}'.format(','.join(str(x) for x in w_shape)))
+    return new_line
+
+
+def rlebam(args):
+    """Entry point for merging run length information for fast5s to bam."""
+    logger = medaka.common.get_named_logger('BAMDecor')
+    read_index = medaka.common.read_key_value_tsv(args.read_index)
+    logger.info("Found {} read in index\n".format(len(read_index)))
+
+    def _ingress():
+        for line in sys.stdin:
+            if line[0] == '@':
+                yield line.rstrip(), None, None, None
+            else:
+                read_id, flag, _ = line.split('\t', 2)
+                is_rev = bool(int(flag) & 16)
+                fname = read_index[read_id]
+                yield line.rstrip(), read_id, is_rev, fname
+
+    with concurrent.futures.ProcessPoolExecutor(
+            max_workers=args.workers) as executor:
+        for results in executor.map(
+                _rle_bam_hdf_worker, _ingress(), chunksize=10):
+            print(results)
