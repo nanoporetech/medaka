@@ -17,7 +17,7 @@ file:
     medaka methylation guppy2sam ${FAST5PATH} ${REFERENCE} \
         --workers 74 --recursive \
         | samtools sort -@ 8 | samtools view -b -@ 8 > ${OUTBAM}
-    samtools sort ${OUTBAM}
+    samtools index ${OUTBAM}
 
 This program will extract both the basecall sequence and methylation scores,
 align the basecall to the reference, and store results in a standard format.
