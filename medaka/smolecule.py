@@ -231,8 +231,10 @@ class Read(object):
                     stderr=subprocess.PIPE
                 )
             except subprocess.CalledProcessError as e:
-                print("\n".join("RACON FAILED", e.cmd, e.stdout, e.stderr))
-            racon_seq = out.decode().splitlines()[1]
+                print("\n".join(["RACON FAILED", e.cmd, e.stdout, e.stderr]))
+                racon_seq = self.consensus
+            else:
+                racon_seq = out.decode().splitlines()[1]
         return racon_seq
 
     def orient_subreads(self):
