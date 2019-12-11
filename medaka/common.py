@@ -738,3 +738,21 @@ def initialise_alignment(
         a.set_tag(tag_name, tag_value)
 
     return a
+
+
+def yield_from_bed(bedfile):
+    """Yield chrom, start, stop tuples from a bed file.
+
+    :param bedfile: str, filepath.
+    :yields: (str chrom, int start, int stop).
+
+    """
+    with open(bedfile) as fh:
+        for line in fh:
+            split_line = line.split()
+            if split_line[0] in {'browser', 'track'} or len(split_line) < 3:
+                continue
+            chrom = split_line[0]
+            start = int(split_line[1])
+            stop = int(split_line[2])
+            yield chrom, start, stop
