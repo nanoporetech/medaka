@@ -741,10 +741,11 @@ def initialise_alignment(
 
 
 def yield_from_bed(bedfile):
-    """Yield chrom, start, stop tuples from a bed file
+    """Yield chrom, start, stop tuples from a bed file.
 
     :param bedfile: str, filepath.
-    :yields (str chrom, int start, int stop)
+    :yields: (str chrom, int start, int stop).
+
     """
     with open(bedfile) as fh:
         for line in fh:
