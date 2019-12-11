@@ -7,6 +7,7 @@ import sys
 import numpy as np
 import pysam
 
+import medaka.common
 import medaka.datastore
 import medaka.features
 import medaka.labels
@@ -75,6 +76,20 @@ class CheckBam(argparse.Action):
         setattr(namespace, self.dest, values)
 
 
+class CheckIsBed(argparse.Action):
+    """Check if --region option is a bed file."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if len(values) == 1 and os.path.exists(values[0]):
+            # parse bed file
+            regions = []
+            for chrom, start, stop in medaka.common.yield_from_bed(values[0]):
+                regions.append('{}:{}-{}'.format(chrom, start, stop))
+            setattr(namespace, self.dest, regions)
+        else:
+            setattr(namespace, self.dest, values)
+
+
 def _log_level():
     """Parser to set logging level and acquire software version/commit"""
 
@@ -109,7 +124,8 @@ def _chunking_feature_args(batch_size=100, chunk_len=10000, chunk_ovlp=1000):
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
     parser.add_argument('--batch_size', type=int, default=batch_size, help='Inference batch size.')
-    parser.add_argument('--regions', default=None, nargs='+', help='Genomic regions to analyse.')
+    parser.add_argument('--regions', default=None, action=CheckIsBed, nargs='+',
+                        help='Genomic regions to analyse, or a bed file.')
     parser.add_argument('--chunk_len', type=int, default=chunk_len, help='Chunk length of samples.')
     parser.add_argument('--chunk_ovlp', type=int, default=chunk_ovlp, help='Overlap of chunks.')
     parser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
@@ -208,8 +224,8 @@ def main():
                          help='Reference fasta file used for `bam_input`.')
     rparser.add_argument('--threads', type=int, default=1,
                          help='Number of threads for parallel execution.')
-    rparser.add_argument('--regions', default=None, nargs='+',
-                         help='Genomic regions to analyse.')
+    rparser.add_argument('--regions', default=None, nargs='+', action=CheckIsBed,
+                         help='Genomic regions to analyse, or .bed file.')
 
     rparser.add_argument(
         '--use_fast5_info', metavar='<fast5_dir> <index>', default=None,
