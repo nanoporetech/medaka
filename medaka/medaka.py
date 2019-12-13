@@ -70,7 +70,15 @@ class CheckBam(argparse.Action):
                     self.dest, values)
             )
         with pysam.AlignmentFile(values) as bam:
-            header_dict = bam.header.as_dict()
+            # As of 13/12/19 pypi still has no wheel for pysam v0.15.3 so we
+            # pinned to v0.15.2. However bioconda's v0.15.2 package
+            # conflicts with the libdeflate they have so we are forced
+            # to use newer versions. Newer versions however have a
+            # different API, sigh...
+            try:
+                header_dict = bam.header.as_dict()
+            except AttributeError:
+                header_dict = bam.header
             if 'RG' in header_dict and len(header_dict['RG']) > 1:
                 raise RuntimeError('The bam {} contains more than one read group.'.format(values))
         setattr(namespace, self.dest, values)
