@@ -1,3 +1,19 @@
+v0.11.1
+-------
+Minor fix release
+
+* Preliminary hard-RLE model for R9.4.1
+* --regions argument can now be a .bed file.
+* Detect NaNs during training and halt early.
+* Workaround pysam interface changes (for conda package).
+* Support soft-RLE network training.
+
+This release includes an experimental consensus mode using run-length encoded
+alignments. Use of this algorithm can be specified using the new "rle" model:
+
+    medaka_consensus -m r941_min_high_g340_rle -i basecalls.fasta -d draft.fa
+
+
 v0.11.0
 -------
 Feature release

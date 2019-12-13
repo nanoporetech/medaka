@@ -14,6 +14,7 @@ A clear and concise description of what the bug is.
 Please attach any relevant logging messages.
 
 **Environment (if you do not have a GPU, write No GPU):**
+ - Installation method [from github source, pypi (pip install), conda]
  - OS: [e.g. Ubuntu 16.04]
  - GPU model
  - Nvidia driver version
