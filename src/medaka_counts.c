@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include "htslib/sam.h"
 
+#include "khash.h"
 #include "kvec.h"
 #include "medaka_bamiter.h"
 #include "medaka_common.h"
@@ -17,6 +18,8 @@
 #define bam1_seqi(s, i) (bam_seqi((s), (i)))
 #define bam_nt16_rev_table seq_nt16_str
 
+// For recording bad reads and skipping processing
+KHASH_SET_INIT_STR(BADREADS)
 
 /** Swap two strings
  *
@@ -183,7 +186,7 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_
 }
 
 
-float* _get_weibull_scores(const bam_pileup1_t *p, const size_t indel, const size_t num_homop) {
+float* _get_weibull_scores(const bam_pileup1_t *p, const size_t indel, const size_t num_homop, khash_t(BADREADS) *bad_reads) {
     // Create homopolymer scores using Weibull shape and scale parameters.
     // If prerequisite sam tags are not present an array of zero counts is returned.
     float* fraction_counts = xalloc(num_homop, sizeof(float), "weibull_counts");
@@ -192,8 +195,15 @@ float* _get_weibull_scores(const bam_pileup1_t *p, const size_t indel, const siz
     for (size_t i=0; i < 2; ++i) {
         uint8_t *tag = bam_aux_get(p->b, wtags[i]);
         if (tag == NULL) {
-            fprintf(stderr, "Failed to retrieve tag for Weibull parameter %s.\n",
-                    wtags[i]);
+            char* read_id = bam_get_qname(p->b);
+            khiter_t k;
+            k = kh_get(BADREADS, bad_reads, read_id);
+            if (k == kh_end(bad_reads)) { // a new bad read
+                int putret;
+                k = kh_put(BADREADS, bad_reads, read_id, &putret);
+                fprintf(stderr, "Failed to retrieve Weibull parameter tag '%s' for read %s.\n",
+                        wtags[i], read_id);
+            }
             return fraction_counts;
         }
         uint32_t taglen = bam_auxB_len(tag);
@@ -297,6 +307,8 @@ plp_data calculate_pileup(
     // get counts
     size_t major_col = 0;  // index into `pileup` corresponding to pos
     n_cols = 0;            // number of processed columns (including insertions)
+    khash_t(BADREADS) *no_rle_tags = kh_init(BADREADS);  // maintain set of reads without rle tags
+
     while ((ret=bam_mplp_auto(mplp, &tid, &pos, &n_plp, plp) > 0)) {
         const char *c_name = data->hdr->target_name[tid];
         if (strcmp(c_name, chr) != 0) continue;
@@ -382,7 +394,7 @@ plp_data calculate_pileup(
                             + base_i;                      // the base
 
                         if (weibull_summation) {
-                            float* fraction_counts = _get_weibull_scores(p, j, num_homop);
+                            float* fraction_counts = _get_weibull_scores(p, j, num_homop, no_rle_tags);
                             for (size_t qstrat = 0; qstrat < num_homop; ++qstrat) {
                                 static const int scale = 10000;
                                 pileup->matrix[partial_index + featlen * qstrat] += 
@@ -405,6 +417,7 @@ plp_data calculate_pileup(
         major_col += (dtype_featlen * (max_ins+1));
         n_cols += max_ins;
     }
+    kh_destroy(BADREADS, no_rle_tags);
     pileup->n_cols = n_cols;
 
     bam_itr_destroy(data->iter);
