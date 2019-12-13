@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <assert.h>
 #include <errno.h>
 #include <math.h>
@@ -7,6 +8,8 @@
 #include <stdlib.h>
 #include "htslib/sam.h"
 
+#include "khash.h"
+#include "kvec.h"
 #include "medaka_bamiter.h"
 #include "medaka_common.h"
 #include "medaka_counts.h"
@@ -14,6 +17,75 @@
 #define bam1_seq(b) ((b)->data + (b)->core.n_cigar*4 + (b)->core.l_qname)
 #define bam1_seqi(s, i) (bam_seqi((s), (i)))
 #define bam_nt16_rev_table seq_nt16_str
+
+// For recording bad reads and skipping processing
+KHASH_SET_INIT_STR(BADREADS)
+
+/** Swap two strings
+ *
+ *  @param a first string
+ *  @param b second string
+ *  @returns a plp_data pointer.
+ *
+ */
+void swap_strings(char** a, char** b){
+    char *temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+
+/** Destroys a string set
+ *
+ *  @param data the object to cleanup.
+ *  @returns void.
+ *
+ */
+void destroy_string_set(string_set strings) {
+    for(size_t i = 0; i < strings.n; ++i) {
+        free(strings.strings[i]);
+    }
+    free(strings.strings);
+}
+
+
+/** Retrieves contents of key-value tab delimited file.
+ *
+ *  @param fname input file path.
+ *  @returns a string_set
+ *
+ *  The return value can be free'd with destroy_string_set.
+ *  key-value pairs are stored sequentially in the string set
+ *
+ */
+string_set read_key_value(char * fname) {
+    FILE *fp;
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read;
+    kvec_t(char*) strings;
+    kv_init(strings);
+    
+    fp = fopen(fname, "r");
+    if (fp == NULL)
+        exit(EXIT_FAILURE);
+
+    while ((read = getdelim(&line, &len, '\t', fp)) != -1) {
+        line[read - 1] = '\0';
+        char *key = NULL; swap_strings(&key, &line);
+        kv_push(char*, strings, key);
+        read = getline(&line, &len, fp);
+        line[read - 1] = '\0';
+        char *value = NULL; swap_strings(&value, &line);
+        kv_push(char*, strings, value);
+    }
+    free(line);
+    // move strings into a simpler container (awkward to pass kvec_t through cffi)
+    string_set my_strings;
+    my_strings.n = strings.n;
+    my_strings.strings = strings.a;
+    return(my_strings);
+}
 
 
 /** Constructs a pileup data structure.
@@ -114,32 +186,42 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_
 }
 
 
-float* _get_weibull_scores(const bam_pileup1_t *p, const size_t indel, const size_t num_homop) {
+float* _get_weibull_scores(const bam_pileup1_t *p, const size_t indel, const size_t num_homop, khash_t(BADREADS) *bad_reads) {
+    // Create homopolymer scores using Weibull shape and scale parameters.
+    // If prerequisite sam tags are not present an array of zero counts is returned.
+    float* fraction_counts = xalloc(num_homop, sizeof(float), "weibull_counts");
     static const char* wtags[] = {"WL", "WK"};  // scale, shape
     double wtag_vals[2] = {0.0, 0.0};
     for (size_t i=0; i < 2; ++i) {
         uint8_t *tag = bam_aux_get(p->b, wtags[i]);
         if (tag == NULL) {
-            fprintf(stderr, "Failed to retrieve tag for Weibull parameter %s.\n",
-                    wtags[i]);
-            exit(1);
+            char* read_id = bam_get_qname(p->b);
+            khiter_t k;
+            k = kh_get(BADREADS, bad_reads, read_id);
+            if (k == kh_end(bad_reads)) { // a new bad read
+                int putret;
+                k = kh_put(BADREADS, bad_reads, read_id, &putret);
+                fprintf(stderr, "Failed to retrieve Weibull parameter tag '%s' for read %s.\n",
+                        wtags[i], read_id);
+            }
+            return fraction_counts;
         }
         uint32_t taglen = bam_auxB_len(tag);
         if (p->qpos + indel >= taglen) {
             fprintf(stderr, "%s tag was out of range for %s position %lu. taglen: %i\n",
                     wtags[i], bam_get_qname(p->b), p->qpos + indel, taglen);
-            exit(1);
+            return fraction_counts;
         }
         wtag_vals[i] = bam_auxB2f(tag, p->qpos + indel);
     }
 
+    // found tags, fill in values
     float scale = wtag_vals[0];  //wl
     float shape = wtag_vals[1];  //wk
-    float* fraction_counts = xalloc(num_homop, sizeof(float), "weibull_counts");
     for (size_t x = 1; x < num_homop + 1; ++x) {
         float a = pow((x-1) / scale, shape);
         float b = pow(x / scale, shape);
-        fraction_counts[x-1] = max(0.0, -exp(-a) * expm1(a - b));
+        fraction_counts[x-1] = fmax(0.0, -exp(-a) * expm1(a - b));
     }
     return fraction_counts;
 }
@@ -225,6 +307,8 @@ plp_data calculate_pileup(
     // get counts
     size_t major_col = 0;  // index into `pileup` corresponding to pos
     n_cols = 0;            // number of processed columns (including insertions)
+    khash_t(BADREADS) *no_rle_tags = kh_init(BADREADS);  // maintain set of reads without rle tags
+
     while ((ret=bam_mplp_auto(mplp, &tid, &pos, &n_plp, plp) > 0)) {
         const char *c_name = data->hdr->target_name[tid];
         if (strcmp(c_name, chr) != 0) continue;
@@ -310,7 +394,7 @@ plp_data calculate_pileup(
                             + base_i;                      // the base
 
                         if (weibull_summation) {
-                            float* fraction_counts = _get_weibull_scores(p, j, num_homop);
+                            float* fraction_counts = _get_weibull_scores(p, j, num_homop, no_rle_tags);
                             for (size_t qstrat = 0; qstrat < num_homop; ++qstrat) {
                                 static const int scale = 10000;
                                 pileup->matrix[partial_index + featlen * qstrat] += 
@@ -333,6 +417,7 @@ plp_data calculate_pileup(
         major_col += (dtype_featlen * (max_ins+1));
         n_cols += max_ins;
     }
+    kh_destroy(BADREADS, no_rle_tags);
     pileup->n_cols = n_cols;
 
     bam_itr_destroy(data->iter);

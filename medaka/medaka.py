@@ -7,6 +7,7 @@ import sys
 import numpy as np
 import pysam
 
+import medaka.common
 import medaka.datastore
 import medaka.features
 import medaka.labels
@@ -25,7 +26,7 @@ allowed_models = [
     'r941_min_fast_g303', 'r941_min_high_g303', 'r941_min_high_g330',
     'r941_prom_fast_g303', 'r941_prom_high_g303',
     'r941_prom_high_g330', 'r10_min_high_g303', 'r10_min_high_g340',
-    'r941_prom_diploid_snp'
+    'r941_prom_diploid_snp', 'r941_min_high_g340_rle',
 ]
 default_consensus_model = 'r941_min_high_g330'
 default_snp_model = 'r941_prom_diploid_snp'
@@ -69,10 +70,32 @@ class CheckBam(argparse.Action):
                     self.dest, values)
             )
         with pysam.AlignmentFile(values) as bam:
-            header_dict = bam.header.as_dict()
+            # As of 13/12/19 pypi still has no wheel for pysam v0.15.3 so we
+            # pinned to v0.15.2. However bioconda's v0.15.2 package
+            # conflicts with the libdeflate they have so we are forced
+            # to use newer versions. Newer versions however have a
+            # different API, sigh...
+            try:
+                header_dict = bam.header.as_dict()
+            except AttributeError:
+                header_dict = bam.header
             if 'RG' in header_dict and len(header_dict['RG']) > 1:
                 raise RuntimeError('The bam {} contains more than one read group.'.format(values))
         setattr(namespace, self.dest, values)
+
+
+class CheckIsBed(argparse.Action):
+    """Check if --region option is a bed file."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if len(values) == 1 and os.path.exists(values[0]):
+            # parse bed file
+            regions = []
+            for chrom, start, stop in medaka.common.yield_from_bed(values[0]):
+                regions.append('{}:{}-{}'.format(chrom, start, stop))
+            setattr(namespace, self.dest, regions)
+        else:
+            setattr(namespace, self.dest, values)
 
 
 def _log_level():
@@ -109,7 +132,8 @@ def _chunking_feature_args(batch_size=100, chunk_len=10000, chunk_ovlp=1000):
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
     parser.add_argument('--batch_size', type=int, default=batch_size, help='Inference batch size.')
-    parser.add_argument('--regions', default=None, nargs='+', help='Genomic regions to analyse.')
+    parser.add_argument('--regions', default=None, action=CheckIsBed, nargs='+',
+                        help='Genomic regions to analyse, or a bed file.')
     parser.add_argument('--chunk_len', type=int, default=chunk_len, help='Chunk length of samples.')
     parser.add_argument('--chunk_ovlp', type=int, default=chunk_ovlp, help='Overlap of chunks.')
     parser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
@@ -121,11 +145,24 @@ def print_model_path(args):
     print(os.path.abspath(args.model))
 
 
+def is_rle_encoder(args):
+    rle_encoders = [medaka.features.HardRLEFeatureEncoder]
+    model = medaka.datastore.DataStore(args.model)
+    encoder = model.get_meta('feature_encoder')
+    is_rle = any((isinstance(encoder, x) for x in rle_encoders))
+    print(is_rle)
+
+
 def print_all_models(args):
     print('Available:', ', '.join(allowed_models))
     print('Default consensus: ', default_consensus_model)
     print('Default SNP: ', default_snp_model)
     print('Default variant: ', default_variant_model)
+
+
+def fastrle(args):
+    import libmedaka
+    libmedaka.lib.fastrle(args.input.encode())
 
 
 class StoreDict(argparse.Action):
@@ -195,8 +232,8 @@ def main():
                          help='Reference fasta file used for `bam_input`.')
     rparser.add_argument('--threads', type=int, default=1,
                          help='Number of threads for parallel execution.')
-    rparser.add_argument('--regions', default=None, nargs='+',
-                         help='Genomic regions to analyse.')
+    rparser.add_argument('--regions', default=None, nargs='+', action=CheckIsBed,
+                         help='Genomic regions to analyse, or .bed file.')
 
     rparser.add_argument(
         '--use_fast5_info', metavar='<fast5_dir> <index>', default=None,
@@ -295,6 +332,14 @@ def main():
     cfparser.add_argument('features', nargs='+', help='Pregenerated features (from medaka features).')
     cfparser.add_argument('--model', action=ResolveModel, default=default_consensus_model, help='Model definition.')
 
+    # Compression of fasta/q to quality-RLE fastq
+    rleparser = subparsers.add_parser('fastrle',
+        help='Create run-length encoded fastq (lengths in quality track).',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    rleparser.set_defaults(func=fastrle)
+    rleparser.add_argument('input', help='Input fasta/q. may be gzip compressed.')
+
     # Post-processing of consensus outputs
     sparser = subparsers.add_parser('stitch',
         help='Stitch together output from medaka consensus into final output.',
@@ -347,7 +392,6 @@ def main():
     hdf2samparser.add_argument('reference', help='.fasta containing reference sequence(s).')
     hdf2samparser.add_argument('--workers', type=int, default=1, help='Number of worker processes.')
     hdf2samparser.add_argument('--recursive', action='store_true', help='Search for .fast5s recursively.')
-
 
     methcallparser = methsubparsers.add_parser('call',
         help='Call methylation from .bam file.',
@@ -433,6 +477,21 @@ def main():
         parents=[_log_level(), _model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     rmparser.set_defaults(func=print_model_path)
+
+    # check if feature encoder is RLE
+    rleparser = toolsubparsers.add_parser('is_rle_model',
+        help='Check if a model is an RLE model.',
+        parents=[_model_arg()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    rleparser.set_defaults(func=is_rle_encoder)
+
+    # append RLE tags to a bam from hdf
+    rlebamparser = toolsubparsers.add_parser('rlebam',
+        description='Add RLE tags from HDF to bam. (input bam from stdin)',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    rlebamparser.add_argument('read_index', help='Two column .tsv mapping read_ids to .hdf filepaths.')
+    rlebamparser.add_argument('--workers', type=int, default=4, help='Number of worker processes.')
+    rlebamparser.set_defaults(func=medaka.rle.rlebam)
 
     # print all model tags followed by default
     lmparser = toolsubparsers.add_parser('list_models',
