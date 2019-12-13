@@ -485,7 +485,7 @@ class HardRLEFeatureEncoder(CountsFeatureEncoder):
 
     def __init__(
             self, normalise='total', dtypes=('', ), tag_name=None,
-            tag_value=None, tag_keep_missing=False, num_qstrat=12):
+            tag_value=None, tag_keep_missing=False, num_qstrat=15):
         """Class to generate neural network input features.
 
         :param normalise: str, how to normalise the data.
@@ -516,6 +516,16 @@ class HardRLEFeatureEncoder(CountsFeatureEncoder):
         """Length of a single sample."""
         featlen = libmedaka.lib.featlen
         return len(self.dtypes) * featlen * self.num_qstrat
+
+
+class SoftRLEFeatureEncoder(HardRLEFeatureEncoder):
+    """Create pileups using soft RLE calls."""
+
+    def _pileup_function(self, region, bam):
+        return pileup_counts(
+            region, bam, dtype_prefixes=self.dtypes, tag_name=self.tag_name,
+            tag_value=self.tag_value, keep_missing=self.tag_keep_missing,
+            num_qstrat=self.num_qstrat, weibull_summation=True)
 
 
 class SampleGenerator(object):
