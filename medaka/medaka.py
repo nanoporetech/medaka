@@ -136,8 +136,6 @@ def _chunking_feature_args(batch_size=100, chunk_len=10000, chunk_ovlp=1000):
                         help='Genomic regions to analyse, or a bed file.')
     parser.add_argument('--chunk_len', type=int, default=chunk_len, help='Chunk length of samples.')
     parser.add_argument('--chunk_ovlp', type=int, default=chunk_ovlp, help='Overlap of chunks.')
-    parser.add_argument('--read_fraction', type=float, help='Fraction of reads to keep',
-        nargs=2, metavar=('lower', 'upper'))
     return parser
 
 
