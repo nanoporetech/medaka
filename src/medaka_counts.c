@@ -101,7 +101,7 @@ string_set read_key_value(char * fname) {
  */
 plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_homop) {
     assert(buffer_cols >= n_cols);
-    plp_data data = xalloc(1, sizeof(*data), "plp_data");
+    plp_data data = xalloc(1, sizeof(_plp_data), "plp_data");
     data->buffer_cols = buffer_cols;
     data->num_dtypes = num_dtypes;
     data->num_homop = num_homop;
@@ -123,6 +123,7 @@ void enlarge_plp_data(plp_data pileup, size_t buffer_cols) {
     assert(buffer_cols > pileup->buffer_cols);
     size_t old_size = featlen * pileup->num_dtypes * pileup->num_homop * pileup->buffer_cols;
     size_t new_size = featlen * pileup->num_dtypes * pileup->num_homop * buffer_cols;
+
     pileup->matrix = xrealloc(pileup->matrix, new_size * sizeof(size_t), "matrix");
     pileup->major = xrealloc(pileup->major, buffer_cols * sizeof(size_t), "major");
     pileup->minor = xrealloc(pileup->minor, buffer_cols * sizeof(size_t), "minor");
@@ -325,8 +326,9 @@ plp_data calculate_pileup(
 
         // reallocate output if necessary
         if (n_cols + max_ins > pileup->buffer_cols) {
-            float cols_per_pos = (float) n_cols / (pos - start);
-            buffer_cols = max(2 * buffer_cols, cols_per_pos * (end - start));
+            float cols_per_pos = (float) (n_cols + max_ins) / (pos - start);
+            // max_ins can dominate so add at least that
+            buffer_cols = max_ins + max(2 * pileup->buffer_cols, (int) cols_per_pos * (end - start));
             enlarge_plp_data(pileup, buffer_cols);
         }
 
@@ -453,7 +455,7 @@ int main(int argc, char *argv[]) {
     int tag_value = 0;
     bool keep_missing = false;
     size_t num_homop = 5;
-    bool weibull_summation = true;
+    bool weibull_summation = false;
 
     plp_data pileup = calculate_pileup(
         reg, bam_file, num_dtypes, dtypes,
