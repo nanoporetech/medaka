@@ -1,3 +1,9 @@
+v0.11.2
+-------
+Minor fix release
+
+* Fix a memory error in pileup calculation.
+
 v0.11.1
 -------
 Minor fix release
