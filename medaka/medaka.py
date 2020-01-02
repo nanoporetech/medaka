@@ -23,12 +23,12 @@ import medaka.vcf
 
 model_store = resource_filename(__package__, 'data')
 allowed_models = [
-    'r941_min_fast_g303', 'r941_min_high_g303', 'r941_min_high_g330',
-    'r941_prom_fast_g303', 'r941_prom_high_g303',
+    'r941_min_fast_g303', 'r941_min_high_g303', 'r941_min_high_g330', 'r941_min_high_g344',
+    'r941_prom_fast_g303', 'r941_prom_high_g303', 'r941_prom_high_g344',
     'r941_prom_high_g330', 'r10_min_high_g303', 'r10_min_high_g340',
     'r941_prom_snp_g303', 'r941_min_high_g340_rle',
 ]
-default_consensus_model = 'r941_min_high_g330'
+default_consensus_model = 'r941_min_high_g344'
 default_snp_model = 'r941_prom_snp_g303'
 default_variant_model = 'r941_prom_variant_g303'
 model_dict = {
