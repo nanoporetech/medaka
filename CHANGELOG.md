@@ -1,3 +1,9 @@
+v0.11.3
+-------
+Model release
+
+* Models for guppy 3.4.4. 
+
 v0.11.2
 -------
 Minor fix release
