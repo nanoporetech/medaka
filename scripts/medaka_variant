@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -eo pipefail
 
 medaka_version=$(medaka --version)
@@ -199,8 +199,7 @@ run_phase_vcf () {
     local VCFOUT=$2
     exit_if_file_does_not_exist ${VCFIN}
     run_samtools_faidx ${REF}
-    nvars=$(grep -c -m 1 -v "#" ${UNPHASEDVCF} || echo 0)
-    if [[ "${nvars}" -eq "0" ]]; then
+    if ! grep -c -m 1 -v -q "#" ${UNPHASEDVCF}; then
         echo "- Input vcf has no records, writing empty vcf"
         cp ${VCFIN} ${VCFOUT}
     elif [[ ! -e ${VCFOUT} ]]; then
@@ -341,8 +340,7 @@ run_medaka_snp ${CONSENSUSPROBS} ${UNPHASEDVCF}
 # check empty vcf, write empty final output
 FINAL=round_1.vcf
 
-nvars=$(grep -c -m 1 -v "#" ${UNPHASEDVCF} || echo 0)
-if [[ "${nvars}" -eq "0" ]]; then
+if ! grep -c -m 1 -v -q "#" ${UNPHASEDVCF}; then
     echo "- First pass vcf has no records, writing empty vcf and finishing."
     cp ${UNPHASEDVCF} ${FINAL}  # this gets us the header
 else
