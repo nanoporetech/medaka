@@ -4,7 +4,7 @@ import functools
 import os
 import subprocess
 
-__version__ = '0.11.3'
+__version__ = '0.11.4'
 
 
 def check_minimap2_version():
