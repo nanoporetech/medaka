@@ -1,3 +1,9 @@
+v0.11.4
+-------
+Bugfix
+
+* Fix invalid specification of variant calling model.
+
 v0.11.3
 -------
 Model release
@@ -9,7 +15,7 @@ v0.11.2
 Minor fix release
 
 * Fix a memory error in pileup calculation.
-* Update variant calling models and benchmarks
+* Update variant calling models and benchmarks.
 
 v0.11.1
 -------

@@ -21,16 +21,23 @@ import medaka.variant
 import medaka.vcf
 
 
+# TODO: should revisit this
 model_store = resource_filename(__package__, 'data')
 allowed_models = [
     'r941_min_fast_g303', 'r941_min_high_g303', 'r941_min_high_g330', 'r941_min_high_g344',
     'r941_prom_fast_g303', 'r941_prom_high_g303', 'r941_prom_high_g344',
     'r941_prom_high_g330', 'r10_min_high_g303', 'r10_min_high_g340',
-    'r941_prom_snp_g303', 'r941_min_high_g340_rle',
+    'r941_prom_snp_g303', 'r941_prom_variant_g303',
+    'r941_min_high_g340_rle',
 ]
 default_consensus_model = 'r941_min_high_g344'
 default_snp_model = 'r941_prom_snp_g303'
 default_variant_model = 'r941_prom_variant_g303'
+for m in (default_consensus_model, default_snp_model, default_variant_model):
+    if m not in allowed_models:
+        raise ValueError(
+            "'{}' is listed as a default model but is not an allowed model.".format(
+                m))
 model_dict = {
     k:os.path.join(model_store, '{}_model.hdf5'.format(k))
     for k in allowed_models
