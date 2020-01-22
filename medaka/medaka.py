@@ -26,7 +26,7 @@ model_store = resource_filename(__package__, 'data')
 allowed_models = [
     'r941_min_fast_g303', 'r941_min_high_g303', 'r941_min_high_g330', 'r941_min_high_g344',
     'r941_prom_fast_g303', 'r941_prom_high_g303', 'r941_prom_high_g344',
-    'r941_prom_high_g330', 'r10_min_high_g303', 'r10_min_high_g340',
+    'r941_prom_high_g330', 'r10_min_high_g303', 'r10_min_high_g340', 'r103_min_high_g345',
     'r941_prom_snp_g303', 'r941_prom_variant_g303',
     'r941_min_high_g340_rle',
 ]
