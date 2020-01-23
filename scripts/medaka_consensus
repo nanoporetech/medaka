@@ -93,8 +93,8 @@ if [[ $rflag == "True" ]]; then
   if [[ ! -e ${COMPRESSED_BASECALLS} ]] ||  [[ ! -e ${COMPRESSED_DRAFT} ]] || ${FORCE}; then
     echo "Compressing draft and basecalls."
 
-    medaka fastrle ${BASECALLS} | gzip > ${COMPRESSED_BASECALLS}
-    medaka fastrle ${DRAFT} | gzip > ${COMPRESSED_DRAFT}
+    medaka fastrle ${BASECALLS} | bgzip > ${COMPRESSED_BASECALLS}
+    medaka fastrle ${DRAFT} | bgzip > ${COMPRESSED_DRAFT}
 
     BASECALLS=${COMPRESSED_BASECALLS}
     DRAFT=${COMPRESSED_DRAFT}
