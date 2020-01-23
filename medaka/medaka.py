@@ -394,8 +394,10 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     hdf2samparser.set_defaults(func=medaka.methdaka.hdf_to_sam)
     hdf2samparser.add_argument('path', help='Input path for .fast5 files.')
-    hdf2samparser.add_argument('reference', help='.fasta containing reference sequence(s).')
-    hdf2samparser.add_argument('--workers', type=int, default=1, help='Number of worker processes.')
+    hdf2samparser.add_argument('--reference',
+        help='.fasta containing reference sequence(s). If not given output will be unaligned sam.')
+    hdf2samparser.add_argument('--workers', type=int, default=16, help='Number of alignment threads.')
+    hdf2samparser.add_argument('--io_workers', type=int, default=4, help='Number of .fast5 reader processes.')
     hdf2samparser.add_argument('--recursive', action='store_true', help='Search for .fast5s recursively.')
 
     methcallparser = methsubparsers.add_parser('call',

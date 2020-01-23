@@ -15,7 +15,7 @@ file:
     REFERENCE=grch38.fasta
     OUTBAM=meth.bam
     medaka methylation guppy2sam ${FAST5PATH} ${REFERENCE} \
-        --workers 74 --recursive \
+        --workers 16 --io_workers 4 --recursive \
         | samtools sort -@ 8 | samtools view -b -@ 8 > ${OUTBAM}
     samtools index ${OUTBAM}
 

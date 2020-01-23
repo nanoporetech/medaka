@@ -1,9 +1,10 @@
 """Functionality for aggregating single read methylation calls."""
 
-from collections import Counter
-from concurrent.futures import ProcessPoolExecutor
-import functools
+from collections import Counter, namedtuple
+import queue
 import sys
+import threading
+import time
 
 import mappy
 from ont_fast5_api.analysis_tools.basecall_1d import Basecall1DTools
@@ -12,6 +13,7 @@ from ont_fast5_api.fast5_interface import get_fast5_file
 import pysam
 
 import medaka.common
+from medaka.executor import ProcessPoolExecutor, ThreadPoolExecutor
 
 
 MODBASEPATH = 'BaseCalled_template/ModBaseProbs'
@@ -34,9 +36,63 @@ MOTIFS = {
             'CG': (0, 1)},
         'tag': 'MC'}
     }
+Read = namedtuple('Read', ['read_id', 'sequence', 'quality'])
 
 
-def hdf_to_sam_worker(reference, fname):
+def align_read(aligner, read, tags=[]):
+    """Aligns a `Read` namedtuple to produce a sam record.
+
+    :param aligner: a `mappy.Aligner` instance`
+    :param read: a `Read` namedtuple.
+    :param tags: list containing additional tags to add to sam record.
+
+    :returns: a (string) sam record.
+    """
+    try:
+        align = list(aligner.map(read.sequence, MD=True, cs=True))[0]
+    except IndexError:
+        return None
+    if align.strand == +1:
+        flag = '0'
+        seq = read.sequence
+        qstring = read.quality
+    else:
+        flag = '16'
+        seq = medaka.common.reverse_complement(read.sequence)
+        qstring = read.quality[::-1]
+    rname = align.ctg
+    pos = str(align.r_st + 1)
+    mapq = str(align.mapq)
+    clip = [
+        '' if x == 0 else '{}S'.format(x)
+        for x in (align.q_st, len(seq) - align.q_en)]
+    if align.strand == -1:
+        clip = clip[::-1]
+    cigar = clip[0] + align.cigar_str + clip[1]
+    NM = 'NM:i:' + str(align.NM)
+
+    # NOTE: tags written without reversal, see below
+    sam = '\t'.join((
+        read.read_id, flag, rname, pos, mapq, cigar,
+        '*', '0', '0', seq, qstring, NM, *tags))
+    return sam
+
+
+def unaligned_read(read, tags=[]):
+    """Create an unaligned sam record for a read.
+
+    :param read: a `Read` namedtuple.
+    :param tags: list containing additional tags to add to sam record.
+
+    :returns: a (string) sam record.
+    """
+    sam = '\t'.join((
+        read.read_id, '4', '*', '0', '255', '*',
+        '*', '0', '0', read.sequence, read.quality, *tags))
+    return sam
+
+
+def hdf_to_sam_worker(fname):
     """Extract and align basecall and methylation data from `.fast5`.
 
     :param reference: `.fasta` file containing reference sequence(s).
@@ -45,65 +101,191 @@ def hdf_to_sam_worker(reference, fname):
     logger = medaka.common.get_named_logger('ModExtract')
     logger.info("Processing {}.".format(fname))
     results = list()
-    aligner = mappy.Aligner(reference, preset='map-ont')
     with get_fast5_file(fname, mode="r") as f5:
         reads = list(f5.get_read_ids())
-        logger.info("Found {} reads for {}.".format(len(reads), fname))
+        logger.debug("Found {} reads for {}.".format(len(reads), fname))
         for read_id in reads:
             read = f5.get_read(read_id)
             tool = Basecall1DTools(read)
-            name, sequence, qstring = tool.get_called_sequence(
-                'template', fastq=False)
-            try:
-                align = next(aligner.map(sequence, MD=True, cs=True))
-            except StopIteration:
-                continue
-            else:
-                if align.strand == +1:
-                    flag = '0'
-                    seq = sequence
-                else:
-                    flag = '16'
-                    seq = medaka.common.reverse_complement(sequence)
-                rname = align.ctg
-                pos = str(align.r_st + 1)
-                mapq = str(align.mapq)
-                clip = [
-                    '' if x == 0 else '{}S'.format(x)
-                    for x in (align.q_st, len(sequence) - align.q_en)]
-                if align.strand == -1:
-                    clip = clip[::-1]
-                cigar = clip[0] + align.cigar_str + clip[1]
-                NM = 'NM:i:' + str(align.NM)
 
             latest = read.get_latest_analysis('Basecall_1D')
             mod_base = read.get_analysis_dataset(latest, MODBASEPATH)
             mod_base = mod_base.view(dtype=MODTYPE)
             mA = 'MA:B:C,{}'.format(','.join(
-                str(x) for x in mod_base['6mA'].reshape(-1)))
+                mod_base['6mA'].reshape(-1).astype(str)))
             mC = 'MC:B:C,{}'.format(','.join(
-                str(x) for x in mod_base['5mC'].reshape(-1)))
-
-            results.append('\t'.join((
-                read_id, flag, rname, pos, mapq, cigar,
-                '*', '0', '0', seq, qstring, NM, mA, mC)))
+                mod_base['5mC'].reshape(-1).astype(str)))
+            header, sequence, qstring = tool.get_called_sequence(
+                'template', fastq=False)
+            read = Read(read_id, sequence, qstring)
+            results.append((read, (mA, mC)))
     return results
+
+
+class Aligner(object):
+    """Mappy alignment interface."""
+
+    def __init__(self, reference, **kwargs):
+        """Initialize `mappy` interface.
+
+        :param reference: .fasta reference file.
+        :param kwargs: keyword arguments for `mappy.Aligner`.
+
+        """
+        self.reference = reference
+        self.aligner = None
+        self._loadlock = threading.Lock()
+        self.kwargs = kwargs
+        self.logger = medaka.common.get_named_logger('Aligner')
+
+    def map(self, read, tags=[]):
+        """Map/align a read returning a sam record.
+
+        :param read: a `Read` namedtuple.
+        :param tags: list containing additional tags to add to sam record.
+
+        """
+        if self.aligner is None:
+            self._loadlock.acquire()
+            if self.aligner is None:
+                self.logger.info('Loading alignment index...')
+                self.aligner = mappy.Aligner(self.reference, **self.kwargs)
+                self.logger.info('Alignment index loaded.')
+            self._loadlock.release()
+        return align_read(self.aligner, read, tags)
+
+
+class Extractor(object):
+    """Extracts read data from .fast5 files."""
+
+    def __init__(
+            self, path, recursive=False, workers=2,
+            extractor=hdf_to_sam_worker, max_size=16000):
+        """Initialize read data extraction.
+
+        :param path: .fast5 directory path.
+        :param recursive: search directory recursively.
+        :param workers: number of worker processes.
+        :param extractor: callback function to apply to each file.
+        :param max_size: approximate maximum size of internal queue.
+            When internal queue is at this size. Further read extraction
+            will block until results are consumed.
+
+        The results of the extractor can be accessed from the .get() method
+        or by iteration.
+
+        """
+        self.path = path
+        self.recursive = recursive
+        self.workers = workers
+        self.extractor = extractor
+        self.max_size = max_size
+        # setting max size for queue has no effect on pausing workers
+        # as the queue is filled from a callback in the main thread.
+        # Instead we just don't submit new jobs if the queue is above
+        # the requested size.
+        self.queue = queue.Queue()
+        self.files_processed = 0
+        self.total_files = 0
+
+        self.logger = medaka.common.get_named_logger("Extractor")
+        self.logger.info("Starting worker processes.")
+        self._thread = threading.Thread(target=self._run)
+        self._thread.daemon = True
+        self._thread.start()
+
+    def _run(self):
+        """Iterate over input files and stores results into internal queue."""
+        fast5s = get_fast5_file_list(self.path, recursive=self.recursive)
+        self.total_files = len(fast5s)
+        self.logger.info("Found {} files to process.".format(self.total_files))
+        with ProcessPoolExecutor(
+                self.workers, max_workers=self.workers) as executor:
+            for fname in fast5s:
+                while True:
+                    if self.queue.qsize() < self.max_size:
+                        future = executor.submit(self.extractor, fname)
+                        future.add_done_callback(self._store)
+                        break
+                    else:
+                        time.sleep(1)
+        self.queue.put(None)
+
+    def _store(self, future):
+        """Store read data from a future."""
+        try:
+            results = future.result()
+            for r in results:
+                self.queue.put(r)
+        except Exception:
+            pass
+        # https://bugs.python.org/issue27144
+        future._result = None
+        self.files_processed += 1
+        self.logger.info("Extracted {}/{} files.".format(
+            self.files_processed, self.total_files))
+
+    def get(self):
+        """Get a read from the internal queue."""
+        item = self.queue.get()
+        if item is not None:
+            self.queue.task_done()
+        else:
+            raise StopIteration('All items processed.')
+        return item
+
+    def __iter__(self):
+        """Iterate over read data from files."""
+        while True:
+            try:
+                yield self.get()
+            except StopIteration:
+                break
 
 
 def hdf_to_sam(args):
     """Entry point for converting guppy methylcalled fast5s to sam."""
+    logger = medaka.common.get_named_logger('ModExtract')
+    logger.info(
+        "NOTE: Mod. base scores are output w.r.t the sequencing direction, "
+        "not the aligned read orientation.")
+    extractor = Extractor(
+        args.path,
+        recursive=args.recursive, workers=args.io_workers)
+
     sys.stdout.write('\t'.join(('@HD', 'VN:1.5', 'SO:unsorted')))
     sys.stdout.write('\n')
-    for name, seq, _ in mappy.fastx_read(
-            args.reference, read_comment=False):
-        sys.stdout.write('@SQ\tSN:{}\tLN:{}\n'.format(name, len(seq)))
+    sys.stdout.write('\t'.join((
+        '@CO', 'Guppy basecaller mod. base tags are stored w.r.t. the '
+        'sequencing direction, they should be reversed for reads '
+        'aligning to the reverse strand.\n')))
+    if args.reference is None:
+        # write unaligned sam
+        for read, tags in extractor:
+            sam = unaligned_read(read, tags)
+            sys.stdout.write('{}\n'.format(sam))
+    else:
+        for name, seq, _ in mappy.fastx_read(
+                args.reference, read_comment=False):
+            sys.stdout.write('@SQ\tSN:{}\tLN:{}\n'.format(name, len(seq)))
+        aligner = Aligner(
+            args.reference, preset='map-ont', n_threads=args.workers)
 
-    fast5s = get_fast5_file_list(args.path, recursive=args.recursive)
-    worker = functools.partial(hdf_to_sam_worker, args.reference)
-    with ProcessPoolExecutor(max_workers=args.workers) as executor:
-        for res in executor.map(worker, fast5s):
-            for r in res:
-                sys.stdout.write('{}\n'.format(r))
+        def _write(future):
+            try:
+                sam = future.result()
+                if sam is not None:
+                    sys.stdout.write('{}\n'.format(sam))
+            except Exception:
+                pass
+            # https://bugs.python.org/issue27144
+            future._result = None
+
+        with ThreadPoolExecutor(
+                max_items=args.workers, max_workers=args.workers) as executor:
+            for read, tags in extractor:
+                future = executor.submit(aligner.map, read, tags)
+                future.add_done_callback(_write)
 
 
 def call_methylation(args):
@@ -151,6 +333,7 @@ def call_methylation(args):
                             continue
                         qpos = read.query_position
                         tag = read.alignment.get_tag(tag_name)
+                        # NOTE: tags are not reversed, see above
                         if not aln.is_reverse:
                             mscore = tag[qpos]
                         else:
