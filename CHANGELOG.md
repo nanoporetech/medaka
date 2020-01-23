@@ -1,3 +1,12 @@
+v0.11.5
+-------
+R10.3 model and small fixes
+
+* Add model for R10.3 on MinION.
+* Fix index/compression issue with RLE workflow
+* Write and empty vcf when no variants are found in medaka_variant.
+* Fix a rare memory error during feature generation caused by very long indels.
+
 v0.11.4
 -------
 Bugfix
