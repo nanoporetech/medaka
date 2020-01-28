@@ -4,7 +4,7 @@ biopython
 cffi
 h5py==2.7.1         # 2.8.0 and 2.9.0 seem to not like keras model writing
 intervaltree
-tensorflow==1.14.0
+tensorflow==1.15.2
 numpy==1.16.1       # tensorflow needs numpy>=1.13.3, travis needs this forced
 mappy
 ont_fast5_api
