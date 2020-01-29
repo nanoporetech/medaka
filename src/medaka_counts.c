@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include "htslib/sam.h"
 
@@ -28,10 +29,32 @@ KHASH_SET_INIT_STR(BADREADS)
  *  @returns a plp_data pointer.
  *
  */
-void swap_strings(char** a, char** b){
+void swap_strings(char** a, char** b) {
     char *temp = *a;
     *a = *b;
     *b = temp;
+}
+
+
+/** Format an array values as a comma seperate string
+ *
+ * @param values integer input array
+ * @param length size of input array
+ * @param result output char buffer of size 4 * length * sizeof char
+ * @returns void
+ *
+ * The output buffer size comes from:
+ *    a single value is max 3 chars
+ *    + 1 for comma (or \0 at end)
+ */
+void format_uint8_array(uint8_t* values, size_t length, char* result) {
+    size_t len = 0;
+    for (size_t i = 0; i < length; ++i) {
+        len += uint8_to_str(values[i], result + len);
+        strcpy(result + len, ",");
+        len += 1;
+    }
+    result[len-1] = '\0';
 }
 
 

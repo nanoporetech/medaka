@@ -1,6 +1,7 @@
 #ifndef MCOMMON_H
 #define MCOMMON_H
 
+#include <stdint.h>
 
 /** Simple integer min/max
  * @param a
@@ -46,5 +47,13 @@ void *xrealloc(void *ptr, size_t size, char* msg);
 char *substring(char *string, int position, int length);
 
 
+/** Format a uint32_t to a string
+ *
+ * @param value to format.
+ * @param dst destination char.
+ * @returns length of string.
+ *
+ */
+size_t uint8_to_str(uint8_t value, char *dst);
 
 #endif
