@@ -7,7 +7,6 @@ import threading
 import time
 
 import mappy
-from ont_fast5_api.analysis_tools.basecall_1d import Basecall1DTools
 from ont_fast5_api.conversion_tools.conversion_utils import get_fast5_file_list
 from ont_fast5_api.fast5_interface import get_fast5_file
 import pysam
@@ -16,8 +15,9 @@ import libmedaka
 import medaka.common
 from medaka.executor import ProcessPoolExecutor, ThreadPoolExecutor
 
-
+BASECALLANALYSIS = 'Basecall_1D'
 MODBASEPATH = 'BaseCalled_template/ModBaseProbs'
+FASTQPATH = 'BaseCalled_template/Fastq'
 BASES = 'A 6mA C 5mC G T'.split()
 MODTYPE = [(b, 'uint8') for b in BASES]
 MOTIFS = {
@@ -128,15 +128,16 @@ def hdf_to_sam_worker(fname):
         logger.debug("Found {} reads for {}.".format(len(reads), fname))
         for read_id in reads:
             read = f5.get_read(read_id)
-            tool = Basecall1DTools(read)
-
-            latest = read.get_latest_analysis('Basecall_1D')
+            latest = read.get_latest_analysis(BASECALLANALYSIS)
+            # get modified base data
             mod_base = read.get_analysis_dataset(latest, MODBASEPATH)
             mod_base = mod_base.view(dtype=MODTYPE)
             mA = 'MA:B:C,{}'.format(format_uint8_list(mod_base['6mA']))
             mC = 'MC:B:C,{}'.format(format_uint8_list(mod_base['5mC']))
-            header, sequence, qstring = tool.get_called_sequence(
-                'template', fastq=False)
+            # get basecalling data
+            fastq = read.get_analysis_dataset(latest, FASTQPATH)
+            header, sequence, _, qstring = fastq.splitlines()
+            # put everything together
             read = Read(read_id, sequence, qstring)
             results.append((read, (mA, mC)))
     return results
