@@ -12,6 +12,7 @@ from ont_fast5_api.conversion_tools.conversion_utils import get_fast5_file_list
 from ont_fast5_api.fast5_interface import get_fast5_file
 import pysam
 
+import libmedaka
 import medaka.common
 from medaka.executor import ProcessPoolExecutor, ThreadPoolExecutor
 
@@ -37,6 +38,27 @@ MOTIFS = {
         'tag': 'MC'}
     }
 Read = namedtuple('Read', ['read_id', 'sequence', 'quality'])
+
+
+def format_uint8_list(array):
+    """Serialize a numpy array to a comma separated list.
+
+    :param array: a uint8 array.
+
+    :returns: a comma separate string.
+
+    """
+    ffi = libmedaka.ffi
+    lib = libmedaka.lib
+
+    pointer = ffi.cast(
+        "uint8_t *",
+        array.flatten().ctypes.data)
+    result = ffi.new("char[{}]".format(4 * len(array)))
+    lib.format_uint8_array(pointer, len(array), result)
+
+    string = ffi.string(result).decode()
+    return string
 
 
 def align_read(aligner, read, tags=[]):
@@ -111,10 +133,8 @@ def hdf_to_sam_worker(fname):
             latest = read.get_latest_analysis('Basecall_1D')
             mod_base = read.get_analysis_dataset(latest, MODBASEPATH)
             mod_base = mod_base.view(dtype=MODTYPE)
-            mA = 'MA:B:C,{}'.format(','.join(
-                mod_base['6mA'].reshape(-1).astype(str)))
-            mC = 'MC:B:C,{}'.format(','.join(
-                mod_base['5mC'].reshape(-1).astype(str)))
+            mA = 'MA:B:C,{}'.format(format_uint8_list(mod_base['6mA']))
+            mC = 'MC:B:C,{}'.format(format_uint8_list(mod_base['5mC']))
             header, sequence, qstring = tool.get_called_sequence(
                 'template', fastq=False)
             read = Read(read_id, sequence, qstring)
@@ -217,7 +237,8 @@ class Extractor(object):
             results = future.result()
             for r in results:
                 self.queue.put(r)
-        except Exception:
+        except Exception as e:
+            print(e)
             pass
         # https://bugs.python.org/issue27144
         future._result = None
