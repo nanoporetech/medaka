@@ -7,17 +7,6 @@
 #include "medaka_common.h"
 
 
-/** Simple integer min/max
- * @param a
- * @param b
- *
- * @returns the min/max of a and b
- *
- */
-inline int max ( int a, int b ) { return a > b ? a : b; }
-inline int min ( int a, int b ) { return a < b ? a : b; }
-
-
 /** Allocates zero-initialised memory with a message on failure.
  *
  *  @param num number of elements to allocate.

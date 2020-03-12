@@ -10,9 +10,8 @@
  * @returns the min/max of a and b
  *
  */
-int max(int a, int b);
-int min(int a, int b);
-
+inline int max ( int a, int b ) { return a > b ? a : b; }
+inline int min ( int a, int b ) { return a < b ? a : b; }
 
 /** Allocates zero-initialised memory with a message on failure.
  *

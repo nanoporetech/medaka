@@ -11,6 +11,8 @@ else
 SEDI=sed -i
 endif
 
+PYTHON ?= python3
+
 binaries: $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 
 SAMVER=1.9
@@ -48,13 +50,18 @@ clean_htslib:
 	cd submodules/samtools-${SAMVER} && make clean || exit 0
 	cd submodules/samtools-${SAMVER}/htslib-${SAMVER} && make clean || exit 0
 
+
 MINIMAPVER=2.17
-$(BINCACHEDIR)/minimap2: | $(BINCACHEDIR)
-	@echo Making $(@F)
-	curl -L -o minimap2-${MINIMAPVER}_x64-linux.tar.bz2 https://github.com/lh3/minimap2/releases/download/v${MINIMAPVER}/minimap2-${MINIMAPVER}_x64-linux.tar.bz2 
-	tar -xvf minimap2-${MINIMAPVER}_x64-linux.tar.bz2
-	cp minimap2-${MINIMAPVER}_x64-linux/minimap2 $@
-	rm -rf minimap2-${MINIMAPVER}_x64-linux.tar.bz2 minimap2-${MINIMAPVER}_x64-linux
+submodules/minimap2-$(MINIMAPVER)/Makefile:
+	cd submodules; \
+		curl -L -o minimap2-${MINIMAPVER}.tar.bz2 https://github.com/lh3/minimap2/releases/download/v${MINIMAPVER}/minimap2-${MINIMAPVER}.tar.bz2; \
+		tar -xjf minimap2-${MINIMAPVER}.tar.bz2; \
+	    rm -rf minimap2-${MINIMAPVER}.tar.bz2
+
+$(BINCACHEDIR)/minimap2: submodules/minimap2-$(MINIMAPVER)/Makefile | $(BINCACHEDIR)
+	@echo Compiling $(@F)
+	cd submodules/minimap2-${MINIMAPVER} && make
+	cp submodules/minimap2-${MINIMAPVER}/minimap2 $@
 
 
 SPOAVER=3.0.0
@@ -112,7 +119,7 @@ venv: venv/bin/activate
 IN_VENV=. ./venv/bin/activate
 
 venv/bin/activate:
-	test -d venv || virtualenv venv --python=python3 --prompt "(medaka) "
+	test -d venv || virtualenv venv --python=$(PYTHON) --prompt "(medaka) "
 	${IN_VENV} && pip install pip --upgrade
 
 
