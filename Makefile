@@ -11,6 +11,8 @@ else
 SEDI=sed -i
 endif
 
+PYTHON ?= python3
+
 binaries: $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 
 SAMVER=1.9
@@ -117,7 +119,7 @@ venv: venv/bin/activate
 IN_VENV=. ./venv/bin/activate
 
 venv/bin/activate:
-	test -d venv || virtualenv venv --python=python3.6 --prompt "(medaka) "
+	test -d venv || virtualenv venv --python=$(PYTHON) --prompt "(medaka) "
 	${IN_VENV} && pip install pip --upgrade
 
 
