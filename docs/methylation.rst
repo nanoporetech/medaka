@@ -5,6 +5,17 @@ Medaka includes a basic workflow for aggregating Guppy basecalling results
 for Dcm, Dam, and CpG methylation. The workflow is currently very preliminary
 and subject to change and improvement.
 
+.. warning::
+    This workflow relies on having run the Guppy basecaller using a modified
+    base model, e.g. running the command:
+
+    .. code-block:: bash
+
+        guppy_basecaller \
+            --save_path <output path> --input_path <input path> \
+            --compress_fastq --fast5_out \
+            --config dna_r9.4.1_450bps_modbases_dam-dcm-cpg_hac_prom.cfg
+
 Aggregating the information from Guppy outputs is a two stage process, first
 the basecalling results are extracted `.fast5` files and placed in a `.bam`
 file:
