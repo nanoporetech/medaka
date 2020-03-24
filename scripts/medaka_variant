@@ -30,7 +30,7 @@ PHASEOUT=false
 DELETE=false
 SNPMODEL=${modeldata[2]##* }
 MODEL=${modeldata[3]##* }
-
+STOPAFTERROUND0=false
 
 usage="
 ${medaka_version}
@@ -60,10 +60,11 @@ $(basename "$0") [-h] -i <fastx>
     -t  number of threads with which to create features (default: 1).
     -p  output phased vcf.
     -b  batchsize, controls memory use (default: ${BATCH_SIZE}).
-    -d  delete intermediate files. (default: keep)."
+    -d  delete intermediate files. (default: keep).
+    -S  stop after initial SNP calling from mixed reads prior to phasing."
 
 
-while getopts ':hi::f:r:o:m:s:T:t:pb:d' option; do
+while getopts ':hi::f:r:o:m:s:T:t:pb:dS' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; CALLS2REF=$(follow_link $OPTARG);;
@@ -76,6 +77,7 @@ while getopts ':hi::f:r:o:m:s:T:t:pb:d' option; do
     p  ) PHASEOUT=true;;
     b  ) BATCH_SIZE=$OPTARG;;
     d  ) DELETE=true;;
+    S  ) STOPAFTERROUND0=true;;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
     :  ) echo "Option -$OPTARG requires an argument." >&2; exit 1;;
   esac
@@ -345,6 +347,11 @@ FINAL=round_1.vcf
 if ! grep -c -m 1 -v -q "#" ${UNPHASEDVCF}; then
     echo "- First pass vcf has no records, writing empty vcf and finishing."
     cp ${UNPHASEDVCF} ${FINAL}  # this gets us the header
+elif ${STOPAFTERROUND0}; then
+    echo "- Stopping after first pass, copying ${UNPHASEDVCF} to ${FINAL}."
+    echo "- Final VCF written to ${OUTPUT}/${FINAL}"
+    cp ${UNPHASEDVCF} ${FINAL}
+    exit 0
 else
     PHASEDVCF=round_${ROUND}_hap_mixed_phased.vcf
     PHASEDVCFGZ=${PHASEDVCF}.gz
