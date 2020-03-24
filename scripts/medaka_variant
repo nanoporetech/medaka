@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
+myInvocation="$(printf %q "$BASH_SOURCE")$((($#)) && printf ' %q' "$@")"
+
 medaka_version=$(medaka --version)
 modeldata=()
 while read -r line; do
@@ -367,6 +369,10 @@ else
     run_medaka_haploid2diploid \
         round_${ROUND}_hap_1.vcf round_${ROUND}_hap_2.vcf \
         ${REF} ${FINAL}
+
+    # Add invocation of this script to VCF header
+    INVOCATION_DATE="##${myInvocation}; $(date)"
+    sed -i "/^#CHROM.*/i $INVOCATION_DATE" ${FINAL} 
 
     if ${PHASEOUT}; then
         FINALPHASED=round_1_phased.vcf
