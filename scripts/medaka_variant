@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-myInvocation="$(printf %q "$BASH_SOURCE")$((($#)) && printf ' %q' "$@")"
+myInvocation="CL=\"$(printf %q "$BASH_SOURCE")$((($#)) && printf ' %q' "$@")\""
 
 medaka_version=$(medaka --version)
 modeldata=()
@@ -351,7 +351,7 @@ run_medaka_consensus ${CALLS2REF} ${CONSENSUSPROBS} ${SNPMODEL}
 run_medaka_snp ${CONSENSUSPROBS} ${UNPHASEDVCF}
 
 # check empty vcf, write empty final output
-UNFILTERED=unfiltered_round_1.vcf
+UNFILTERED=round_1_unfiltered.vcf
 FINAL=round_1.vcf
 
 if ! grep -c -m 1 -v -q "#" ${UNPHASEDVCF}; then
@@ -393,7 +393,7 @@ else
 
     if $FILTER_FLAG; then
         # Filter resulting vcf
-        FILTER="'(((TYPE=\"snp\" | TYPE=\"mnp\") & (QUAL > ${SNP_THRESHOLD})) | ((TYPE!=\"snp\" & TYPE!=\"mnp\") & (QUAL > ${INDEL_THRESHOLD})))'"
+        FILTER="(((TYPE=\"snp\" | TYPE=\"mnp\") & (QUAL > ${SNP_THRESHOLD})) | ((TYPE!=\"snp\" & TYPE!=\"mnp\") & (QUAL > ${INDEL_THRESHOLD})))"
         bcftools filter --threads $THREADS -s lowqual -i "${FILTER}" ${UNFILTERED} > ${FINAL}
     else
         echo "Skipping filtering of VCF (-U option)"
