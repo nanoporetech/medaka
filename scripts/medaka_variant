@@ -30,6 +30,9 @@ PHASEOUT=false
 DELETE=false
 SNPMODEL=${modeldata[2]##* }
 MODEL=${modeldata[3]##* }
+INDEL_THRESHOLD=14
+SNP_THRESHOLD=12
+FILTER_FLAG=true
 STOPAFTERROUND0=false
 
 usage="
@@ -61,10 +64,13 @@ $(basename "$0") [-h] -i <fastx>
     -p  output phased vcf.
     -b  batchsize, controls memory use (default: ${BATCH_SIZE}).
     -d  delete intermediate files. (default: keep).
+    -N  threshold for filtering indels in final VCF (default: ${INDEL_THRESHOLD})
+    -P  threshold for filtering SNPs in final VCF (default: ${SNP_THRESHOLD})
+    -U  Avoid filtering of final VCF (default: do filter)
     -S  stop after initial SNP calling from mixed reads prior to phasing."
 
 
-while getopts ':hi::f:r:o:m:s:T:t:pb:dS' option; do
+while getopts ':hi::f:r:o:m:s:T:t:pb:N:P:UdS' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; CALLS2REF=$(follow_link $OPTARG);;
@@ -77,6 +83,9 @@ while getopts ':hi::f:r:o:m:s:T:t:pb:dS' option; do
     p  ) PHASEOUT=true;;
     b  ) BATCH_SIZE=$OPTARG;;
     d  ) DELETE=true;;
+    N  ) INDEL_THRESHOLD=$OPTARG;;
+    P  ) SNP_THRESHOLD=$OPTARG;;
+    U  ) FILTER_FLAG=false;;
     S  ) STOPAFTERROUND0=true;;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
     :  ) echo "Option -$OPTARG requires an argument." >&2; exit 1;;
@@ -342,6 +351,7 @@ run_medaka_consensus ${CALLS2REF} ${CONSENSUSPROBS} ${SNPMODEL}
 run_medaka_snp ${CONSENSUSPROBS} ${UNPHASEDVCF}
 
 # check empty vcf, write empty final output
+UNFILTERED=unfiltered_round_1.vcf
 FINAL=round_1.vcf
 
 if ! grep -c -m 1 -v -q "#" ${UNPHASEDVCF}; then
@@ -375,11 +385,20 @@ else
     
     run_medaka_haploid2diploid \
         round_${ROUND}_hap_1.vcf round_${ROUND}_hap_2.vcf \
-        ${REF} ${FINAL}
+        ${REF} ${UNFILTERED}
 
     # Add invocation of this script to VCF header
     INVOCATION_DATE="##${myInvocation}; $(date)"
-    sed -i "/^#CHROM.*/i $INVOCATION_DATE" ${FINAL} 
+    sed -i "/^#CHROM.*/i $INVOCATION_DATE" ${UNFILTERED} 
+
+    if $FILTER_FLAG; then
+        # Filter resulting vcf
+        FILTER="'(((TYPE=\"snp\" | TYPE=\"mnp\") & (QUAL > ${SNP_THRESHOLD})) | ((TYPE!=\"snp\" & TYPE!=\"mnp\") & (QUAL > ${INDEL_THRESHOLD})))'"
+        bcftools filter --threads $THREADS -s lowqual -i "${FILTER}" ${UNFILTERED} > ${FINAL}
+    else
+        echo "Skipping filtering of VCF (-U option)"
+        mv ${UNFILTERED} ${FINAL}
+    fi 
 
     if ${PHASEOUT}; then
         FINALPHASED=round_1_phased.vcf

@@ -1,6 +1,6 @@
 
 # Builds a cache of binaries which can just be copied for CI
-BINARIES=samtools minimap2 tabix bgzip spoa racon
+BINARIES=samtools minimap2 tabix bgzip spoa racon bcftools
 BINCACHEDIR=bincache
 $(BINCACHEDIR):
 	mkdir -p $(BINCACHEDIR)
@@ -99,6 +99,19 @@ $(BINCACHEDIR)/racon: | $(BINCACHEDIR)
 		make;
 	cp submodules/racon-v${RACONVER}/build/bin/racon $@
 
+
+BCFTOOLSVER=1.10.2
+$(BINCACHEDIR)/bcftools: | $(BINCACHEDIR)
+	@echo Making $(@F)
+	if [ ! -d submodules/bcftools-v${BCFTOOLSVER} ]; then \
+		cd submodules; \
+		curl -L -o bcftools-v${BCFTOOLSVER}.tar.bz2 https://github.com/samtools/bcftools/releases/download/${BCFTOOLSVER}/bcftools-${BCFTOOLSVER}.tar.bz2; \
+		tar -xjf bcftools-v${BCFTOOLSVER}.tar.bz2; \
+		cd bcftools-${BCFTOOLSVER}; \
+		make; \
+	fi
+	cp submodules/bcftools-${BCFTOOLSVER}/bcftools $@
+        
 
 $(BINCACHEDIR)/vcf2fasta: | $(BINCACHEDIR)
 	cd src/vcf2fasta && g++ -std=c++11 \

@@ -46,10 +46,11 @@ We recommend using medaka within a virtual environment, viz.:
 
     `samtools <https://github.com/samtools/samtools>`_,
     `minimap2 <https://github.com/lh3/minimap2>`_,
-    `tabix <https://github.com/samtools/htslib>`_, and
-    `bgzip <https://github.com/samtools/htslib>`_,
+    `tabix <https://github.com/samtools/htslib>`_,
+    `bgzip <https://github.com/samtools/htslib>`_, and
+    `bcftools <https://github.com/samtools/bcftools>`_,
 
-    and place these within the `PATH`. `samtools` version 1.9 and `minimap2`
+    and place these within the `PATH`. `samtools` version 1.9, `bcftools` version 1.10.2 and `minimap2`
     version 2.17 are recommended as these are those used in development of
     medaka.
 
