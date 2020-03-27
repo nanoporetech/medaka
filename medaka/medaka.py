@@ -24,15 +24,34 @@ import medaka.vcf
 # TODO: should revisit this
 model_store = resource_filename(__package__, 'data')
 allowed_models = [
-    'r941_min_fast_g303', 'r941_min_high_g303', 'r941_min_high_g330', 'r941_min_high_g344', 'r941_min_high_g351',
-    'r941_prom_fast_g303', 'r941_prom_high_g303', 'r941_prom_high_g330', 'r941_prom_high_g344', 'r941_prom_high_g351',
-    'r10_min_high_g303', 'r10_min_high_g340', 'r103_min_high_g345',
-    'r941_prom_snp_g303', 'r941_prom_variant_g303',
+    # r9 consensus
+    'r941_min_fast_g303',
+    'r941_min_high_g303',
+    'r941_min_high_g330',
+    'r941_min_high_g344',
+    'r941_min_high_g351',
+    'r941_prom_fast_g303',
+    'r941_prom_high_g303',
+    'r941_prom_high_g330',
+    'r941_prom_high_g344',
+    'r941_prom_high_g351',
+    # rle consensus
     'r941_min_high_g340_rle',
+    # r10 consensus
+    'r10_min_high_g303',
+    'r10_min_high_g340',
+    'r103_min_high_g345',
+    # snp and variant
+    'r941_prom_snp_g303',
+    'r941_prom_variant_g303',
+    'r941_prom_snp_g322',
+    'r941_prom_variant_g322',
+    'r103_prom_snp_g3210',
+    'r103_prom_variant_g3210',
 ]
-default_consensus_model = 'r941_min_high_g344'
-default_snp_model = 'r941_prom_snp_g303'
-default_variant_model = 'r941_prom_variant_g303'
+default_consensus_model = 'r941_min_high_g351'
+default_snp_model = 'r941_prom_snp_g322'
+default_variant_model = 'r941_prom_variant_g322'
 for m in (default_consensus_model, default_snp_model, default_variant_model):
     if m not in allowed_models:
         raise ValueError(
