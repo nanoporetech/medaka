@@ -1,3 +1,6 @@
+#ifndef _MEDAKA_FASTRLE_H
+#define _MEDAKA_FASTRLE_H
+
 // medaka-style feature data
 typedef struct _plp_data {
     size_t buffer_cols;
@@ -145,3 +148,4 @@ plp_data calculate_pileup(
         size_t num_homop, const char tag_name[2], const int tag_value, const _Bool keep_missing,
         bool weibull_summation, const char *read_group);
 
+#endif
