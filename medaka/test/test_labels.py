@@ -299,7 +299,7 @@ class HaploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
             self.assertEqual(v.pos, pos, msg=msg)
             self.assertEqual(v.ref, ref, msg=msg)
             self.assertEqual(v.alt, [alt], msg=msg)
-            self.assertEqual(v.genotype_data['GT'], '1/1', msg=msg)
+            self.assertEqual(v.genotype_data['GT'], '1', msg=msg)
             self.assertAlmostEqual(float(v.qual), expected_qual, places=3, msg=msg)
             self.assertAlmostEqual(float(v.genotype_data['GQ']), expected_qual, places=3, msg=msg)
 

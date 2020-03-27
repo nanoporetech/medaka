@@ -176,6 +176,9 @@ def snps_from_hdf(args):
             "assuming HaploidLabelScheme.")
         label_scheme = medaka.labels.HaploidLabelScheme()
 
+    # tell label_scheme whether we want verbose info fields
+    label_scheme.verbose = args.verbose
+
     logger.debug("Label decoding is:\n{}".format(
         '\n'.join('{}: {}'.format(k, v)
                   for k, v in label_scheme._decoding.items())))
@@ -239,6 +242,9 @@ def variants_from_hdf(args):
         raise AttributeError(
             '{} does not support consensus decoding required '
             'for variant calling.'.format(label_scheme))
+
+    # tell label_scheme whether we want verbose info fields
+    label_scheme.verbose = args.verbose
 
     meta_info = label_scheme.variant_metainfo
 
