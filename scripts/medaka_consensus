@@ -126,14 +126,23 @@ else
     echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
 fi
 
+VCF_OUTPUT=variants.vcf
 CONSENSUS=consensus.fasta
 if [[ ! -e ${CONSENSUS} ]] || ${FORCE}; then
-    echo "Running medaka stitch"
-    rm -rf ${CONSENSUS}
-    MAXJOBS=8
-    JOBS=$(( MAXJOBS < THREADS ? MAXJOBS : THREADS ))
-    medaka stitch --jobs ${JOBS} ${CONSENSUSPROBS} ${CONSENSUS} \
-        || (echo "Failed to stitch consensus chunks." && exit 1)
+    if [[ $rflag == "True" ]]; then
+        echo "Decoding of RLE outputs to VCF is not yet implemented, using medaka stitch instead."
+        MAXJOBS=8
+        JOBS=$(( MAXJOBS < THREADS ? MAXJOBS : THREADS ))
+        medaka stitch --jobs ${JOBS} ${CONSENSUSPROBS} ${CONSENSUS} \
+            || (echo "Failed to stitch consensus chunks." && exit 1)
+    else
+        medaka variant ${DRAFT} ${CONSENSUSPROBS} ${VCF_OUTPUT} \
+             || (echo "Failed to call variants." && exit 1)
+        bgzip $VCF_OUTPUT
+        tabix -p vcf ${VCF_OUTPUT}.gz
+        bcftools consensus -f ${DRAFT} ${VCF_OUTPUT}.gz > ${CONSENSUS}
+        echo "VCF with changes made by medaka: ${OUTPUT}/${VCF}.gz"
+    fi
     echo "Polished assembly written to ${OUTPUT}/${CONSENSUS}, have a nice day."
     FORCE=true
 else

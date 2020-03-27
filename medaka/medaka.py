@@ -356,29 +356,34 @@ def main():
     sparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
     sparser.add_argument('--jobs', default=1, type=int, help='Number of worker processes to use.')
 
-    pparser = subparsers.add_parser('variant',
+    var_parser = subparsers.add_parser('variant',
         help='Decode probabilities to VCF.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    pparser.set_defaults(func=medaka.variant.variants_from_hdf)
-    pparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
-    pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
-    pparser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
-    pparser.add_argument('--regions', default=None, nargs='+',
+    var_parser.set_defaults(func=medaka.variant.variants_from_hdf)
+    var_parser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
+    var_parser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
+    var_parser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
+    var_parser.add_argument('--regions', default=None, nargs='+',
                          help='Limit variant calling to these reference names')
+    var_parser.add_argument('--verbose', action='store_true',
+                         help='Populate VCF info fields.')
 
-    pparser = subparsers.add_parser('snp',
+    # TODO do we still need this?
+    snp_parser = subparsers.add_parser('snp',
         help='Decode probabilities to SNPs.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    pparser.set_defaults(func=medaka.variant.snps_from_hdf)
-    pparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
-    pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
-    pparser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
-    pparser.add_argument('--regions', default=None, nargs='+', help='Limit variant calling to these reference names')
-    pparser.add_argument('--threshold', default=0.04, type=float,
+    snp_parser.set_defaults(func=medaka.variant.snps_from_hdf)
+    snp_parser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
+    snp_parser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
+    snp_parser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
+    snp_parser.add_argument('--regions', default=None, nargs='+', help='Limit variant calling to these reference names')
+    snp_parser.add_argument('--threshold', default=0.04, type=float,
                          help='Threshold for considering secondary calls. A value of 1 will result in haploid decoding.')
-    pparser.add_argument('--ref_vcf', default=None, help='Reference vcf.')
+    snp_parser.add_argument('--ref_vcf', default=None, help='Reference vcf.')
+    snp_parser.add_argument('--verbose', action='store_true',
+                         help='Populate VCF info fields.')
 
     # Methylation
     methparser = subparsers.add_parser('methylation',
