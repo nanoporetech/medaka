@@ -22,28 +22,29 @@ import medaka.vcf
 
 
 # TODO: should revisit this
+# commented models are deprecated and remove from repo
 model_store = resource_filename(__package__, 'data')
 allowed_models = [
-    # r9 consensus
-    'r941_min_fast_g303',
-    'r941_min_high_g303',
+    ## r9 consensus
+    # 'r941_min_fast_g303',
+    # 'r941_min_high_g303',
     'r941_min_high_g330',
     'r941_min_high_g344',
     'r941_min_high_g351',
-    'r941_prom_fast_g303',
-    'r941_prom_high_g303',
+    # 'r941_prom_fast_g303',
+    # 'r941_prom_high_g303',
     'r941_prom_high_g330',
     'r941_prom_high_g344',
     'r941_prom_high_g351',
-    # rle consensus
+    ## rle consensus
     'r941_min_high_g340_rle',
-    # r10 consensus
-    'r10_min_high_g303',
-    'r10_min_high_g340',
+    ## r10 consensus
+    # 'r10_min_high_g303',
+    # 'r10_min_high_g340',
     'r103_min_high_g345',
-    # snp and variant
-    'r941_prom_snp_g303',
-    'r941_prom_variant_g303',
+    ## snp and variant
+    # 'r941_prom_snp_g303',
+    # 'r941_prom_variant_g303',
     'r941_prom_snp_g322',
     'r941_prom_variant_g322',
     'r103_prom_snp_g3210',
