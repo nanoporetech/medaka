@@ -34,7 +34,6 @@ done
 # Install packages
 for minor in $@; do
     PYBIN="/opt/python/cp3${minor}-cp3${minor}m/bin"
-    "${PYBIN}/pip" install ${parasail}
     "${PYBIN}/pip" install "${PACKAGE_NAME}" --no-index -f ./wheelhouse
     "${PYBIN}/medaka_counts" --print medaka/test/data/test_reads.bam utg000001l:10000-10010
 done
