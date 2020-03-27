@@ -76,7 +76,23 @@ class CheckBam(argparse.Action):
                 "Filepath for '--{}' argument does not exist ({})".format(
                     self.dest, values)
             )
-        with pysam.AlignmentFile(values) as bam:
+        try:
+            with pysam.AlignmentFile(values) as bam:
+                # just to check its a bam
+                _ = bam.references
+        except Exception:
+            raise IOError('The bam {} could not be read.'.format(values))
+        setattr(namespace, self.dest, values)
+
+    @staticmethod
+    def count_read_groups(fname):
+        """Count the number of read groups (RG tag) defined in bam header.
+
+        :param fname: bam file name.
+
+        :returns: number of read groups.
+        """
+        with pysam.AlignmentFile(fname) as bam:
             # As of 13/12/19 pypi still has no wheel for pysam v0.15.3 so we
             # pinned to v0.15.2. However bioconda's v0.15.2 package
             # conflicts with the libdeflate they have so we are forced
@@ -86,9 +102,11 @@ class CheckBam(argparse.Action):
                 header_dict = bam.header.as_dict()
             except AttributeError:
                 header_dict = bam.header
-            if 'RG' in header_dict and len(header_dict['RG']) > 1:
-                raise RuntimeError('The bam {} contains more than one read group.'.format(values))
-        setattr(namespace, self.dest, values)
+            if 'RG' not in header_dict:
+                return 0
+            else:
+                return len(header_dict['RG'])
+
 
 
 class CheckIsBed(argparse.Action):
@@ -312,6 +330,9 @@ def main():
     tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
     tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
+    rg_group = cparser.add_argument_group('read group', 'Filtering alignments the read group (RG) tag, expected to be string value.')
+    rg_group.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
+
 
     # Consensus from single-molecules with subreads
     smparser = subparsers.add_parser('smolecule',
@@ -533,5 +554,16 @@ def main():
     elif args.command == 'methylation' and not hasattr(args, 'func'):
         methparser.print_help()
     else:
-        #TODO: do common argument validation here
+        # do some common argument validation here
+        if 'bam' in args:
+            num_rg = CheckBam.count_read_groups(args.bam)
+            if args.RG is not None:
+                if num_rg > 1 and args.RG:
+                    raise RuntimeError(
+                        'The bam {} contains more than one read group. '
+                        'Please specify `--RG` to select which read group'
+                        'to process'.format(values))
+                else:
+                    logger.info(
+                        "Reads will be filtered to only those with RG tag: {}".format(args.RG))
         args.func(args)
