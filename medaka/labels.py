@@ -879,6 +879,8 @@ class HaploidLabelScheme(BaseLabelScheme):
             # if call or ref starts with gap, pad left
             # (or right if we are at start of genome).
             pad_right = False
+            # if chunks start with a deletion, need to pad (see comment below).
+            pad_del_at_start_of_chunk = False
             while ((not pad_right and
                     (reference[start] == '*' or
                      predicted[start] == '*'))
@@ -892,6 +894,16 @@ class HaploidLabelScheme(BaseLabelScheme):
                     # avoid getting stuck in loop if there is a run
                     # of dels at start of ref
                     pad_right = True
+                elif (start == 0 and pos[start]['minor'] == 0
+                      and predicted[start] == '*'):
+                    # If variant calling is being performed on a region (rather
+                    # than an entire chr), it is possible that a chunk will
+                    # start with a deletion. In which case, the VCF spec says
+                    # one should pad left.  This means creating a variant which
+                    # asserts that the base at the previous position was not a
+                    # variant - something we have no evidence of.
+                    pad_del_at_start_of_chunk = True
+                    break
                 else:
                     assert start != 0
                     start -= 1
@@ -939,10 +951,15 @@ class HaploidLabelScheme(BaseLabelScheme):
             qual = self._pfmt(sum(pred_quals) - sum(ref_quals))
             genotype = {'GT': '1', 'GQ': qual}
 
-            variant = medaka.vcf.Variant(sample.ref_name,
-                                         pos['major'][start],
-                                         var_ref, alt=var_pred,
-                                         filt='PASS', info=info,
+            var_pos = pos['major'][start]
+
+            if pad_del_at_start_of_chunk:
+                var_pos -= 1
+                var_ref = ref_seq[var_pos] + var_ref
+                var_pred = ref_seq[var_pos] + var_pred
+
+            variant = medaka.vcf.Variant(sample.ref_name, var_pos, var_ref,
+                                         alt=var_pred, filt='PASS', info=info,
                                          qual=qual, genotype_data=genotype)
             variant = variant.trim()
             variants.append(variant)
