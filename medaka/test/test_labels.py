@@ -219,58 +219,92 @@ class HaploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
 
         cases = [
             # snp
-            ('CATG',          # ref_seq
-             'tATG'.upper(),  # call_seq
-             0, 'C', 'T'),    # pos, ref, alt
+            ('CATG',            # ref_seq
+             'tATG'.upper(),    # call_seq
+             slice(None, None), # slice of sample to use
+             0, 'C', 'T'),      # pos, ref, alt
             # snp where SNP is called from deletion followed by insertion
             ('CAT*G',
              'CA*cG'.upper(),
+             slice(None, None),
              2, 'T', 'C'),
             # Check we don't get a variant from a deletion followed by insertion
             # of the deleted base
             ('CAT*G',
              'CA*tG'.upper(),
+             slice(None, None),
              None, None, None),
             # mnp
             ('CATG',
              'CtgG'.upper(),
+             slice(None, None),
              1, 'AT', 'TG'),
             # sni at start of ref
             ('C*ATG',
              'CGATG'.upper(),
+             slice(None, None),
              0, 'C', 'CG'),
             # mni at end of ref
             ('CATG**',
              'CATGGT'.upper(),
+             slice(None, None),
              3, 'G', 'GGT'),
             # snd at start of ref
             ('CATG',
              '*ATG'.upper(),
+             slice(None, None),
              0, 'CA', 'A'),
             # snd at end of ref
             ('CATG',
              'CAT*'.upper(),
+             slice(None, None),
              2, 'TG', 'T'),
             # mnd at start of ref
             ('CATG',
              '**TG'.upper(),
+             slice(None, None),
              0, 'CAT', 'T'),
             # snd at end of ref
             ('CATG',
              'CA**'.upper(),
+             slice(None, None),
              1, 'ATG', 'A'),
             # snp and ins
             ('CA*TG',
              'CgcTG'.upper(),
+             slice(None, None),
              1, 'A', 'GC'),
             # snp and ins
             ('CATG',
              'Cg*G'.upper(),
+             slice(None, None),
              1, 'AT', 'G'),
             # snp and ins and del
             ('CA*TG',
              'Cgc*G'.upper(),
+             slice(None, None),
              1, 'AT', 'GC'),
+            # snp and ins and del
+            ('CA*TG',
+             'Cgc*G'.upper(),
+             slice(None, None),
+             1, 'AT', 'GC'),
+            # test a specific case where a sample starts with a deletion, but is
+            # not at the start of the genome.
+            ('TCATG',
+             'T*ATG'.upper(),
+             slice(1, None),
+             0, 'TC', 'T'),
+            # snd not at start of chunk
+            ('TCATG',
+             'T*ATG'.upper(),
+             slice(None, None),
+             0, 'TC', 'T'),
+            # slice which is not a variant
+            ('TCATG',
+             'T*ATG'.upper(),
+             slice(2, None),
+             None, None, None),
         ]
 
         pri_prob = 0.9
@@ -278,10 +312,12 @@ class HaploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
         ref_qual = self.ls._phred(pri_prob)
         qual = pri_qual - ref_qual
 
-        for i, (ref_seq, call, pos, ref, alt) in enumerate(cases):
+        for i, (ref_seq, call, sl, pos, ref, alt) in enumerate(cases):
             msg = 'Failed case {}'.format(i)
             s, ref_seq = haploid_sample_from_labels(self.ls, ref_seq, call,
                 pri_prob=pri_prob, sec_prob=0)
+            # slice sample to test variant at start of chunk or mid-chunk.
+            s = s.slice(sl)
             v = self.ls.decode_variants(s, ref_seq=ref_seq.replace('*', ''))
 
             if pos is None:
