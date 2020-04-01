@@ -1,6 +1,8 @@
 """Creation of variant call files from network outputs."""
+import collections
 import itertools
 
+import intervaltree
 import numpy as np
 import pysam
 
@@ -265,3 +267,34 @@ def variants_from_hdf(args):
             for sample in joined_samples:
                 variants = label_scheme.decode_variants(sample, ref_seq)
                 vcf_writer.write_variants(variants, sort=True)
+
+
+def samples_to_bed(args):
+    """Write a bed file from samples in a datastore file."""
+    logger = medaka.common.get_named_logger('Variants')
+
+    index = medaka.datastore.DataIndex(args.inputs)
+
+    trees = collections.defaultdict(intervaltree.IntervalTree)
+    logger.info("Building interval tree")
+    for s, f in index.samples:
+        d = medaka.common.Sample.decode_sample_name(s)
+        # start and end are string repr of floats (major.minor coordinates)
+        start, end = int(float(d['start'])), int(float(d['end']))
+        # add one to end of interval, as intervaltree intervals and bed file
+        # intervals are end-exclusive (i.e. they don't contain the last
+        # coordinate), whilst the last position in a sample is included in that
+        # sample.
+        trees[d['ref_name']].add(intervaltree.Interval(start, end + 1))
+
+    with open(args.output, 'w') as fh:
+        for contig, tree in trees.items():
+            # strict=False as consecutive samples can start and end on the same
+            # major (overlap is in minor) hence if samples are abutting but not
+            # overlapping in major coords, merge them
+            tree.merge_overlaps(strict=False)
+            logger.info("Writing intervals for {}".format(contig))
+            for i in sorted(tree.all_intervals):
+                fh.write("{}\t{}\t{}\n".format(contig, i.begin, i.end))
+
+    logger.info("All done, bed file written to {}".format(args.output))

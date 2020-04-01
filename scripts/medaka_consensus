@@ -128,6 +128,8 @@ fi
 
 VCF_OUTPUT=variants.vcf
 CONSENSUS=consensus.fasta
+CHAIN=draft_to_consensus.chain
+WASPOLISHEDBED=polished_regions_in_draft_coords.bed
 if [[ ! -e ${CONSENSUS} ]] || ${FORCE}; then
     if [[ $rflag == "True" ]]; then
         echo "Decoding of RLE outputs to VCF is not yet implemented, using medaka stitch instead."
@@ -140,8 +142,10 @@ if [[ ! -e ${CONSENSUS} ]] || ${FORCE}; then
              || (echo "Failed to call variants." && exit 1)
         bgzip $VCF_OUTPUT
         tabix -p vcf ${VCF_OUTPUT}.gz
-        bcftools consensus -f ${DRAFT} ${VCF_OUTPUT}.gz > ${CONSENSUS}
-        echo "VCF with changes made by medaka: ${OUTPUT}/${VCF}.gz"
+        bcftools consensus -f ${DRAFT} --sample SAMPLE -c ${CHAIN} ${VCF_OUTPUT}.gz > ${CONSENSUS}
+        echo "VCF with changes made by medaka: ${OUTPUT}/${VCF_OUTPUT}.gz"
+        medaka tools hdf_to_bed ${CONSENSUSPROBS} ${WASPOLISHEDBED}
+        echo "BED delineating regions which were polished (in draft coordinates): ${OUTPUT}/${WASPOLISHEDBED}"
     fi
     echo "Polished assembly written to ${OUTPUT}/${CONSENSUS}, have a nice day."
     FORCE=true
