@@ -553,6 +553,16 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     lmparser.set_defaults(func=print_all_models)
 
+    # write a bed file of regions spanned by a hdf feature / probs file.
+    bdparser = toolsubparsers.add_parser('hdf_to_bed',
+        help='Write a bed file of regions spanned by a hdf file.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    bdparser.set_defaults(func=medaka.variant.samples_to_bed)
+    bdparser.add_argument('inputs', nargs='+',
+                          help='Consensus .hdf files.')
+    bdparser.add_argument('output', help='Output .bed.', default='medaka.bed')
+
     args = parser.parse_args()
 
     # https://github.com/tensorflow/tensorflow/issues/26691

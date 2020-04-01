@@ -52,12 +52,15 @@ check_bgzip_version = functools.partial(
     check_htslib_tool_version, 'bgzip')
 check_samtools_version = functools.partial(
     check_htslib_tool_version, 'samtools', 1)
+check_bcftools_version = functools.partial(
+    check_htslib_tool_version, 'bcftools', 1)
 
 required_version = {
     'minimap2': LooseVersion('2.11'),
     'samtools': LooseVersion('1.9'),
     'tabix': LooseVersion('1.9'),
     'bgzip': LooseVersion('1.9'),
+    'bcftools': LooseVersion('1.10'),
 }
 
 get_version = {
@@ -65,6 +68,7 @@ get_version = {
     'samtools': check_samtools_version,
     'tabix': check_tabix_version,
     'bgzip': check_bgzip_version,
+    'bcftools': check_bcftools_version,
 }
 
 
