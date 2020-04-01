@@ -575,9 +575,9 @@ def main():
         methparser.print_help()
     else:
         # do some common argument validation here
-        if 'bam' in args:
-            num_rg = CheckBam.count_read_groups(args.bam)
-            if args.RG is not None:
+        if hasattr('bam', args) and args.bam is not None:
+            if hasattr('RG', args) and args.RG is not None:
+                num_rg = CheckBam.count_read_groups(args.bam)
                 if num_rg > 1 and args.RG:
                     raise RuntimeError(
                         'The bam {} contains more than one read group. '
