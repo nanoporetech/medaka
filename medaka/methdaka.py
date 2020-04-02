@@ -22,20 +22,18 @@ BASES = 'A 6mA C 5mC G T'.split()
 MODTYPE = [(b, 'uint8') for b in BASES]
 MOTIFS = {
     'dcm': {
-        # seq: [fwd offset, rev offset]
-        # NB: code will assume rev offset is larger!
-        'motifs': {
-            'CCAGG': (1, 3),
-            'CCTGG': (1, 3)},
-        'tag': 'MC'},
+        # seq (on fwd strand): [fwd offset, rev offset]
+        'CCAGG': ((1, 3), 'MC'),
+        'CCTGG': ((1, 3), 'MC')},
     'dam': {
-        'motifs': {
-            'GATC': (1, 2)},
-        'tag': 'MA'},
+        'GATC': ((1, 2), 'MA')},
     'cpg': {
-        'motifs': {
-            'CG': (0, 1)},
-        'tag': 'MC'}
+        'CG': ((0, 1), 'MC')},
+    'all': {
+        'C': ((0, None), 'MC'),
+        'G': ((None, 0), 'MC'),
+        'A': ((0, None), 'MA'),
+        'T': ((None, 0), 'MA')}
     }
 Read = namedtuple('Read', ['read_id', 'sequence', 'quality'])
 
@@ -310,6 +308,105 @@ def hdf_to_sam(args):
                 future.add_done_callback(_write)
 
 
+class MotifTracker():
+    """Track methylation counts of a motif while parsing a pileup."""
+
+    def __init__(self, ref, region, seq, strand_offsets, tag):
+        """Initialize the tracker.
+
+        :param ref: reference sequence.
+        :param region: region of reference to parse.
+        :param seq: the motif search to examine.
+        :param strand_offsets: positions of motif to examine on forward and
+            reverse strands (`None` if a particular strand shouldn't be
+            examined.)
+        :param tag: bam tag to look up data.
+
+        """
+        self.motif = seq
+        self.ref = ref
+        self.region = region
+        self.seq = seq
+        self.tag = tag
+        self.fwd_offset, self.rev_offset = strand_offsets
+        self.has_fwd = self.fwd_offset is not None
+        self.has_rev = self.rev_offset is not None
+        self.loci = self._find_loci(
+            self.ref, self.motif, self.region.start, self.region.end)
+        self._queue = list()
+        self.reset_counters()
+
+    def reset_counters(self):
+        """Reset methylation counters to zero."""
+        self.meth = Counter()
+        self.not_meth = Counter()
+
+    def add(self, is_meth, is_rev=None):
+        """Add a methylation/non methylation count to the tallies.
+
+        :param is_meth: boolean, the count to which to add.
+        :param is_rev: if given checked against internal state to ensure
+            caller is adding to the correct count.
+
+        """
+        if is_rev is not None:
+            assert is_rev == self.is_rev
+        if is_meth:
+            self.meth[self.is_rev] += 1
+        else:
+            self.not_meth[self.is_rev] += 1
+
+    @property
+    def summary(self):
+        """Return a tuple of counts and meta data.
+
+        The data returned is:
+
+            * reference name
+            * reference position
+            * motif sequence
+            * modified count fwd. strand
+            * modified count rev. strand
+            * non-modified count fwd. strand
+            * non-modified count rev. strand
+
+        """
+        return (
+            self.region.ref_name, self.index, self.motif,
+            self.meth[False], self.meth[True],
+            self.not_meth[False], self.not_meth[True])
+
+    def __iter__(self):
+        """Return self."""
+        return self
+
+    def __next__(self):
+        """Iterate over the reference positions which need to be examined."""
+        if len(self._queue) == 0:
+            self.index = next(self.loci)
+            if self.has_fwd:
+                self._queue.append((False, self.index + self.fwd_offset))
+            if self.has_rev:
+                self._queue.append((True, self.index + self.rev_offset))
+            if self.has_fwd and self.has_rev:
+                if self.rev_offset < self.fwd_offset:
+                    self._queue = self._queue[::-1]
+        item = self._queue.pop(0)
+        self.is_rev, self.pos = item
+        self.taken_all = len(self._queue) == 0
+        return item
+
+    @staticmethod
+    def _find_loci(ref, motif, start, end):
+        index = start
+        while index < end:
+            index = ref.find(motif, index)
+            if index == -1:
+                break
+            yield index
+            index += 1
+
+
 def call_methylation(args):
     """Entry point for calling methylation from bam file."""
     logger = medaka.common.get_named_logger('Mextract')
@@ -317,70 +414,45 @@ def call_methylation(args):
     region = medaka.common.get_regions(args.bam, [args.region])[0]
     ref = pysam.FastaFile(args.reference)
     ref = ref.fetch(region.ref_name)
-    motifs = MOTIFS[args.meth]['motifs']
-    tag_name = MOTIFS[args.meth]['tag']
-
-    def _find_loci(ref, motif, rel_pos, start, end):
-        index = start
-        while index < end:
-            index = ref.find(motif, index)
-            if index == -1:
-                break
-            yield index, index + rel_pos[0], index + rel_pos[1]
-            index += 1
+    motifs = MOTIFS[args.meth]
 
     with open(args.output, 'w') as fh:
         with pysam.AlignmentFile(args.bam, "rb") as bam:
-            for motif, rel_pos in motifs.items():
-                logger.info("Searching for motif '{}'.".format(motif))
-                loci = _find_loci(
-                    ref, motif, rel_pos, region.start, region.end)
-                locus = next(loci)
+            for seq, motif_info in motifs.items():
+                tracker = MotifTracker(ref, region, seq, *motif_info)
+                logger.info("Searching for motif '{}'.".format(seq))
+                next(tracker)
 
-                # we assume the reverse strand position is after
-                # the forward strand
-                is_rev = False
-                next_pos = locus[1]
-                meth = Counter()
-                not_meth = Counter()
                 for pileupcolumn in bam.pileup(
                         region.ref_name, region.start, region.end):
-                    if pileupcolumn.pos < next_pos:
+                    if (pileupcolumn.pos - region.start) % 1000000 == 0:
+                        done = pileupcolumn.pos - region.start
+                        pct_done = 100 * done // (region.end - region.start)
+                        logger.info(
+                            "Processed {} ref positions ({}%)".format(
+                                done, pct_done))
+                    if pileupcolumn.pos != tracker.pos:
                         continue
                     for read in pileupcolumn.pileups:
                         aln = read.alignment
                         if read.is_del \
                                 or read.is_refskip \
-                                or aln.is_reverse != is_rev:
+                                or aln.is_reverse != tracker.is_rev:
                             continue
                         qpos = read.query_position
-                        tag = read.alignment.get_tag(tag_name)
+                        tag = read.alignment.get_tag(tracker.tag)
                         # NOTE: tags are not reversed, see above
                         if not aln.is_reverse:
                             mscore = tag[qpos]
                         else:
                             mscore = tag[len(tag) - qpos - 1]
-
                         if mscore > args.filter[1]:
-                            meth[aln.is_reverse] += 1
+                            tracker.add(True)
                         elif mscore < args.filter[0]:
-                            not_meth[aln.is_reverse] += 1
-                    if is_rev:
-                        fh.write(
-                            '\t'.join(str(x) for x in (
-                                region.ref_name, locus[0], motif,
-                                meth[False], meth[True],
-                                not_meth[False], not_meth[True])))
+                            tracker.add(False)
+
+                    if tracker.taken_all:
+                        fh.write('\t'.join(str(x) for x in tracker.summary))
                         fh.write('\n')
-                        try:
-                            locus = next(loci)
-                        except StopIteration:
-                            break
-                        else:
-                            is_rev = False
-                            next_pos = locus[1]
-                            meth = Counter()
-                            not_meth = Counter()
-                    else:
-                        is_rev = True
-                        next_pos = locus[2]
+                        tracker.reset_counters()
+                    next(tracker)

@@ -6,6 +6,7 @@ R10.3 and R9.4.1 variant calling models and small fixes
 * Consensus models for Guppy 3.5.1.
 * Add read group (RG) tag filtering.
 * Update to methylation calling documentation.
+* Addition of all-context modified-base aggregation
 * Minor speed improvement.
 
 v0.11.5
