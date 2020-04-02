@@ -151,8 +151,10 @@ phased ``.vcf`` variant file.
 
 .. note::
 
-    Variants output by ``medaka_variant`` are filtered using default quality thresholds. 
-    Users may wish to apply alternative filtering for their datasets and applications 
+    Variants output by ``medaka_variant`` are marked as "PASS" or "lowqual" in
+    the ``FILTER`` column of the output ``.vcf`` file using simple quality
+    thresholds. No variants are hard-filtered from the output file. Users may
+    wish to apply alternative filtering for their datasets and applications 
     using the -U, -P and -N options to ``medaka_variant``.
 
 
