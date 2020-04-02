@@ -88,7 +88,7 @@ class ResolveModel(argparse.Action):
 
 
 class CheckBam(argparse.Action):
-    """Check a bam has < 2 samples (RG tag)"""
+    """Check a bam is a bam."""
 
     def __call__(self, parser, namespace, values, option_string=None):
         if not os.path.exists(values):
@@ -459,6 +459,8 @@ def main():
     methcallparser.add_argument(
             '--filter', type=int, nargs=2, default=(64, 128),
             metavar=('upper', 'lower'), help='Upper (lower) score boundary to call canonical (methylated) base. Scores are in the range [0, 256].')
+    rg_group = methcallparser.add_argument_group('read group', 'Filtering alignments the read group (RG) tag, expected to be string value.')
+    rg_group.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
 
     # Tools
     toolparser = subparsers.add_parser('tools',
