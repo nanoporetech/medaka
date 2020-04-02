@@ -5,9 +5,11 @@ R10.3 and R9.4.1 variant calling models and small fixes
 * Variant calling models for R10.3 and R9.4.1 and updated benchmarks.
 * Consensus models for Guppy 3.5.1.
 * Add read group (RG) tag filtering.
+* Add option to create consensus sequence via intermediate .vcf file.
 * Update to methylation calling documentation.
 * Addition of all-context modified-base aggregation
 * Minor speed improvement.
+* Fix bug where force overwrite of output was always enabled.
 
 v0.11.5
 -------
