@@ -13,11 +13,8 @@ test:
           python3-all-dev python-virtualenv
           zlib1g-dev libbz2-dev liblzma-dev libncurses5-dev libcurl4-gnutls-dev
           libssl-dev libffi-dev valgrind
-        - wget https://ont-research.s3-eu-west-1.amazonaws.com/parasail-1.1.17-py2.py3-none-linux_x86_64.whl 
     script:
         - make venv
-        # no wheel for parasail on pypi
-        - . ./venv/bin/activate && pip install parasail-1.1.17-py2.py3-none-linux_x86_64.whl
         - make -j 4 test mem_check
         - make docs
 

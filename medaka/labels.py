@@ -327,6 +327,9 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
     # default set of symbols used throughout all LabelSchemes
     symbols = '*ACGT'
 
+    # flag to turn on decoding of variants with extra information
+    verbose = True
+
     @property
     @abc.abstractmethod
     def n_elements(self):
@@ -648,18 +651,19 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
     def snp_metainfo(self):
         """Return meta data for use in `.vcf` header."""
         MI = medaka.vcf.MetaInfo
-        m = [MI('INFO', 'ref_prob', 1, 'Float',
-                'Medaka probability for reference allele'),
-             MI('INFO', 'primary_prob', 1, 'Float',
-                'Medaka probability of primary call'),
-             MI('INFO', 'primary_call', 1, 'String',
-                'Medaka primary call'),
-             MI('INFO', 'secondary_prob', 1, 'Float',
-                'Medaka probability of secondary call'),
-             MI('INFO', 'secondary_call', 1, 'String',
-                'Medaka secondary call'),
-             MI('FORMAT', 'GT', 1, 'String', 'Medaka genotype'),
+        m = [MI('FORMAT', 'GT', 1, 'String', 'Medaka genotype'),
              MI('FORMAT', 'GQ', 1, 'Float', 'Medaka genotype quality score')]
+        if self.verbose:
+            m.extend([MI('INFO', 'ref_prob', 1, 'Float',
+                         'Medaka probability for reference allele'),
+                      MI('INFO', 'primary_prob', 1, 'Float',
+                         'Medaka probability of primary call'),
+                      MI('INFO', 'primary_call', 1, 'String',
+                         'Medaka primary call'),
+                      MI('INFO', 'secondary_prob', 1, 'Float',
+                         'Medaka probability of secondary call'),
+                      MI('INFO', 'secondary_call', 1, 'String',
+                         'Medaka secondary call'), ])
 
         return m
 
@@ -756,12 +760,15 @@ class HaploidLabelScheme(BaseLabelScheme):
             secondary_prob, primary_prob = np.sort(network_output)[-2:]
             ref_prob = network_output[self._encoding[(ref_symbol,)]]
 
-            info = {
-                'ref_prob': self._pfmt(ref_prob),
-                'primary_prob': self._pfmt(primary_prob),
-                'primary_call': primary_call,
-                'secondary_prob': self._pfmt(secondary_prob),
-                'secondary_call': secondary_call}
+            if self.verbose:
+                info = {
+                    'ref_prob': self._pfmt(ref_prob),
+                    'primary_prob': self._pfmt(primary_prob),
+                    'primary_call': primary_call,
+                    'secondary_prob': self._pfmt(secondary_prob),
+                    'secondary_call': secondary_call}
+            else:
+                info = {}
 
             # logical tests
             primary_is_reference = primary_call == ref_symbol
@@ -872,6 +879,8 @@ class HaploidLabelScheme(BaseLabelScheme):
             # if call or ref starts with gap, pad left
             # (or right if we are at start of genome).
             pad_right = False
+            # if chunks start with a deletion, need to pad (see comment below).
+            pad_del_at_start_of_chunk = False
             while ((not pad_right and
                     (reference[start] == '*' or
                      predicted[start] == '*'))
@@ -885,6 +894,16 @@ class HaploidLabelScheme(BaseLabelScheme):
                     # avoid getting stuck in loop if there is a run
                     # of dels at start of ref
                     pad_right = True
+                elif (start == 0 and pos[start]['minor'] == 0
+                      and predicted[start] == '*'):
+                    # If variant calling is being performed on a region (rather
+                    # than an entire chr), it is possible that a chunk will
+                    # start with a deletion. In which case, the VCF spec says
+                    # one should pad left.  This means creating a variant which
+                    # asserts that the base at the previous position was not a
+                    # variant - something we have no evidence of.
+                    pad_del_at_start_of_chunk = True
+                    break
                 else:
                     assert start != 0
                     start -= 1
@@ -915,22 +934,32 @@ class HaploidLabelScheme(BaseLabelScheme):
             ref_quals = [self._phred(1 - p) for p in ref_probs]
             pred_quals = [self._phred(1 - p) for p in pred_probs]
 
-            info = {'ref_seq': var_ref_with_gaps,
+            if self.verbose:
+                info = {
+                    'ref_seq': var_ref_with_gaps,
                     'pred_seq': var_pred_with_gaps,
                     'ref_qs': ','.join((self._pfmt(q) for q in ref_quals)),
                     'pred_qs': ','.join((self._pfmt(q) for q in pred_quals)),
                     'ref_q': self._pfmt(sum(ref_quals)),
                     'pred_q': self._pfmt(sum(pred_quals)),
-                    'n_cols': len(pred_quals)}
+                    'n_cols': len(pred_quals)
+                }
+            else:
+                info = {}
 
             # log likelihood ratio
             qual = self._pfmt(sum(pred_quals) - sum(ref_quals))
-            genotype = {'GT': '1/1', 'GQ': qual}
+            genotype = {'GT': '1', 'GQ': qual}
 
-            variant = medaka.vcf.Variant(sample.ref_name,
-                                         pos['major'][start],
-                                         var_ref, alt=var_pred,
-                                         filt='PASS', info=info,
+            var_pos = pos['major'][start]
+
+            if pad_del_at_start_of_chunk:
+                var_pos -= 1
+                var_ref = ref_seq[var_pos] + var_ref
+                var_pred = ref_seq[var_pos] + var_pred
+
+            variant = medaka.vcf.Variant(sample.ref_name, var_pos, var_ref,
+                                         alt=var_pred, filt='PASS', info=info,
                                          qual=qual, genotype_data=genotype)
             variant = variant.trim()
             variants.append(variant)
@@ -941,24 +970,26 @@ class HaploidLabelScheme(BaseLabelScheme):
     def variant_metainfo(self):
         """Return meta data for use in `.vcf` header."""
         MI = medaka.vcf.MetaInfo
-        m = [MI('INFO', 'ref_seq', 1, 'String',
-                'Medaka reference sequence'),
-             MI('INFO', 'pred_seq', 1, 'String',
-                'Medaka predicted sequence'),
-             MI('INFO', 'ref_qs', '.', 'Float',
-                'Medaka quality score for reference'),
-             MI('INFO', 'pred_qs', '.', 'Float',
-                'Medaka quality score for prediction'),
-             MI('INFO', 'ref_q', 1, 'Float',
-                'Medaka per position quality score for reference'),
-             MI('INFO', 'pred_q', 1, 'Float',
-                'Medaka per position quality score for prediction'),
-             MI('FORMAT', 'GT', 1, 'String',
+
+        m = [MI('FORMAT', 'GT', 1, 'String',
                 'Medaka genotype.'),
              MI('FORMAT', 'GQ', 1, 'Float',
-                'Medaka genotype quality score'),
-             MI('INFO', 'n_cols', 1, 'Integer',
-                'Number of medaka pileup columns in variant call')]
+                'Medaka genotype quality score'), ]
+        if self.verbose:
+            m.extend([MI('INFO', 'ref_seq', 1, 'String',
+                      'Medaka reference sequence'),
+                      MI('INFO', 'pred_seq', 1, 'String',
+                      'Medaka predicted sequence'),
+                      MI('INFO', 'ref_qs', '.', 'Float',
+                      'Medaka quality score for reference'),
+                      MI('INFO', 'pred_qs', '.', 'Float',
+                      'Medaka quality score for prediction'),
+                      MI('INFO', 'ref_q', 1, 'Float',
+                      'Medaka per position quality score for reference'),
+                      MI('INFO', 'pred_q', 1, 'Float',
+                      'Medaka per position quality score for prediction'),
+                      MI('INFO', 'n_cols', 1, 'Integer',
+                      'Number of medaka pileup columns in variant call')])
         return m
 
     def decode_consensus(self, sample, with_gaps=False):
@@ -1059,6 +1090,8 @@ class DiploidLabelScheme(BaseLabelScheme):
         quals = self._phred(1 - probs)
 
         def _make_info(rs, p, c):
+            if not self.verbose:
+                return {}
             # helper for variant info formating
             rp = network_output[self._encoding[(rs, rs)]]
             info = {
@@ -1122,12 +1155,16 @@ class DiploidLabelScheme(BaseLabelScheme):
     def snp_metainfo(self):
         """Return meta data for use in `.vcf` header."""
         MI = medaka.vcf.MetaInfo
-        m = [MI('INFO', 'ref_prob', 1, 'Float',
-                'Medaka probability of reference'),
-             MI('INFO', 'prob', 1, 'Float', 'Medaka probability of variant'),
-             MI('INFO', 'call', 1, 'String', 'Medaka variant call'),
-             MI('FORMAT', 'GT', 1, 'String', 'Medaka genotype'),
+        m = [MI('FORMAT', 'GT', 1, 'String', 'Medaka genotype'),
              MI('FORMAT', 'GQ', 1, 'Float', 'Medaka genotype quality score')]
+        if self.verbose:
+            m.extend([
+                MI('INFO', 'ref_prob', 1, 'Float',
+                   'Medaka probability of reference'),
+                MI('INFO', 'prob', 1, 'Float',
+                   'Medaka probability of variant'),
+                MI('INFO', 'call', 1, 'String', 'Medaka variant call'),
+                ])
 
         return m
 
@@ -1255,12 +1292,15 @@ class DiploidZygosityLabelScheme(DiploidLabelScheme):
             else:
                 call = tuple((primary_call, secondary_call))
 
-            info = {
-                'ref_prob': self._pfmt(ref_prob),
-                'primary_prob': self._pfmt(primary_prob),
-                'primary_call': primary_call,
-                'secondary_prob': self._pfmt(secondary_prob),
-                'secondary_call': secondary_call}
+            if self.verbose:
+                info = {
+                    'ref_prob': self._pfmt(ref_prob),
+                    'primary_prob': self._pfmt(primary_prob),
+                    'primary_call': primary_call,
+                    'secondary_prob': self._pfmt(secondary_prob),
+                    'secondary_call': secondary_call}
+            else:
+                info = {}
 
             # logical tests
             is_reference = call == (ref_symbol, ref_symbol)

@@ -101,6 +101,7 @@ def predict(args):
     feature_encoder.tag_name = args.tag_name
     feature_encoder.tag_value = args.tag_value
     feature_encoder.tag_keep_missing = args.tag_keep_missing
+    feature_encoder.read_group = args.RG
 
     logger.info("Setting tensorflow threads to {}.".format(args.threads))
     tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)

@@ -1,8 +1,12 @@
+import collections
+import os
+import tempfile
 import unittest
 
 import numpy as np
 
 import medaka.common
+import medaka.datastore
 import medaka.labels
 import medaka.variant
 from medaka.test.test_labels import haploid_sample_from_labels
@@ -205,3 +209,54 @@ class TestJoinSamples(unittest.TestCase):
             for expt, got in zip(exp_sliced, joined):
                 self.assertEqual(got.name, expt.name)
                 self.assertEqual(got, expt)
+
+
+class TestSamplesToBed(unittest.TestCase):
+    def test_samples_to_bed(self):
+
+        samples = [
+            ('chr1', 0, 1000),
+            ('chr1', 900, 1900),
+            ('chr1', 1900, 3000), # should be merged as overlapping
+            ('chr1', 3001, 3500),  # should be merged as abutting
+            ('chr1', 3502, 4000),  # should not be merged
+            ('chr2', 1000, 10000), # single sample in a contig
+            ('chr3', 0, 1000),     # check we merge contigs separately
+            ('chr3', 2000, 2001),  # short sample
+            ('chr3', 3000, 3000),  # sample which starts and ends on same major
+        ]
+        expected = {
+            ('chr1', 0, 3501),
+            ('chr1', 3502, 4001),
+            ('chr2', 1000, 10001), # single sample in a contig
+            ('chr3', 0, 1001),     # check we merge contigs separately
+            ('chr3', 2000, 2002),  # short sample
+            ('chr3', 3000, 3001),  # sample which starts and ends on same major
+        }
+
+        dtype = [('major', int), ('minor', int)]
+
+        _, tmp_hdf = tempfile.mkstemp()
+        _, tmp_bed = tempfile.mkstemp()
+
+        with medaka.datastore.DataStore(tmp_hdf, 'w') as ds:
+            for contig, start, end in samples:
+
+                pos = np.array([(start, 0), (end, 0)], dtype=dtype)
+                s = medaka.common.Sample(contig, None, None, None, pos, None)
+                ds.write_sample(s)
+
+        args = collections.namedtuple('args', 'inputs output')
+        medaka.variant.samples_to_bed(args([tmp_hdf], tmp_bed))
+
+        intervals = set()
+        with open(tmp_bed) as fh:
+            for line in fh:
+                split = line.split('\t')
+                intervals.add((split[0], int(split[1]), int(split[2])))
+
+        os.remove(tmp_hdf)
+        os.remove(tmp_bed)
+
+        self.assertEqual(intervals, expected)
+

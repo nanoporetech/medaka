@@ -31,7 +31,9 @@ ffibuilder.set_source("libmedaka",
 cdef = []
 for header in ('medaka_counts.h','fastrle.h'):
     with open(os.path.join(src_dir, header), 'r') as fh:
-        cdef.append(fh.read())
+        # remove directives
+        lines = ''.join(x for x in fh.readlines() if not x.startswith('#'))
+        cdef.append(lines)
 
 ffibuilder.cdef('\n\n'.join(cdef))
 

@@ -22,17 +22,37 @@ import medaka.vcf
 
 
 # TODO: should revisit this
+# commented models are deprecated and remove from repo
 model_store = resource_filename(__package__, 'data')
 allowed_models = [
-    'r941_min_fast_g303', 'r941_min_high_g303', 'r941_min_high_g330', 'r941_min_high_g344',
-    'r941_prom_fast_g303', 'r941_prom_high_g303', 'r941_prom_high_g344',
-    'r941_prom_high_g330', 'r10_min_high_g303', 'r10_min_high_g340', 'r103_min_high_g345',
-    'r941_prom_snp_g303', 'r941_prom_variant_g303',
+    ## r9 consensus
+    # 'r941_min_fast_g303',
+    # 'r941_min_high_g303',
+    'r941_min_high_g330',
+    'r941_min_high_g344',
+    'r941_min_high_g351',
+    # 'r941_prom_fast_g303',
+    # 'r941_prom_high_g303',
+    'r941_prom_high_g330',
+    'r941_prom_high_g344',
+    'r941_prom_high_g351',
+    ## rle consensus
     'r941_min_high_g340_rle',
+    ## r10 consensus
+    # 'r10_min_high_g303',
+    # 'r10_min_high_g340',
+    'r103_min_high_g345',
+    ## snp and variant
+    # 'r941_prom_snp_g303',
+    # 'r941_prom_variant_g303',
+    'r941_prom_snp_g322',
+    'r941_prom_variant_g322',
+    'r103_prom_snp_g3210',
+    'r103_prom_variant_g3210',
 ]
-default_consensus_model = 'r941_min_high_g344'
-default_snp_model = 'r941_prom_snp_g303'
-default_variant_model = 'r941_prom_variant_g303'
+default_consensus_model = 'r941_min_high_g351'
+default_snp_model = 'r941_prom_snp_g322'
+default_variant_model = 'r941_prom_variant_g322'
 for m in (default_consensus_model, default_snp_model, default_variant_model):
     if m not in allowed_models:
         raise ValueError(
@@ -68,7 +88,7 @@ class ResolveModel(argparse.Action):
 
 
 class CheckBam(argparse.Action):
-    """Check a bam has < 2 samples (RG tag)"""
+    """Check a bam is a bam."""
 
     def __call__(self, parser, namespace, values, option_string=None):
         if not os.path.exists(values):
@@ -76,7 +96,23 @@ class CheckBam(argparse.Action):
                 "Filepath for '--{}' argument does not exist ({})".format(
                     self.dest, values)
             )
-        with pysam.AlignmentFile(values) as bam:
+        try:
+            with pysam.AlignmentFile(values) as bam:
+                # just to check its a bam
+                _ = bam.references
+        except Exception:
+            raise IOError('The bam {} could not be read.'.format(values))
+        setattr(namespace, self.dest, values)
+
+    @staticmethod
+    def count_read_groups(fname):
+        """Count the number of read groups (RG tag) defined in bam header.
+
+        :param fname: bam file name.
+
+        :returns: number of read groups.
+        """
+        with pysam.AlignmentFile(fname) as bam:
             # As of 13/12/19 pypi still has no wheel for pysam v0.15.3 so we
             # pinned to v0.15.2. However bioconda's v0.15.2 package
             # conflicts with the libdeflate they have so we are forced
@@ -86,9 +122,11 @@ class CheckBam(argparse.Action):
                 header_dict = bam.header.as_dict()
             except AttributeError:
                 header_dict = bam.header
-            if 'RG' in header_dict and len(header_dict['RG']) > 1:
-                raise RuntimeError('The bam {} contains more than one read group.'.format(values))
-        setattr(namespace, self.dest, values)
+            if 'RG' not in header_dict:
+                return 0
+            else:
+                return len(header_dict['RG'])
+
 
 
 class CheckIsBed(argparse.Action):
@@ -312,6 +350,9 @@ def main():
     tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
     tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
+    rg_group = cparser.add_argument_group('read group', 'Filtering alignments the read group (RG) tag, expected to be string value.')
+    rg_group.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
+
 
     # Consensus from single-molecules with subreads
     smparser = subparsers.add_parser('smolecule',
@@ -356,29 +397,34 @@ def main():
     sparser.add_argument('--regions', default=None, nargs='+', help='Limit stitching to these reference names')
     sparser.add_argument('--jobs', default=1, type=int, help='Number of worker processes to use.')
 
-    pparser = subparsers.add_parser('variant',
+    var_parser = subparsers.add_parser('variant',
         help='Decode probabilities to VCF.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    pparser.set_defaults(func=medaka.variant.variants_from_hdf)
-    pparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
-    pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
-    pparser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
-    pparser.add_argument('--regions', default=None, nargs='+',
+    var_parser.set_defaults(func=medaka.variant.variants_from_hdf)
+    var_parser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
+    var_parser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
+    var_parser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
+    var_parser.add_argument('--regions', default=None, nargs='+',
                          help='Limit variant calling to these reference names')
+    var_parser.add_argument('--verbose', action='store_true',
+                         help='Populate VCF info fields.')
 
-    pparser = subparsers.add_parser('snp',
+    # TODO do we still need this?
+    snp_parser = subparsers.add_parser('snp',
         help='Decode probabilities to SNPs.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    pparser.set_defaults(func=medaka.variant.snps_from_hdf)
-    pparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
-    pparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
-    pparser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
-    pparser.add_argument('--regions', default=None, nargs='+', help='Limit variant calling to these reference names')
-    pparser.add_argument('--threshold', default=0.04, type=float,
+    snp_parser.set_defaults(func=medaka.variant.snps_from_hdf)
+    snp_parser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
+    snp_parser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
+    snp_parser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
+    snp_parser.add_argument('--regions', default=None, nargs='+', help='Limit variant calling to these reference names')
+    snp_parser.add_argument('--threshold', default=0.04, type=float,
                          help='Threshold for considering secondary calls. A value of 1 will result in haploid decoding.')
-    pparser.add_argument('--ref_vcf', default=None, help='Reference vcf.')
+    snp_parser.add_argument('--ref_vcf', default=None, help='Reference vcf.')
+    snp_parser.add_argument('--verbose', action='store_true',
+                         help='Populate VCF info fields.')
 
     # Methylation
     methparser = subparsers.add_parser('methylation',
@@ -413,6 +459,8 @@ def main():
     methcallparser.add_argument(
             '--filter', type=int, nargs=2, default=(64, 128),
             metavar=('upper', 'lower'), help='Upper (lower) score boundary to call canonical (methylated) base. Scores are in the range [0, 256].')
+    rg_group = methcallparser.add_argument_group('read group', 'Filtering alignments the read group (RG) tag, expected to be string value.')
+    rg_group.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
 
     # Tools
     toolparser = subparsers.add_parser('tools',
@@ -507,6 +555,16 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     lmparser.set_defaults(func=print_all_models)
 
+    # write a bed file of regions spanned by a hdf feature / probs file.
+    bdparser = toolsubparsers.add_parser('hdf_to_bed',
+        help='Write a bed file of regions spanned by a hdf file.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    bdparser.set_defaults(func=medaka.variant.samples_to_bed)
+    bdparser.add_argument('inputs', nargs='+',
+                          help='Consensus .hdf files.')
+    bdparser.add_argument('output', help='Output .bed.', default='medaka.bed')
+
     args = parser.parse_args()
 
     # https://github.com/tensorflow/tensorflow/issues/26691
@@ -528,5 +586,16 @@ def main():
     elif args.command == 'methylation' and not hasattr(args, 'func'):
         methparser.print_help()
     else:
-        #TODO: do common argument validation here
+        # do some common argument validation here
+        if hasattr(args, 'bam') and args.bam is not None:
+            if hasattr(args, 'RG') and args.RG is not None:
+                num_rg = CheckBam.count_read_groups(args.bam)
+                if num_rg > 1 and args.RG:
+                    raise RuntimeError(
+                        'The bam {} contains more than one read group. '
+                        'Please specify `--RG` to select which read group'
+                        'to process'.format(values))
+                else:
+                    logger.info(
+                        "Reads will be filtered to only those with RG tag: {}".format(args.RG))
         args.func(args)

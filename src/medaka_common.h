@@ -1,7 +1,8 @@
-#ifndef MCOMMON_H
-#define MCOMMON_H
+#ifndef _MEDAKA_COMMON_H
+#define _MEDAKA_COMMON_H
 
 #include <stdint.h>
+
 
 /** Simple integer min/max
  * @param a
@@ -10,8 +11,9 @@
  * @returns the min/max of a and b
  *
  */
-inline int max ( int a, int b ) { return a > b ? a : b; }
-inline int min ( int a, int b ) { return a < b ? a : b; }
+static inline int max ( int a, int b ) { return a > b ? a : b; }
+static inline int min ( int a, int b ) { return a < b ? a : b; }
+
 
 /** Allocates zero-initialised memory with a message on failure.
  *
