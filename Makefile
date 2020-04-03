@@ -99,18 +99,16 @@ $(BINCACHEDIR)/racon: | $(BINCACHEDIR)
 		make;
 	cp submodules/racon-v${RACONVER}/build/bin/racon $@
 
-
-BCFTOOLSVER=1.10.2
 $(BINCACHEDIR)/bcftools: | $(BINCACHEDIR)
 	@echo Making $(@F)
-	if [ ! -d submodules/bcftools-v${BCFTOOLSVER} ]; then \
+	if [ ! -d submodules/bcftools-v${SAMVER} ]; then \
 		cd submodules; \
-		curl -L -o bcftools-v${BCFTOOLSVER}.tar.bz2 https://github.com/samtools/bcftools/releases/download/${BCFTOOLSVER}/bcftools-${BCFTOOLSVER}.tar.bz2; \
-		tar -xjf bcftools-v${BCFTOOLSVER}.tar.bz2; \
-		cd bcftools-${BCFTOOLSVER}; \
+		curl -L -o bcftools-v${SAMVER}.tar.bz2 https://github.com/samtools/bcftools/releases/download/${SAMVER}/bcftools-${SAMVER}.tar.bz2; \
+		tar -xjf bcftools-v${SAMVER}.tar.bz2; \
+		cd bcftools-${SAMVER}; \
 		make; \
 	fi
-	cp submodules/bcftools-${BCFTOOLSVER}/bcftools $@
+	cp submodules/bcftools-${SAMVER}/bcftools $@
         
 
 $(BINCACHEDIR)/vcf2fasta: | $(BINCACHEDIR)
