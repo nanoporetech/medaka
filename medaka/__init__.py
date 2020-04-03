@@ -4,7 +4,7 @@ import functools
 import os
 import subprocess
 
-__version__ = '0.12.0'
+__version__ = '0.12.1'
 
 
 def check_minimap2_version():
@@ -60,7 +60,7 @@ required_version = {
     'samtools': LooseVersion('1.9'),
     'tabix': LooseVersion('1.9'),
     'bgzip': LooseVersion('1.9'),
-    'bcftools': LooseVersion('1.10'),
+    'bcftools': LooseVersion('1.9'),
 }
 
 get_version = {

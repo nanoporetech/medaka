@@ -1,3 +1,7 @@
+v0.12.1
+-------
+Minor release harmonising versions of htslib/samtools dependencies.
+
 v0.12.0
 -------
 Models, features and fixes release
