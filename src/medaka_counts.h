@@ -1,5 +1,5 @@
-#ifndef _MEDAKA_FASTRLE_H
-#define _MEDAKA_FASTRLE_H
+#ifndef _MEDAKA_COUNTS_H
+#define _MEDAKA_COUNTS_H
 
 // medaka-style feature data
 typedef struct _plp_data {
