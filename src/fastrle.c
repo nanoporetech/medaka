@@ -15,7 +15,7 @@ void rle(char *in, int inlen, char *out, char *outruns) {
         if (in[i] != c) {
             out[oi] = c;
             // note, we are skipping quality 0 (!) for sanity
-            outruns[oi] = min(l + 33, 255);
+            outruns[oi] = min(l + 33, 127);
             c = in[i];
             l = 1;
             oi++;
@@ -24,7 +24,7 @@ void rle(char *in, int inlen, char *out, char *outruns) {
         }
     }
     out[oi] = c;
-    outruns[oi] = l + 33;
+    outruns[oi] = min(l + 33, 127);
     oi++;
     out[oi] = '\0';
     outruns[oi] = '\0';
