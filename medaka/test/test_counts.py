@@ -8,7 +8,7 @@ import unittest
 import numpy as np
 import pysam
 
-from .mock_data import simple_data, create_simple_bam 
+from .mock_data import simple_data, create_simple_bam
 import libmedaka
 import medaka.features
 from medaka.common import Region, Sample
@@ -19,6 +19,7 @@ __reads_truth__ = os.path.join(os.path.dirname(__file__), 'data', 'truth_to_ref.
 __gapped_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'reads_gapped.bam')
 __region__ = Region('utg000001l', start=50000, end=100000)
 __region_start__ = Region('utg000001l', start=0, end=200)
+
 
 class CountsTest(unittest.TestCase):
 
@@ -127,6 +128,45 @@ class CountsTest(unittest.TestCase):
 
 
 
+class TrimReadsTest(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(self):
+        # Create a bam file where we know the alignments
+        self.bam = tempfile.NamedTemporaryFile(suffix='.bam').name
+        create_simple_bam(self.bam, simple_data['calls'])
+        self.reads = [x['seq'] for x in simple_data['calls']]
+
+    def get_reads(self, region):
+        reads = list(medaka.features.get_trimmed_reads(region, self.bam))
+        reads = [x[1] for x in reads[0][1]]
+        reads = reads[1:]  # contains reference first
+        return reads
+
+    def test_001_full_region(self):
+        region = Region('ref', start=0, end=100000)
+        reads = self.get_reads(region)
+        self.assertEqual(reads, self.reads)
+
+    def test_002_trim_start(self):
+        region = Region('ref', start=0, end=2)
+        reads = self.get_reads(region)
+        orig = [x[0:2] for x in self.reads]
+        self.assertEqual(reads, orig)
+
+    def test_003_trim_end(self):
+        region = Region('ref', start=6, end=8)
+        reads = self.get_reads(region)
+        orig = [x[-2:] for x in self.reads]
+        self.assertEqual(reads, orig)
+
+    def test_004_trim_mid(self):
+        region = Region('ref', start=1, end=7)
+        reads = self.get_reads(region)
+        orig = [x[1:-1] for x in self.reads]
+        self.assertEqual(reads, orig)
+
+
 class CountsSplittingTest(unittest.TestCase):
 
     def test_000_split_gap(self):
@@ -198,12 +238,7 @@ class PileupCounts(unittest.TestCase):
             'ref',
             start=0, end=8)
         cls.bam = bam_fname
-
-    def test_000_counts_no_dtypes(self):
-        counts, positions = medaka.features.pileup_counts(
-            self.region, self.bam)[0]
-
-        expected_counts = np.array(
+        cls.expected_counts = np.array(
             [[2, 0, 0, 0, 2, 0, 0, 0, 0, 0],
              [0, 2, 0, 0, 0, 2, 0, 0, 0, 0],
              [2, 0, 0, 0, 2, 0, 0, 0, 0, 0],
@@ -213,13 +248,17 @@ class PileupCounts(unittest.TestCase):
              [2, 0, 0, 0, 2, 0, 0, 0, 0, 0],
              [0, 0, 0, 2, 0, 0, 0, 2, 0, 0],
              [0, 0, 2, 0, 0, 0, 2, 0, 0, 0]], dtype=np.uint64)
-        self.assertTrue(np.array_equal(counts, expected_counts))
-
-        expected_positions = np.array(
+        cls.expected_positions = np.array(
             [(0, 0), (1, 0), (2, 0), (3, 0), (3, 1),
              (4, 0), (5, 0), (6, 0), (7, 0)],
              dtype=[('major', '<i8'), ('minor', '<i8')])
-        self.assertTrue(np.array_equal(positions, expected_positions))
+
+    def test_000_counts_no_dtypes(self):
+        counts, positions = medaka.features.pileup_counts(
+            self.region, self.bam)[0]
+
+        self.assertTrue(np.array_equal(counts, self.expected_counts))
+        self.assertTrue(np.array_equal(positions, self.expected_positions))
 
     def test_010_tags(self):
         """Only two reads have tag AA=1."""
@@ -236,7 +275,6 @@ class PileupCounts(unittest.TestCase):
             keep_missing=True)[0]
         expected_number_reads = {3}
         self.assertEqual(expected_number_reads, set(counts.sum(axis=1)))
-
 
     def test_030_tag_error(self):
         """Tags should be two letters"""
@@ -256,6 +294,33 @@ class PileupCounts(unittest.TestCase):
 
         expected_shape = (9, 20)
         self.assertEqual(expected_shape, counts.shape)
+
+    def test_050_read_groups(self):
+        bam = tempfile.NamedTemporaryFile(suffix='.bam').name
+        reads = list()
+        region = Region('ref', start=0, end=8)
+        for rg in ('first', 'second'):
+            rg_reads = copy.deepcopy(simple_data['calls'])
+            for read in rg_reads:
+                read['tags']['RG'] = rg
+                read['query_name'] += '_{}'.format(rg)
+            reads.extend(rg_reads)
+        create_simple_bam(bam, reads)
+
+        # use everything
+        counts, positions = medaka.features.pileup_counts(region, bam)[0]
+        self.assertTrue(np.array_equal(counts, 2*self.expected_counts))
+        self.assertTrue(np.array_equal(positions, self.expected_positions))
+
+        # use one or other
+        for rg in ('first', 'second'):
+            counts, positions = medaka.features.pileup_counts(region, bam, read_group=rg)[0]
+            self.assertTrue(np.array_equal(counts, self.expected_counts))
+            self.assertTrue(np.array_equal(positions, self.expected_positions))
+        
+        # use a missing one
+        result = medaka.features.pileup_counts(region, bam, read_group='nonsense')
+        self.assertTrue(len(result) == 0)
 
 
 class CountsQscoreStratification(unittest.TestCase):

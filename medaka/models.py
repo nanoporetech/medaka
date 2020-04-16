@@ -18,8 +18,8 @@ def load_model(fname, time_steps=None, allow_cudnn=True):
     """
     with medaka.datastore.DataStore(fname) as ds:
         model_partial_function = ds.get_meta('model_function')
-        model = model_partial_function(time_steps=time_steps,
-                                       allow_cudnn=allow_cudnn)
+        model = model_partial_function(
+            time_steps=time_steps, allow_cudnn=allow_cudnn)
         try:
             model.load_weights(fname)
         except ValueError():
@@ -121,5 +121,5 @@ def build_majority(feature_len, num_classes, gru_size=128,
 default_model = 'two_layer_bidirectional_CuDNNGRU'
 model_builders = {
     'two_layer_bidirectional_CuDNNGRU': build_model,
-    'majority_vote': build_majority
+    'majority_vote': build_majority,
 }

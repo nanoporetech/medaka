@@ -28,6 +28,7 @@ Features
   * Requires only basecalled data. (`.fasta` or `.fastq`)
   * Improved accurary over graph-based methods (e.g. Racon).
   * 50X faster than Nanopolish (and can run on GPUs).
+  * Methylation aggregation from Guppy `.fast5` files.
   * Benchmarks are provided [here](https://nanoporetech.github.io/medaka/benchmarks.html).
   * Includes extras for implementing and training bespoke correction
     networks.
@@ -54,7 +55,7 @@ through conda; medaka is available via the
     conda create -n medaka -c conda-forge -c bioconda medaka
 
 **Installation with pip**
-  
+
 For those who prefer python's native pacakage manager, medaka is also available
 on pypi and can be installed using pip:
 
@@ -124,7 +125,7 @@ GPU-powered `medaka` can be configured with:
     make install
 
 However, note that The `tensorflow-gpu` GPU package is compiled against
-specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the 
+specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the
 [tensorflow installation](https://www.tensorflow.org/install/gpu) pages
 for further information. cuDNN can be obtained from the
 [cuDNN Archive](https://developer.nvidia.com/rdp/cudnn-archive), whilst CUDA
@@ -150,18 +151,22 @@ Usage
 program. An assembly in `.fasta` format and basecalls in `.fasta` or `.fastq`
 formats are required. The program uses both `samtools` and `minimap2`. If
 medaka has been installed using the from-source method these will be present
-within the medaka environment, otherwise they will need to be provided by the user.
+within the medaka environment, otherwise they will need to be provided by
+the user.
 
     source ${MEDAKA}  # i.e. medaka/venv/bin/activate
     NPROC=$(nproc)
     BASECALLS=basecalls.fa
     DRAFT=draft_assm/assm_final.fa
     OUTDIR=medaka_consensus
-    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r941_min_high
+    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r941_min_high_g303
 
 The variables `BASECALLS`, `DRAFT`, and `OUTDIR` in the above should be set
-appropriately. When `medaka_consensus` has finished running, the consensus
-will be saved to `${OUTDIR}/consensus.fasta`.
+appropriately. For the selection of the model (`-m r941_min_high_g303` in the
+example above) see the Model section following.
+
+When `medaka_consensus` has finished running, the consensus will be saved to
+`${OUTDIR}/consensus.fasta`.
 
 Models
 ------
@@ -170,11 +175,69 @@ For best results it is important to specify the correct model, `-m` in the
 above, according to the basecaller used. Allowed values can be found by
 running `medaka tools list\_models`.
 
-For guppy v3.0.3 models are named similarly to their basecalling counterparts
-with a "fast" and "high accuracy" model, for example `r941_min_fast` and
-`r941_min_high`. The medaka models are equal in computation performance
-regardless of basecaller speed/accuracy.
 
+Medaka models are named to indicate i) the pore type, ii) the sequencing
+device (MinION or PromethION), iii) the basecaller variant, and iv) the
+basecaller version, with the format:
+
+    {pore}_{device}_{caller variant}_{caller version}
+
+For example the model named `r941_min_fast_g303` should be used with data from
+MinION (or GridION) R9.4.1 flowcells using the fast Guppy basecaller version
+3.0.3. By contrast the model `r941_prom_hac_g303` should be used with PromethION
+data and the high accuracy basecaller (termed "hac" in Guppy configuration
+files). Where a version of Guppy has been used without an exactly corresponding
+medaka model, the medaka model with the highest version equal to or less than
+the guppy version should be selected.
+
+Methylation Calling
+-------------------
+
+`medaka` includes a basic workflow for aggregating Guppy basecalling results
+for Dcm, Dam, and CpG methylation. The workflow is currently very preliminary
+and subject to change and improvement.
+
+Aggregating the information from Guppy outputs is a two stage process, first
+the basecalling results are extracted `.fast5` files and placed in a `.bam`
+file:
+
+    FAST5PATH=guppy/workspace
+    REFERENCE=grch38.fasta
+    OUTBAM=meth.bam
+    medaka methylation guppy2sam ${FAST5PATH} ${REFERENCE} \
+        --workers 74 --recursive \
+        | samtools sort -@ 8 | samtools view -b -@ 8 > ${OUTBAM}
+    samtools sort ${OUTBAM}
+
+This program will extract both the basecall sequence and methylation scores,
+align the basecall to the reference, and store results in a standard format.
+In this preliminary workflow the methylation scores are stored in two SAM
+tags, 'MC' and 'MA', one each for 5mC and 6mA respectively. The tags are
+8bit integer array-values, one value per basecall position. This is a
+different form to that proposed in the current
+[hts-specs proposition](https://github.com/samtools/hts-specs/pull/418/files),
+but allows for more trivial parsing.
+
+The second step is to aggregate the reference-aligned information to produce
+a simple tabular summary of read methylation counts:
+
+    BAM=meth.bam
+    REFERENCE=grch38.fasta
+    REGION=chr20:500000-1000000
+    OUTPUT=meth.tsv
+    medaka methylation call --meth cpg ${BAM} ${REFERENCE} ${REGION} ${OUTPUT}
+
+Here the option `--meth cpg` indicates that loci containing the sequence
+motif `CG` should be examined for 5mC presence. Other choices are
+`dcm` for which the motifs `CCAGG` and `CCTGG` are examined for 5mC and `dam`
+(`GATC`) for 6mA.
+
+The output file is a simple tab-delimited text file with columns:
+'ref.name', 'position', 'motif', 'fwd.meth.count', 'rev.meth.count',
+'fwd.canon.count', and 'rev.canon.count'. Here fwd./ref. indicate counts on the
+two DNA strands and meth./canon. indicate counts for methylated and
+canonical bases. Note that the position field records the position of the
+first base in the motif recorded.
 
 ### Origin of the draft sequence
 
@@ -220,7 +283,7 @@ access to features or stimulate Community development of tools. Support for
 this software will be minimal and is only provided directly by the developers.
 Feature requests, improvements, and discussions are welcome and can be
 implemented by forking and pull requests. However much as we would
-like to rectify every issue and piece of feedback users may have, the 
+like to rectify every issue and piece of feedback users may have, the
 developers may have limited resource for support of this software. Research
 releases may be unstable and subject to rapid iteration by Oxford Nanopore
 Technologies.

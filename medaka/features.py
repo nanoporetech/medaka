@@ -17,7 +17,7 @@ import medaka.datastore
 import medaka.labels
 
 
-def __plp_data_to_numpy(plp_data, n_rows):
+def _plp_data_to_numpy(plp_data, n_rows):
     """Create numpy representation of feature data.
 
     Copy the feature matrix and alignment column names from a
@@ -54,7 +54,7 @@ def __enforce_pileup_chunk_contiguity(pileups):
     """Split and join ordered pileup chunks to ensure contiguity.
 
     :param pileups: iterable of (counts, pileups) as constructed by
-        `__plp_data_to_numpy`.
+        `_plp_data_to_numpy`.
 
     :returns: a list of reconstituted (counts, pileups) where discontinuities
         in the inputs cause breaks and abutting inputs are joined.
@@ -106,10 +106,39 @@ def __enforce_pileup_chunk_contiguity(pileups):
     return chunk_results
 
 
+def _tidy_libfunc_args(
+        dtype_prefixes, tag_name, tag_value, keep_missing, read_group):
+    ffi = libmedaka.ffi
+
+    if dtype_prefixes is None or isinstance(dtype_prefixes, str) \
+            or len(dtype_prefixes) == 1:
+        num_dtypes, dtypes, _dtypes = 1, ffi.NULL, [ffi.NULL]
+    else:
+        num_dtypes = len(dtype_prefixes)
+        _dtypes = [ffi.new("char[]", d.encode()) for d in dtype_prefixes]
+        dtypes = ffi.new("char *[]", _dtypes)
+
+    if tag_name is None:
+        tag_name = ffi.new("char[2]", "".encode())
+        tag_value = 0
+        keep_missing = False
+    elif len(tag_name) != 2:
+        raise ValueError("'tag_name' must be a length-2 string.")
+    else:
+        tag_name = ffi.new("char[2]", tag_name.encode())
+    if read_group is None:
+        read_group = ffi.NULL
+    else:
+        read_group = ffi.new("char[]", read_group.encode())
+
+    return (num_dtypes, dtypes, _dtypes, tag_name, tag_value,
+            keep_missing, read_group)
+
+
 def pileup_counts(
         region, bam, dtype_prefixes=None, region_split=100000, workers=8,
         tag_name=None, tag_value=None, keep_missing=False, num_qstrat=1,
-        weibull_summation=False):
+        weibull_summation=False, read_group=None):
     """Create pileup counts feature array for region.
 
     :param region: `medaka.common.Region` object
@@ -125,28 +154,13 @@ def pileup_counts(
     :param weibull_summation: use a Weibull partial-counts approach,
         requires 'WL' and 'WK' float-array tags.
 
-    :returns: pileup counts array, reference positions, insertion postions
+    :returns: pileup counts array, reference positions, insertion positions
     """
-    ffi, lib = libmedaka.ffi, libmedaka.lib
-    # TODO: plumb this in
-
-    if dtype_prefixes is None or isinstance(dtype_prefixes, str) \
-            or len(dtype_prefixes) == 1:
-        num_dtypes, dtypes = 1, ffi.NULL
-    else:
-        num_dtypes = len(dtype_prefixes)
-        _dtypes = [ffi.new("char[]", d.encode()) for d in dtype_prefixes]
-        dtypes = ffi.new("char *[]", _dtypes)
-
-    if tag_name is None:
-        tag_name = ffi.new("char[2]", "".encode())
-        tag_value = 0
-        keep_missing = False
-    elif len(tag_name) != 2:
-        raise ValueError("'tag_name' must be a length-2 string.")
-    else:
-        tag_name = ffi.new("char[2]", tag_name.encode())
+    lib = libmedaka.lib
     featlen = lib.featlen
+    (num_dtypes, dtypes, _dtypes, tag_name, tag_value,
+        keep_missing, read_group) = _tidy_libfunc_args(
+            dtype_prefixes, tag_name, tag_value, keep_missing, read_group)
 
     def _process_region(reg):
         # htslib start is 1-based, medaka.common.Region object is 0-based
@@ -154,9 +168,9 @@ def pileup_counts(
 
         counts = lib.calculate_pileup(
             region_str.encode(), bam.encode(), num_dtypes, dtypes, num_qstrat,
-            tag_name, tag_value, keep_missing, weibull_summation
+            tag_name, tag_value, keep_missing, weibull_summation, read_group
         )
-        np_counts, positions = __plp_data_to_numpy(
+        np_counts, positions = _plp_data_to_numpy(
             counts, featlen * num_dtypes * num_qstrat)
         lib.destroy_plp_data(counts)
         return np_counts, positions
@@ -169,6 +183,59 @@ def pileup_counts(
         chunk_results = __enforce_pileup_chunk_contiguity(results)
 
     return chunk_results
+
+
+def get_trimmed_reads(
+        region, bam, dtype_prefixes=None, region_split=750, chunk_overlap=150,
+        workers=8, tag_name=None, tag_value=None, keep_missing=False,
+        partial=True, num_qstrat=1, read_group=None):
+    """Fetch reads trimmed to a region.
+
+    Overlapping chunks of the imput region will be produced, with each chunk
+    having its reads trimmed to the reference sequence coordinates of th
+    chunk.
+
+    :param region: `medaka.common.Region` object
+    :param bam: .bam file with alignments.
+    :param dtype_prefixes: prefixes for query names which to separate counts.
+        If `None` (or of length 1), counts are not split.
+    :param region_split: largest region to process in single thread.
+    :param chunk_overlap: overlap between chunks.
+    :param workers: worker threads for calculating pileup.
+    :param tag_name: two letter tag name by which to filter reads.
+    :param tag_value: integer value of tag for reads to keep.
+    :param keep_missing: whether to keep reads when tag is missing.
+    :param partial: whether to keep reads which don't fully span the region.
+    :param num_qstrat: number of layers for qscore stratification.
+
+    :returns: lists of trimmed reads.
+    """
+    ffi, lib = libmedaka.ffi, libmedaka.lib
+    (num_dtypes, dtypes, _dtypes, tag_name, tag_value,
+        keep_missing, read_group) = _tidy_libfunc_args(
+            dtype_prefixes, tag_name, tag_value, keep_missing, read_group)
+
+    def _process_region(reg):
+        # htslib start is 1-based, medaka.common.Region object is 0-based
+        region_str = '{}:{}-{}'.format(reg.ref_name, reg.start + 1, reg.end)
+        stuff = lib.PY_retrieve_trimmed_reads(
+            region_str.encode(), bam.encode(), num_dtypes, dtypes,
+            tag_name, tag_value, keep_missing, partial, read_group,
+        )
+        # last string is reference
+        seqs = [(False, ffi.string(stuff.seqs[stuff.n_seqs - 1]).decode())]
+        for i in range(stuff.n_seqs - 1):
+            seqs.append((stuff.is_rev[i], ffi.string(stuff.seqs[i]).decode()))
+        lib.PY_destroy_reads(stuff)
+        return reg, seqs
+
+    # split large regions for performance
+    regions = region.split(region_split, chunk_overlap)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) \
+            as executor:
+        results = executor.map(_process_region, regions)
+
+    return results
 
 
 def pileup_counts_norm_indices(dtypes, num_qstrat=1):
@@ -269,7 +336,7 @@ class BaseFeatureEncoder(metaclass=FeatureEncoderMeta):
     @property
     @abc.abstractmethod
     def feature_vector_length(self):
-        """Return size of a single feature sample.
+        """Return size of a single feature vector.
 
         The length of a neural network input at a single time point.
         """
@@ -298,7 +365,7 @@ class BaseFeatureEncoder(metaclass=FeatureEncoderMeta):
                     medaka.common.Sample(
                         ref_name=region.ref_name, features=None,
                         labels=None, ref_seq=None,
-                        postions=positions, label_probs=None
+                        positions=positions, label_probs=None
                     )
                 )
                 continue
@@ -327,7 +394,8 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
 
     def __init__(
             self, normalise='total', dtypes=('',),
-            tag_name=None, tag_value=None, tag_keep_missing=False):
+            tag_name=None, tag_value=None, tag_keep_missing=False,
+            read_group=None):
         """Initialize creation of neural network input features.
 
         :param normalise: str, how to normalise the data.
@@ -336,6 +404,7 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         :param tag_name: two letter tag name by which to filter reads.
         :param tag_value: integer value of tag for reads to keep.
         :param tag_keep_missing: whether to keep reads when tag is missing.
+        :param read_group: value of RG tag to which to filter reads.
 
         """
         self.logger = medaka.common.get_named_logger('Feature')
@@ -345,6 +414,7 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         self.tag_name = tag_name
         self.tag_value = tag_value
         self.tag_keep_missing = tag_keep_missing
+        self.read_group = read_group
 
         if self.normalise not in self._norm_modes_:
             raise ValueError('normalise={} is not one of {}'.format(
@@ -358,7 +428,10 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
 
     @property
     def feature_vector_length(self):
-        """Length of a single sample."""
+        """Return size of a single feature vector.
+
+        The length of a neural network input at a single time point.
+        """
         featlen = libmedaka.lib.featlen
         return len(self.dtypes) * featlen
 
@@ -367,7 +440,7 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
             region, bam,
             dtype_prefixes=self.dtypes,
             tag_name=self.tag_name, tag_value=self.tag_value,
-            keep_missing=self.tag_keep_missing)
+            keep_missing=self.tag_keep_missing, read_group=self.read_group)
 
     def _post_process_pileup(self, counts, positions, region):
         # Normalise produced counts using chosen method.
@@ -485,7 +558,8 @@ class HardRLEFeatureEncoder(CountsFeatureEncoder):
 
     def __init__(
             self, normalise='total', dtypes=('', ), tag_name=None,
-            tag_value=None, tag_keep_missing=False, num_qstrat=12):
+            tag_value=None, tag_keep_missing=False, num_qstrat=15,
+            read_group=None):
         """Class to generate neural network input features.
 
         :param normalise: str, how to normalise the data.
@@ -495,12 +569,13 @@ class HardRLEFeatureEncoder(CountsFeatureEncoder):
         :param tag_value: integer value of tag for reads to keep.
         :param tag_keep_missing: whether to keep reads when tag is missing.
         :param num_qstrat: number of layers for qscore stratification.
+        :param read_group: value of RG tag to which to filter reads.
 
         """
         self.num_qstrat = num_qstrat
         super().__init__(
             normalise, dtypes=dtypes, tag_name=tag_name, tag_value=tag_value,
-            tag_keep_missing=tag_keep_missing)
+            tag_keep_missing=tag_keep_missing, read_group=read_group)
         self.feature_indices = pileup_counts_norm_indices(
             self.dtypes, num_qstrat=self.num_qstrat)
 
@@ -509,13 +584,28 @@ class HardRLEFeatureEncoder(CountsFeatureEncoder):
             region, bam,
             dtype_prefixes=self.dtypes,
             tag_name=self.tag_name, tag_value=self.tag_value,
-            keep_missing=self.tag_keep_missing, num_qstrat=self.num_qstrat)
+            keep_missing=self.tag_keep_missing, num_qstrat=self.num_qstrat,
+            read_group=self.read_group)
 
     @property
     def feature_vector_length(self):
-        """Length of a single sample."""
+        """Return size of a single feature vector.
+
+        The length of a neural network input at a single time point.
+        """
         featlen = libmedaka.lib.featlen
         return len(self.dtypes) * featlen * self.num_qstrat
+
+
+class SoftRLEFeatureEncoder(HardRLEFeatureEncoder):
+    """Create pileups using soft RLE calls."""
+
+    def _pileup_function(self, region, bam):
+        return pileup_counts(
+            region, bam, dtype_prefixes=self.dtypes, tag_name=self.tag_name,
+            tag_value=self.tag_value, keep_missing=self.tag_keep_missing,
+            num_qstrat=self.num_qstrat, weibull_summation=True,
+            read_group=self.read_group)
 
 
 class SampleGenerator(object):
@@ -689,8 +779,8 @@ def create_samples(args):
         # TODO: this parallelism would be better in
         # `SampleGenerator.bams_to_training_samples` since training
         # alignments are usually chunked.
-        with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) \
-                as executor:
+        ExecutorClass = concurrent.futures.ProcessPoolExecutor
+        with ExecutorClass(max_workers=args.threads) as executor:
             # break up overly long chunks
             MAX_SIZE = int(1e6)
             regions = itertools.chain(*(r.split(MAX_SIZE) for r in regions))

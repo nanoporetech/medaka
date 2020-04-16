@@ -83,7 +83,7 @@ def run_training(
         optimizer='rmsprop', optim_args=None, allow_cudnn=True):
     """Run training."""
     from tensorflow.keras.callbacks import \
-        CSVLogger, EarlyStopping
+        CSVLogger, EarlyStopping, TerminateOnNaN
     from tensorflow.keras import optimizers
     from medaka.keras_ext import \
         ModelMetaCheckpoint, SequenceBatcher
@@ -128,12 +128,12 @@ def run_training(
             # defaults from docs as of 01/09/2019
             optim_args = {
                 'lr': 0.002, 'beta_1': 0.9, 'beta_2': 0.999,
-                'epsilon': None, 'schedule_decay': 0.004}
+                'epsilon': 1e-07, 'schedule_decay': 0.004}
         optimizer = optimizers.Nadam(**optim_args)
     elif optimizer == 'rmsprop':
         if optim_args is None:
             optim_args = {
-                'lr': 0.001, 'rho': 0.9, 'epsilon': None, 'decay': 0.0}
+                'lr': 0.001, 'rho': 0.9, 'epsilon': 1e-07, 'decay': 0.0}
         optimizer = optimizers.RMSprop(**optim_args)
     else:
         raise ValueError('Unknown optimizer: {}'.format(optimizer))
@@ -159,12 +159,14 @@ def run_training(
         # Stop when no improvement
         EarlyStopping(monitor='val_loss', patience=20),
         # Log of epoch stats
-        CSVLogger(os.path.join(train_name, 'training.log')),
+        CSVLogger(os.path.join(train_name, 'training.log'), separator='\t'),
         # Allow us to run tensorboard to see how things are going
         # TrainValTensorBoard(
         #    log_dir=os.path.join(train_name, 'logs'),
         #    histogram_freq=5, batch_size=100, write_graph=True,
         #    write_grads=True, write_images=True)
+        # terminate training when a Nan loss is encountered
+        TerminateOnNaN()
     ])
 
     if n_mini_epochs == 1:

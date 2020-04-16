@@ -7,7 +7,7 @@ basecalls. The pipeline leverages a diploid-aware neural network, read haplotype
 tagging via `WhatsHap <https://whatshap.readthedocs.io>`_, and haplotype consensus
 using ``medaka``'s usual consensus network.
 
-The following benchmarking is performed on chromosome 21 of the NA12878 sample,
+The following benchmarking is performed on chromosome 21 of the HG001 (NA12878) sample,
 according to `GA4GH best practices <https://www.nature.com/articles/s41587-019-0054-x>`_
 using `hap.py <https://github.com/Illumina/hap.py>`_ with the
 `GIAB truth set <http://jimb.stanford.edu/giab-resources/>`_ stratified to exclude
@@ -19,7 +19,7 @@ to maximise the F1 score.
 SNP and Indel calling
 ---------------------
 
-*October 2019*
+*Last updated December 2019*
 
 ``Medaka``'s variant calling pipeline first aligns all reads to a reference sequence,
 creates a read pileup and uses a recurrent neural network to predict a pair of bases for
@@ -63,20 +63,70 @@ variant calls for both homo- and hetero-zygous sites.
     +------------------+-------+-----------+---------+----------+
     |                  | Class | Precision | Recall  | F1 score |
     +------------------+-------+-----------+---------+----------+
-    | medaka variant   | SNP   |    0.9960 |  0.9901 |    0.993 |
+    | medaka variant   | SNP   |    0.9967 |  0.9954 |    0.996 |
     +                  +-------+-----------+---------+----------+
-    |                  | Indel |    0.9009 |  0.8373 |    0.868 |
+    |                  | Indel |    0.9558 |  0.9174 |    0.936 |
     +------------------+-------+-----------+---------+----------+
-    | clair            | SNP   |    0.9918 |  0.9909 |    0.991 |
+    | clair            | SNP   |    0.9931 |  0.9950 |    0.994 |
     +                  +-------+-----------+---------+----------+
-    |                  | Indel |    0.7210 |  0.5906 |    0.649 |
+    |                  | Indel |    0.9094 |  0.8092 |    0.856 |
     +------------------+-------+-----------+---------+----------+
     | nanopolish       | SNP   |    0.9938 |  0.9662 |    0.980 |
     +------------------+-------+-----------+---------+----------+
 
-
 Shown also are results from `clair <https://github.com/HKU-BAL/Clair>`_,
-and older results for SNP calling from ``nanopolish``.
+and older results for SNP calling from ``nanopolish``. We note that Clair
+and medaka are competitive in terms of SNP calling but that medaka
+excels Clair for indel calling. In contrast to medaka's haplotype-consensus
+approach, clair attempts to call indels directly from the read pileup;
+medaka's factorisation of variant calling problem would appear to be more
+successful. This seems to be particularly true when comparing heterozygous
+indels to homozygous cases:
+
+
+.. table::
+    Indel calling comparison of medaka and clair. Within the test
+    region there are approximately equal numbers of homozygous and
+    heterozygous cases.
+
+    +------------------+-------+-----------+---------+----------+
+    |                  | Indel | Precision | Recall  | F1 score |
+    +------------------+-------+-----------+---------+----------+
+    | medaka variant   | Hom   |    0.9790 |  0.9553 |    0.967 |
+    +                  +-------+-----------+---------+----------+
+    |                  | Het   |    0.8995 |  0.8738 |    0.886 |
+    +------------------+-------+-----------+---------+----------+
+    | clair            | Hom   |    0.9566 |  0.9175 |    0.937 |
+    +                  +-------+-----------+---------+----------+
+    |                  | Het   |    0.8707 |  0.7332 |    0.796 |
+    +------------------+-------+-----------+---------+----------+
+
+
+R10.3 SNP and Indel calling
+-----------------------------
+
+*Last updated February 2020*
+
+The benchmarks were performed as described above, but on chromosome 20 of
+the HG002 (NA24385) sample at 60-fold coverage.
+
+.. table::
+    Small variant calling at 60-fold coverage using `medaka variant` pipeline.
+    Comparison is made with the `GIAB <http://jimb.stanford.edu/giab-resources/>`_
+    high confidence callset using `hap.py <https://github.com/Illumina/hap.py>`_.
+
+    +------------------+-------+-----------+---------+----------+
+    |                  | Class | Precision | Recall  | F1 score |
+    +------------------+-------+-----------+---------+----------+
+    | R9.4.1           | SNP   |    0.9898 |  0.9931 |    0.992 |
+    +                  +-------+-----------+---------+----------+
+    |                  | Indel |    0.9199 |  0.8634 |    0.891 |
+    +------------------+-------+-----------+---------+----------+
+    | R10.3            | SNP   |    0.9892 |  0.9946 |    0.992 |
+    +                  +-------+-----------+---------+----------+
+    |                  | Indel |    0.9508 |  0.9385 |    0.945 |
+    +------------------+-------+-----------+---------+----------+
+
 
 
 Performing Variant Calling
@@ -99,11 +149,13 @@ The pipeline described above is implemented in the ``medaka_variant`` program:
 This will run all steps of the process described above, finally outputting a
 phased ``.vcf`` variant file.
 
-.. warning::
+.. note::
 
-    Variants output by ``medaka_variant`` are unfiltered, but are provided with
-    qualities. Users may wish to apply additional filtering for their
-    datasets and applications.
+    Variants output by ``medaka_variant`` are marked as "PASS" or "lowqual" in
+    the ``FILTER`` column of the output ``.vcf`` file using simple quality
+    thresholds. No variants are hard-filtered from the output file. Users may
+    wish to apply alternative filtering for their datasets and applications 
+    using the -U, -P and -N options to ``medaka_variant``.
 
 
 Further Improvements

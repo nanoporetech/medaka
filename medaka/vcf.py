@@ -11,6 +11,7 @@ import intervaltree
 import numpy as np
 import pysam
 
+from medaka import __version__ as medaka_version
 import medaka.common
 
 
@@ -401,7 +402,10 @@ class VCFWriter(object):
             raise ValueError('version must be one of {}'.format(
                 self.version_options))
         self.version = version
-        self.meta = ['fileformat=VCFv{}'.format(self.version)]
+        self.meta = [
+            'fileformat=VCFv{}'.format(self.version),
+            'medaka_version={}'.format(medaka_version)
+            ]
 
         if contigs is not None:
             self.meta.extend(['contig=<ID={}>'.format(c) for c in contigs])

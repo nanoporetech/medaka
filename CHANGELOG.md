@@ -1,3 +1,74 @@
+v0.12.1
+-------
+Minor release harmonising versions of htslib/samtools dependencies.
+
+v0.12.0
+-------
+Models, features and fixes release
+
+* Variant calling models for R10.3 and R9.4.1 and updated benchmarks.
+* Consensus models for Guppy 3.5.1.
+* Add read group (RG) tag filtering.
+* Add option to create consensus sequence via intermediate .vcf file.
+* Update to methylation calling documentation.
+* Addition of all-context modified-base aggregation.
+* Minor speed improvement.
+* Fix bug where force overwrite of output was always enabled.
+* Fix bug where variant calling of a region crashed if the region began with a deletion.
+
+v0.11.5
+-------
+R10.3 model and small fixes
+
+* Add model for R10.3 on MinION.
+* Fix index/compression issue with RLE workflow
+* Write and empty vcf when no variants are found in medaka_variant.
+* Fix a rare memory error during feature generation caused by very long indels.
+
+v0.11.4
+-------
+Bugfix
+
+* Fix invalid specification of variant calling model.
+
+v0.11.3
+-------
+Model release
+
+* Models for guppy 3.4.4. 
+
+v0.11.2
+-------
+Minor fix release
+
+* Fix a memory error in pileup calculation.
+* Update variant calling models and benchmarks.
+
+v0.11.1
+-------
+Minor fix release
+
+* Preliminary hard-RLE model for R9.4.1
+* --regions argument can now be a .bed file.
+* Detect NaNs during training and halt early.
+* Workaround pysam interface changes (for conda package).
+* Support soft-RLE network training.
+
+This release includes an experimental consensus mode using run-length encoded
+alignments. Use of this algorithm can be specified using the new "rle" model:
+
+    medaka_consensus -m r941_min_high_g340_rle -i basecalls.fasta -d draft.fa
+
+
+v0.11.0
+-------
+Feature release
+
+* Consensus models for guppy 3.3 and 3.4.
+* Aggregation of Guppy modified base probability tables.
+* Multi-thread stitching of inference chunks in `medaka_consensus`.
+* Optionally run whatshap phase at the end of `medaka_variant`.
+
 v0.10.1
 -------
 Minor fix release

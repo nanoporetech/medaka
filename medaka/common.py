@@ -13,6 +13,7 @@ import numpy as np
 from pkg_resources import resource_filename
 import pysam
 
+import libmedaka
 
 ComprAlignPos = collections.namedtuple(
     'ComprAlignPos',
@@ -615,6 +616,19 @@ def grouper(gen, batch_size=4):
         yield batch
 
 
+def roundrobin(*iterables):
+    """Take items from iterables in a round-robin."""
+    pending = len(iterables)
+    nexts = itertools.cycle(iter(it).__next__ for it in iterables)
+    while pending:
+        try:
+            for next in nexts:
+                yield next()
+        except StopIteration:
+            pending -= 1
+            nexts = itertools.cycle(itertools.islice(nexts, pending))
+
+
 def print_data_path():
     """Print data directory containing models."""
     print(resource_filename(__package__, 'data'))
@@ -674,6 +688,29 @@ def reverse_complement(seq):
     return seq.translate(comp_trans)[::-1]
 
 
+def read_key_value_tsv(fname):
+    """Read a dictionary from a .tsv file.
+
+    :param fname: a .tsv file with two columns: keys and values.
+
+    :returns: a dictionary.
+
+    """
+    try:
+        as_string = libmedaka.ffi.string
+        text = libmedaka.lib.read_key_value(fname.encode())
+        data = dict()
+        for i in range(0, text.n, 2):
+            key = as_string(text.strings[i]).decode()
+            value = as_string(text.strings[i+1]).decode()
+            data[key] = value
+        libmedaka.lib.destroy_string_set(text)
+    except Exception:
+        raise RuntimeError(
+            'Failed to parse {} as two-column .tsv file.'.format(fname))
+    return data
+
+
 def initialise_alignment(
         query_name, reference_id, reference_start,
         query_sequence, cigarstring, flag, mapping_quality=60,
@@ -714,3 +751,21 @@ def initialise_alignment(
         a.set_tag(tag_name, tag_value)
 
     return a
+
+
+def yield_from_bed(bedfile):
+    """Yield chrom, start, stop tuples from a bed file.
+
+    :param bedfile: str, filepath.
+    :yields: (str chrom, int start, int stop).
+
+    """
+    with open(bedfile) as fh:
+        for line in fh:
+            split_line = line.split()
+            if split_line[0] in {'browser', 'track'} or len(split_line) < 3:
+                continue
+            chrom = split_line[0]
+            start = int(split_line[1])
+            stop = int(split_line[2])
+            yield chrom, start, stop

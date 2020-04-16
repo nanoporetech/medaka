@@ -1,5 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -eo pipefail
+
+myInvocation="CL=\"$(printf %q "$BASH_SOURCE")$((($#)) && printf ' %q' "$@")\""
 
 medaka_version=$(medaka --version)
 modeldata=()
@@ -24,10 +26,14 @@ BATCH_SIZE=100
 REGIONS=""
 iflag=false
 fflag=false
+PHASEOUT=false
 DELETE=false
 SNPMODEL=${modeldata[2]##* }
 MODEL=${modeldata[3]##* }
-
+INDEL_THRESHOLD=14
+SNP_THRESHOLD=12
+FILTER_FLAG=true
+STOPAFTERROUND0=false
 
 usage="
 ${medaka_version}
@@ -55,11 +61,16 @@ $(basename "$0") [-h] -i <fastx>
         ${modeldata[0]}.
         Alternatively a .hdf file from 'medaka train'. 
     -t  number of threads with which to create features (default: 1).
+    -p  output phased vcf.
     -b  batchsize, controls memory use (default: ${BATCH_SIZE}).
-    -d  delete intermediate files. (default: keep)."
+    -d  delete intermediate files. (default: keep).
+    -N  threshold for filtering indels in final VCF (default: ${INDEL_THRESHOLD})
+    -P  threshold for filtering SNPs in final VCF (default: ${SNP_THRESHOLD})
+    -U  Avoid filtering of final VCF (default: do filter)
+    -S  stop after initial SNP calling from mixed reads prior to phasing."
 
 
-while getopts ':hi::f:r:o:m:s:T:t:b:d' option; do
+while getopts ':hi::f:r:o:m:s:T:t:pb:N:P:UdS' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; CALLS2REF=$(follow_link $OPTARG);;
@@ -69,8 +80,13 @@ while getopts ':hi::f:r:o:m:s:T:t:b:d' option; do
     m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
     s  ) SNPMODEL=$(medaka tools resolve_model --model $OPTARG);;
     t  ) THREADS=$OPTARG;;
+    p  ) PHASEOUT=true;;
     b  ) BATCH_SIZE=$OPTARG;;
     d  ) DELETE=true;;
+    N  ) INDEL_THRESHOLD=$OPTARG;;
+    P  ) SNP_THRESHOLD=$OPTARG;;
+    U  ) FILTER_FLAG=false;;
+    S  ) STOPAFTERROUND0=true;;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
     :  ) echo "Option -$OPTARG requires an argument." >&2; exit 1;;
   esac
@@ -196,8 +212,7 @@ run_phase_vcf () {
     local VCFOUT=$2
     exit_if_file_does_not_exist ${VCFIN}
     run_samtools_faidx ${REF}
-    nvars=$(grep -c -m 1 -v "#" ${UNPHASEDVCF} || echo 0)
-    if [[ "${nvars}" -eq "0" ]]; then
+    if ! grep -c -m 1 -v -q "#" ${UNPHASEDVCF}; then
         echo "- Input vcf has no records, writing empty vcf"
         cp ${VCFIN} ${VCFOUT}
     elif [[ ! -e ${VCFOUT} ]]; then
@@ -336,12 +351,17 @@ run_medaka_consensus ${CALLS2REF} ${CONSENSUSPROBS} ${SNPMODEL}
 run_medaka_snp ${CONSENSUSPROBS} ${UNPHASEDVCF}
 
 # check empty vcf, write empty final output
-FINALPHASED=round_1_phased.vcf
+UNFILTERED=round_1_unfiltered.vcf
+FINAL=round_1.vcf
 
-nvars=$(grep -c -m 1 -v "#" ${UNPHASEDVCF} || echo 0)
-if [[ "${nvars}" -eq "0" ]]; then
+if ! grep -c -m 1 -v -q "#" ${UNPHASEDVCF}; then
     echo "- First pass vcf has no records, writing empty vcf and finishing."
-    cp ${UNPHASEDVCF} ${FINALPHASED}  # this gets us the header
+    cp ${UNPHASEDVCF} ${FINAL}  # this gets us the header
+elif ${STOPAFTERROUND0}; then
+    echo "- Stopping after first pass, copying ${UNPHASEDVCF} to ${FINAL}."
+    echo "- Final VCF written to ${OUTPUT}/${FINAL}"
+    cp ${UNPHASEDVCF} ${FINAL}
+    exit 0
 else
     PHASEDVCF=round_${ROUND}_hap_mixed_phased.vcf
     PHASEDVCFGZ=${PHASEDVCF}.gz
@@ -365,7 +385,26 @@ else
     
     run_medaka_haploid2diploid \
         round_${ROUND}_hap_1.vcf round_${ROUND}_hap_2.vcf \
-        ${REF} ${FINALPHASED}
+        ${REF} ${UNFILTERED}
+
+    # Add invocation of this script to VCF header
+    INVOCATION_DATE="##${myInvocation}; $(date)"
+    sed -i "/^#CHROM.*/i $INVOCATION_DATE" ${UNFILTERED} 
+
+    if $FILTER_FLAG; then
+        # Filter resulting vcf
+        FILTER="(((TYPE=\"snp\" | TYPE=\"mnp\") & (QUAL > ${SNP_THRESHOLD})) | ((TYPE!=\"snp\" & TYPE!=\"mnp\") & (QUAL > ${INDEL_THRESHOLD})))"
+        bcftools filter --threads $THREADS -s lowqual -i "${FILTER}" ${UNFILTERED} > ${FINAL}
+    else
+        echo "Skipping filtering of VCF (-U option)"
+        mv ${UNFILTERED} ${FINAL}
+    fi 
+
+    if ${PHASEOUT}; then
+        FINALPHASED=round_1_phased.vcf
+        run_phase_vcf ${FINAL} ${FINALPHASED}
+        FINAL=${FINALPHASED}
+    fi
 fi
 
 ###
@@ -379,4 +418,4 @@ if ${DELETE}; then
   echo "${files}"
   rm ${files}
 fi
-echo "- Final phased VCF written to ${OUTPUT}/${FINALPHASED}"
+echo "- Final VCF written to ${OUTPUT}/${FINAL}"

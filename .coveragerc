@@ -1,5 +1,5 @@
 [run]
-omit = medaka/test*, medaka/medaka.py, medaka/medaka_counts.py, medaka/prediction.py, medaka/training.py, medaka/stitch.py
+omit = medaka/test*, medaka/medaka.py, medaka/medaka_counts.py, medaka/prediction.py, medaka/training.py, medaka/stitch.py, medaka/methdaka.py
 
 [report]
 exclude_lines =

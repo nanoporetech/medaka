@@ -1,5 +1,7 @@
-#ifndef MCOMMON_H
-#define MCOMMON_H
+#ifndef _MEDAKA_COMMON_H
+#define _MEDAKA_COMMON_H
+
+#include <stdint.h>
 
 
 /** Simple integer min/max
@@ -9,8 +11,8 @@
  * @returns the min/max of a and b
  *
  */
-int max(int a, int b);
-int min(int a, int b);
+static inline int max ( int a, int b ) { return a > b ? a : b; }
+static inline int min ( int a, int b ) { return a < b ? a : b; }
 
 
 /** Allocates zero-initialised memory with a message on failure.
@@ -46,5 +48,13 @@ void *xrealloc(void *ptr, size_t size, char* msg);
 char *substring(char *string, int position, int length);
 
 
+/** Format a uint32_t to a string
+ *
+ * @param value to format.
+ * @param dst destination char.
+ * @returns length of string.
+ *
+ */
+size_t uint8_to_str(uint8_t value, char *dst);
 
 #endif
