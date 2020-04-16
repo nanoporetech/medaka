@@ -121,5 +121,5 @@ def build_majority(feature_len, num_classes, gru_size=128,
 default_model = 'two_layer_bidirectional_CuDNNGRU'
 model_builders = {
     'two_layer_bidirectional_CuDNNGRU': build_model,
-    'majority_vote': build_majority
+    'majority_vote': build_majority,
 }

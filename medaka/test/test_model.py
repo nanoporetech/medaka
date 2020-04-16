@@ -31,6 +31,12 @@ class TestModels(unittest.TestCase):
                 self.fail('Model {} not in model_dict'.format(model_file))
 
 
+    def test_001_build_all_models(self):
+        num_classes, time_steps, feat_len = 5, 5, 5
+        for name, func in models.model_builders.items():
+            model = func(feat_len, num_classes, time_steps=time_steps)
+
+
 class TestMajorityModel(unittest.TestCase):
 
     def test_000_initialise_majority_model(self):

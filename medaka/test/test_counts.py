@@ -8,7 +8,7 @@ import unittest
 import numpy as np
 import pysam
 
-from .mock_data import simple_data, create_simple_bam 
+from .mock_data import simple_data, create_simple_bam
 import libmedaka
 import medaka.features
 from medaka.common import Region, Sample
@@ -19,6 +19,7 @@ __reads_truth__ = os.path.join(os.path.dirname(__file__), 'data', 'truth_to_ref.
 __gapped_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'reads_gapped.bam')
 __region__ = Region('utg000001l', start=50000, end=100000)
 __region_start__ = Region('utg000001l', start=0, end=200)
+
 
 class CountsTest(unittest.TestCase):
 
@@ -125,6 +126,45 @@ class CountsTest(unittest.TestCase):
         got_label_shape = result.labels.shape
         self.assertEqual(expected_label_shape, got_label_shape)
 
+
+
+class TrimReadsTest(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(self):
+        # Create a bam file where we know the alignments
+        self.bam = tempfile.NamedTemporaryFile(suffix='.bam').name
+        create_simple_bam(self.bam, simple_data['calls'])
+        self.reads = [x['seq'] for x in simple_data['calls']]
+
+    def get_reads(self, region):
+        reads = list(medaka.features.get_trimmed_reads(region, self.bam))
+        reads = [x[1] for x in reads[0][1]]
+        reads = reads[1:]  # contains reference first
+        return reads
+
+    def test_001_full_region(self):
+        region = Region('ref', start=0, end=100000)
+        reads = self.get_reads(region)
+        self.assertEqual(reads, self.reads)
+
+    def test_002_trim_start(self):
+        region = Region('ref', start=0, end=2)
+        reads = self.get_reads(region)
+        orig = [x[0:2] for x in self.reads]
+        self.assertEqual(reads, orig)
+
+    def test_003_trim_end(self):
+        region = Region('ref', start=6, end=8)
+        reads = self.get_reads(region)
+        orig = [x[-2:] for x in self.reads]
+        self.assertEqual(reads, orig)
+
+    def test_004_trim_mid(self):
+        region = Region('ref', start=1, end=7)
+        reads = self.get_reads(region)
+        orig = [x[1:-1] for x in self.reads]
+        self.assertEqual(reads, orig)
 
 
 class CountsSplittingTest(unittest.TestCase):

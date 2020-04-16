@@ -115,12 +115,18 @@ class CheckBam(argparse.Action):
         setattr(namespace, self.dest, values)
 
     @staticmethod
-    def count_read_groups(fname):
-        """Count the number of read groups (RG tag) defined in bam header.
+    def check_read_groups(fname, rg=None):
+        """Check bam read groups are consistent with the specified read group.
+
+        Raises a RuntimeError if:
+            * no read group was specified but the bam has read groups
+            * user specified a read group but the bam has no read groups
+            * user specified a read group but it it not amongst bam read groups
 
         :param fname: bam file name.
+        :param rg: check if this read group is present.
 
-        :returns: number of read groups.
+        :raises: RuntimeError
         """
         with pysam.AlignmentFile(fname) as bam:
             # As of 13/12/19 pypi still has no wheel for pysam v0.15.3 so we
@@ -132,11 +138,25 @@ class CheckBam(argparse.Action):
                 header_dict = bam.header.as_dict()
             except AttributeError:
                 header_dict = bam.header
-            if 'RG' not in header_dict:
-                return 0
-            else:
-                return len(header_dict['RG'])
 
+            if 'RG' in header_dict:
+                read_groups = set([r['ID'] for r in header_dict['RG']])
+            else:
+                read_groups = set()
+            if rg is not None and len(read_groups) == 0:
+                # User asked for a read group but none were found
+                raise RuntimeError('No RG tags found in the bam {}'.format(fname))
+            elif rg is None and len(read_groups) > 1:
+                # User did not ask for a read group but groups are present.
+                raise RuntimeError(
+                    'The bam {} contains more than one read group. '
+                    'Please specify `--RG` to select which read group'
+                    'to process from {}'.format(fname, read_groups))
+            elif rg is not None and len(read_groups) > 0:
+                # User asked for a read group and groups are present.
+                if rg not in read_groups:
+                    msg = 'RG {} is not in the bam {}. Try one of {}'
+                    raise RuntimeError(msg.format(rg, fname, read_groups))
 
 
 class CheckIsBed(argparse.Action):
@@ -180,6 +200,15 @@ def _model_arg():
     parser.add_argument('--allow_cudnn', dest='allow_cudnn', default=True, action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--disable_cudnn', dest='allow_cudnn', default=False, action='store_false',
             help='Disable use of cuDNN model layers.')
+    return parser
+
+
+def _rg_arg():
+
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
+    rg_group = parser.add_argument_group('read group', 'Filtering alignments the read group (RG) tag, expected to be string value.')
+    rg_group.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
     return parser
 
 
@@ -346,7 +375,7 @@ def main():
     # Consensus from bam input
     cparser = subparsers.add_parser('consensus',
         help='Run inference from a trained model and alignments.',
-        parents=[_log_level(), _chunking_feature_args(), _model_arg()],
+        parents=[_log_level(), _chunking_feature_args(), _model_arg(), _rg_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cparser.add_argument('bam', help='Input alignments.', action=CheckBam)
     cparser.set_defaults(func=medaka.prediction.predict)
@@ -360,8 +389,6 @@ def main():
     tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
     tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
-    rg_group = cparser.add_argument_group('read group', 'Filtering alignments the read group (RG) tag, expected to be string value.')
-    rg_group.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
 
 
     # Consensus from single-molecules with subreads
@@ -460,7 +487,7 @@ def main():
 
     methcallparser = methsubparsers.add_parser('call',
         help='Call methylation from .bam file.',
-        parents=[_log_level()],
+        parents=[_log_level(), _rg_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     methcallparser.set_defaults(func=medaka.methdaka.call_methylation)
     methcallparser.add_argument('bam', help='Input .bam file (via `medaka methylation guppy2sam`).')
@@ -471,8 +498,6 @@ def main():
     methcallparser.add_argument(
             '--filter', type=int, nargs=2, default=(64, 128),
             metavar=('upper', 'lower'), help='Upper (lower) score boundary to call canonical (methylated) base. Scores are in the range [0, 256].')
-    rg_group = methcallparser.add_argument_group('read group', 'Filtering alignments the read group (RG) tag, expected to be string value.')
-    rg_group.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
 
     # Tools
     toolparser = subparsers.add_parser('tools',
@@ -600,14 +625,9 @@ def main():
     else:
         # do some common argument validation here
         if hasattr(args, 'bam') and args.bam is not None:
-            if hasattr(args, 'RG') and args.RG is not None:
-                num_rg = CheckBam.count_read_groups(args.bam)
-                if num_rg > 1 and args.RG:
-                    raise RuntimeError(
-                        'The bam {} contains more than one read group. '
-                        'Please specify `--RG` to select which read group'
-                        'to process'.format(values))
-                else:
-                    logger.info(
-                        "Reads will be filtered to only those with RG tag: {}".format(args.RG))
+            RG = args.RG if hasattr(args, 'RG') else None
+            CheckBam.check_read_groups(args.bam, RG)
+            if RG is not None:
+                msg = "Reads will be filtered to only those with RG tag: {}"
+                logger.info(msg.format(RG))
         args.func(args)

@@ -45,6 +45,7 @@ $(BINCACHEDIR)/tabix: | libhts.a $(BINCACHEDIR)
 $(BINCACHEDIR)/bgzip: | libhts.a $(BINCACHEDIR)
 	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$(@F) $@
 
+
 .PHONY: clean_htslib
 clean_htslib:
 	cd submodules/samtools-${SAMVER} && make clean || exit 0
@@ -52,16 +53,26 @@ clean_htslib:
 
 
 MINIMAPVER=2.17
-submodules/minimap2-$(MINIMAPVER)/Makefile:
+$(BINCACHEDIR)/minimap2: | $(BINCACHEDIR)
+	@echo Compiling $(@F)
 	cd submodules; \
 		curl -L -o minimap2-${MINIMAPVER}.tar.bz2 https://github.com/lh3/minimap2/releases/download/v${MINIMAPVER}/minimap2-${MINIMAPVER}.tar.bz2; \
 		tar -xjf minimap2-${MINIMAPVER}.tar.bz2; \
 	    rm -rf minimap2-${MINIMAPVER}.tar.bz2
-
-$(BINCACHEDIR)/minimap2: submodules/minimap2-$(MINIMAPVER)/Makefile | $(BINCACHEDIR)
-	@echo Compiling $(@F)
 	cd submodules/minimap2-${MINIMAPVER} && make
 	cp submodules/minimap2-${MINIMAPVER}/minimap2 $@
+
+
+$(BINCACHEDIR)/bcftools: | $(BINCACHEDIR)
+	@echo Making $(@F)
+	if [ ! -d submodules/bcftools-v${SAMVER} ]; then \
+		cd submodules; \
+		curl -L -o bcftools-v${SAMVER}.tar.bz2 https://github.com/samtools/bcftools/releases/download/${SAMVER}/bcftools-${SAMVER}.tar.bz2; \
+		tar -xjf bcftools-v${SAMVER}.tar.bz2; \
+		cd bcftools-${SAMVER}; \
+		make; \
+	fi
+	cp submodules/bcftools-${SAMVER}/bcftools $@
 
 
 SPOAVER=3.0.0
@@ -99,17 +110,6 @@ $(BINCACHEDIR)/racon: | $(BINCACHEDIR)
 		make;
 	cp submodules/racon-v${RACONVER}/build/bin/racon $@
 
-$(BINCACHEDIR)/bcftools: | $(BINCACHEDIR)
-	@echo Making $(@F)
-	if [ ! -d submodules/bcftools-v${SAMVER} ]; then \
-		cd submodules; \
-		curl -L -o bcftools-v${SAMVER}.tar.bz2 https://github.com/samtools/bcftools/releases/download/${SAMVER}/bcftools-${SAMVER}.tar.bz2; \
-		tar -xjf bcftools-v${SAMVER}.tar.bz2; \
-		cd bcftools-${SAMVER}; \
-		make; \
-	fi
-	cp submodules/bcftools-${SAMVER}/bcftools $@
-        
 
 $(BINCACHEDIR)/vcf2fasta: | $(BINCACHEDIR)
 	cd src/vcf2fasta && g++ -std=c++11 \
@@ -157,18 +157,18 @@ test: install
 		--cov-fail-under=80 --cov-report term-missing
 
 
-.PHONY: mem_check
-mem_check: install pileup
-	${IN_VENV} && python -c "import medaka.test.test_counts as tc; tc.create_simple_bam('mem_test.bam', tc.simple_data['calls'])"
-	valgrind --error-exitcode=1 --tool=memcheck ./pileup mem_test.bam ref:1-8 || (ret=$$?; rm mem_test.bam* && exit $$ret)
-	rm -rf mem_test.bam*
-
-
 .PHONY: clean
 clean: clean_htslib
 	(${IN_VENV} && python setup.py clean) || echo "Failed to run setup.py clean"
 	rm -rf libhts.a libmedaka.abi3.so venv build dist/ medaka.egg-info/ __pycache__ medaka.egg-info
 	find . -name '*.pyc' -delete
+
+
+.PHONY: mem_check
+mem_check: install pileup
+	${IN_VENV} && python -c "import medaka.test.test_counts as tc; tc.create_simple_bam('mem_test.bam', tc.simple_data['calls'])"
+	valgrind --error-exitcode=1 --tool=memcheck ./pileup mem_test.bam ref:1-8 || (ret=$$?; rm mem_test.bam* && exit $$ret)
+	rm -rf mem_test.bam*
 
 
 pileup: libhts.a
@@ -177,6 +177,15 @@ pileup: libhts.a
 		src/medaka_common.c src/medaka_counts.c src/medaka_bamiter.c libhts.a \
 		-lm -lz -llzma -lbz2 -lpthread -lcurl -lcrypto \
 		-o $(@) -std=c99 -msse3 -O3
+
+
+trim_reads: libhts.a
+	gcc -pthread -pg -g -Wall -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -std=c99 -msse3 -O3 \
+		-Isrc -Isubmodules/samtools-1.9/htslib-1.9 \
+		src/medaka_common.c src/medaka_trimbam.c src/medaka_bamiter.c libhts.a \
+		-lz -llzma -lbz2 -lpthread -lcurl -lcrypto \
+		-o $(@) -std=c99 -msse3 -O3
+
 
 .PHONY: wheels
 wheels:
