@@ -7,15 +7,18 @@
 
 KSEQ_INIT(gzFile, gzread)
 
-void rle(char *in, int inlen, char *out, char *outruns) {
+void rle(char *in, int inlen, size_t block_size, char *out, char *outruns) {
+    if (block_size > 94) {
+        fprintf(stderr, "Invalid block length %i (> 94)", block_size); exit(1);
+    }
     char c = in[0];
     size_t l = 1;
     size_t oi = 0;
     for (size_t i=1; i<inlen; ++i) {
-        if (in[i] != c) {
+        if ((in[i] != c) || (l == block_size)) {
             out[oi] = c;
             // note, we are skipping quality 0 (!) for sanity
-            outruns[oi] = min(l + 33, 127);
+            outruns[oi] = l + 33;
             c = in[i];
             l = 1;
             oi++;
@@ -24,14 +27,14 @@ void rle(char *in, int inlen, char *out, char *outruns) {
         }
     }
     out[oi] = c;
-    outruns[oi] = min(l + 33, 127);
+    outruns[oi] = l + 33;
     oi++;
     out[oi] = '\0';
     outruns[oi] = '\0';
 }
 
 
-size_t fastrle(char *fname) {
+size_t fastrle(char *fname, size_t block_size) {
     gzFile fp;
     kseq_t *seq;
     int l;
@@ -40,7 +43,7 @@ size_t fastrle(char *fname) {
     while ((l = kseq_read(seq)) >= 0) {
         char* out = xalloc(seq->seq.l + 1, sizeof(char), "out");
         char* outruns = xalloc(seq->seq.l + 1, sizeof(char), "outlen");
-        rle(seq->seq.s, seq->seq.l, out, outruns);
+        rle(seq->seq.s, seq->seq.l, block_size, out, outruns);
         printf("@%s\n%s\n+\n%s\n", seq->name.s, out, outruns);
         free(out);
         free(outruns);

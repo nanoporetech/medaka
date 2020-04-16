@@ -87,6 +87,16 @@ class ResolveModel(argparse.Action):
         setattr(namespace, self.dest, val)
 
 
+class CheckBlockSize(argparse.Action):
+    """Check that block_size < 94"""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if values > 94:
+            parser.error('Maximum block_size is 94, to avoid going over the ASCII limit of 127 (scores start in ascii character 33)')
+
+        setattr(namespace, self.dest, values)
+
+
 class CheckBam(argparse.Action):
     """Check a bam is a bam."""
 
@@ -205,7 +215,7 @@ def print_all_models(args):
 
 def fastrle(args):
     import libmedaka
-    libmedaka.lib.fastrle(args.input.encode())
+    libmedaka.lib.fastrle(args.input.encode(), args.block_size)
 
 
 class StoreDict(argparse.Action):
@@ -385,6 +395,8 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     rleparser.set_defaults(func=fastrle)
     rleparser.add_argument('input', help='Input fasta/q. may be gzip compressed.')
+    rleparser.add_argument('--block_size', action=CheckBlockSize, default=10, type=int,
+        help='Block size for hompolymer splitting, e.g. with a value of blocksize=3, AAAA -> A3 A1.')
 
     # Post-processing of consensus outputs
     sparser = subparsers.add_parser('stitch',
