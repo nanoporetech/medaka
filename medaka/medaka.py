@@ -395,7 +395,7 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     rleparser.set_defaults(func=fastrle)
     rleparser.add_argument('input', help='Input fasta/q. may be gzip compressed.')
-    rleparser.add_argument('--block_size', action=CheckBlockSize, default=10, type=int,
+    rleparser.add_argument('--block_size', action=CheckBlockSize, default=94, type=int,
         help='Block size for hompolymer splitting, e.g. with a value of blocksize=3, AAAA -> A3 A1.')
 
     # Post-processing of consensus outputs
