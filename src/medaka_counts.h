@@ -77,16 +77,17 @@ static const int num2countbase[32] = {
 /** Constructs a pileup data structure.
  *
  *  @param n_cols number of pileup columns.
- *  @param buffer_cols number of pileup columns for which to allocate memory
+ *  @param buffer_cols number of pileup columns.
  *  @param num_dtypes number of datatypes in pileup.
  *  @param num_homop maximum homopolymer length to consider.
+ *  @param fixed_size if not zero data matrix is allocated as fixed_size * n_cols, ignoring other arguments
  *  @see destroy_plp_data
  *  @returns a plp_data pointer.
  *
  *  The return value can be freed with destroy_plp_data.
  *
  */
-plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_homop);
+plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_homop, size_t fixed_size);
 
 
 /** Enlarge the internal buffers of a pileup data structure.
@@ -118,6 +119,7 @@ void destroy_plp_data(plp_data data);
  */
 void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_t num_homop);
 
+
 /** Generates medaka-style feature data in a region of a bam.
  *
  *  @param region 1-based region string.
@@ -147,5 +149,6 @@ plp_data calculate_pileup(
         const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[],
         size_t num_homop, const char tag_name[2], const int tag_value, const _Bool keep_missing,
         bool weibull_summation, const char *read_group);
+
 
 #endif

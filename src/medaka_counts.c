@@ -18,6 +18,7 @@
 #define bam1_seq(b) ((b)->data + (b)->core.n_cigar*4 + (b)->core.l_qname)
 #define bam1_seqi(s, i) (bam_seqi((s), (i)))
 #define bam_nt16_rev_table seq_nt16_str
+#define bam_nt16_table seq_nt16_table
 
 // For recording bad reads and skipping processing
 KHASH_SET_INIT_STR(BADREADS)
@@ -114,22 +115,29 @@ string_set read_key_value(char * fname) {
 /** Constructs a pileup data structure.
  *
  *  @param n_cols number of pileup columns.
+ *  @param buffer_cols number of pileup columns.
  *  @param num_dtypes number of datatypes in pileup.
  *  @param num_homop maximum homopolymer length to consider.
+ *  @param fixed_size if not zero data matrix is allocated as fixed_size * n_cols, ignoring other arguments
  *  @see destroy_plp_data
  *  @returns a plp_data pointer.
  *
  *  The return value can be freed with destroy_plp_data.
  *
  */
-plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_homop) {
+plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_homop, size_t fixed_size) {
     assert(buffer_cols >= n_cols);
     plp_data data = xalloc(1, sizeof(_plp_data), "plp_data");
     data->buffer_cols = buffer_cols;
     data->num_dtypes = num_dtypes;
     data->num_homop = num_homop;
     data->n_cols = n_cols;
-    data->matrix = xalloc(featlen * num_dtypes * buffer_cols * num_homop, sizeof(size_t), "matrix");
+    if (fixed_size != 0) {
+        assert(buffer_cols == n_cols);
+        data->matrix = xalloc(fixed_size * n_cols, sizeof(size_t), "matrix");
+    } else {
+        data->matrix = xalloc(featlen * num_dtypes * buffer_cols * num_homop, sizeof(size_t), "matrix");
+    }
     data->major = xalloc(buffer_cols, sizeof(size_t), "major");
     data->minor = xalloc(buffer_cols, sizeof(size_t), "minor");
     return data;
@@ -326,7 +334,7 @@ plp_data calculate_pileup(
     // allocate output assuming one insertion per ref position
     int n_cols = 0;
     size_t buffer_cols = 2 * (end - start);
-    plp_data pileup = create_plp_data(n_cols, buffer_cols, num_dtypes, num_homop);
+    plp_data pileup = create_plp_data(n_cols, buffer_cols, num_dtypes, num_homop, 0);
 
     // get counts
     size_t major_col = 0;  // index into `pileup` corresponding to pos
@@ -490,4 +498,3 @@ int main(int argc, char *argv[]) {
     destroy_plp_data(pileup);
     exit(0); 
 }
-
