@@ -2,6 +2,7 @@
 # Add comments to keep track of why we are using particular versions
 biopython
 cffi
+grpcio==1.27.2        # last version of this tensorflow dependency to have a manylinux1 wheel. 
 h5py==2.7.1           # 2.8.0 and 2.9.0 seem to not like keras model writing
 intervaltree
 tensorflow==1.14.0
