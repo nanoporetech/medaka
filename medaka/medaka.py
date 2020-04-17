@@ -543,6 +543,19 @@ def main():
     clparser.add_argument('--replace_info', action='store_true',
                          help='Replace info tag (useful for visual inspection of types).')
 
+    # annotate vcf with read depth and supporting reads info
+    annparser = toolsubparsers.add_parser('annotate',
+        help='Annotate vcf with read depth and supporting reads info fields.',
+        parents=[_log_level(), _rg_arg()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    annparser.set_defaults(func=medaka.vcf.annotate_vcf_n_reads)
+    annparser.add_argument('vcf', help='Input .vcf file.')
+    annparser.add_argument('ref_fasta', help='Reference .fasta file.')
+    annparser.add_argument('bam', help='Input alignments.', action=CheckBam)
+    annparser.add_argument('vcfout', help='Output .vcf.')
+    annparser.add_argument('--pad', default=25, type=int,
+        help='Padding width either side of variant for realignment.')
+
     # convert a vcf to tsv
     tsvparser = toolsubparsers.add_parser('vcf2tsv',
         help='convert vcf to tsv, unpacking info and sample columns.',
