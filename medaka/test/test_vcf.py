@@ -1,11 +1,16 @@
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 import os
 import tempfile
 import unittest
 
 import intervaltree
+import numpy as np
+import parasail
 
-from medaka.vcf import VCFWriter, VCFReader, Variant, Haploid2DiploidConverter, split_variants, classify_variant, _merge_variants, MetaInfo
+from medaka.vcf import (VCFWriter, VCFReader, Variant, Haploid2DiploidConverter,
+                        split_variants, classify_variant, _merge_variants,
+                        MetaInfo, get_padded_haplotypes, align_read_to_haps,
+                        align_reads_to_haps)
 
 root_dir = os.path.abspath(os.path.dirname(__file__))
 test1_file = os.path.join(root_dir, 'data/test1.vcf')
@@ -541,3 +546,126 @@ class TestClassifyVariant(unittest.TestCase):
         for klass, ref, alts in cases:
             var = Variant('20', 14369, ref, alt=alts)
             self.assertEqual(klass, classify_variant(var), 'Classification failed for {} {} {}'.format(ref, alts, klass))
+
+
+class TestGetPaddedHaplotypes(unittest.TestCase):
+
+    def test_get_padded_haplotypes(self):
+        chrom = 'my_chrom'
+        ref_seq = 'ATGCTACTGC'
+        # (pos, ref, alt), pad, padded ref, padded alt, start, end
+        cases = [
+            ((4, 'T', 'G'), 2, 'GCTAC', 'GCGAC', 2, 7),  #  sub
+            ((4, 'T', 'TA'), 2, 'GCTAC', 'GCTAAC', 2, 7), #  ins
+            ((4, 'T', 'GA'), 2, 'GCTAC', 'GCGAAC', 2, 7), #  sub ins
+            ((4, 'TA', 'T'), 2, 'GCTACT', 'GCTCT', 2, 8), #  del
+            ((4, 'TA', 'G'), 2, 'GCTACT', 'GCGCT', 2, 8), #  sub del
+            # test what happens for variant at start and end of chrom
+            ((0, 'A', 'G'), 2, 'ATG', 'GTG', 0, 3), #  sub at start
+            ((0, 'A', 'AG'), 2, 'ATG', 'AGTG', 0, 3), #  ins at start
+            ((0, 'AT', 'T'), 2, 'ATGC', 'TGC', 0, 4), #  del at start
+            ((9, 'C', 'G'), 2, 'TGC', 'TGG', 7, 10), #  sub at end
+            ((9, 'C', 'CG'), 2, 'TGC', 'TGCG', 7, 10), #  ins at end
+            ((8, 'GC', 'G'), 2, 'CTGC', 'CTG', 6, 10), #  del at end
+        ]
+        for ((pos, ref, alt), pad, pad_ref, pad_alt, start, end) in cases:
+            var = Variant(chrom, pos, ref, alt)
+            padded, region = get_padded_haplotypes(var, ref_seq, pad)
+            self.assertEqual(pad_ref, padded[0])
+            self.assertEqual(pad_alt, padded[1])
+            self.assertEqual(region.start, start)
+            self.assertEqual(region.end, end)
+
+    def test_raises(self):
+        chrom = 'my_chrom'
+        ref_seq = 'ATGCTACTGC'
+        var = Variant(chrom, 2, 'GT', 'G')  # ref should be GC
+        with self.assertRaises(ValueError):
+            get_padded_haplotypes(var, ref_seq, 2)
+
+
+def strip(r):
+    """Return r.upper().replace('*'. '')"""
+    return r.upper().replace('*', '')
+
+
+class TestAlignReadToHaps(unittest.TestCase):
+
+    def test_align_read_to_haps(self):
+        g_open = 5
+        g_ext = 3
+        matrix = parasail.dnafull
+        match = matrix.matrix[0, 0]
+        mismatch = matrix.matrix[0, 1]
+        counts = dict(zip(*np.unique(matrix.matrix[:4, :4],
+                                     return_counts=True)))
+        diag = np.unique(matrix.matrix.diagonal()[:4])[0]
+        msg = 'Parasail matrix is not symmetric.'
+        self.assertEqual(counts, {mismatch: 12, match: 4}, msg=msg)
+        self.assertEqual(diag, match, msg=msg)
+
+        read = 'ATGCTTTTTGCTAC'
+        haps_scores = [
+            ('ATGCTTTTTGCTAC',  len(read) * match),
+            ('ATGCTTaTTGCTAC',  (len(read) - 1) * match + mismatch),
+            ('ATGCTTTT*GCTAC',   (len(read) - 1) * match - g_open),
+            ('ATGCTTT**GCTAC',  (len(read) - 2) * match - g_open - g_ext),
+        ]
+        scores = align_read_to_haps(read, [strip(h[0]) for h in haps_scores],
+                                    g_open, g_ext, matrix)
+        for (hap, exp), got in zip(haps_scores, scores):
+            self.assertEqual(exp, got, msg='Failed for hap {}'.format(hap))
+
+class TestAlignReadToHaps(unittest.TestCase):
+
+    def test_align_read_to_haps(self):
+        haps = [
+            'ATGCTTTTT*GCTAC',  # ref
+            'ATGCTTaTT*GCTAC',  # alt 1
+            'ATGCTTTTTTGCTAC',  # alt 2
+        ]
+        reads = [
+            'AaGCTTTTT*GCcAC',  # ref with a couple of sub errors
+            'ATcCTTaTT*GCTgC',  # alt 1 with a couple of sub errors
+            'ATGgTTTTTTGCcAC',  # alt 2 with a couple of sub errors
+            'ATGCTTgTT*GCTAC',  # neither ref nor alt 1
+        ]
+
+        # remove * and make upper
+        haps = [strip(h) for h in haps]
+        reads = [strip(r) for r in reads]
+        def align(r, h, go=5, ge=3, matrix=parasail.dnafull):
+            return parasail.sw_trace_striped_32(r, h, go, ge, matrix).score
+        # expected count for each read against first two haps
+        for is_rev in False, True:
+            # trimmed reads are always represented as fwd strand even if they
+            # were reverse complement alignments
+            reads_ws = [(is_rev, r) for r in reads]
+            exp_cnts_pr = [  # expected result for each read
+                Counter({(is_rev, 0): 1}),  # reads[0] aligns best to haps[0]
+                Counter({(is_rev, 1): 1}),  # reads[1] aligns best to haps[1]
+                Counter({(is_rev, 0): 1}),  # reads[2] aligns best to haps[1]
+                Counter({(is_rev, None): 1}),  # reads[3] ambig wrt haps[:2]
+            ]
+            exp_scores_pr = [
+                Counter({(is_rev, i): align(r[1], h)
+                         for i, h in enumerate(haps[:2])})
+                for r in reads_ws
+            ]
+            # one read at a time
+            for read, cnts, scrs in zip(reads_ws, exp_cnts_pr, exp_scores_pr):
+                cnts_got, scrs_got = align_reads_to_haps([read], haps[:2])
+                self.assertEqual(cnts_got, cnts)
+                self.assertEqual(scrs_got, scrs)
+            # all reads together
+            exp_cnts, exp_scrs = Counter(), Counter()
+            for cnts, scrs in zip(exp_cnts_pr, exp_scores_pr):
+                exp_cnts.update(cnts)
+                exp_scrs.update(scrs)
+            cnts_got, scrs_got = align_reads_to_haps(reads_ws, haps[:2])
+            self.assertEqual(exp_cnts, cnts_got)
+            self.assertEqual(exp_scrs, scrs_got)
+        # counts for all three haps, where reads[3] should match haps[2]
+        reads_ws = [(False, r) for r in reads]
+        exp = Counter({(False, 0): 2, (False, 1): 1, (False, 2): 1})
+        self.assertAlmostEqual(align_reads_to_haps(reads_ws, haps)[0], exp)
