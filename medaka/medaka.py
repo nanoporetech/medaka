@@ -31,17 +31,21 @@ allowed_models = [
     'r941_min_high_g330',
     'r941_min_high_g344',
     'r941_min_high_g351',
+    'r941_min_high_g360',
     # 'r941_prom_fast_g303',
     # 'r941_prom_high_g303',
     'r941_prom_high_g330',
     'r941_prom_high_g344',
     'r941_prom_high_g351',
+    'r941_prom_high_g360',
     ## rle consensus
     'r941_min_high_g340_rle',
     ## r10 consensus
     # 'r10_min_high_g303',
     # 'r10_min_high_g340',
     'r103_min_high_g345',
+    'r103_min_high_g360',
+    'r103_prom_high_g360',
     ## snp and variant
     # 'r941_prom_snp_g303',
     # 'r941_prom_variant_g303',
