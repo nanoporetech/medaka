@@ -111,10 +111,11 @@ if $rflag; then
 fi
 
 CALLS2DRAFT=calls_to_draft
+ALIGN_PARAMS=$(medaka tools get_alignment_params --model $MODEL)
 if [[ ! -e ${CALLS2DRAFT}.bam ]] || ${FORCE}; then
     echo "Aligning basecalls to draft"
-    mini_align -i ${BASECALLS} -r ${DRAFT} -p ${CALLS2DRAFT} -t ${THREADS} -m -f \
-        || (echo "Failed to run alignment of reads to draft." && exit 1)
+    mini_align -i ${BASECALLS} -r ${DRAFT} -p ${CALLS2DRAFT} -t ${THREADS} -m -f $ALIGN_PARAMS \
+      || (echo "Failed to run alignment of reads to draft." && exit 1)
     FORCE=true
 else
     echo "Not aligning basecalls to draft, ${CALLS2DRAFT}.bam exists."
