@@ -63,6 +63,10 @@ model_dict = {
     for k in allowed_models
 }
 
+alignment_params = {
+    'rle': "-M 5 -S 4 -O 2 -E 3",
+    'non-rle': "-M 2 -S 4 -O 4,24 -E 2,1"
+}
 
 class ResolveModel(argparse.Action):
     """Resolve model filename or ID into filename"""
@@ -158,7 +162,6 @@ class CheckBam(argparse.Action):
                     msg = 'RG {} is not in the bam {}. Try one of {}'
                     raise RuntimeError(msg.format(rg, fname, read_groups))
 
-
 class CheckIsBed(argparse.Action):
     """Check if --region option is a bed file."""
 
@@ -227,12 +230,27 @@ def print_model_path(args):
     print(os.path.abspath(args.model))
 
 
-def is_rle_encoder(args):
+def is_rle_model(args):
+    print(is_rle_encoder(args.model))
+
+
+def is_rle_encoder(model_name):
+    """ Return encoder used by model"""
     rle_encoders = [medaka.features.HardRLEFeatureEncoder]
-    model = medaka.datastore.DataStore(args.model)
+    model = medaka.datastore.DataStore(model_name)
     encoder = model.get_meta('feature_encoder')
     is_rle = any((isinstance(encoder, x) for x in rle_encoders))
-    print(is_rle)
+
+    return is_rle
+
+
+def get_alignment_params(args):
+    if is_rle_encoder(args.model):
+        align_params = alignment_params['rle']
+    else:
+        align_params = alignment_params['non-rle']
+
+    print(align_params)
 
 
 def print_all_models(args):
@@ -588,7 +606,14 @@ def main():
         help='Check if a model is an RLE model.',
         parents=[_model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    rleparser.set_defaults(func=is_rle_encoder)
+    rleparser.set_defaults(func=is_rle_model)
+
+    # Request alignments parameters for model
+    alignmentparser = toolsubparsers.add_parser('get_alignment_params',
+        help='Get alignment parameters appropriate for a model',
+        parents=[_model_arg()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    alignmentparser.set_defaults(func=get_alignment_params)
 
     # append RLE tags to a bam from hdf
     rlebamparser = toolsubparsers.add_parser('rlebam',
