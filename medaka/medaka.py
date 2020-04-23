@@ -1,7 +1,9 @@
 import argparse
 import logging
+import pathlib
 import os
-from pkg_resources import resource_filename
+import pkg_resources
+import urllib.request
 import sys
 
 import numpy as np
@@ -21,9 +23,15 @@ import medaka.variant
 import medaka.vcf
 
 
-# TODO: should revisit this
-# commented models are deprecated and remove from repo
-model_store = resource_filename(__package__, 'data')
+model_subdir = 'data'
+model_stores = (
+    pkg_resources.resource_filename(__package__, model_subdir),
+    os.path.join(str(pathlib.Path.home()), '.{}'.format(__package__),
+                 model_subdir)
+)
+model_url_template = ('https://github.com/nanoporetech/' +
+                      '{pkg}/raw/master/{pkg}/{subdir}/{fname}')
+
 allowed_models = [
     ## r9 consensus
     # 'r941_min_fast_g303',
@@ -50,27 +58,28 @@ allowed_models = [
     'r103_prom_snp_g3210',
     'r103_prom_variant_g3210',
 ]
+# if updating default models, you should also update the bundled_models list in
+# setup.py to ensure that default models are included in the wheel
 default_consensus_model = 'r941_min_high_g351'
 default_snp_model = 'r941_prom_snp_g322'
 default_variant_model = 'r941_prom_variant_g322'
 for m in (default_consensus_model, default_snp_model, default_variant_model):
     if m not in allowed_models:
-        raise ValueError(
-            "'{}' is listed as a default model but is not an allowed model.".format(
-                m))
-model_dict = {
-    k:os.path.join(model_store, '{}_model.hdf5'.format(k))
-    for k in allowed_models
-}
+        msg = "'{}' is listed as a default model but is not an allowed model."
+        raise ValueError(msg.format(m))
+
+model_dict = {k: '{}_model.hdf5'.format(k) for k in allowed_models}
 
 alignment_params = {
     'rle': "-M 5 -S 4 -O 2 -E 3",
     'non-rle': "-M 2 -S 4 -O 4,24 -E 2,1"
 }
 
+
 class ResolveModel(argparse.Action):
     """Resolve model filename or ID into filename"""
-    def __init__(self, option_strings, dest, default=None, required=False, help='Model file.'):
+    def __init__(self, option_strings, dest, default=None, required=False,
+                 help='Model file.'):
         super().__init__(
             option_strings, dest, nargs=1, default=default, required=required,
             help='{} {{{}}}'.format(help, ', '.join(allowed_models))
@@ -78,17 +87,66 @@ class ResolveModel(argparse.Action):
 
     def __call__(self, parser, namespace, values, option_string=None):
         val = values[0]
-        if not os.path.exists(val):
-            # try lookup
-            try:
-                val = model_dict[val]
-            except:
-                raise RuntimeError(
-                    "Filepath for '--{}' argument does not exist and is not a known model ID ({})".format(
-                        self.dest, val)
-                )
-            #TODO: verify the file is a model?
-        setattr(namespace, self.dest, val)
+        model_fp = self.resolve_model(val)
+        #TODO: verify the file is a model?
+        setattr(namespace, self.dest, model_fp)
+
+
+    @staticmethod
+    def resolve_model(model):
+        """
+        Resolve a model filepath, downloading known models if necessary.
+
+        :param model_name: str, model filepath or model ID
+
+        :returns: str, filepath to model file.
+        """
+
+        model_fp = None
+        if os.path.exists(model):  # model is path to model file
+            return model
+
+        elif model not in model_dict:
+            msg = ("Filepath for '--{}' argument does not exist and is " +
+                    "not a known model ID ({}).")
+            raise RuntimeError(msg.format(self.dest, model))
+
+        else:  # check for model in model stores
+            fps = [os.path.join(ms, model_dict[model]) for ms in model_stores]
+            for fp in fps:
+                if os.path.exists(fp):
+                    return fp
+
+            if model_fp is None:  # we need to download the model
+                url = model_url_template.format(pkg=__package__,
+                                                subdir=model_subdir,
+                                                fname=model_dict[model])
+                try:
+                    with urllib.request.urlopen(url) as response:
+                        data = response.read() # a `bytes` object
+                except:
+                    raise RuntimeError((
+                        "The model file for {} is not already installed and " +
+                        "could not be downloaded. Check you are connected to" +
+                        " the internet and try again.").format(model)
+                    )
+
+                for fp in fps:  # try saving the model
+                    d = os.path.dirname(fp)
+                    try:
+                        pathlib.Path(d).mkdir(parents=True, exist_ok=True)
+                        with open(fp, 'wb') as fh:
+                            fh.write(data)
+                        return fp
+                    except:  # we might not have write access
+                        pass
+
+        if model_fp is None:
+            msg = ("The model file for {} is not installed and could not be " +
+                "installed to any of {}. If you cannot gain write " +
+                "permissions, download the model file manually from {} and " +
+                "use the downloaded model as the --model option.")
+            raise RuntimeError(msg.format(model, ' or '.join(fps), url))
 
 
 class CheckBlockSize(argparse.Action):
@@ -263,6 +321,13 @@ def print_all_models(args):
 def fastrle(args):
     import libmedaka
     libmedaka.lib.fastrle(args.input.encode(), args.block_size)
+
+
+def download_models(args):
+    logger = medaka.common.get_named_logger('ResolveModels')
+    for model in allowed_models:
+        fp = ResolveModel.resolve_model(model)
+        logger.info('Model {} resolves to {}'.format(model, fp))
 
 
 class StoreDict(argparse.Action):
@@ -639,6 +704,14 @@ def main():
     bdparser.add_argument('inputs', nargs='+',
                           help='Consensus .hdf files.')
     bdparser.add_argument('output', help='Output .bed.', default='medaka.bed')
+
+    # resolve all available models, downloading missing ones.
+    dwnldparser = toolsubparsers.add_parser('download_models',
+        help='Download model files for any models not already installed.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    dwnldparser.set_defaults(func=download_models)
+
 
     args = parser.parse_args()
 
