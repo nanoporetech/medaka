@@ -84,6 +84,20 @@ if os.environ.get("MEDAKA_BINARIES") is not None:
         ])
     )
 
+
+# to avoid the wheel getting too large, we only bundle some models. Others
+# will be downloaded at runtime. If adding new models to the list, you should
+# probably remove older ones.
+bundled_models = [
+    'r941_min_high_g344',
+    'r941_min_high_g351',
+    'r941_prom_high_g344',
+    'r941_prom_high_g351',
+    'r103_min_high_g345',
+    'r941_prom_snp_g322',
+    'r941_prom_variant_g322',
+]
+
 class HTSBuild(build_ext):
     # uses the Makefile to build libhts.a, this will get done before the cffi extension
     def run(self):
@@ -137,7 +151,8 @@ if __name__ == '__main__':
         python_requires='>=3.5.*,<3.7',
         packages=find_packages(exclude=['*.test', '*.test.*', 'test.*', 'test']),
         package_data={
-            __pkg_name__:[os.path.join('data','*.hdf5')],
+            __pkg_name__:[os.path.join('data', '{}_model.hdf5'.format(f))
+                          for f in bundled_models],
         },
         cffi_modules=["build.py:ffibuilder"],
         install_requires=install_requires,
