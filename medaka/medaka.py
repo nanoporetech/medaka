@@ -3,17 +3,18 @@ import logging
 import pathlib
 import os
 import pkg_resources
-import urllib.request
 import sys
 
-import numpy as np
 import pysam
+import requests
 
 import medaka.common
 import medaka.datastore
 import medaka.features
 import medaka.labels
 import medaka.methdaka
+import medaka.models
+import medaka.options
 import medaka.prediction
 import medaka.rle
 import medaka.smolecule
@@ -23,130 +24,24 @@ import medaka.variant
 import medaka.vcf
 
 
-model_subdir = 'data'
-model_stores = (
-    pkg_resources.resource_filename(__package__, model_subdir),
-    os.path.join(str(pathlib.Path.home()), '.{}'.format(__package__),
-                 model_subdir)
-)
-model_url_template = ('https://github.com/nanoporetech/' +
-                      '{pkg}/raw/master/{pkg}/{subdir}/{fname}')
-
-allowed_models = [
-    ## r9 consensus
-    # 'r941_min_fast_g303',
-    # 'r941_min_high_g303',
-    'r941_min_high_g330',
-    'r941_min_high_g344',
-    'r941_min_high_g351',
-    # 'r941_prom_fast_g303',
-    # 'r941_prom_high_g303',
-    'r941_prom_high_g330',
-    'r941_prom_high_g344',
-    'r941_prom_high_g351',
-    ## rle consensus
-    'r941_min_high_g340_rle',
-    ## r10 consensus
-    # 'r10_min_high_g303',
-    # 'r10_min_high_g340',
-    'r103_min_high_g345',
-    ## snp and variant
-    # 'r941_prom_snp_g303',
-    # 'r941_prom_variant_g303',
-    'r941_prom_snp_g322',
-    'r941_prom_variant_g322',
-    'r103_prom_snp_g3210',
-    'r103_prom_variant_g3210',
-]
-# if updating default models, you should also update the bundled_models list in
-# setup.py to ensure that default models are included in the wheel
-default_consensus_model = 'r941_min_high_g351'
-default_snp_model = 'r941_prom_snp_g322'
-default_variant_model = 'r941_prom_variant_g322'
-for m in (default_consensus_model, default_snp_model, default_variant_model):
-    if m not in allowed_models:
-        msg = "'{}' is listed as a default model but is not an allowed model."
-        raise ValueError(msg.format(m))
-
-model_dict = {k: '{}_model.hdf5'.format(k) for k in allowed_models}
-
-alignment_params = {
-    'rle': "-M 5 -S 4 -O 2 -E 3",
-    'non-rle': "-M 2 -S 4 -O 4,24 -E 2,1"
-}
-
-
 class ResolveModel(argparse.Action):
     """Resolve model filename or ID into filename"""
-    def __init__(self, option_strings, dest, default=None, required=False,
-                 help='Model file.'):
+    def __init__(
+            self, option_strings, dest, default=None, required=False,
+            help='Model file.'):
         super().__init__(
             option_strings, dest, nargs=1, default=default, required=required,
-            help='{} {{{}}}'.format(help, ', '.join(allowed_models))
-        )
+            help='{} {{{}}}'.format(help, ', '.join(medaka.options.allowed_models)))
 
     def __call__(self, parser, namespace, values, option_string=None):
         val = values[0]
-        model_fp = self.resolve_model(val)
+        try:
+            model_fp = medaka.models.resolve_model(val)
+        except Exception as e:
+            msg = "Error validating model from '--{}' argument: {}."
+            raise RuntimeError(msg.format(self.dest, str(e)))
         #TODO: verify the file is a model?
         setattr(namespace, self.dest, model_fp)
-
-
-    @staticmethod
-    def resolve_model(model):
-        """
-        Resolve a model filepath, downloading known models if necessary.
-
-        :param model_name: str, model filepath or model ID
-
-        :returns: str, filepath to model file.
-        """
-
-        model_fp = None
-        if os.path.exists(model):  # model is path to model file
-            return model
-
-        elif model not in model_dict:
-            msg = ("Filepath for '--{}' argument does not exist and is " +
-                    "not a known model ID ({}).")
-            raise RuntimeError(msg.format(self.dest, model))
-
-        else:  # check for model in model stores
-            fps = [os.path.join(ms, model_dict[model]) for ms in model_stores]
-            for fp in fps:
-                if os.path.exists(fp):
-                    return fp
-
-            if model_fp is None:  # we need to download the model
-                url = model_url_template.format(pkg=__package__,
-                                                subdir=model_subdir,
-                                                fname=model_dict[model])
-                try:
-                    with urllib.request.urlopen(url) as response:
-                        data = response.read() # a `bytes` object
-                except:
-                    raise RuntimeError((
-                        "The model file for {} is not already installed and " +
-                        "could not be downloaded. Check you are connected to" +
-                        " the internet and try again.").format(model)
-                    )
-
-                for fp in fps:  # try saving the model
-                    d = os.path.dirname(fp)
-                    try:
-                        pathlib.Path(d).mkdir(parents=True, exist_ok=True)
-                        with open(fp, 'wb') as fh:
-                            fh.write(data)
-                        return fp
-                    except:  # we might not have write access
-                        pass
-
-        if model_fp is None:
-            msg = ("The model file for {} is not installed and could not be " +
-                "installed to any of {}. If you cannot gain write " +
-                "permissions, download the model file manually from {} and " +
-                "use the downloaded model as the --model option.")
-            raise RuntimeError(msg.format(model, ' or '.join(fps), url))
 
 
 class CheckBlockSize(argparse.Action):
@@ -154,8 +49,9 @@ class CheckBlockSize(argparse.Action):
 
     def __call__(self, parser, namespace, values, option_string=None):
         if values > 94:
-            parser.error('Maximum block_size is 94, to avoid going over the ASCII limit of 127 (scores start in ascii character 33)')
-
+            parser.error(
+                'Maximum block_size is 94, to avoid going over the ASCII '
+                'limit of 127 (scores start in ASCII character 33).')
         setattr(namespace, self.dest, values)
 
 
@@ -256,8 +152,8 @@ def _log_level():
 def _model_arg():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
-    parser.add_argument('--model', action=ResolveModel, default=model_dict[default_consensus_model],
-            help='Model definition, default is equivalent to {}.'.format(default_consensus_model))
+    parser.add_argument('--model', action=ResolveModel, default=medaka.options.default_models['consensus'],
+            help='Model definition, default is equivalent to {}.'.format(medaka.options.default_models['consensus']))
     parser.add_argument('--allow_cudnn', dest='allow_cudnn', default=True, action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--disable_cudnn', dest='allow_cudnn', default=False, action='store_false',
             help='Disable use of cuDNN model layers.')
@@ -312,10 +208,10 @@ def get_alignment_params(args):
 
 
 def print_all_models(args):
-    print('Available:', ', '.join(allowed_models))
-    print('Default consensus: ', default_consensus_model)
-    print('Default SNP: ', default_snp_model)
-    print('Default variant: ', default_variant_model)
+    print('Available:', ', '.join(medaka.options.allowed_models))
+    for key in ('consensus', 'snp', 'variant'):
+        # medaka_variant relies on this order
+        print('Default {}: '.format(key), medaka.options.default_models[key])
 
 
 def fastrle(args):
@@ -325,7 +221,7 @@ def fastrle(args):
 
 def download_models(args):
     logger = medaka.common.get_named_logger('ResolveModels')
-    for model in allowed_models:
+    for model in medaka.options.allowed_models:
         fp = ResolveModel.resolve_model(model)
         logger.info('Model {} resolves to {}'.format(model, fp))
 
@@ -442,7 +338,7 @@ def main():
     tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
     tparser.add_argument('--batch_size', type=int, default=100, help='Training batch size.')
-    tparser.add_argument('--max_samples', type=int, default=np.inf, help='Only train on max_samples.')
+    tparser.add_argument('--max_samples', type=int, default=float("inf"), help='Only train on max_samples.')
     tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
     tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
     tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
@@ -496,7 +392,7 @@ def main():
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cfparser.add_argument('features', nargs='+', help='Pregenerated features (from medaka features).')
-    cfparser.add_argument('--model', action=ResolveModel, default=default_consensus_model, help='Model definition.')
+    cfparser.add_argument('--model', action=ResolveModel, default=medaka.options.default_models['consensus'], help='Model definition.')
 
     # Compression of fasta/q to quality-RLE fastq
     rleparser = subparsers.add_parser('fastrle',
