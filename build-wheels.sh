@@ -2,6 +2,7 @@
 # Usage: ./build-wheels.sh <workdir> <pyminorversion1> <pyminorversion2> ...
 set -e -x
 export MANYLINUX=1
+export MEDAKA_DIST=1
 
 PACKAGE_NAME='medaka'
 

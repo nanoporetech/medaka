@@ -1,14 +1,86 @@
 """Creation and loading of models."""
+
+import os
+import pathlib
+import tempfile
+
+import requests
+
 import medaka.common
 import medaka.datastore
+import medaka.options
 
 logger = medaka.common.get_named_logger('ModelLoad')
+
+
+class DownloadError(ValueError):
+    """Raised when model is unsuccessfully downloaded."""
+
+
+def resolve_model(model):
+    """Resolve a model filepath, downloading known models if necessary.
+
+    :param model_name: str, model filepath or model ID
+
+    :returns: str, filepath to model file.
+    """
+    if os.path.exists(model):  # model is path to model file
+        return model
+    elif model not in medaka.options.allowed_models:
+        raise ValueError(
+            "Model {} is not a known model or existant file.".format(model))
+    else:
+        # check for model in model stores
+        fname = '{}_model.hdf5'.format(model)
+        fps = [
+            os.path.join(ms, fname)
+            for ms in medaka.options.model_stores]
+        for fp in fps:
+            if os.path.exists(fp):
+                return fp
+
+        # try to download model
+        url = medaka.options.model_url_template.format(
+            pkg=__package__, subdir=medaka.options.model_subdir, fname=fname)
+        try:
+            data = requests.get(url).content
+            # check data is a model
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp_file = os.path.join(tmpdir, "tmp_model.hdf5")
+                with open(tmp_file, 'wb') as tmp_model:
+                    tmp_model.write(data)
+                with medaka.datastore.DataStore(tmp_file) as ds:
+                    ds.get_meta('model_function')
+        except Exception:
+            raise DownloadError(
+                "The model file for {} is not already installed and "
+                "could not be downloaded. Check you are connected to"
+                " the internet and try again.".format(model))
+        else:
+            # save the model
+            for fp in fps:  # try saving the model
+                try:
+                    d = os.path.dirname(fp)
+                    pathlib.Path(d).mkdir(parents=True, exist_ok=True)
+                    with open(fp, 'wb') as fh:
+                        fh.write(data)
+                    print("returning ", fp)
+                    return fp
+                except Exception:  # we might not have write access
+                    pass
+            msg = (
+                "The model file for {} is not installed and could not be "
+                "installed to any of {}. If you cannot gain write "
+                "permissions, download the model file manually from {} and "
+                "use the downloaded model as the --model option.")
+            raise RuntimeError(msg.format(model, ' or '.join(fps), url))
+    raise RuntimeError("Model resolution failed")
 
 
 def load_model(fname, time_steps=None, allow_cudnn=True):
     """Load a model from an .hdf file.
 
-    :param fname: .hdf file containing model.
+    :param fname: .hdf file containing model (or model name).
     :param time_steps: number of time points in RNN, `None` for dynamic.
     :param allow_cudnn: allow use of CuDNN optimizations.
 
@@ -16,6 +88,7 @@ def load_model(fname, time_steps=None, allow_cudnn=True):
         function builds the model then loads the weights.
 
     """
+    fname = resolve_model(fname)
     with medaka.datastore.DataStore(fname) as ds:
         model_partial_function = ds.get_meta('model_function')
         model = model_partial_function(

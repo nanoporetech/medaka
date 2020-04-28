@@ -201,7 +201,7 @@ pypi_build/bin/activate:
 
 .PHONY: sdist
 sdist: pypi_build/bin/activate scripts/mini_align submodules/samtools-$(SAMVER)/Makefile
-	${IN_BUILD} && python setup.py sdist
+	${IN_BUILD} && MEDAKA_DIST=1 python setup.py sdist
 
 
 # Documentation
