@@ -30,6 +30,7 @@ MOTIFS = {
     'cpg': {
         'CG': ((0, 1), 'MC')},
     'all': {
+        # TODO: these will appear distinct in output, should fix
         'C': ((0, None), 'MC'),
         'G': ((None, 0), 'MC'),
         'A': ((0, None), 'MA'),
@@ -416,12 +417,31 @@ def call_methylation(args):
     ref = ref.fetch(region.ref_name)
     motifs = MOTIFS[args.meth]
 
+    additional_text = ''
+    if args.meth == 'all':
+        additional_text = (
+            " Note motifs are stranded, such that both 'C' and 'G' (and 'A' "
+            "and 'T') bases will be seen in the output for 5mC (6mA). "
+            "Output with a 'G' ('T' for 6mA) correspond to the reverse "
+            "strand. Users should post process the output to join/sum lines "
+            "belonging to the same genomic loci.")
+    elif args.meth == 'dcm':
+        additional_text = (
+            " The output is sorted by motif, users may wish to subsequently "
+            "sorted by position.")
+    logger.info(
+        "Calling methylation at {} sites.{}".format(
+            args.meth, additional_text))
+
     with open(args.output, 'w') as fh:
         with pysam.AlignmentFile(args.bam, "rb") as bam:
             for seq, motif_info in motifs.items():
                 tracker = MotifTracker(ref, region, seq, *motif_info)
                 logger.info("Searching for motif '{}'.".format(seq))
-                next(tracker)
+                try:
+                    next(tracker)
+                except StopIteration:
+                    continue
 
                 for pileupcolumn in bam.pileup(
                         region.ref_name, region.start, region.end):
@@ -455,4 +475,7 @@ def call_methylation(args):
                         fh.write('\t'.join(str(x) for x in tracker.summary))
                         fh.write('\n')
                         tracker.reset_counters()
-                    next(tracker)
+                    try:
+                        next(tracker)
+                    except StopIteration:
+                        break
