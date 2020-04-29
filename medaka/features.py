@@ -597,6 +597,47 @@ class HardRLEFeatureEncoder(CountsFeatureEncoder):
         return len(self.dtypes) * featlen * self.num_qstrat
 
 
+class SymHardRLEFeatureEncoder(HardRLEFeatureEncoder):
+    """HRLE encoder where lack of insertion == deletion.
+
+    In minor positions, when a read spans an insertion but
+    does not contain the inserted base, this will be counted
+    as a deletion.
+    """
+
+    def _pileup_function(self, region, bam):
+        [(counts, positions)] = super()._pileup_function(region, bam)
+
+        minor_inds = np.where(positions['minor'] > 0)
+        major_pos_at_minor_inds = positions['major'][minor_inds]
+        major_ind_at_minor_inds = np.searchsorted(
+            positions['major'], major_pos_at_minor_inds, side='left')
+
+        # Correct count of indels in minor positions, where reads that
+        # do not contain the insertion are not counted as deletion in
+        # minor positions, unlike in major positions
+        for (dt, is_rev), inds in self.feature_indices.items():
+            dt_depth = np.sum(counts[:, inds], axis=1)
+
+            # Every dtype needs a vector with size featlen x num_qstrat,
+            # the elements divided in two (split fwd/reverse). Also, by design,
+            # indels in RLE pileups are accumulated in  the first layer of
+            # stratification available to that dtype. E.g., for num_qstrat=2
+            # and 2 dtypes, 'R1' and 'R2':
+            # {('R1', False): [4, 5, 6, 7, 9, 14, 15, 16, 17, 19],
+            #  ('R1', True): [0, 1, 2, 3, 8, 10, 11, 12, 13, 18],
+            #  ('R2', False): [24, 25, 26, 27, 29, 34, 35, 36, 37, 39],
+            #  ('R2', True): [20, 21, 22, 23, 28, 30, 31, 32, 33, 38]}
+            featlen_index = libmedaka.lib.rev_del if is_rev else \
+                libmedaka.lib.fwd_del
+            dtype_size = libmedaka.lib.featlen * self.num_qstrat
+            del_ind = [x for x in inds if x % dtype_size == featlen_index][0]
+            counts[minor_inds, del_ind] = dt_depth[major_ind_at_minor_inds] -\
+                dt_depth[minor_inds]
+
+        return [(counts, positions)]
+
+
 class SoftRLEFeatureEncoder(HardRLEFeatureEncoder):
     """Create pileups using soft RLE calls."""
 
