@@ -193,7 +193,7 @@ def is_rle_encoder(model_name):
     rle_encoders = [medaka.features.HardRLEFeatureEncoder]
     model = medaka.datastore.DataStore(model_name)
     encoder = model.get_meta('feature_encoder')
-    is_rle = any((isinstance(encoder, x) for x in rle_encoders))
+    is_rle = issubclass(type(encoder), medaka.features.HardRLEFeatureEncoder)
 
     return is_rle
 
