@@ -9,10 +9,12 @@ from threading import Lock
 
 import intervaltree
 import numpy as np
+import parasail
 import pysam
 
 from medaka import __version__ as medaka_version
 import medaka.common
+import medaka.features
 
 
 def self_return(x):
@@ -70,6 +72,8 @@ def parse_string_to_tags(string, splitter=','):
     """
     tags = {}
     for field in string.split(';'):
+        if field in ['', '.']:
+            continue
         try:
             tag, value = field.split('=')
             if tag in all_info_fields.keys():
@@ -1020,3 +1024,177 @@ def get_homozygous_regions(args):
     logger.info(msg.format(
         len(hetero_regions), 'heterozygous', args.min_len,
         reg.name, reg_len, hetero_len, hetero_len / reg_len))
+
+
+def annotate_vcf_n_reads(args):
+    """Entry point to annotate a vcf with read depth and supporting reads."""
+    ref_fasta = pysam.FastaFile(args.ref_fasta)
+
+    vcf = VCFReader(args.vcf)
+    chrom = None
+    pref = 'Depth of reads '
+    suff = ' by strand (fwd, rev)'
+    g_open = 5
+    g_ext = 3
+    # use parasail.dnafull (match 5, mismatch -4)
+    # change INFO below if you change this.
+    matrix = parasail.dnafull
+    # check it is indeed a symmetric
+    match = matrix.matrix[0, 0]
+    mismatch = matrix.matrix[0, 1]
+    assert dict(zip(*np.unique(matrix.matrix[:4, :4], return_counts=True))
+                ) == {mismatch: 12, match: 4}
+    assert np.unique(matrix.matrix.diagonal()[:4])[0] == match
+    ann_meta = [
+        ('INFO', 'DP', 1, 'Integer', pref + 'at pos'),
+        ('INFO', 'DPS', 2, 'Integer', pref + 'at pos' + suff),
+        ('INFO', 'DPSP', 1, 'Integer',
+         pref + 'spanning pos +-{}'.format(args.pad)),
+        ('INFO', 'SR', '.', 'Integer', 'Depth of spanning reads by strand ' +
+         'which best align to each allele ' +
+         '(ref fwd, ref rev, alt1 fwd, alt1 rev, etc.)'),
+        ('INFO', 'AR', 2, 'Integer', 'Depth of ambiguous spanning reads by ' +
+         'strand which align equally well to all alleles (fwd, rev)'),
+        ('INFO', 'SC', '.', 'Integer', 'Total alignment score to each allele' +
+         ' of spanning reads by strand ' +
+         '(ref fwd, ref rev, alt1 fwd, alt1 rev, etc.) aligned with parasail' +
+         ' match {}, mismatch {}, open {}, extend {}'.format(
+             match, mismatch, g_open, g_ext)
+         ),
+    ]
+    meta_info = vcf.meta + [str(MetaInfo(*m)) for m in ann_meta]
+    with VCFWriter(args.vcfout, 'w', version='4.1', contigs=vcf.chroms,
+                   meta_info=meta_info) as vcf_writer:
+        for v in vcf.fetch():
+            if chrom is None or chrom != v.chrom:
+                chrom = v.chrom
+                ref_seq = ref_fasta.fetch(chrom)
+
+            # get read depth by strand at the variant (without padding)
+            depth_by_strand = collections.Counter()
+            # medaka.features.get_trimmed_reads seems to behave oddly if the
+            # region only spans 1 base, hence v.pos + 2
+            var_reg = medaka.common.Region(chrom, v.pos, v.pos + 2)
+            reads = get_trimmed_reads(args.bam, var_reg, partial=True,
+                                      read_group=args.RG)
+            for is_rev, _ in reads:
+                depth_by_strand[is_rev] += 1
+            v.info['DP'] = str(sum(depth_by_strand.values()))
+            v.info['DPS'] = '{},{}'.format(depth_by_strand[False],
+                                           depth_by_strand[True])
+
+            # get read depth by strand at the variant (with padding)
+            padded_haps, pad_reg = get_padded_haplotypes(v, ref_seq, args.pad)
+            reads = get_trimmed_reads(args.bam, pad_reg, partial=False,
+                                      read_group=args.RG)
+            counts, scores = align_reads_to_haps(reads, padded_haps, g_open,
+                                                 g_ext, matrix)
+            v.info['DPSP'] = sum(counts.values())
+            sr = []  # counts of supporting reads for each hap by strand
+            sc = []  # total scores for each hap by strand
+            haps = list(range(1 + len(v.alt)))  # ref and alts
+            is_revs = [False, True]
+            for hap in haps:
+                for is_rev in is_revs:
+                    sr.append(counts[(is_rev, hap)])
+                    sc.append(scores[(is_rev, hap)])
+            v.info['SR'] = ','.join(map(str, sr))
+            v.info['SC'] = ','.join(map(str, sc))
+            v.info['AR'] = '{},{}'.format(*[counts[(is_rev, None)]
+                                            for is_rev in is_revs])
+            vcf_writer.write_variant(v)
+
+
+def get_padded_haplotypes(var, ref_seq, pad):
+    """Get padded haplotypes for a variant.
+
+    :param var: `medaka.vcf.Variant` obj
+    :ref_seq: str, entire reference sequence for var.chrom
+    :pad: int, padding either side of variant.
+
+    :returns: (padded ref, padded alt 1, ... padded alt n),
+              padded medaka.common.Region
+    """
+    ref_seq_var = ref_seq[var.pos:var.pos + len(var.ref)]
+    if not var.ref == ref_seq_var:
+        msg = 'Ref sequences {} and {} differ at {}:{}, check your files.'
+        raise ValueError(msg.format(var.ref, ref_seq_var, var.chrom, var.pos))
+    left_start = max(0, var.pos - pad)
+    left_end = var.pos
+    right_start = var.pos + len(var.ref)
+    right_end = min(len(ref_seq), right_start + pad)
+    pad_left = ref_seq[left_start: left_end]
+    pad_right = ref_seq[right_start: right_end]
+    padded = [pad_left + hap + pad_right for hap in [var.ref] + var.alt]
+    region = medaka.common.Region(var.chrom, left_start, right_end)
+    return tuple(padded), region
+
+
+def get_trimmed_reads(bam, region, partial, read_group):
+    """Get trimmed reads without reference.
+
+    :param bam: bam containing reads
+    :param region: `medaka.common.Region` obj
+    :param partial: bool, whether to keep reads which don't fully span region.
+    :param read_group: str, used for read filtering.
+
+    :returns: [(bool is_rev, str trimmed read sequence)]
+    """
+    region_got, reads = next(
+        medaka.features.get_trimmed_reads(region, bam, partial=partial,
+                                          read_group=read_group))
+    assert region == region_got
+    # first read is ref, remove it.
+    ref_is_rev, ref_seq = reads.pop(0)
+    assert not ref_is_rev
+    return reads
+
+
+def align_reads_to_haps(reads, haps, g_open=5, g_ext=3,
+                        matrix=parasail.dnafull):
+    """Get trimmed reads without reference.
+
+    :param reads: [(bool is_rev, str trimmed read sequence)]
+    :param haps: (padded ref, padded alt 1, ... padded alt n)
+    :param g_open: int, gap opening penalty
+    :param g_ext: int, gap extend penalty
+    :param matrix: int matrix shape (16, 16) substitution matrix.
+
+    :returns: (`collections.Counter` counts of reads which align best to each
+        haplotype with keys (is_rev, best_hap). best_hap is None in
+        the case of tied alignment scores.
+        `collections.Counter` summed scores with keys (is_rev, int hap).)
+    """
+    hap_counts = collections.Counter()
+    total_scores = collections.Counter()
+    for is_rev, read_seq in reads:
+        scores = align_read_to_haps(read_seq, haps, g_open, g_ext, matrix)
+        # Find argmax score, or None if all scores equal
+        if len(set(scores)) == 1:
+            best_hap = None
+        else:
+            best_hap = np.argmax(scores)
+        # counts of best haplotypes
+        hap_counts[(is_rev, best_hap)] += 1
+        # summed alignment score for each haplotype
+        for hap, score in enumerate(scores):
+            total_scores[(is_rev, hap)] += score
+    return hap_counts, total_scores
+
+
+def align_read_to_haps(read, haps, g_open=5, g_ext=3, matrix=parasail.dnafull):
+    """Get trimmed reads without reference.
+
+    :param read: str trimmed read sequence
+    :param haps: (padded ref, padded alt 1, ... padded alt n)
+    :param g_open: int, gap opening penalty
+    :param g_ext: int, gap extend penalty
+    :param matrix: int matrix shape (16, 16) substitution matrix.
+
+    :returns: [int, scores]
+    """
+    scores = []
+    for i, hap in enumerate(haps):
+        algn = parasail.sw_trace_striped_32(read, hap, g_open, g_ext, matrix)
+        scores.append(algn.score)
+    return scores

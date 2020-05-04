@@ -1,17 +1,20 @@
 import argparse
 import logging
+import pathlib
 import os
-from pkg_resources import resource_filename
+import pkg_resources
 import sys
 
-import numpy as np
 import pysam
+import requests
 
 import medaka.common
 import medaka.datastore
 import medaka.features
 import medaka.labels
 import medaka.methdaka
+import medaka.models
+import medaka.options
 import medaka.prediction
 import medaka.rle
 import medaka.smolecule
@@ -21,70 +24,35 @@ import medaka.variant
 import medaka.vcf
 
 
-# TODO: should revisit this
-# commented models are deprecated and remove from repo
-model_store = resource_filename(__package__, 'data')
-allowed_models = [
-    ## r9 consensus
-    # 'r941_min_fast_g303',
-    # 'r941_min_high_g303',
-    'r941_min_high_g330',
-    'r941_min_high_g344',
-    'r941_min_high_g351',
-    # 'r941_prom_fast_g303',
-    # 'r941_prom_high_g303',
-    'r941_prom_high_g330',
-    'r941_prom_high_g344',
-    'r941_prom_high_g351',
-    ## rle consensus
-    'r941_min_high_g340_rle',
-    ## r10 consensus
-    # 'r10_min_high_g303',
-    # 'r10_min_high_g340',
-    'r103_min_high_g345',
-    ## snp and variant
-    # 'r941_prom_snp_g303',
-    # 'r941_prom_variant_g303',
-    'r941_prom_snp_g322',
-    'r941_prom_variant_g322',
-    'r103_prom_snp_g3210',
-    'r103_prom_variant_g3210',
-]
-default_consensus_model = 'r941_min_high_g351'
-default_snp_model = 'r941_prom_snp_g322'
-default_variant_model = 'r941_prom_variant_g322'
-for m in (default_consensus_model, default_snp_model, default_variant_model):
-    if m not in allowed_models:
-        raise ValueError(
-            "'{}' is listed as a default model but is not an allowed model.".format(
-                m))
-model_dict = {
-    k:os.path.join(model_store, '{}_model.hdf5'.format(k))
-    for k in allowed_models
-}
-
-
 class ResolveModel(argparse.Action):
     """Resolve model filename or ID into filename"""
-    def __init__(self, option_strings, dest, default=None, required=False, help='Model file.'):
+    def __init__(
+            self, option_strings, dest, default=None, required=False,
+            help='Model file.'):
         super().__init__(
             option_strings, dest, nargs=1, default=default, required=required,
-            help='{} {{{}}}'.format(help, ', '.join(allowed_models))
-        )
+            help='{} {{{}}}'.format(help, ', '.join(medaka.options.allowed_models)))
 
     def __call__(self, parser, namespace, values, option_string=None):
         val = values[0]
-        if not os.path.exists(val):
-            # try lookup
-            try:
-                val = model_dict[val]
-            except:
-                raise RuntimeError(
-                    "Filepath for '--{}' argument does not exist and is not a known model ID ({})".format(
-                        self.dest, val)
-                )
-            #TODO: verify the file is a model?
-        setattr(namespace, self.dest, val)
+        try:
+            model_fp = medaka.models.resolve_model(val)
+        except Exception as e:
+            msg = "Error validating model from '--{}' argument: {}."
+            raise RuntimeError(msg.format(self.dest, str(e)))
+        #TODO: verify the file is a model?
+        setattr(namespace, self.dest, model_fp)
+
+
+class CheckBlockSize(argparse.Action):
+    """Check that block_size < 94"""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if values > 94:
+            parser.error(
+                'Maximum block_size is 94, to avoid going over the ASCII '
+                'limit of 127 (scores start in ASCII character 33).')
+        setattr(namespace, self.dest, values)
 
 
 class CheckBam(argparse.Action):
@@ -105,12 +73,18 @@ class CheckBam(argparse.Action):
         setattr(namespace, self.dest, values)
 
     @staticmethod
-    def count_read_groups(fname):
-        """Count the number of read groups (RG tag) defined in bam header.
+    def check_read_groups(fname, rg=None):
+        """Check bam read groups are consistent with the specified read group.
+
+        Raises a RuntimeError if:
+            * no read group was specified but the bam has read groups
+            * user specified a read group but the bam has no read groups
+            * user specified a read group but it it not amongst bam read groups
 
         :param fname: bam file name.
+        :param rg: check if this read group is present.
 
-        :returns: number of read groups.
+        :raises: RuntimeError
         """
         with pysam.AlignmentFile(fname) as bam:
             # As of 13/12/19 pypi still has no wheel for pysam v0.15.3 so we
@@ -122,12 +96,25 @@ class CheckBam(argparse.Action):
                 header_dict = bam.header.as_dict()
             except AttributeError:
                 header_dict = bam.header
-            if 'RG' not in header_dict:
-                return 0
+
+            if 'RG' in header_dict:
+                read_groups = set([r['ID'] for r in header_dict['RG']])
             else:
-                return len(header_dict['RG'])
-
-
+                read_groups = set()
+            if rg is not None and len(read_groups) == 0:
+                # User asked for a read group but none were found
+                raise RuntimeError('No RG tags found in the bam {}'.format(fname))
+            elif rg is None and len(read_groups) > 1:
+                # User did not ask for a read group but groups are present.
+                raise RuntimeError(
+                    'The bam {} contains more than one read group. '
+                    'Please specify `--RG` to select which read group'
+                    'to process from {}'.format(fname, read_groups))
+            elif rg is not None and len(read_groups) > 0:
+                # User asked for a read group and groups are present.
+                if rg not in read_groups:
+                    msg = 'RG {} is not in the bam {}. Try one of {}'
+                    raise RuntimeError(msg.format(rg, fname, read_groups))
 
 class CheckIsBed(argparse.Action):
     """Check if --region option is a bed file."""
@@ -165,11 +152,20 @@ def _log_level():
 def _model_arg():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
-    parser.add_argument('--model', action=ResolveModel, default=model_dict[default_consensus_model],
-            help='Model definition, default is equivalent to {}.'.format(default_consensus_model))
+    parser.add_argument('--model', action=ResolveModel, default=medaka.options.default_models['consensus'],
+            help='Model definition, default is equivalent to {}.'.format(medaka.options.default_models['consensus']))
     parser.add_argument('--allow_cudnn', dest='allow_cudnn', default=True, action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--disable_cudnn', dest='allow_cudnn', default=False, action='store_false',
             help='Disable use of cuDNN model layers.')
+    return parser
+
+
+def _rg_arg():
+
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
+    rg_group = parser.add_argument_group('read group', 'Filtering alignments the read group (RG) tag, expected to be string value.')
+    rg_group.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
     return parser
 
 
@@ -188,24 +184,46 @@ def print_model_path(args):
     print(os.path.abspath(args.model))
 
 
-def is_rle_encoder(args):
+def is_rle_model(args):
+    print(is_rle_encoder(args.model))
+
+
+def is_rle_encoder(model_name):
+    """ Return encoder used by model"""
     rle_encoders = [medaka.features.HardRLEFeatureEncoder]
-    model = medaka.datastore.DataStore(args.model)
+    model = medaka.datastore.DataStore(model_name)
     encoder = model.get_meta('feature_encoder')
-    is_rle = any((isinstance(encoder, x) for x in rle_encoders))
-    print(is_rle)
+    is_rle = issubclass(type(encoder), medaka.features.HardRLEFeatureEncoder)
+
+    return is_rle
+
+
+def get_alignment_params(args):
+    if is_rle_encoder(args.model):
+        align_params = alignment_params['rle']
+    else:
+        align_params = alignment_params['non-rle']
+
+    print(align_params)
 
 
 def print_all_models(args):
-    print('Available:', ', '.join(allowed_models))
-    print('Default consensus: ', default_consensus_model)
-    print('Default SNP: ', default_snp_model)
-    print('Default variant: ', default_variant_model)
+    print('Available:', ', '.join(medaka.options.allowed_models))
+    for key in ('consensus', 'snp', 'variant'):
+        # medaka_variant relies on this order
+        print('Default {}: '.format(key), medaka.options.default_models[key])
 
 
 def fastrle(args):
     import libmedaka
-    libmedaka.lib.fastrle(args.input.encode())
+    libmedaka.lib.fastrle(args.input.encode(), args.block_size)
+
+
+def download_models(args):
+    logger = medaka.common.get_named_logger('ResolveModels')
+    for model in medaka.options.allowed_models:
+        fp = ResolveModel.resolve_model(model)
+        logger.info('Model {} resolves to {}'.format(model, fp))
 
 
 class StoreDict(argparse.Action):
@@ -320,7 +338,7 @@ def main():
     tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
     tparser.add_argument('--batch_size', type=int, default=100, help='Training batch size.')
-    tparser.add_argument('--max_samples', type=int, default=np.inf, help='Only train on max_samples.')
+    tparser.add_argument('--max_samples', type=int, default=float("inf"), help='Only train on max_samples.')
     tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
     tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
     tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
@@ -336,7 +354,7 @@ def main():
     # Consensus from bam input
     cparser = subparsers.add_parser('consensus',
         help='Run inference from a trained model and alignments.',
-        parents=[_log_level(), _chunking_feature_args(), _model_arg()],
+        parents=[_log_level(), _chunking_feature_args(), _model_arg(), _rg_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cparser.add_argument('bam', help='Input alignments.', action=CheckBam)
     cparser.set_defaults(func=medaka.prediction.predict)
@@ -350,8 +368,6 @@ def main():
     tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
     tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
-    rg_group = cparser.add_argument_group('read group', 'Filtering alignments the read group (RG) tag, expected to be string value.')
-    rg_group.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
 
 
     # Consensus from single-molecules with subreads
@@ -376,7 +392,7 @@ def main():
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cfparser.add_argument('features', nargs='+', help='Pregenerated features (from medaka features).')
-    cfparser.add_argument('--model', action=ResolveModel, default=default_consensus_model, help='Model definition.')
+    cfparser.add_argument('--model', action=ResolveModel, default=medaka.options.default_models['consensus'], help='Model definition.')
 
     # Compression of fasta/q to quality-RLE fastq
     rleparser = subparsers.add_parser('fastrle',
@@ -385,6 +401,8 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     rleparser.set_defaults(func=fastrle)
     rleparser.add_argument('input', help='Input fasta/q. may be gzip compressed.')
+    rleparser.add_argument('--block_size', action=CheckBlockSize, default=94, type=int,
+        help='Block size for hompolymer splitting, e.g. with a value of blocksize=3, AAAA -> A3 A1.')
 
     # Post-processing of consensus outputs
     sparser = subparsers.add_parser('stitch',
@@ -448,7 +466,7 @@ def main():
 
     methcallparser = methsubparsers.add_parser('call',
         help='Call methylation from .bam file.',
-        parents=[_log_level()],
+        parents=[_log_level(), _rg_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     methcallparser.set_defaults(func=medaka.methdaka.call_methylation)
     methcallparser.add_argument('bam', help='Input .bam file (via `medaka methylation guppy2sam`).')
@@ -459,8 +477,6 @@ def main():
     methcallparser.add_argument(
             '--filter', type=int, nargs=2, default=(64, 128),
             metavar=('upper', 'lower'), help='Upper (lower) score boundary to call canonical (methylated) base. Scores are in the range [0, 256].')
-    rg_group = methcallparser.add_argument_group('read group', 'Filtering alignments the read group (RG) tag, expected to be string value.')
-    rg_group.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
 
     # Tools
     toolparser = subparsers.add_parser('tools',
@@ -506,6 +522,19 @@ def main():
     clparser.add_argument('--replace_info', action='store_true',
                          help='Replace info tag (useful for visual inspection of types).')
 
+    # annotate vcf with read depth and supporting reads info
+    annparser = toolsubparsers.add_parser('annotate',
+        help='Annotate vcf with read depth and supporting reads info fields.',
+        parents=[_log_level(), _rg_arg()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    annparser.set_defaults(func=medaka.vcf.annotate_vcf_n_reads)
+    annparser.add_argument('vcf', help='Input .vcf file.')
+    annparser.add_argument('ref_fasta', help='Reference .fasta file.')
+    annparser.add_argument('bam', help='Input alignments.', action=CheckBam)
+    annparser.add_argument('vcfout', help='Output .vcf.')
+    annparser.add_argument('--pad', default=25, type=int,
+        help='Padding width either side of variant for realignment.')
+
     # convert a vcf to tsv
     tsvparser = toolsubparsers.add_parser('vcf2tsv',
         help='convert vcf to tsv, unpacking info and sample columns.',
@@ -538,7 +567,14 @@ def main():
         help='Check if a model is an RLE model.',
         parents=[_model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    rleparser.set_defaults(func=is_rle_encoder)
+    rleparser.set_defaults(func=is_rle_model)
+
+    # Request alignments parameters for model
+    alignmentparser = toolsubparsers.add_parser('get_alignment_params',
+        help='Get alignment parameters appropriate for a model',
+        parents=[_model_arg()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    alignmentparser.set_defaults(func=get_alignment_params)
 
     # append RLE tags to a bam from hdf
     rlebamparser = toolsubparsers.add_parser('rlebam',
@@ -565,6 +601,14 @@ def main():
                           help='Consensus .hdf files.')
     bdparser.add_argument('output', help='Output .bed.', default='medaka.bed')
 
+    # resolve all available models, downloading missing ones.
+    dwnldparser = toolsubparsers.add_parser('download_models',
+        help='Download model files for any models not already installed.',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    dwnldparser.set_defaults(func=download_models)
+
+
     args = parser.parse_args()
 
     # https://github.com/tensorflow/tensorflow/issues/26691
@@ -588,14 +632,9 @@ def main():
     else:
         # do some common argument validation here
         if hasattr(args, 'bam') and args.bam is not None:
-            if hasattr(args, 'RG') and args.RG is not None:
-                num_rg = CheckBam.count_read_groups(args.bam)
-                if num_rg > 1 and args.RG:
-                    raise RuntimeError(
-                        'The bam {} contains more than one read group. '
-                        'Please specify `--RG` to select which read group'
-                        'to process'.format(values))
-                else:
-                    logger.info(
-                        "Reads will be filtered to only those with RG tag: {}".format(args.RG))
+            RG = args.RG if hasattr(args, 'RG') else None
+            CheckBam.check_read_groups(args.bam, RG)
+            if RG is not None:
+                msg = "Reads will be filtered to only those with RG tag: {}"
+                logger.info(msg.format(RG))
         args.func(args)

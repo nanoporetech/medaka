@@ -2,6 +2,7 @@ import os
 import re
 import sys
 from glob import glob
+import importlib.util
 import shutil
 from setuptools import setup, find_packages, Extension
 from setuptools import Distribution, Command
@@ -33,12 +34,14 @@ if mo:
 else:
     raise RuntimeError('Unable to find version string in "{}/__init__.py".'.format(__pkg_name__))
 
+_options_path = os.path.join(__pkg_name__, 'options.py')
+spec = importlib.util.spec_from_file_location("medaka.options", _options_path)
+_options = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(_options)
+
 def check_model_lfs():
     # determine if data files look like LFS stubs, fail if they are
-    defmodel = open(os.path.join(__pkg_name__, '{}.py'.format(__pkg_name__)), 'r').read()
-    modelsre = r"^default_consensus_model = '(.*)'"
-    mo = re.search(modelsre, defmodel, re.M)
-    model = mo.group(1)
+    model = _options.default_models['consensus']
     default_model = os.path.join(__pkg_path__, 'data', '{}_model.hdf5'.format(model))
     stub_signature = "ASCII text"
     if os.path.exists(default_model):
@@ -83,6 +86,13 @@ if os.environ.get("MEDAKA_BINARIES") is not None:
             'bincache/{}'.format(x, x) for x in exes
         ])
     )
+
+# to avoid pypi pacakges getting too big we only bundle some models
+if os.environ.get('MEDAKA_DIST') is not None:
+    bundled_models = _options.current_models
+else:
+    bundled_models = _options.allowed_models
+print("Bundling models: {}".format(bundled_models))
 
 class HTSBuild(build_ext):
     # uses the Makefile to build libhts.a, this will get done before the cffi extension
@@ -137,7 +147,8 @@ if __name__ == '__main__':
         python_requires='>=3.5.*,<3.7',
         packages=find_packages(exclude=['*.test', '*.test.*', 'test.*', 'test']),
         package_data={
-            __pkg_name__:[os.path.join('data','*.hdf5')],
+            __pkg_name__:[os.path.join('data', '{}_model.hdf5'.format(f))
+                          for f in bundled_models],
         },
         cffi_modules=["build.py:ffibuilder"],
         install_requires=install_requires,

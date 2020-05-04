@@ -60,6 +60,7 @@ def stitch_from_probs(h5_fp, regions=None):
         start = get_pos(s1, 0)
         start_1 = None
         start_2 = None
+        heuristic_use = 0
 
         for s2 in itertools.chain(data_gen, (None,)):
             s1_name = 'Unknown' if s1 is None else s1.name
@@ -85,9 +86,10 @@ def stitch_from_probs(h5_fp, regions=None):
                         end_1, start_2, heuristic = \
                             common.Sample.overlap_indices(s1, s2)
                         if heuristic:
-                            logger.info(
+                            logger.debug(
                                 "Used heuristic to stitch {} and {}.".format(
                                     s1.name, s2.name))
+                            heuristic_use += 1
                     except common.OverlapException as e:
                         logger.info(
                             "Unhandled overlap type whilst stitching chunks.")
@@ -117,6 +119,8 @@ def stitch_from_probs(h5_fp, regions=None):
 
             s1 = s2
             start_1 = start_2
+        logger.info("Used heuristic {} times for {}.".format(
+            heuristic_use, reg))
     return ref_assemblies
 
 

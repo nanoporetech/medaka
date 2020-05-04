@@ -616,6 +616,19 @@ def grouper(gen, batch_size=4):
         yield batch
 
 
+def roundrobin(*iterables):
+    """Take items from iterables in a round-robin."""
+    pending = len(iterables)
+    nexts = itertools.cycle(iter(it).__next__ for it in iterables)
+    while pending:
+        try:
+            for next in nexts:
+                yield next()
+        except StopIteration:
+            pending -= 1
+            nexts = itertools.cycle(itertools.islice(nexts, pending))
+
+
 def print_data_path():
     """Print data directory containing models."""
     print(resource_filename(__package__, 'data'))

@@ -1,3 +1,13 @@
+v1.0.0
+-------
+Models, features and fixes release
+
+* Consensus models for Guppy 3.6.0.
+* Add functionality for auto-download of older models.
+* Fix to methylation aggregation.
+* VCF annotation tool.
+
+
 v0.12.1
 -------
 Minor release harmonising versions of htslib/samtools dependencies.

@@ -8,7 +8,7 @@ import unittest
 import numpy as np
 import pysam
 
-from .mock_data import simple_data, create_simple_bam 
+from .mock_data import simple_data, create_simple_bam
 import libmedaka
 import medaka.features
 from medaka.common import Region, Sample
@@ -19,6 +19,7 @@ __reads_truth__ = os.path.join(os.path.dirname(__file__), 'data', 'truth_to_ref.
 __gapped_bam__ = os.path.join(os.path.dirname(__file__), 'data', 'reads_gapped.bam')
 __region__ = Region('utg000001l', start=50000, end=100000)
 __region_start__ = Region('utg000001l', start=0, end=200)
+
 
 class CountsTest(unittest.TestCase):
 
@@ -125,6 +126,45 @@ class CountsTest(unittest.TestCase):
         got_label_shape = result.labels.shape
         self.assertEqual(expected_label_shape, got_label_shape)
 
+
+
+class TrimReadsTest(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(self):
+        # Create a bam file where we know the alignments
+        self.bam = tempfile.NamedTemporaryFile(suffix='.bam').name
+        create_simple_bam(self.bam, simple_data['calls'])
+        self.reads = [x['seq'] for x in simple_data['calls']]
+
+    def get_reads(self, region):
+        reads = list(medaka.features.get_trimmed_reads(region, self.bam))
+        reads = [x[1] for x in reads[0][1]]
+        reads = reads[1:]  # contains reference first
+        return reads
+
+    def test_001_full_region(self):
+        region = Region('ref', start=0, end=100000)
+        reads = self.get_reads(region)
+        self.assertEqual(reads, self.reads)
+
+    def test_002_trim_start(self):
+        region = Region('ref', start=0, end=2)
+        reads = self.get_reads(region)
+        orig = [x[0:2] for x in self.reads]
+        self.assertEqual(reads, orig)
+
+    def test_003_trim_end(self):
+        region = Region('ref', start=6, end=8)
+        reads = self.get_reads(region)
+        orig = [x[-2:] for x in self.reads]
+        self.assertEqual(reads, orig)
+
+    def test_004_trim_mid(self):
+        region = Region('ref', start=1, end=7)
+        reads = self.get_reads(region)
+        orig = [x[1:-1] for x in self.reads]
+        self.assertEqual(reads, orig)
 
 
 class CountsSplittingTest(unittest.TestCase):
@@ -486,3 +526,43 @@ class HardRLEFeatureEncoder(unittest.TestCase):
         encoder = medaka.features.HardRLEFeatureEncoder(
             num_qstrat=10, **kwargs)
         self.assertEqual(encoder.feature_vector_length, 200)
+
+
+class SymHardRLEFeatureEncoder(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        kwargs = {'normalise': None}
+        encoder = medaka.features.SymHardRLEFeatureEncoder(**kwargs)
+
+        # Create a bam file where we know the alignments
+        RLE_bam = tempfile.NamedTemporaryFile(suffix='.bam').name
+        create_simple_bam(RLE_bam, simple_data['calls'])
+        sample = encoder.bam_to_sample(RLE_bam, Region('ref', 0, 11))
+        cls.bam_fname = RLE_bam
+        cls.sample = sample[0]
+        cls.num_qstrat = encoder.num_qstrat
+
+    def test_001_check_counts(self):
+        """Check the counts themselves. See above `create_simple_bam` to understand
+        the values in the counts. For example, 1 basecalls believe the first
+        column of the alignment is `2A`, while two have `2a`. One has `0A` which
+        will become a `1A` when corrected. Three calls have no insertion, only
+        the third basecall has it, so SymHardRLEFeatureEncoder will count 3 indels
+        at that position, unlike other FeatureEncoders.
+
+        Thus:
+        [4, 8] (1d) will have one counts
+        [4, 9] (1D) will have two counts
+        """
+        values_for_positions = {
+            1.0: [
+                (0, 4), (0, 14), (3, 1), (3, 9), (3, 43), (3, 47),
+                (4, 0), (4, 8), (7, 7), (7, 17), (8, 6), (8, 16)],
+            2.0: [
+                (0, 10), (1, 1), (1, 5), (2, 30), (2, 34), (4,9),
+                (5, 2), (5, 6), (6, 0), (6, 4), (7, 13), (8, 2)]}
+        expected = np.zeros_like(self.sample.features)
+        for value, positions in values_for_positions.items():
+            for pos in positions:
+                expected[pos[0], pos[1]] = value
+        np.testing.assert_equal(self.sample.features, expected)
