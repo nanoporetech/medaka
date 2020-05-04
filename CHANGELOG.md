@@ -3,7 +3,6 @@ v1.0.0
 Models, features and fixes release
 
 * Consensus models for Guppy 3.6.0.
-* Fast consensus models for Guppy 3.4.4.
 * Fix to methylation aggregation.
 * VCF annotation tool.
 
