@@ -30,10 +30,8 @@ current_models = [
     'r103_prom_snp_g3210', 'r103_prom_variant_g3210']
 archived_models = [
     # r9 consensus
-    'r941_min_fast_g303', 'r941_min_fast_g344',
-    'r941_min_high_g303', 'r941_min_high_g330',
-    'r941_prom_fast_g303', 'r941_prom_fast_g344',
-    'r941_prom_high_g303', 'r941_prom_high_g330',
+    'r941_min_fast_g303', 'r941_min_high_g303', 'r941_min_high_g330',
+    'r941_prom_fast_g303', 'r941_prom_high_g303', 'r941_prom_high_g330',
     # r10 consensus
     'r10_min_high_g303', 'r10_min_high_g340',
     # snp and variant
