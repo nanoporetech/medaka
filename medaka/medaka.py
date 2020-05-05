@@ -200,9 +200,9 @@ def is_rle_encoder(model_name):
 
 def get_alignment_params(args):
     if is_rle_encoder(args.model):
-        align_params = alignment_params['rle']
+        align_params = medaka.options.alignment_params['rle']
     else:
-        align_params = alignment_params['non-rle']
+        align_params = medaka.options.alignment_params['non-rle']
 
     print(align_params)
 
