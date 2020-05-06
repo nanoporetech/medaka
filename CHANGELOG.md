@@ -1,3 +1,11 @@
+v1.0.1
+-------
+Minor fixes release, resolving issues introduced in v1.0.0.
+
+* Fix default model for SNP calling. 
+* Fix issue causing medaka_consensus to crash. 
+ 
+
 v1.0.0
 -------
 Models, features and fixes release

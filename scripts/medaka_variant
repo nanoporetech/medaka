@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-myInvocation="CL=\"$(printf %q "$BASH_SOURCE")$((($#)) && printf ' %q' "$@")\""
+printf -v args ' %q' $@
+src=${BASH_SOURCE}
+INVOCATION=$([ $# -ne 0 ] && echo $src $args || echo $src)
 
 medaka_version=$(medaka --version)
 modeldata=()
@@ -388,8 +390,8 @@ else
         ${REF} ${UNFILTERED}
 
     # Add invocation of this script to VCF header
-    INVOCATION_DATE="##${myInvocation}; $(date)"
-    sed -i "/^#CHROM.*/i $INVOCATION_DATE" ${UNFILTERED} 
+    INVOCATION_DATE="##CL=${INVOCATION}; $(date)"
+    sed -i "/^#CHROM.*/i ${INVOCATION_DATE}" ${UNFILTERED} 
 
     if $FILTER_FLAG; then
         # Filter resulting vcf
