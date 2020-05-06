@@ -152,8 +152,9 @@ def _log_level():
 def _model_arg():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
-    parser.add_argument('--model', action=ResolveModel, default=medaka.options.default_models['consensus'],
-            help='Model definition, default is equivalent to {}.'.format(medaka.options.default_models['consensus']))
+    parser.add_argument('--model', action=ResolveModel,
+            default=medaka.options.default_models['consensus'],
+            help='Model to use.')
     parser.add_argument('--allow_cudnn', dest='allow_cudnn', default=True, action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--disable_cudnn', dest='allow_cudnn', default=False, action='store_false',
             help='Disable use of cuDNN model layers.')
@@ -389,10 +390,9 @@ def main():
     # Consensus from features input
     cfparser = subparsers.add_parser('consensus_from_features',
         help='Run inference from a trained model on existing features.',
-        parents=[_log_level()],
+        parents=[_log_level(), _model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cfparser.add_argument('features', nargs='+', help='Pregenerated features (from medaka features).')
-    cfparser.add_argument('--model', action=ResolveModel, default=medaka.options.default_models['consensus'], help='Model definition.')
 
     # Compression of fasta/q to quality-RLE fastq
     rleparser = subparsers.add_parser('fastrle',
@@ -637,4 +637,7 @@ def main():
             if RG is not None:
                 msg = "Reads will be filtered to only those with RG tag: {}"
                 logger.info(msg.format(RG))
+        # if model is default, resolve to file, save mess in help text
+        if hasattr(args, 'model'):
+            args.model = medaka.models.resolve_model(args.model)
         args.func(args)
