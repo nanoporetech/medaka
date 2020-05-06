@@ -39,7 +39,7 @@ archived_models = [
 allowed_models = sorted(current_models + archived_models)
 default_models = {
     'consensus': 'r941_min_high_g351',
-    'snp': 'r941_min_high_g351',
+    'snp': 'r941_prom_snp_g322',
     'variant': 'r941_prom_variant_g322'}
 
 alignment_params = {

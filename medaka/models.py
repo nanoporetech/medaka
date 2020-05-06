@@ -64,7 +64,6 @@ def resolve_model(model):
                     pathlib.Path(d).mkdir(parents=True, exist_ok=True)
                     with open(fp, 'wb') as fh:
                         fh.write(data)
-                    print("returning ", fp)
                     return fp
                 except Exception:  # we might not have write access
                     pass
