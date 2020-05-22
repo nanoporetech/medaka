@@ -45,7 +45,7 @@ Variant calling via neural networks. The input bam should be aligned to the
 reference against which to call variants. Note: that although configurable
 it is unlikely that the model arguments should be changed from their defaults.
 
-$(basename "$0") [-h] -i <fastx>
+$(basename "$0") [-h] -i <bam>
 
     -h  show this help text.
     -i  input bam of reads aligned to ref. Read groups are currently ignored,
