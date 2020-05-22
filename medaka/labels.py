@@ -1231,8 +1231,8 @@ class DiploidZygosityLabelScheme(DiploidLabelScheme):
         gap = [('*', '*')]
         return self._labels_to_encoded_labels(gap)[0]
 
-    def _is_het(self, l):
-        return 1 if not self._singleton(l) else 0
+    def _is_het(self, x):
+        return 1 if not self._singleton(x) else 0
 
     def encoded_labels_to_training_vectors(self, enc_labels):
         """Convert integer (tuple) encoded labels to truth vectors.
