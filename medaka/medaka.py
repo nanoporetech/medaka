@@ -638,6 +638,6 @@ def main():
                 msg = "Reads will be filtered to only those with RG tag: {}"
                 logger.info(msg.format(RG))
         # if model is default, resolve to file, save mess in help text
-        if hasattr(args, 'model'):
+        if hasattr(args, 'model') and args.model is not None:
             args.model = medaka.models.resolve_model(args.model)
         args.func(args)
