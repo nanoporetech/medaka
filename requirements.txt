@@ -1,6 +1,6 @@
 # medaka requirements. 
 # Add comments to keep track of why we are using particular versions
-biopython
+biopython>=1.73,<1.77  # 1.76 is last version of this whatshap dependency to support python < 3.6
 cffi
 grpcio==1.27.2        # last version of this tensorflow dependency to have a manylinux1 wheel. 
 h5py==2.7.1           # 2.8.0 and 2.9.0 seem to not like keras model writing
