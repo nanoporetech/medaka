@@ -799,8 +799,8 @@ class Haploid2DiploidConverter(object):
         # 'Number' value should be ‘G’.
         m.append(MetaInfo(
             'FORMAT', 'GT', 'G', 'String', 'Genotype'))
-        # VCF spec states that GQ should be an int, and whatshap >0.18 will fail
-        # to parse the vcf if it's a float.
+        # VCF spec states that GQ should be an int, and whatshap >0.18 will
+        # fail to parse the vcf if it's a float.
         # vcf benchmarking tools which require a float could use the QUAL
         # as we write out the same number for QUAL and GQ, the QG is just
         # rounded.

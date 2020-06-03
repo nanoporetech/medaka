@@ -337,7 +337,7 @@ class HaploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
             self.assertEqual(v.alt, [alt], msg=msg)
             self.assertEqual(v.genotype_data['GT'], '1', msg=msg)
             self.assertAlmostEqual(float(v.qual), expected_qual, places=3, msg=msg)
-            self.assertAlmostEqual(float(v.genotype_data['GQ']), expected_qual, places=3, msg=msg)
+            self.assertEqual(int(v.genotype_data['GQ']), round(expected_qual), msg=msg)
 
 
     def test_decode_snps(self):
@@ -411,7 +411,7 @@ class HaploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
             self.assertEqual(v.alt, alt)
             self.assertEqual(v.genotype_data['GT'], gt)
             gq = qual_homo if len(set(v.gt)) == 1 else qual_hetero
-            self.assertAlmostEqual(float(v.genotype_data['GQ']), gq, places=3)
+            self.assertEqual(int(v.genotype_data['GQ']), round(gq))
 
     def test_padding_vector(self):
         self.assertEqual(self.ls.padding_vector, 0)
@@ -741,7 +741,7 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
             self.assertEqual(v.alt, alt)
             self.assertEqual(v.genotype_data['GT'], gt)
             gq = qual_hom if len(set(v.gt)) == 1 else qual_het
-            self.assertAlmostEqual(float(v.genotype_data['GQ']), gq, places=3)
+            self.assertEqual(int(v.genotype_data['GQ']), round(gq))
 
     def test_decode_snps_is_het_always_off(self):
 
@@ -789,7 +789,7 @@ class DiploidZygosityLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
             self.assertEqual(v.alt, alt)
             self.assertEqual(v.genotype_data['GT'], gt)
             gq = qual_hom if len(set(v.gt)) == 1 else qual_het
-            self.assertAlmostEqual(float(v.genotype_data['GQ']), gq, places=3)
+            self.assertEqual(int(v.genotype_data['GQ']), round(gq))
 
     def test_padding_vector(self):
         self.assertEqual(self.ls.padding_vector, 0)
