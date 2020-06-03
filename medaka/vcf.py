@@ -699,7 +699,7 @@ def _merge_variants(
                 gts = [1, 0]
         gt = gt_sep.join(map(str, gts))
 
-    genotype_data = {'GT': gt, 'GQ': qual}
+    genotype_data = {'GT': gt, 'GQ': round(qual)}
 
     return Variant(
         v.chrom, interval.begin, ref, alt=alts,
@@ -799,9 +799,13 @@ class Haploid2DiploidConverter(object):
         # 'Number' value should be ‘G’.
         m.append(MetaInfo(
             'FORMAT', 'GT', 'G', 'String', 'Genotype'))
-        # if this is not a float, vcf benchmarking tools may fail
+        # VCF spec states that GQ should be an int, and whatshap >0.18 will fail
+        # to parse the vcf if it's a float.
+        # vcf benchmarking tools which require a float could use the QUAL
+        # as we write out the same number for QUAL and GQ, the QG is just
+        # rounded.
         m.append(MetaInfo(
-            'FORMAT', 'GQ', 'G', 'Float', 'Genotype quality score'))
+            'FORMAT', 'GQ', 'G', 'Integer', 'Genotype quality score'))
         return m
 
 
