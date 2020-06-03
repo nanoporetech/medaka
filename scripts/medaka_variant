@@ -397,7 +397,7 @@ else
         # Filter resulting vcf
         FILTER="(((TYPE=\"snp\" | TYPE=\"mnp\") & (QUAL > ${SNP_THRESHOLD})) | ((TYPE!=\"snp\" & TYPE!=\"mnp\") & (QUAL > ${INDEL_THRESHOLD})))"
         bcftools filter --threads $THREADS -s lowqual -i "${FILTER}" ${UNFILTERED} > ${FINAL}
-        # pyvcf used in whatshap<=0.18 can't parse the ##FILTER=<ID=lowqual header line added by bcftools filter which contains excaped quotes.
+        # pyvcf used in whatshap<=0.18 can't parse the ##FILTER=<ID=lowqual header line added by bcftools filter which contains escaped quotes.
         sed -i 's/\\"//g' ${FINAL}
     else
         echo "Skipping filtering of VCF (-U option)"
