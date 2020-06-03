@@ -382,12 +382,12 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         return np.minimum(q, cap)
 
     @staticmethod
-    def _pfmt(p):
-        """Cast float to string with 3 decimal places.
+    def _pfmt(p, dp=3):
+        """Cast float to string rounding to dp decimal places.
 
         Used to format probabilities and quality scores for vcf output.
         """
-        return '{:.3f}'.format(p)
+        return '{:.{dp}f}'.format(round(p, dp), dp=dp)
 
     @abc.abstractmethod
     def _alignment_to_pairs(self, aln):
@@ -652,7 +652,7 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         """Return meta data for use in `.vcf` header."""
         MI = medaka.vcf.MetaInfo
         m = [MI('FORMAT', 'GT', 1, 'String', 'Medaka genotype'),
-             MI('FORMAT', 'GQ', 1, 'Float', 'Medaka genotype quality score')]
+             MI('FORMAT', 'GQ', 1, 'Integer', 'Medaka genotype quality score')]
         if self.verbose:
             m.extend([MI('INFO', 'ref_prob', 1, 'Float',
                          'Medaka probability for reference allele'),
@@ -783,11 +783,11 @@ class HaploidLabelScheme(BaseLabelScheme):
                     not secondary_exceeds_threshold)):
 
                 alt = primary_call
-                qual = self._pfmt(self._phred(1 - primary_prob))
-                genotype = {'GT': '1/1', 'GQ': qual}
+                qual = self._phred(1 - primary_prob)
+                genotype = {'GT': '1/1', 'GQ': self._pfmt(qual, 0)}
                 results.append(medaka.vcf.Variant(
                     ref_name, pos, ref_symbol, alt, filt='PASS', info=info,
-                    qual=qual, genotype_data=genotype))
+                    qual=self._pfmt(qual), genotype_data=genotype))
 
             # heterozygous, no deletions
             elif all((not primary_is_deletion,
@@ -795,16 +795,16 @@ class HaploidLabelScheme(BaseLabelScheme):
                       secondary_exceeds_threshold)):
 
                 err = 1 - (primary_prob + secondary_prob)
-                qual = self._pfmt(self._phred(err))
+                qual = self._phred(err)
                 # filtering by list comp maintains order
                 alt = [c for c in [primary_call, secondary_call]
                        if not c == ref_symbol]
                 gt = '0/1' if len(alt) == 1 else '1/2'
-                genotype = {'GT': gt, 'GQ': qual}
+                genotype = {'GT': gt, 'GQ': self._pfmt(qual, 0)}
 
                 results.append(medaka.vcf.Variant(
                     ref_name, pos, ref_symbol, alt, filt='PASS',
-                    info=info, qual=qual, genotype_data=genotype))
+                    info=info, qual=self._pfmt(qual), genotype_data=genotype))
 
             # heterozygous, secondary deletion
             elif all((not primary_is_reference,
@@ -813,21 +813,22 @@ class HaploidLabelScheme(BaseLabelScheme):
                       secondary_exceeds_threshold)):
 
                 alt = primary_call
-                qual = self._pfmt(self._phred(1 - primary_prob))
-                genotype = {'GT': '1/1', 'GQ': qual}
+                qual = self._phred(1 - primary_prob)
+                genotype = {'GT': '1/1', 'GQ': self._pfmt(qual, 0)}
                 results.append(medaka.vcf.Variant(
                     ref_name, pos, ref_symbol, alt, filt='PASS',
-                    info=info, qual=qual, genotype_data=genotype))
+                    info=info, qual=self._pfmt(qual), genotype_data=genotype))
 
             # no snp at this location
             else:
                 if return_all:
                     # return variant even though it is not a snp
-                    qual = self._pfmt(self._phred(1 - primary_prob))
-                    genotype = {'GT': '0/0', 'GQ': qual}
+                    qual = self._phred(1 - primary_prob)
+                    genotype = {'GT': '0/0', 'GQ': self._pfmt(qual, 0)}
                     results.append(medaka.vcf.Variant(
                         ref_name, pos, ref_symbol, alt='.', filt='PASS',
-                        info=info, qual=qual, genotype_data=genotype))
+                        info=info, qual=self._pfmt(qual),
+                        genotype_data=genotype))
         return results
 
     def decode_variants(self, sample, ref_seq):
@@ -948,8 +949,8 @@ class HaploidLabelScheme(BaseLabelScheme):
                 info = {}
 
             # log likelihood ratio
-            qual = self._pfmt(sum(pred_quals) - sum(ref_quals))
-            genotype = {'GT': '1', 'GQ': qual}
+            qual = sum(pred_quals) - sum(ref_quals)
+            genotype = {'GT': '1', 'GQ': self._pfmt(qual, 0)}
 
             var_pos = pos['major'][start]
 
@@ -960,7 +961,8 @@ class HaploidLabelScheme(BaseLabelScheme):
 
             variant = medaka.vcf.Variant(sample.ref_name, var_pos, var_ref,
                                          alt=var_pred, filt='PASS', info=info,
-                                         qual=qual, genotype_data=genotype)
+                                         qual=self._pfmt(qual),
+                                         genotype_data=genotype)
             variant = variant.trim()
             variants.append(variant)
 
@@ -973,7 +975,7 @@ class HaploidLabelScheme(BaseLabelScheme):
 
         m = [MI('FORMAT', 'GT', 1, 'String',
                 'Medaka genotype.'),
-             MI('FORMAT', 'GQ', 1, 'Float',
+             MI('FORMAT', 'GQ', 1, 'Integer',
                 'Medaka genotype quality score'), ]
         if self.verbose:
             m.extend([MI('INFO', 'ref_seq', 1, 'String',
@@ -1110,7 +1112,7 @@ class DiploidLabelScheme(BaseLabelScheme):
                 if return_all:
                     # return variant even though it is not a snp
                     q = self._pfmt(qual)
-                    genotype = {'GT': '0/0', 'GQ': q}
+                    genotype = {'GT': '0/0', 'GQ': self._pfmt(qual, 0)}
                     info = _make_info(ref_symbol, prob, call)
                     results.append(medaka.vcf.Variant(
                         ref_name, pos, ref_symbol, alt='.', filt='PASS',
@@ -1122,7 +1124,7 @@ class DiploidLabelScheme(BaseLabelScheme):
                         alt = [s for s in call if s != ref_symbol]
                         gt = '0/1' if len(alt) == 1 else '1/2'
                         q = self._pfmt(qual)
-                        genotype = {'GT': gt, 'GQ': q}
+                        genotype = {'GT': gt, 'GQ': self._pfmt(qual, 0)}
                         info = _make_info(ref_symbol, prob, call)
                         results.append(medaka.vcf.Variant(
                             ref_name, pos, ref_symbol, alt, filt='PASS',
@@ -1136,7 +1138,7 @@ class DiploidLabelScheme(BaseLabelScheme):
                             alt = [s for s in call if s != '*']
                             gt = '1/1'
                             q = self._pfmt(qual)
-                            genotype = {'GT': gt, 'GQ': q}
+                            genotype = {'GT': gt, 'GQ': self._pfmt(qual, 0)}
                             info = _make_info(ref_symbol, prob, call)
                             results.append(medaka.vcf.Variant(
                                 ref_name, pos, ref_symbol, alt, filt='PASS',
@@ -1144,7 +1146,7 @@ class DiploidLabelScheme(BaseLabelScheme):
                 elif not contains_deletion:  # homozygous (alt, alt)
                     alt = call[0]
                     q = self._pfmt(qual)
-                    genotype = {'GT': '1/1', 'GQ': q}
+                    genotype = {'GT': '1/1', 'GQ': self._pfmt(qual, 0)}
                     info = _make_info(ref_symbol, prob, call)
                     results.append(medaka.vcf.Variant(
                         ref_name, pos, ref_symbol, alt, filt='PASS',
@@ -1313,50 +1315,51 @@ class DiploidZygosityLabelScheme(DiploidLabelScheme):
                     not is_het,
                     not contains_deletion)):
 
-                qual = self._pfmt(self._phred(1 - primary_prob))
+                qual = self._phred(1 - primary_prob)
                 alt = call[0]
-                genotype = {'GT': '1/1', 'GQ': qual}
+                genotype = {'GT': '1/1', 'GQ': self._pfmt(qual, 0)}
                 results.append(medaka.vcf.Variant(
                     ref_name, pos, ref_symbol, alt, filt='PASS',
-                    info=info, qual=qual, genotype_data=genotype))
+                    info=info, qual=self._pfmt(qual), genotype_data=genotype))
 
             # heterozygous, no deletions
             elif all((is_het,
                       not contains_deletion)):
 
                 err = 1 - 0.5 * (primary_prob + secondary_prob)
-                qual = self._pfmt(self._phred(err))
+                qual = self._phred(err)
                 alt = [s for s in call if s != ref_symbol]
                 gt = '0/1' if len(alt) == 1 else '1/2'
-                genotype = {'GT': gt, 'GQ': qual}
+                genotype = {'GT': gt, 'GQ': self._pfmt(qual, 0)}
 
                 results.append(medaka.vcf.Variant(
                     ref_name, pos, ref_symbol, alt, filt='PASS',
-                    info=info, qual=qual, genotype_data=genotype))
+                    info=info, qual=self._pfmt(qual), genotype_data=genotype))
 
             # heterozygous, one deletion
             elif all((is_het,
                       contains_nonref,
                       contains_deletion)):
 
-                qual = self._pfmt(self._phred(1 - primary_prob))
+                qual = self._phred(1 - primary_prob)
                 alt = [s for s in call if s != '*']
                 gt = '1/1'
-                genotype = {'GT': gt, 'GQ': qual}
+                genotype = {'GT': gt, 'GQ': self._pfmt(qual, 0)}
 
                 results.append(medaka.vcf.Variant(
                     ref_name, pos, ref_symbol, alt, filt='PASS',
-                    info=info, qual=qual, genotype_data=genotype))
+                    info=info, qual=self._pfmt(qual), genotype_data=genotype))
 
             # no snp at this location
             else:
                 if return_all:
-                    qual = self._pfmt(ref_prob)
+                    qual = self._phred(ref_prob)
                     # return variant even though it is not a snp
-                    genotype = {'GT': '0/0', 'GQ': qual}
+                    genotype = {'GT': '0/0', 'GQ': self._pfmt(qual, 0)}
                     results.append(medaka.vcf.Variant(
                         ref_name, pos, ref_symbol, alt='.', filt='PASS',
-                        info=info, qual=qual, genotype_data=genotype))
+                        info=info, qual=self._pfmt(qual),
+                        genotype_data=genotype))
         return results
 
 
