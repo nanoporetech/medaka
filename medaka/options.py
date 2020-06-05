@@ -26,7 +26,7 @@ current_models = [
     # r10 consensus
     'r103_min_high_g345', 'r103_min_high_g360', 'r103_prom_high_g360',
     # snp and variant
-    'r941_prom_snp_g322', 'r941_prom_variant_g322',
+    'r941_prom_snp_g360', 'r941_prom_variant_g360',
     'r103_prom_snp_g3210', 'r103_prom_variant_g3210']
 archived_models = [
     # r9 consensus
@@ -35,12 +35,13 @@ archived_models = [
     # r10 consensus
     'r10_min_high_g303', 'r10_min_high_g340',
     # snp and variant
-    'r941_prom_snp_g303', 'r941_prom_variant_g303']
+    'r941_prom_snp_g303', 'r941_prom_variant_g303',
+    'r941_prom_snp_g322', 'r941_prom_variant_g322']
 allowed_models = sorted(current_models + archived_models)
 default_models = {
-    'consensus': 'r941_min_high_g351',
-    'snp': 'r941_prom_snp_g322',
-    'variant': 'r941_prom_variant_g322'}
+    'consensus': 'r941_min_high_g360',
+    'snp': 'r941_prom_snp_g360',
+    'variant': 'r941_prom_variant_g360'}
 
 alignment_params = {
     'rle': "-M 5 -S 4 -O 2 -E 3",

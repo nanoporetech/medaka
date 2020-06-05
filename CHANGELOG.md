@@ -1,3 +1,15 @@
+v1.0.2
+-------
+Minor fixes and models release.
+
+* R9.4.1 variant calling models for Guppy 3.6.0 and updated benchmarks.
+* Made r941_min_high_g360 the default consensus model. 
+* VCF GQ is now an integer in line with VCF spec.
+* Fixed issue requiring a previous model for training.
+* Fixed issue causing -p option of medaka_variant to crash.
+* Fixed issue preventing installation in a virtualenv with python <3.6.
+
+
 v1.0.1
 -------
 Minor fixes release, resolving issues introduced in v1.0.0.

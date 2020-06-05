@@ -539,7 +539,7 @@ def get_regions(bam, region_strs=None):
     if region_strs is not None:
         if os.path.isfile(region_strs[0]):
             with open(region_strs[0]) as fh:
-                region_strs = [l.strip() for l in fh.readlines()]
+                region_strs = [line.strip() for line in fh.readlines()]
 
         regions = []
         for r in (Region.from_string(x) for x in region_strs):
