@@ -238,7 +238,7 @@ class Extractor(object):
             for r in results:
                 self.queue.put(r)
         except Exception as e:
-            print(e)
+            sys.stderr.write(e)
             pass
         # https://bugs.python.org/issue27144
         future._result = None
@@ -286,27 +286,29 @@ def hdf_to_sam(args):
             sam = unaligned_read(read, tags)
             sys.stdout.write('{}\n'.format(sam))
     else:
-        for name, seq, _ in mappy.fastx_read(
-                args.reference, read_comment=False):
-            sys.stdout.write('@SQ\tSN:{}\tLN:{}\n'.format(name, len(seq)))
+        with pysam.FastaFile(args.reference) as fa:
+            for name, length in zip(fa.references, fa.lengths):
+                sys.stdout.write('@SQ\tSN:{}\tLN:{}\n'.format(name, length))
+        sys.stdout.flush()
         aligner = Aligner(
             args.reference, preset='map-ont', n_threads=args.workers)
-
-        def _write(future):
-            try:
-                sam = future.result()
-                if sam is not None:
-                    sys.stdout.write('{}\n'.format(sam))
-            except Exception:
-                pass
-            # https://bugs.python.org/issue27144
-            future._result = None
 
         with ThreadPoolExecutor(
                 max_items=args.workers, max_workers=args.workers) as executor:
             for read, tags in extractor:
                 future = executor.submit(aligner.map, read, tags)
-                future.add_done_callback(_write)
+                future.add_done_callback(_write_sam_future)
+
+
+def _write_sam_future(future):
+    try:
+        sam = future.result()
+        if sam is not None:
+            sys.stdout.write('{}\n'.format(sam))
+    except Exception:
+        pass
+    # https://bugs.python.org/issue27144
+    future._result = None
 
 
 class MotifTracker():
