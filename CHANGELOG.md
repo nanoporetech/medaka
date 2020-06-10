@@ -1,3 +1,10 @@
+v1.0.3
+-------
+Minor fixes release.
+
+* Fix occasional mangled sam output in guppy2sam.
+* Update htslib ecosystem to 1.10 to fix conda installation issue.
+
 v1.0.2
 -------
 Minor fixes and models release.
