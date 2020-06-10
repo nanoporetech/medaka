@@ -7,7 +7,7 @@
 // parameters for bam iteration
 typedef struct {
     htsFile *fp;
-    bam_hdr_t *hdr;
+    sam_hdr_t *hdr;
     hts_itr_t *iter;
     int min_mapQ;
     char tag_name[2];

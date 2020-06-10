@@ -313,9 +313,9 @@ plp_data calculate_pileup(
     // open bam etc.
     htsFile *fp = hts_open(bam_file, "rb");
     hts_idx_t *idx = sam_index_load(fp, bam_file);
-    bam_hdr_t *hdr = sam_hdr_read(fp);
+    sam_hdr_t *hdr = sam_hdr_read(fp);
     if (hdr == 0 || idx == 0 || fp == 0) {
-        hts_close(fp); hts_idx_destroy(idx); bam_hdr_destroy(hdr);
+        hts_close(fp); hts_idx_destroy(idx); sam_hdr_destroy(hdr);
         free(chr);
         fprintf(stderr, "Failed to read .bam file '%s'.", bam_file);
         exit(1);
@@ -461,7 +461,7 @@ plp_data calculate_pileup(
 
     hts_close(fp);
     hts_idx_destroy(idx);
-    bam_hdr_destroy(hdr);
+    sam_hdr_destroy(hdr);
 
     return pileup;
 }

@@ -15,7 +15,7 @@ PYTHON ?= python3
 
 binaries: $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 
-SAMVER=1.9
+SAMVER=1.10
 submodules/samtools-$(SAMVER)/Makefile:
 	cd submodules; \
 		curl -L -o samtools-${SAMVER}.tar.bz2 https://github.com/samtools/samtools/releases/download/${SAMVER}/samtools-${SAMVER}.tar.bz2; \
@@ -173,7 +173,7 @@ mem_check: install pileup
 
 pileup: libhts.a
 	gcc -pthread  -g -Wall -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -std=c99 -msse3 -O3 \
-		-Isrc -Isubmodules/samtools-1.9/htslib-1.9 \
+		-Isrc -Isubmodules/samtools-${SAMVER}/htslib-${SAMVER} \
 		src/medaka_common.c src/medaka_counts.c src/medaka_bamiter.c libhts.a \
 		-lm -lz -llzma -lbz2 -lpthread -lcurl -lcrypto \
 		-o $(@) -std=c99 -msse3 -O3
@@ -181,7 +181,7 @@ pileup: libhts.a
 
 trim_reads: libhts.a
 	gcc -pthread -pg -g -Wall -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -std=c99 -msse3 -O3 \
-		-Isrc -Isubmodules/samtools-1.9/htslib-1.9 \
+		-Isrc -Isubmodules/samtools-${SAMVER}/htslib-${SAMVER} \
 		src/medaka_common.c src/medaka_trimbam.c src/medaka_bamiter.c libhts.a \
 		-lz -llzma -lbz2 -lpthread -lcurl -lcrypto \
 		-o $(@) -std=c99 -msse3 -O3
