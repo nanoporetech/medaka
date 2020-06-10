@@ -466,6 +466,7 @@ def main(args):
     args.bam = bam_file
     out_dir = args.output
     args.output = os.path.join(out_dir, 'consensus.hdf')
+    args.RG = None
     medaka.prediction.predict(args)
     t3 = now()
 
