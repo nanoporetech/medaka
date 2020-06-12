@@ -423,6 +423,7 @@ def main(args):
     args.tag_name = None
     args.tag_value = None
     args.tag_keep_missing = False
+    args.RG = None
 
     logger = medaka.common.get_named_logger('Smolecule')
     medaka.common.mkdir_p(args.output, info='Results will be overwritten.')
