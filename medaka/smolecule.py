@@ -423,6 +423,7 @@ def main(args):
     args.tag_name = None
     args.tag_value = None
     args.tag_keep_missing = False
+    args.RG = None
 
     logger = medaka.common.get_named_logger('Smolecule')
     medaka.common.mkdir_p(args.output, info='Results will be overwritten.')
@@ -466,7 +467,6 @@ def main(args):
     args.bam = bam_file
     out_dir = args.output
     args.output = os.path.join(out_dir, 'consensus.hdf')
-    args.RG = None
     medaka.prediction.predict(args)
     t3 = now()
 
