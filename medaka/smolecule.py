@@ -171,7 +171,7 @@ class Read(object):
         """Return the number of subreads contained in the read."""
         return len(self.subreads)
 
-    def poa_consensus(self, additional_seq=None, method='racon'):
+    def poa_consensus(self, additional_seq=None, method='spoa'):
         """Create a consensus sequence for the read."""
         self.initialize()
         with tempfile.NamedTemporaryFile(
@@ -216,7 +216,10 @@ class Read(object):
                 'SN': tname,
             }]
         }
-        with tempfile.TemporaryDirectory() as tmpdir:
+        #with tempfile.TemporaryDirectory() as tmpdir:
+        import os
+        tmpdir = tempfile.mkdtemp(dir=os.getcwd(), prefix='racon_dir_')
+        if True:
             ref_fasta = os.path.join(tmpdir, 'racon_ref.fasta')
             with open(ref_fasta, 'w') as fh:
                 fh.write(">{}\n{}\n".format(tname, self.consensus))
@@ -225,16 +228,23 @@ class Read(object):
             write_bam(overlaps, [self._alignments], header, bam=False)
 
             opts = ['-m', '8', '-x', '-6', '-g', '-8']
+            with open(os.path.join(tmpdir, 'racon.sh'), 'w') as script:
+                script.write(' '.join(['racon', fasta, overlaps, ref_fasta] + opts) + '\n')
+
             try:
                 out = subprocess.check_output(
                     ['racon', fasta, overlaps, ref_fasta] + opts,
                     stderr=subprocess.PIPE
                 )
             except subprocess.CalledProcessError as e:
+                from pathlib import Path
+                Path(os.path.join(tmpdir, 'FAILED')).touch()
                 print("\n".join(["RACON FAILED", e.cmd, e.stdout, e.stderr]))
                 racon_seq = self.consensus
             else:
                 racon_seq = out.decode().splitlines()[1]
+                import shutil
+                shutil.rmtree(tmpdir)
         return racon_seq
 
     def orient_subreads(self):
@@ -363,11 +373,11 @@ def write_bam(fname, alignments, header, bam=True):
         pysam.index(fname)
 
 
-def _read_worker(read, align=True):
+def _read_worker(read, align=True, method='spoa'):
     read.initialize()
     if read.nseqs > 2:  # skip if there is only one subread
         for it in range(2):
-            read.poa_consensus(method='racon')
+            read.poa_consensus(method=method)
     aligns = None
     if align:
         aligns = read.mappy_to_template(
@@ -402,7 +412,8 @@ def poa_workflow(reads, threads):
         try:
             res = fut.result()
         except Exception as e:
-            logger.warning(e)
+            import traceback
+            logger.warning(traceback.format_exc())
             pass
         else:
             rname, consensus, aligns = res
@@ -423,6 +434,7 @@ def main(args):
     args.tag_name = None
     args.tag_value = None
     args.tag_keep_missing = False
+    args.RG = None
 
     logger = medaka.common.get_named_logger('Smolecule')
     medaka.common.mkdir_p(args.output, info='Results will be overwritten.')
@@ -466,7 +478,6 @@ def main(args):
     args.bam = bam_file
     out_dir = args.output
     args.output = os.path.join(out_dir, 'consensus.hdf')
-    args.RG = None
     medaka.prediction.predict(args)
     t3 = now()
 
