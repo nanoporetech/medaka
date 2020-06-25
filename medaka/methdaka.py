@@ -18,8 +18,6 @@ from medaka.executor import ProcessPoolExecutor, ThreadPoolExecutor
 BASECALLANALYSIS = 'Basecall_1D'
 MODBASEPATH = 'BaseCalled_template/ModBaseProbs'
 FASTQPATH = 'BaseCalled_template/Fastq'
-BASES = 'A 6mA C 5mC G T'.split()
-MODTYPE = [(b, 'uint8') for b in BASES]
 MOTIFS = {
     'dcm': {
         # seq (on fwd strand): [fwd offset, rev offset]
@@ -121,6 +119,7 @@ def hdf_to_sam_worker(fname):
     """
     logger = medaka.common.get_named_logger('ModExtract')
     logger.info("Processing {}.".format(fname))
+    known_mods = {'6mA', '5mC'}
     results = list()
     with get_fast5_file(fname, mode="r") as f5:
         reads = list(f5.get_read_ids())
@@ -129,16 +128,32 @@ def hdf_to_sam_worker(fname):
             read = f5.get_read(read_id)
             latest = read.get_latest_analysis(BASECALLANALYSIS)
             # get modified base data
-            mod_base = read.get_analysis_dataset(latest, MODBASEPATH)
-            mod_base = mod_base.view(dtype=MODTYPE)
-            mA = 'MA:B:C,{}'.format(format_uint8_list(mod_base['6mA']))
-            mC = 'MC:B:C,{}'.format(format_uint8_list(mod_base['5mC']))
+            mod_base = read.handle[
+                'Analyses/{}/{}'.format(latest, MODBASEPATH)]
+            mb_names = mod_base.attrs[
+                'modified_base_long_names'].decode().split()
+            if set(mb_names) == known_mods:
+                bases = 'A 6mA C 5mC G T'.split()
+            elif '5mC' in mb_names:
+                bases = 'A C 5mC G T'.split()
+            elif '6mA' in mb_names:
+                bases = 'A 6mA C G T'.split()
+            else:
+                raise IndexError("Unsupported modified base names found.")
+            mod_base = mod_base[()].view([(b, 'uint8') for b in bases])
+            tags = []
+            if '6mA' in mb_names:
+                tags.append(
+                    'MA:B:C,{}'.format(format_uint8_list(mod_base['6mA'])))
+            if '5mC' in mb_names:
+                tags.append(
+                    'MC:B:C,{}'.format(format_uint8_list(mod_base['5mC'])))
             # get basecalling data
             fastq = read.get_analysis_dataset(latest, FASTQPATH)
             header, sequence, _, qstring = fastq.splitlines()
             # put everything together
             read = Read(read_id, sequence, qstring)
-            results.append((read, (mA, mC)))
+            results.append((read, tags))
     return results
 
 
@@ -410,6 +425,30 @@ class MotifTracker():
             index += 1
 
 
+def padded_pileup(pileup, start, end):
+    """Pad a pysam pileup with mock object in zero coverage columns.
+
+    :param pileup: pysam pileup.
+    :param start: start position.
+    :param end: end (exclusive) position.
+    """
+    class FakeColumn:
+        def __init__(self, pos):
+            self.pos = pos
+            self.pileups = []
+
+    nxt = start
+    for col in pileup:
+        while nxt != col.pos:
+            yield FakeColumn(nxt)
+            nxt += 1
+        yield col
+        nxt += 1
+
+    for x in range(nxt, end):
+        yield FakeColumn(x)
+
+
 def call_methylation(args):
     """Entry point for calling methylation from bam file."""
     logger = medaka.common.get_named_logger('Mextract')
@@ -445,33 +484,39 @@ def call_methylation(args):
                 except StopIteration:
                     continue
 
-                for pileupcolumn in bam.pileup(
-                        region.ref_name, region.start, region.end):
+                pileup = bam.pileup(region.ref_name, region.start, region.end)
+                for pileupcolumn in padded_pileup(
+                        pileup, region.start, region.end):
                     if (pileupcolumn.pos - region.start) % 1000000 == 0:
                         done = pileupcolumn.pos - region.start
                         pct_done = 100 * done // (region.end - region.start)
                         logger.info(
                             "Processed {} ref positions ({}%)".format(
                                 done, pct_done))
-                    if pileupcolumn.pos != tracker.pos:
+                    if pileupcolumn.pos > tracker.pos:
+                        raise ValueError(
+                            "Unexpectedly skipped reference columns.")
+                    elif pileupcolumn.pos == tracker.pos:
+                        for read in pileupcolumn.pileups:
+                            aln = read.alignment
+                            if read.is_del \
+                                    or read.is_refskip \
+                                    or aln.is_reverse != tracker.is_rev:
+                                continue
+                            qpos = read.query_position
+                            tag = read.alignment.get_tag(tracker.tag)
+                            # NOTE: tags are not reversed, see above
+                            if not aln.is_reverse:
+                                mscore = tag[qpos]
+                            else:
+                                mscore = tag[len(tag) - qpos - 1]
+                            if mscore > args.filter[1]:
+                                tracker.add(True)
+                            elif mscore < args.filter[0]:
+                                tracker.add(False)
+                    else:
+                        # skip forward
                         continue
-                    for read in pileupcolumn.pileups:
-                        aln = read.alignment
-                        if read.is_del \
-                                or read.is_refskip \
-                                or aln.is_reverse != tracker.is_rev:
-                            continue
-                        qpos = read.query_position
-                        tag = read.alignment.get_tag(tracker.tag)
-                        # NOTE: tags are not reversed, see above
-                        if not aln.is_reverse:
-                            mscore = tag[qpos]
-                        else:
-                            mscore = tag[len(tag) - qpos - 1]
-                        if mscore > args.filter[1]:
-                            tracker.add(True)
-                        elif mscore < args.filter[0]:
-                            tracker.add(False)
 
                     if tracker.taken_all:
                         fh.write('\t'.join(str(x) for x in tracker.summary))
