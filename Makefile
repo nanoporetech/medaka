@@ -1,6 +1,6 @@
 
 # Builds a cache of binaries which can just be copied for CI
-BINARIES=samtools minimap2 tabix bgzip spoa racon bcftools
+BINARIES=samtools minimap2 tabix bgzip racon bcftools
 BINCACHEDIR=bincache
 $(BINCACHEDIR):
 	mkdir -p $(BINCACHEDIR)
@@ -73,24 +73,6 @@ $(BINCACHEDIR)/bcftools: | $(BINCACHEDIR)
 		make; \
 	fi
 	cp submodules/bcftools-${SAMVER}/bcftools $@
-
-
-SPOAVER=3.0.0
-$(BINCACHEDIR)/spoa: | $(BINCACHEDIR)
-	@echo Making $(@F)
-	if [ ! -e submodules/spoa-v${SPOAVER}.tar.gz ]; then \
-	  cd submodules; \
-		curl -L -o spoa-v${SPOAVER}.tar.gz https://github.com/rvaser/spoa/releases/download/${SPOAVER}/spoa-v${SPOAVER}.tar.gz; \
-		tar -xzf spoa-v${SPOAVER}.tar.gz; \
-	fi
-	cd submodules; \
-		cd spoa-v${SPOAVER}; \
-		rm -rf build; \
-		mkdir build; \
-		cd build; \
-		cmake -DCMAKE_BUILD_TYPE=Release -Dspoa_build_executable=ON ..; \
-		make;
-	cp submodules/spoa-v${SPOAVER}/build/bin/$(@F) $@
 
 
 RACONVER=1.3.1

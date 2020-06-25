@@ -1,6 +1,6 @@
 """Creation of consensus sequences from repetitive reads."""
 from collections import namedtuple
-from concurrent.futures import as_completed, ThreadPoolExecutor
+from concurrent.futures import as_completed, ProcessPoolExecutor
 import os
 import re
 import subprocess
@@ -12,6 +12,7 @@ import mappy
 import numpy as np
 import parasail
 import pysam
+import spoa
 
 import medaka.common
 
@@ -61,7 +62,6 @@ def parasail_to_sam(result, seq):
     return rstart, new_cigstr
 
 
-spoa = 'spoa'
 Subread = namedtuple('Subread', 'name seq')
 Alignment = namedtuple('Alignment', 'rname qname flag rstart seq cigar')
 
@@ -167,44 +167,64 @@ class Read(object):
         return [x.seq for x in self.subreads]
 
     @property
+    def interleaved_subreads(self):
+        """Return a list of subreads with + and - reads interleaved.
+
+        :returns: orientations, subreads.
+
+        The ordering may not be strictly +-+-+-..., the subreads
+        are positioned such that + and - reads are both distributed
+        uniformally through the list (according to their overall
+        frequency).
+        """
+        self.initialize()
+        fwd, rev = list(), list()
+        for orient, subread in zip(self._orient, self.subreads):
+            if orient:
+                fwd.append([subread, True, 0])
+            else:
+                rev.append([subread, False, 0])
+        for reads in fwd, rev:
+            if len(reads) > 0:
+                rate = 1.0 / len(reads)
+                for i in range(len(reads)):
+                    reads[i][2] = rate * i
+        reads = sorted(fwd + rev, key=lambda x: x[2])
+        reads, orients, garbage = zip(*reads)
+        return orients, reads
+
+    @property
     def nseqs(self):
         """Return the number of subreads contained in the read."""
         return len(self.subreads)
 
-    def poa_consensus(self, additional_seq=None, method='racon'):
+    def poa_consensus(self, additional_seq=None, method='spoa'):
         """Create a consensus sequence for the read."""
         self.initialize()
-        with tempfile.NamedTemporaryFile(
-                'w', suffix='.fasta', delete=False) as fh:
-            if additional_seq is not None:
-                fh.write(">{}\n{}\n".format('additional', additional_seq))
-            for orient, subread in zip(self._orient, self.subreads):
-                if method == 'spoa':
-                    if orient:
-                        seq = subread.seq
-                    else:
-                        seq = medaka.common.reverse_complement(subread.seq)
-                else:
+        if method == 'spoa':
+            seqs = list()
+            for orient, subread in zip(*self.interleaved_subreads):
+                if orient:
                     seq = subread.seq
-                fh.write(">{}\n{}\n".format(subread.name, seq))
-            fh.flush()
-
-            if method == 'spoa':
-                consensus_seq = self._run_spoa(fh.name)
-            elif method == 'racon':
+                else:
+                    seq = medaka.common.reverse_complement(subread.seq)
+                seqs.append(seq)
+            consensus_seq, _ = spoa.poa(seqs, genmsa=False)
+        elif method == 'racon':
+            with tempfile.NamedTemporaryFile(
+                    'w', suffix='.fasta', delete=False) as fh:
+                if additional_seq is not None:
+                    fh.write(">{}\n{}\n".format('additional', additional_seq))
+                for orient, subread in zip(self._orient, self.subreads):
+                    fh.write(">{}\n{}\n".format(subread.name, subread.seq))
+                fh.flush()
                 consensus_seq = self._run_racon(fh.name)
-            else:
-                raise ValueError('Unrecognised method: {}.'.format(method))
+        else:
+            raise ValueError('Unrecognised method: {}.'.format(method))
         self.consensus = consensus_seq
         self._alignments_valid = False
         self.consensus_run = True
         return consensus_seq
-
-    def _run_spoa(self, fasta):
-        opts = []
-        out = subprocess.check_output([spoa, fasta] + opts)
-        spoa_seq = out.decode().split()[2]
-        return spoa_seq
 
     def _run_racon(self, fasta):
         tname = 'consensus_{}'.format(self.name)
@@ -363,11 +383,11 @@ def write_bam(fname, alignments, header, bam=True):
         pysam.index(fname)
 
 
-def _read_worker(read, align=True):
+def _read_worker(read, align=True, method='spoa'):
     read.initialize()
     if read.nseqs > 2:  # skip if there is only one subread
         for it in range(2):
-            read.poa_consensus(method='racon')
+            read.poa_consensus(method=method)
     aligns = None
     if align:
         aligns = read.mappy_to_template(
@@ -375,7 +395,7 @@ def _read_worker(read, align=True):
     return read.name, read.consensus, aligns
 
 
-def poa_workflow(reads, threads):
+def poa_workflow(reads, threads, method='spoa'):
     """Worker function for processing repetitive reads.
 
     :param reads: list of `Read` s.
@@ -385,11 +405,11 @@ def poa_workflow(reads, threads):
     # TODO: this is quite memory inefficient, but we can only build the header
     #       by seeing everything.
     logger = medaka.common.get_named_logger('POAManager')
-    pool = ThreadPoolExecutor(max_workers=threads)
+    pool = ProcessPoolExecutor(max_workers=threads)
     futures = []
     for read in reads:
         logger.debug("Adding {} to queue.".format(read.name))
-        futures.append(pool.submit(_read_worker, read))
+        futures.append(pool.submit(_read_worker, read, method=method))
 
     header = {
         'HD': {'VN': 1.0},
@@ -447,9 +467,11 @@ def main(args):
         reads = Read.multi_from_fastx(
             args.fasta[0], depth_filter=args.depth, length_filter=args.length)
 
-    logger.info("Running pre-medaka POA consensus for all reads.")
+    logger.info(
+        "Running {} pre-medaka consensus for all reads.".format(args.method))
     t0 = now()
-    header, consensuses, alignments = poa_workflow(reads, args.threads)
+    header, consensuses, alignments = poa_workflow(
+        reads, args.threads, method=args.method)
     t1 = now()
 
     logger.info(
