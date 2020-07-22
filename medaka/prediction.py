@@ -85,7 +85,6 @@ def predict(args):
         os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
     import tensorflow as tf
-    from tensorflow.keras import backend as K
 
     args.regions = medaka.common.get_regions(
         args.bam, region_strs=args.regions)
@@ -93,10 +92,12 @@ def predict(args):
     logger.info('Processing region(s): {}'.format(
         ' '.join(str(r) for r in args.regions)))
 
-    # create output and copy meta
-    with medaka.datastore.DataStore(args.model) as ds:
-        ds.copy_meta(args.output)
-        feature_encoder = ds.get_meta('feature_encoder')
+    logger.info("Using model: {}.".format(args.model))
+    open_model = medaka.models.open_model(args.model)
+    logger.info("open_model {}.".format(open_model))
+    with open_model(args.model) as ms:
+        feature_encoder = ms.get_meta('feature_encoder')
+        ms.copy_meta(args.output)
 
     feature_encoder.tag_name = args.tag_name
     feature_encoder.tag_value = args.tag_value
@@ -105,11 +106,8 @@ def predict(args):
 
     logger.info("Setting tensorflow threads to {}.".format(args.threads))
     tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
-    K.set_session(tf.Session(
-        config=tf.ConfigProto(
-            intra_op_parallelism_threads=args.threads,
-            inter_op_parallelism_threads=args.threads)
-    ))
+    tf.config.threading.set_intra_op_parallelism_threads(args.threads)
+    tf.config.threading.set_inter_op_parallelism_threads(args.threads)
     if tf.test.is_gpu_available(cuda_only=True):
         logger.info("Found a GPU.")
         logger.info(
@@ -135,11 +133,8 @@ def predict(args):
 
     logger.info("Processing {} long region(s) with batching.".format(
         len(regions)))
-
-    logger.info("Using model: {}.".format(args.model))
-
-    model = medaka.models.load_model(args.model, time_steps=args.chunk_len,
-                                     allow_cudnn=args.allow_cudnn)
+    with open_model(args.model) as ms:
+        model = ms.load_model(time_steps=args.chunk_len)
 
     # the returned regions are those where the pileup width is smaller than
     # chunk_len
@@ -156,8 +151,10 @@ def predict(args):
     if len(remainder_regions) > 0:
         logger.info("Processing {} short region(s).".format(
             len(remainder_regions)))
-        model = medaka.models.load_model(args.model, time_steps=None,
-                                         allow_cudnn=args.allow_cudnn)
+
+        with open_model(args.model) as ms:
+            model = ms.load_model(time_steps=None)
+#        model = model_instance.load_model(time_steps=None)
         for region in remainder_regions:
             new_remainders = run_prediction(
                 args.output, args.bam, [region[0]], model, feature_encoder,
@@ -176,7 +173,7 @@ def predict(args):
 
     if args.check_output:
         logger.info("Validating and finalising output data.")
-        with medaka.datastore.DataStore(args.output, 'a') as ds:
+        with medaka.datastore.DataStore(args.output, 'a') as _:
             pass
 
 

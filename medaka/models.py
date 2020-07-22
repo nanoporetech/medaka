@@ -22,7 +22,7 @@ def resolve_model(model):
 
     :param model_name: str, model filepath or model ID
 
-    :returns: str, filepath to model file.
+    :returns: str: filepath to hdf model file or TF model directory.
     """
     if os.path.exists(model):  # model is path to model file
         return model
@@ -31,6 +31,7 @@ def resolve_model(model):
             "Model {} is not a known model or existant file.".format(model))
     else:
         # check for model in model stores
+        # TODO add check for TF models when hdf5 models in have been converted
         fname = '{}_model.hdf5'.format(model)
         fps = [
             os.path.join(ms, fname)
@@ -44,7 +45,7 @@ def resolve_model(model):
             pkg=__package__, subdir=medaka.options.model_subdir, fname=fname)
         try:
             data = requests.get(url).content
-            # check data is a model
+            # check data is a hdf5 model or a tensorflow model directory
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp_file = os.path.join(tmpdir, "tmp_model.hdf5")
                 with open(tmp_file, 'wb') as tmp_model:
@@ -76,74 +77,59 @@ def resolve_model(model):
     raise RuntimeError("Model resolution failed")
 
 
-def load_model(fname, time_steps=None, allow_cudnn=True):
-    """Load a model from an .hdf file.
+def open_model(fname):
+    """Determine model type from model name.
 
-    :param fname: .hdf file containing model (or model name).
-    :param time_steps: number of time points in RNN, `None` for dynamic.
-    :param allow_cudnn: allow use of CuDNN optimizations.
+    :param fname: model filepath
 
-    ..note:: keras' `load_model` cannot handle CuDNNGRU layers, hence this
-        function builds the model then loads the weights.
-
+    : returns: model store object
     """
     fname = resolve_model(fname)
-    with medaka.datastore.DataStore(fname) as ds:
-        model_partial_function = ds.get_meta('model_function')
-        model = model_partial_function(
-            time_steps=time_steps, allow_cudnn=allow_cudnn)
-        try:
-            model.load_weights(fname)
-        except ValueError():
-            pass
-        finally:
-            return model
+    ext = os.path.splitext(fname)[-1].lower()
+    if ext == ".hdf5":
+        return medaka.datastore.ModelStore
+    elif ext == ".gz":
+        return medaka.datastore.ModelStoreTF
+    else:
+        raise ValueError(
+            "Model {} does not have .hdf5 or .gz extension.".format(fname))
 
 
 def build_model(feature_len, num_classes, gru_size=128,
-                classify_activation='softmax', time_steps=None,
-                allow_cudnn=True):
+                classify_activation='softmax', time_steps=None):
     """Build a bidirectional GRU model with CuDNNGRU support.
 
     CuDNNGRU implementation is claimed to give speed-up on GPU of 7x.
     The function will build a model capable of running on GPU with
-    CuDNNGRU provided a) a GPU is present, b) the option has been
-    allowed by the `allow_cudnn` argument; otherwise a compatible
-    (but not CuDNNGRU accelerated model) is built.
+    CuDNNGRU provided a) a GPU is present, b) the arguments to the
+    keras layer meet the CuDNN kernal requirements for cudnn = True;
+    otherwise a compatible (but not CuDNNGRU accelerated model) is built.
 
     :param feature_len: int, number of features for each pileup column.
     :param num_classes: int, number of output class labels.
     :param gru_size: int, size of each GRU layer.
     :param classify_activation: str, activation to use in classification layer.
     :param time_steps: int, number of pileup columns in a sample.
-    :param allow_cudnn: bool, opt-in to cudnn when using a GPU.
 
     :returns: `keras.models.Sequential` object.
 
     """
     import tensorflow as tf
     from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import Dense, GRU, CuDNNGRU, Bidirectional
+    from tensorflow.keras.layers import Dense, GRU, Bidirectional
 
-    # Determine whether to use CuDNNGRU or not
-    cudnn = False
-    if tf.test.is_gpu_available(cuda_only=True) and allow_cudnn:
-        cudnn = True
-    logger.info("Building model with cudnn optimization: {}".format(cudnn))
+    #  Tensorflow2 uses a fast cuDNN implementation if a GPU is available
+    #  and the arguments to the layer meet the CuDNN kernal requirements
+    if tf.config.list_physical_devices('GPU'):
+        logger.info("GPU available: building model with cudnn optimization")
 
     model = Sequential()
     input_shape = (time_steps, feature_len)
     for i in [1, 2]:
         name = 'gru{}'.format(i)
-        # Options here are to be mutually compatible: train with CuDNNGRU
-        # but allow inference with GRU (on cpu).
-        # https://gist.github.com/bzamecnik/bd3786a074f8cb891bc2a397343070f1
-        if cudnn:
-            gru = CuDNNGRU(gru_size, return_sequences=True, name=name)
-        else:
-            gru = GRU(
-                gru_size, reset_after=True, recurrent_activation='sigmoid',
-                return_sequences=True, name=name)
+        gru = GRU(
+            gru_size, reset_after=True, recurrent_activation='sigmoid',
+            return_sequences=True, name=name)
         model.add(Bidirectional(gru, input_shape=input_shape))
 
     # see keras #10417 for why we specify input shape
@@ -156,8 +142,7 @@ def build_model(feature_len, num_classes, gru_size=128,
 
 
 def build_majority(feature_len, num_classes, gru_size=128,
-                   classify_activation='softmax', time_steps=None,
-                   allow_cudnn=True):
+                   classify_activation='softmax', time_steps=None):
     """Build a mock model that simply sums counts.
 
     :param feature_len: int, number of features for each pileup column.
@@ -165,7 +150,6 @@ def build_majority(feature_len, num_classes, gru_size=128,
     :param gru_size: int, size of each GRU layer.
     :param classify_activation: str, activation to use in classification layer.
     :param time_steps: int, number of pileup columns in a sample.
-    :param allow_cudnn: bool, opt-in to cudnn when using a GPU.
 
     :returns: `keras.models.Sequential` object.
 

@@ -47,7 +47,9 @@ class TestModelFiles(unittest.TestCase):
     def test_999_load_all_models(self):
         for name in medaka.options.allowed_models:
             model_file = models.resolve_model(name)
-            model = models.load_model(model_file)
+            open_model = medaka.models.open_model(model_file)
+            with open_model(model_file) as ms:
+                model = ms.load_model()
             self.assertIsInstance(model, tensorflow.keras.models.Model)
             # Check we can get necessary functions for inference
             with DataStore(model_file) as ds:
