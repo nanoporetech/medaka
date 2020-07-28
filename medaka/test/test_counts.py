@@ -1,4 +1,3 @@
-import array
 import copy
 import os
 import pickle
@@ -6,7 +5,6 @@ import tempfile
 import unittest
 
 import numpy as np
-import pysam
 
 from .mock_data import simple_data, create_simple_bam
 import libmedaka
@@ -166,6 +164,16 @@ class TrimReadsTest(unittest.TestCase):
         orig = [x[1:-1] for x in self.reads]
         self.assertEqual(reads, orig)
 
+    def test_005_chunked(self):
+        region = Region('ref', start=0, end=9)
+        n_chunks = len(list(medaka.features.get_trimmed_reads(region, self.bam, region_split=3, chunk_overlap=0)))
+        self.assertEqual(n_chunks, 3)
+
+    def test_005_unchunked(self):
+        region = Region('ref', start=0, end=9)
+        n_chunks = len(list(medaka.features.get_trimmed_reads(region, self.bam, region_split=1000, chunk_overlap=0)))
+        self.assertEqual(n_chunks, 1)
+
 
 class CountsSplittingTest(unittest.TestCase):
 
@@ -317,10 +325,22 @@ class PileupCounts(unittest.TestCase):
             counts, positions = medaka.features.pileup_counts(region, bam, read_group=rg)[0]
             self.assertTrue(np.array_equal(counts, self.expected_counts))
             self.assertTrue(np.array_equal(positions, self.expected_positions))
-        
+
         # use a missing one
         result = medaka.features.pileup_counts(region, bam, read_group='nonsense')
         self.assertTrue(len(result) == 0)
+
+
+    def test_060_counts_chunked(self):
+        """Test that we get the same counts and positions when region_split < region.size
+
+        i.e. the stitching back together of chunks processed in parallel works.
+        """
+        chunks = medaka.features.pileup_counts(self.region, self.bam, region_split=3)
+        self.assertEqual(len(chunks), 1)
+        counts, positions = chunks[0]
+        self.assertTrue(np.array_equal(counts, self.expected_counts))
+        self.assertTrue(np.array_equal(positions, self.expected_positions))
 
 
 class CountsQscoreStratification(unittest.TestCase):

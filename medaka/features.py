@@ -146,6 +146,7 @@ def pileup_counts(
     :param dtype_prefixes: prefixes for query names which to separate counts.
         If `None` (or of length 1), counts are not split.
     :param region_split: largest region to process in single thread.
+        Regions are processed in parallel and stitched before being returned.
     :param workers: worker threads for calculating pileup.
     :param tag_name: two letter tag name by which to filter reads.
     :param tag_value: integer value of tag for reads to keep.
@@ -154,7 +155,10 @@ def pileup_counts(
     :param weibull_summation: use a Weibull partial-counts approach,
         requires 'WL' and 'WK' float-array tags.
 
-    :returns: pileup counts array, reference positions, insertion positions
+    :returns: iterator of tuples
+        (pileup counts array, reference positions, insertion positions)
+        Multiple chunks are returned if there are discontinuities in
+        positions caused e.g. by gaps in coverage.
     """
     lib = libmedaka.lib
     featlen = lib.featlen
@@ -192,7 +196,7 @@ def get_trimmed_reads(
     """Fetch reads trimmed to a region.
 
     Overlapping chunks of the imput region will be produced, with each chunk
-    having its reads trimmed to the reference sequence coordinates of th
+    having its reads trimmed to the reference sequence coordinates of the
     chunk.
 
     :param region: `medaka.common.Region` object
@@ -208,7 +212,7 @@ def get_trimmed_reads(
     :param partial: whether to keep reads which don't fully span the region.
     :param num_qstrat: number of layers for qscore stratification.
 
-    :returns: lists of trimmed reads.
+    :returns: iterator of lists of trimmed reads.
     """
     ffi, lib = libmedaka.ffi, libmedaka.lib
     (num_dtypes, dtypes, _dtypes, tag_name, tag_value,
