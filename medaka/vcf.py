@@ -1146,11 +1146,13 @@ def get_trimmed_reads(bam, region, partial, read_group):
     """
     region_got, reads = next(
         medaka.features.get_trimmed_reads(region, bam, partial=partial,
-                                          read_group=read_group))
-    assert region == region_got
+                                          read_group=read_group,
+                                          region_split=2*region.size))
+    if not region == region_got:  # check region was not e.g. split
+        msg = 'Expected region {}, got region {}'
+        raise ValueError(msg.format(region, region_got))
     # first read is ref, remove it.
     ref_is_rev, ref_seq = reads.pop(0)
-    assert not ref_is_rev
     return reads
 
 
