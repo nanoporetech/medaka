@@ -93,9 +93,9 @@ def run_training(
     time_steps, feat_dim = batcher.feature_shape
 
     if model_fp is not None:
-        open_model = medaka.models.open_model(model_fp)
-        with open_model(model_fp) as ms:
-            partial_model_function = ms.get_meta('model_function')
+        model_store = medaka.models.open_model(model_fp)
+        partial_model_function = model_store.get_meta('model_function')
+        model = model_store.load_model(time_steps=time_steps)
     else:
         num_classes = batcher.label_scheme.num_classes
         model_name = medaka.models.default_model
@@ -104,16 +104,16 @@ def run_training(
             model_function, feat_dim, num_classes)
         model = partial_model_function(time_steps=time_steps)
 
-    model_metadata = {'model_function': partial_model_function,
-                      'label_scheme': batcher.label_scheme,
-                      'feature_encoder': batcher.feature_encoder}
+    model_metadata = {
+        'model_function': partial_model_function,
+        'label_scheme': batcher.label_scheme,
+        'feature_encoder': batcher.feature_encoder}
 
-    opts = dict(verbose=1, save_weights_only=False,
-                save_best_only=False, mode='max')
+    opts = dict(
+        verbose=1, save_weights_only=False, save_best_only=False, mode='max')
 
-    if isinstance(batcher.label_scheme,
-                  medaka.labels.DiploidZygosityLabelScheme):
-
+    if isinstance(
+            batcher.label_scheme, medaka.labels.DiploidZygosityLabelScheme):
         metrics = ['binary_accuracy']
         call_back_metrics = metrics
         loss = 'binary_crossentropy'
@@ -168,34 +168,13 @@ def run_training(
             "Using mini_epochs, an epoch is a traversal of 1/{} "
             "of the training data".format(n_mini_epochs))
 
-    if model_fp is not None:
-        open_model = medaka.models.open_model(model_fp)
-        with open_model(model_fp) as ms:
-            model = ms.load_model(time_steps=time_steps)
-            model.compile(
-                loss=loss,
-                optimizer=optimizer,
-                metrics=metrics,
-            )
-            logger.info('Model metrics: {}'.format(model.metrics_names))
-            model.fit(
-                SequenceBatcher(batcher, mini_epochs=n_mini_epochs),
-                validation_data=SequenceBatcher(batcher, 'validation'),
-                max_queue_size=2*threads_io, workers=threads_io,
-                use_multiprocessing=True, epochs=epochs, callbacks=callbacks,
-                class_weight=class_weight)
-    else:
-        model.compile(
-            loss=loss,
-            optimizer=optimizer,
-            metrics=metrics,
-        )
-        model.fit(
-            SequenceBatcher(batcher, mini_epochs=n_mini_epochs),
-            validation_data=SequenceBatcher(batcher, 'validation'),
-            max_queue_size=2*threads_io, workers=threads_io,
-            use_multiprocessing=True, epochs=epochs, callbacks=callbacks,
-            class_weight=class_weight)
+    model.compile(loss=loss, optimizer=optimizer, metrics=metrics)
+    model.fit(
+        SequenceBatcher(batcher, mini_epochs=n_mini_epochs),
+        validation_data=SequenceBatcher(batcher, 'validation'),
+        max_queue_size=2*threads_io, workers=threads_io,
+        use_multiprocessing=True, epochs=epochs, callbacks=callbacks,
+        class_weight=class_weight)
 
 
 class TrainBatcher():

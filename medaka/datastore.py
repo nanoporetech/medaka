@@ -11,7 +11,6 @@ import tarfile
 import warnings
 
 import numpy as np
-from tensorflow import keras
 
 import medaka.common
 
@@ -21,7 +20,53 @@ with warnings.catch_warnings():
     import h5py
 
 
-class BaseModelClass(ABC):
+def tar_dir(path, tar_name):
+    """Recursively tar and zip directory.
+
+    :param path: filepath to directory to tar
+    :param tar_name: filepath to zipped tar file
+
+    """
+    with tarfile.open(tar_name, "w:gz") as tar_handle:
+        for root, dirs, files in os.walk(path):
+            for fname in files:
+                tar_handle.add(os.path.join(root, fname))
+
+
+def untar_dir(filepath, unzip_path):
+    """Unpack a zipped tar file.
+
+    :param filename: filepath to .tar.gz file
+    :param unzip_path: path to unpack into
+
+    :return: path to unpacked folder
+    """
+    # unpack into unzip_path
+    tar_hdl = tarfile.open(filepath)
+    tar_hdl.extractall(path=unzip_path)
+    tar_hdl.close()
+
+    # get path to unpacked folder
+    lead_folder = os.path.split(os.path.dirname(filepath))[-1]
+    base_dir = os.path.basename(filepath).replace(".tar.gz", "")
+
+    # TODO: determine why the the 'lead folder' is sometimes included
+    unpacked_path = os.path.join(unzip_path, lead_folder, base_dir)
+    if os.path.exists(unpacked_path):
+        return unpacked_path
+    else:
+        return os.path.join(unzip_path, base_dir)
+
+
+def del_dir(path):
+    """Delete folder."""
+    try:
+        shutil.rmtree(path)
+    except Exception as e:
+        sys.stdout.write("Exception deleting folder {}: {}.".format(path, e))
+
+
+class BaseModelStore(ABC):
     """Base class for model store classes."""
 
     @abstractmethod
@@ -45,7 +90,7 @@ class BaseModelClass(ABC):
         raise NotImplementedError
 
 
-class ModelStore(BaseModelClass):
+class ModelStore(BaseModelStore):
     """Read and write model and meta to a hdf file."""
 
     def __init__(self, filepath):
@@ -96,53 +141,7 @@ class ModelStore(BaseModelClass):
             return ds.copy_meta(other)
 
 
-def tar_dir(path, tar_name):
-    """Recursively tar and zip directory.
-
-    :param path: filepath to directory to tar
-    :param tar_name: filepath to zipped tar file
-
-    """
-    with tarfile.open(tar_name, "w:gz") as tar_handle:
-        for root, dirs, files in os.walk(path):
-            for fname in files:
-                tar_handle.add(os.path.join(root, fname))
-
-
-def untar_dir(filepath, unzip_path):
-    """Unpack a zipped tar file.
-
-    :param filename: filepath to .tar.gz file
-    :param unzip_path: path to unpack into
-
-    :return: path to unpacked folder
-    """
-    # unpack into unzip_path
-    tar_hdl = tarfile.open(filepath)
-    tar_hdl.extractall(path=unzip_path)
-    tar_hdl.close()
-
-    # get path to unpacked folder
-    lead_folder = os.path.split(os.path.dirname(filepath))[-1]
-    base_dir = os.path.basename(filepath).replace(".tar.gz", "")
-
-    # TODO: determine why the the 'lead folder' is sometimes included
-    unpacked_path = os.path.join(unzip_path, lead_folder, base_dir)
-    if os.path.exists(unpacked_path):
-        return unpacked_path
-    else:
-        return os.path.join(unzip_path, base_dir)
-
-
-def del_dir(path):
-    """Delete folder."""
-    try:
-        shutil.rmtree(path)
-    except Exception as e:
-        sys.stdout.write("Exception deleting folder {}: {}.".format(path, e))
-
-
-class ModelStoreTF(BaseModelClass):
+class ModelStoreTF(BaseModelStore):
     """Read and write model to tensorflow storage directory."""
 
     def __init__(self, filepath):
@@ -151,25 +150,43 @@ class ModelStoreTF(BaseModelClass):
         :param filename: filepath to saved_model directory
 
         """
-        self.filepath = filepath
         self.logger = medaka.common.get_named_logger('ModelStoreTF')
+        self.filepath = filepath
+        self.unpacked = False
+
+    def unpack(self):
+        """Unpack model files from archive."""
+        if not self.unpacked:
+            self.tmpdir = "tmp"
+            self._unpacked_filepath = untar_dir(self.filepath, self.tmpdir)
+            self.metapath = os.path.join(self._unpacked_filepath, 'meta.pkl')
+            self.unpacked = True
+            with open(self.metapath, 'rb') as handle:
+                self.meta = pickle.load(handle)
+        return self
+
+    def cleanup(self):
+        """Clean up temporary files."""
+        if self.unpacked:
+            del_dir(self.tmpdir)
+            self.unpacked = False
+            del self.meta
 
     def __enter__(self):
-        """Create context for handling a modelstore files."""
-        # Unpack zipped model directory into tmp dir
-        self.tmpdir = "tmp"
-        self._unpacked_filepath = untar_dir(self.filepath, self.tmpdir)
-        self.metapath = os.path.join(self._unpacked_filepath, 'meta.pkl')
-        self._load_metadata()
-
+        """Context manager."""
+        self.unpack()
         return self
 
     def __exit__(self, exception_type, exception_value, traceback):
         """Remove temporary unpack_filepath."""
-        del_dir(self.tmpdir)
+        self.cleanup()
         if exception_type is not None:
             self.logger.info('ModelStoreTF exception {}'.format(
                 exception_type))
+
+    def __del__(self):
+        """Run cleanup on destroy."""
+        self.cleanup()
 
     def load_model(self, time_steps=None):
         """Load a model from a tf saved_model file.
@@ -179,6 +196,7 @@ class ModelStoreTF(BaseModelClass):
         ..note:: this function builds the model then loads the weights.
 
         """
+        self.unpack()
         model_partial_function = self.get_meta('model_function')
         self.model = model_partial_function(time_steps=time_steps)
         self.logger.info("Model {}".format(self.model))
@@ -188,26 +206,12 @@ class ModelStoreTF(BaseModelClass):
         self.model.load_weights(weights)
         return self.model
 
-    # Not sure we want this option:
-    def load_full_model(self, custom_objects):
-        """Restore keras model.
-
-        :param custom_objects: custom defined functions e.g. loss function
-
-        """
-        self.model = keras.models.load_model(
-            self.filepath, custom_objects)
-        return self.model
-
-    def _load_metadata(self):
-        with open(self.metapath, 'rb') as handle:
-            self.meta = pickle.load(handle)
-
     def get_meta(self, key):
         """Load (deserialise) a meta data item.
 
         :param key: name of item to load.
         """
+        self.unpack()
         try:
             return self.meta[key]
         except Exception as e:
@@ -220,6 +224,7 @@ class ModelStoreTF(BaseModelClass):
         :param hdf: filename of hdf file.
 
         """
+        self.unpack()
         with DataStore(hdf, 'a') as ds:
             for k, v in self.meta.items():
                 ds.set_meta(v, k)

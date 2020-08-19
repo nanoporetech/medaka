@@ -87,9 +87,9 @@ def open_model(fname):
     fname = resolve_model(fname)
     ext = os.path.splitext(fname)[-1].lower()
     if ext == ".hdf5":
-        return medaka.datastore.ModelStore
+        return medaka.datastore.ModelStore(fname)
     elif ext == ".gz":
-        return medaka.datastore.ModelStoreTF
+        return medaka.datastore.ModelStoreTF(fname)
     else:
         raise ValueError(
             "Model {} does not have .hdf5 or .gz extension.".format(fname))

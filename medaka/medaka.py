@@ -189,11 +189,9 @@ def is_rle_model(args):
 def is_rle_encoder(model_name):
     """ Return encoder used by model"""
     rle_encoders = [medaka.features.HardRLEFeatureEncoder]
-    open_model = medaka.models.open_model(model_name)
-    with open_model(model_name) as ms:
-        encoder = ms.get_meta('feature_encoder')
+    modelstore = medaka.models.open_model(model_name)
+    encoder = modelstore.get_meta('feature_encoder')
     is_rle = issubclass(type(encoder), medaka.features.HardRLEFeatureEncoder)
-
     return is_rle
 
 
@@ -202,7 +200,6 @@ def get_alignment_params(args):
         align_params = medaka.options.alignment_params['rle']
     else:
         align_params = medaka.options.alignment_params['non-rle']
-
     print(align_params)
 
 
