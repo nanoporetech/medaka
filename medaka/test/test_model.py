@@ -21,7 +21,7 @@ class TestModelFiles(unittest.TestCase):
             model_file = models.resolve_model(name)
             total += os.path.getsize(model_file)
         self.assertLess(total / 1024 / 1024, 45, "Bundled model file size too large")
-    
+
     def test_001_default_models(self):
         for name in medaka.options.default_models.values():
             if name not in medaka.options.current_models:
@@ -47,7 +47,7 @@ class TestModelFiles(unittest.TestCase):
     def test_999_load_all_models(self):
         for name in medaka.options.allowed_models:
             model_file = models.resolve_model(name)
-            model = models.load_model(model_file)
+            model = medaka.models.open_model(model_file).load_model()
             self.assertIsInstance(model, tensorflow.keras.models.Model)
             # Check we can get necessary functions for inference
             with DataStore(model_file) as ds:

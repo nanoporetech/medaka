@@ -80,47 +80,40 @@ def train(args):
 def run_training(
         train_name, batcher, model_fp=None,
         epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1,
-        optimizer='rmsprop', optim_args=None, allow_cudnn=True):
+        optimizer='rmsprop', optim_args=None):
     """Run training."""
     from tensorflow.keras.callbacks import \
         CSVLogger, EarlyStopping, TerminateOnNaN
     from tensorflow.keras import optimizers
     from medaka.keras_ext import \
-        ModelMetaCheckpoint, SequenceBatcher
+        ModelMetaCheckpointTF, SequenceBatcher
 
     logger = medaka.common.get_named_logger('RunTraining')
 
     time_steps, feat_dim = batcher.feature_shape
 
     if model_fp is not None:
-        with medaka.datastore.DataStore(model_fp) as ds:
-            partial_model_function = ds.get_meta('model_function')
-            model = partial_model_function(time_steps=time_steps,
-                                           allow_cudnn=allow_cudnn)
-        try:
-            model.load_weights(model_fp)
-            logger.info("Loading weights from {}".format(model_fp))
-        except Exception:
-            logger.info("Could not load weights from {}".format(model_fp))
-
+        model_store = medaka.models.open_model(model_fp)
+        partial_model_function = model_store.get_meta('model_function')
+        model = model_store.load_model(time_steps=time_steps)
     else:
         num_classes = batcher.label_scheme.num_classes
         model_name = medaka.models.default_model
         model_function = medaka.models.model_builders[model_name]
         partial_model_function = functools.partial(
             model_function, feat_dim, num_classes)
-        model = partial_model_function(time_steps=time_steps,
-                                       allow_cudnn=allow_cudnn)
+        model = partial_model_function(time_steps=time_steps)
 
-    model_metadata = {'model_function': partial_model_function,
-                      'label_scheme': batcher.label_scheme,
-                      'feature_encoder': batcher.feature_encoder}
+    model_metadata = {
+        'model_function': partial_model_function,
+        'label_scheme': batcher.label_scheme,
+        'feature_encoder': batcher.feature_encoder}
 
-    opts = dict(verbose=1, save_best_only=True, mode='max')
+    opts = dict(
+        verbose=1, save_weights_only=False, save_best_only=False, mode='max')
 
-    if isinstance(batcher.label_scheme,
-                  medaka.labels.DiploidZygosityLabelScheme):
-
+    if isinstance(
+            batcher.label_scheme, medaka.labels.DiploidZygosityLabelScheme):
         metrics = ['binary_accuracy']
         call_back_metrics = metrics
         loss = 'binary_crossentropy'
@@ -146,22 +139,16 @@ def run_training(
         optimizer = optimizers.RMSprop(**optim_args)
     else:
         raise ValueError('Unknown optimizer: {}'.format(optimizer))
-    model.compile(
-       loss=loss,
-       optimizer=optimizer,
-       metrics=metrics,
-    )
-
-    logger.info('Model metrics: {}'.format(model.metrics_names))
 
     callbacks = []
     for metric in call_back_metrics:
         for m in metric, 'val_{}'.format(metric):
-            best_fn = 'model.best.{}.hdf5'.format(m)
+            best_fn = 'model.best.{}'.format(m)
             improv_fn = 'model-' + metric + '-improvement-{epoch:02d}-{' \
-                + metric + ':.2f}.hdf5'
+                + metric + ':.2f}'
+            logger.info('output files: {}, {}'.format(improv_fn, best_fn))
             for fn in best_fn, improv_fn:
-                callbacks.append(ModelMetaCheckpoint(
+                callbacks.append(ModelMetaCheckpointTF(
                     model_metadata, os.path.join(train_name, fn),
                     monitor=m, **opts))
     callbacks.extend([
@@ -169,12 +156,6 @@ def run_training(
         EarlyStopping(monitor='val_loss', patience=20),
         # Log of epoch stats
         CSVLogger(os.path.join(train_name, 'training.log'), separator='\t'),
-        # Allow us to run tensorboard to see how things are going
-        # TrainValTensorBoard(
-        #    log_dir=os.path.join(train_name, 'logs'),
-        #    histogram_freq=5, batch_size=100, write_graph=True,
-        #    write_grads=True, write_images=True)
-        # terminate training when a Nan loss is encountered
         TerminateOnNaN()
     ])
 
@@ -187,7 +168,8 @@ def run_training(
             "Using mini_epochs, an epoch is a traversal of 1/{} "
             "of the training data".format(n_mini_epochs))
 
-    model.fit_generator(
+    model.compile(loss=loss, optimizer=optimizer, metrics=metrics)
+    model.fit(
         SequenceBatcher(batcher, mini_epochs=n_mini_epochs),
         validation_data=SequenceBatcher(batcher, 'validation'),
         max_queue_size=2*threads_io, workers=threads_io,
@@ -213,7 +195,6 @@ class TrainBatcher():
 
         """
         self.logger = medaka.common.get_named_logger('TrainBatcher')
-
         self.features = features
         self.validation = validation
         self.seed = seed

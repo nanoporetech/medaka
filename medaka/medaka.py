@@ -155,9 +155,6 @@ def _model_arg():
     parser.add_argument('--model', action=ResolveModel,
             default=medaka.options.default_models['consensus'],
             help='Model to use.')
-    parser.add_argument('--allow_cudnn', dest='allow_cudnn', default=True, action='store_true', help=argparse.SUPPRESS)
-    parser.add_argument('--disable_cudnn', dest='allow_cudnn', default=False, action='store_false',
-            help='Disable use of cuDNN model layers.')
     return parser
 
 
@@ -192,10 +189,9 @@ def is_rle_model(args):
 def is_rle_encoder(model_name):
     """ Return encoder used by model"""
     rle_encoders = [medaka.features.HardRLEFeatureEncoder]
-    model = medaka.datastore.DataStore(model_name)
-    encoder = model.get_meta('feature_encoder')
+    modelstore = medaka.models.open_model(model_name)
+    encoder = modelstore.get_meta('feature_encoder')
     is_rle = issubclass(type(encoder), medaka.features.HardRLEFeatureEncoder)
-
     return is_rle
 
 
@@ -204,7 +200,6 @@ def get_alignment_params(args):
         align_params = medaka.options.alignment_params['rle']
     else:
         align_params = medaka.options.alignment_params['non-rle']
-
     print(align_params)
 
 

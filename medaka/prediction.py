@@ -85,7 +85,6 @@ def predict(args):
         os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
     import tensorflow as tf
-    from tensorflow.keras import backend as K
 
     args.regions = medaka.common.get_regions(
         args.bam, region_strs=args.regions)
@@ -93,91 +92,87 @@ def predict(args):
     logger.info('Processing region(s): {}'.format(
         ' '.join(str(r) for r in args.regions)))
 
-    # create output and copy meta
-    with medaka.datastore.DataStore(args.model) as ds:
-        ds.copy_meta(args.output)
-        feature_encoder = ds.get_meta('feature_encoder')
-
-    feature_encoder.tag_name = args.tag_name
-    feature_encoder.tag_value = args.tag_value
-    feature_encoder.tag_keep_missing = args.tag_keep_missing
-    feature_encoder.read_group = args.RG
-
-    logger.info("Setting tensorflow threads to {}.".format(args.threads))
-    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
-    K.set_session(tf.Session(
-        config=tf.ConfigProto(
-            intra_op_parallelism_threads=args.threads,
-            inter_op_parallelism_threads=args.threads)
-    ))
-    if tf.test.is_gpu_available(cuda_only=True):
-        logger.info("Found a GPU.")
-        logger.info(
-            "If cuDNN errors are observed, try setting the environment "
-            "variable `TF_FORCE_GPU_ALLOW_GROWTH=true`. To explicitely "
-            "disable use of cuDNN use the commandline option "
-            "`--disable_cudnn. If OOM (out of memory) errors are found "
-            "please reduce batch size.")
-
-    # Split overly long regions to maximum size so as to not create
-    #   massive feature matrices
-    MAX_REGION_SIZE = int(1e6)  # 1Mb
-    regions = []
-    for region in args.regions:
-        if region.size > MAX_REGION_SIZE:
-            # chunk_ovlp is mostly used in overlapping pileups (which generally
-            # end up being expanded compared to the draft coordinate system)
-            regs = region.split(
-                MAX_REGION_SIZE, overlap=args.chunk_ovlp, fixed_size=False)
-        else:
-            regs = [region]
-        regions.extend(regs)
-
-    logger.info("Processing {} long region(s) with batching.".format(
-        len(regions)))
-
     logger.info("Using model: {}.".format(args.model))
+    with medaka.models.open_model(args.model) as model_store:
+        feature_encoder = model_store.get_meta('feature_encoder')
+        model_store.copy_meta(args.output)
 
-    model = medaka.models.load_model(args.model, time_steps=args.chunk_len,
-                                     allow_cudnn=args.allow_cudnn)
+        feature_encoder.tag_name = args.tag_name
+        feature_encoder.tag_value = args.tag_value
+        feature_encoder.tag_keep_missing = args.tag_keep_missing
+        feature_encoder.read_group = args.RG
 
-    # the returned regions are those where the pileup width is smaller than
-    # chunk_len
-    remainder_regions = run_prediction(
-        args.output, args.bam, regions, model, feature_encoder,
-        args.chunk_len, args.chunk_ovlp,
-        batch_size=args.batch_size, save_features=args.save_features
-    )
+        logger.info("Setting tensorflow threads to {}.".format(args.threads))
+        tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+        tf.config.threading.set_intra_op_parallelism_threads(args.threads)
+        tf.config.threading.set_inter_op_parallelism_threads(args.threads)
+        if tf.test.is_gpu_available(cuda_only=True):
+            logger.info("Found a GPU.")
+            logger.info(
+                "If cuDNN errors are observed, try setting the environment "
+                "variable `TF_FORCE_GPU_ALLOW_GROWTH=true`. To explicitely "
+                "disable use of cuDNN use the commandline option "
+                "`--disable_cudnn. If OOM (out of memory) errors are found "
+                "please reduce batch size.")
 
-    # short/remainder regions: just do things without chunking. We can do this
-    # here because we now have the size of all pileups (and know they are
-    # small).
-    # TODO: can we avoid calculating pileups twice whilst controlling memory?
-    if len(remainder_regions) > 0:
-        logger.info("Processing {} short region(s).".format(
-            len(remainder_regions)))
-        model = medaka.models.load_model(args.model, time_steps=None,
-                                         allow_cudnn=args.allow_cudnn)
-        for region in remainder_regions:
-            new_remainders = run_prediction(
-                args.output, args.bam, [region[0]], model, feature_encoder,
-                args.chunk_len, args.chunk_ovlp,  # these won't be used
-                batch_size=args.batch_size, save_features=args.save_features,
-                enable_chunking=False
-            )
-            if len(new_remainders) > 0:
-                # shouldn't get here
-                ignored = [x[0] for x in new_remainders]
-                n_ignored = len(ignored)
-                logger.warning("{} regions were not processed: {}.".format(
-                    n_ignored, ignored))
+        # Split overly long regions to maximum size so as to not create
+        #   massive feature matrices
+        MAX_REGION_SIZE = int(1e6)  # 1Mb
+        regions = []
+        for region in args.regions:
+            if region.size > MAX_REGION_SIZE:
+                # chunk_ovlp is mostly used in overlapping pileups (which
+                # generally end up being expanded compared to the draft
+                # coordinate system)
+                regs = region.split(
+                    MAX_REGION_SIZE, overlap=args.chunk_ovlp,
+                    fixed_size=False)
+            else:
+                regs = [region]
+            regions.extend(regs)
 
-    logger.info("Finished processing all regions.")
+        logger.info("Processing {} long region(s) with batching.".format(
+            len(regions)))
+        model = model_store.load_model(time_steps=args.chunk_len)
 
-    if args.check_output:
-        logger.info("Validating and finalising output data.")
-        with medaka.datastore.DataStore(args.output, 'a') as ds:
-            pass
+        # the returned regions are those where the pileup width is smaller than
+        # chunk_len
+        remainder_regions = run_prediction(
+            args.output, args.bam, regions, model, feature_encoder,
+            args.chunk_len, args.chunk_ovlp,
+            batch_size=args.batch_size, save_features=args.save_features
+        )
+
+        # short/remainder regions: just do things without chunking. We can do
+        # this here because we now have the size of all pileups (and know they
+        # are small).
+        # TODO: can we avoid calculating pileups twice whilst controlling
+        # memory?
+        if len(remainder_regions) > 0:
+            logger.info("Processing {} short region(s).".format(
+                len(remainder_regions)))
+
+            model = model_store.load_model(time_steps=None)
+            for region in remainder_regions:
+                new_remainders = run_prediction(
+                    args.output, args.bam, [region[0]], model,
+                    feature_encoder,
+                    args.chunk_len, args.chunk_ovlp,  # these won't be used
+                    batch_size=args.batch_size,
+                    save_features=args.save_features, enable_chunking=False)
+                if len(new_remainders) > 0:
+                    # shouldn't get here
+                    ignored = [x[0] for x in new_remainders]
+                    n_ignored = len(ignored)
+                    logger.warning("{} regions were not processed: {}.".format(
+                        n_ignored, ignored))
+
+        logger.info("Finished processing all regions.")
+
+        if args.check_output:
+            logger.info("Validating and finalising output data.")
+            with medaka.datastore.DataStore(args.output, 'a') as _:
+                pass
 
 
 class DataLoader(object):

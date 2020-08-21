@@ -1,17 +1,233 @@
 """Storing of training and inference data to file."""
+from abc import ABC, abstractmethod
 from collections import defaultdict, OrderedDict
 from concurrent.futures import \
     as_completed, ProcessPoolExecutor, ThreadPoolExecutor
+import os
 import pickle
+import shutil
+import sys
+import tarfile
 import warnings
 
 import numpy as np
 
 import medaka.common
 
+
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
     import h5py
+
+
+def tar_dir(path, tar_name):
+    """Recursively tar and zip directory.
+
+    :param path: filepath to directory to tar
+    :param tar_name: filepath to zipped tar file
+
+    """
+    with tarfile.open(tar_name, "w:gz") as tar_handle:
+        for root, dirs, files in os.walk(path):
+            for fname in files:
+                tar_handle.add(os.path.join(root, fname))
+
+
+def untar_dir(filepath, unzip_path):
+    """Unpack a zipped tar file.
+
+    :param filename: filepath to .tar.gz file
+    :param unzip_path: path to unpack into
+
+    :return: path to unpacked folder
+    """
+    # unpack into unzip_path
+    tar_hdl = tarfile.open(filepath)
+    tar_hdl.extractall(path=unzip_path)
+    tar_hdl.close()
+
+    # get path to unpacked folder
+    lead_folder = os.path.split(os.path.dirname(filepath))[-1]
+    base_dir = os.path.basename(filepath).replace(".tar.gz", "")
+
+    # TODO: determine why the the 'lead folder' is sometimes included
+    unpacked_path = os.path.join(unzip_path, lead_folder, base_dir)
+    if os.path.exists(unpacked_path):
+        return unpacked_path
+    else:
+        return os.path.join(unzip_path, base_dir)
+
+
+def del_dir(path):
+    """Delete folder."""
+    try:
+        shutil.rmtree(path)
+    except Exception as e:
+        sys.stdout.write("Exception deleting folder {}: {}.".format(path, e))
+
+
+class BaseModelStore(ABC):
+    """Base class for model store classes."""
+
+    @abstractmethod
+    def __init__(*args, **kwargs):
+        """Initialize feature encoder."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def load_model(self, time_steps):
+        """Load a model from hdf file/tensorflow directory."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_meta(self, key):
+        """Retrieve a meta data item."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def copy_meta(self, key):
+        """Copy meta data to hdf."""
+        raise NotImplementedError
+
+
+class ModelStore(BaseModelStore):
+    """Read and write model and meta to a hdf file."""
+
+    def __init__(self, filepath):
+        """Initialize a Modelstore.
+
+        :param filename: filepath to hdf file
+
+        """
+        self.filepath = filepath
+        self.logger = medaka.common.get_named_logger('ModelStore')
+
+    def __enter__(self):
+        """Create context for handling a modelstore file."""
+        return self
+
+    def __exit__(self, exception_type, exception_value, traceback):
+        """Exit context manager."""
+        if exception_type is not None:
+            self.logger.info('ModelStore exception {}'.format(exception_type))
+
+    def load_model(self, time_steps=None):
+        """Load a model from an .hdf file.
+
+        :param time_steps: number of time points in RNN, `None` for dynamic.
+
+        ..note:: keras' `load_model` cannot handle CuDNNGRU layers, hence this
+            function builds the model then loads the weights.
+
+        """
+        with DataStore(self.filepath) as ds:
+            self.logger.info('filepath {}'.format(self.filepath))
+            model_partial_function = ds.get_meta('model_function')
+            model = model_partial_function(time_steps=time_steps)
+            model.load_weights(self.filepath)
+        return model
+
+    def get_meta(self, key):
+        """Retrieve a meta data item.
+
+        :param key: name of item to load.
+        """
+        with DataStore(self.filepath) as ds:
+            return ds.get_meta(key)
+
+    def copy_meta(self, other):
+        """Copy meta data to hdf."""
+        with DataStore(self.filepath) as ds:
+            return ds.copy_meta(other)
+
+
+class ModelStoreTF(BaseModelStore):
+    """Read and write model to tensorflow storage directory."""
+
+    def __init__(self, filepath):
+        """Initialize a Modelstore.
+
+        :param filename: filepath to saved_model directory
+
+        """
+        self.logger = medaka.common.get_named_logger('ModelStoreTF')
+        self.filepath = filepath
+        self.unpacked = False
+
+    def unpack(self):
+        """Unpack model files from archive."""
+        if not self.unpacked:
+            self.tmpdir = "tmp"
+            self._unpacked_filepath = untar_dir(self.filepath, self.tmpdir)
+            self.metapath = os.path.join(self._unpacked_filepath, 'meta.pkl')
+            self.unpacked = True
+            with open(self.metapath, 'rb') as handle:
+                self.meta = pickle.load(handle)
+        return self
+
+    def cleanup(self):
+        """Clean up temporary files."""
+        if self.unpacked:
+            del_dir(self.tmpdir)
+            self.unpacked = False
+            del self.meta
+
+    def __enter__(self):
+        """Context manager."""
+        self.unpack()
+        return self
+
+    def __exit__(self, exception_type, exception_value, traceback):
+        """Remove temporary unpack_filepath."""
+        self.cleanup()
+        if exception_type is not None:
+            self.logger.info('ModelStoreTF exception {}'.format(
+                exception_type))
+
+    def __del__(self):
+        """Run cleanup on destroy."""
+        self.cleanup()
+
+    def load_model(self, time_steps=None):
+        """Load a model from a tf saved_model file.
+
+        :param time_steps: number of time points in RNN, `None` for dynamic.
+
+        ..note:: this function builds the model then loads the weights.
+
+        """
+        self.unpack()
+        model_partial_function = self.get_meta('model_function')
+        self.model = model_partial_function(time_steps=time_steps)
+        self.logger.info("Model {}".format(self.model))
+        weights = os.path.join(
+            self._unpacked_filepath, 'variables', 'variables')
+        self.logger.info("loading weights from {}".format(weights))
+        self.model.load_weights(weights)
+        return self.model
+
+    def get_meta(self, key):
+        """Load (deserialise) a meta data item.
+
+        :param key: name of item to load.
+        """
+        self.unpack()
+        try:
+            return self.meta[key]
+        except Exception as e:
+            self.logger.debug("Could not load {} from {}. {}.".format(
+                key, self.metapath, e))
+
+    def copy_meta(self, hdf):
+        """Copy metadata to hdf file.
+
+        :param hdf: filename of hdf file.
+
+        """
+        self.unpack()
+        with DataStore(hdf, 'a') as ds:
+            for k, v in self.meta.items():
+                ds.set_meta(v, k)
 
 
 class DataStore(object):
