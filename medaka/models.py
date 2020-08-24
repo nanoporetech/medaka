@@ -24,6 +24,7 @@ def resolve_model(model):
 
     :returns: str: filepath to hdf model file or TF model directory.
     """
+    suffixes = ("_model.hdf5", "_model.tar.gz")
     if os.path.exists(model):  # model is path to model file
         return model
     elif model not in medaka.options.allowed_models:
@@ -31,35 +32,45 @@ def resolve_model(model):
             "Model {} is not a known model or existant file.".format(model))
     else:
         # check for model in model stores
-        # TODO add check for TF models when hdf5 models in have been converted
-        fname = '{}_model.hdf5'.format(model)
-        fps = [
-            os.path.join(ms, fname)
-            for ms in medaka.options.model_stores]
-        for fp in fps:
-            if os.path.exists(fp):
-                return fp
+        for suffix in suffixes:
+            fname = '{}{}'.format(model, suffix)
+            for ms in medaka.options.model_stores:
+                fp = os.path.join(ms, fname)
+                if os.path.exists(fp):
+                    return fp
 
         # try to download model
-        url = medaka.options.model_url_template.format(
-            pkg=__package__, subdir=medaka.options.model_subdir, fname=fname)
-        try:
-            data = requests.get(url).content
-            # check data is a hdf5 model or a tensorflow model directory
-            with tempfile.TemporaryDirectory() as tmpdir:
-                tmp_file = os.path.join(tmpdir, "tmp_model.hdf5")
-                with open(tmp_file, 'wb') as tmp_model:
-                    tmp_model.write(data)
-                with medaka.datastore.DataStore(tmp_file) as ds:
-                    ds.get_meta('model_function')
-        except Exception:
+        download_errors = 0
+        data = None
+        for suffix in suffixes:
+            fname = '{}{}'.format(model, suffix)
+            url = medaka.options.model_url_template.format(
+                pkg=__package__, subdir=medaka.options.model_subdir,
+                fname=fname)
+            try:
+                data = requests.get(url).content
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    # write the data and check it looks like a model
+                    tmp_file = os.path.join(tmpdir, "tmp{}".format(suffix))
+                    with open(tmp_file, 'wb') as tmp_model:
+                        tmp_model.write(data)
+                    # this will call ourself recursively, but we give a
+                    # filepath now so will return immediately.
+                    with open_model(tmp_file) as model_store:
+                        model_store.get_meta('model_function')
+            except Exception:
+                download_errors += 1
+            else:
+                break
+        if download_errors == len(suffixes):
             raise DownloadError(
                 "The model file for {} is not already installed and "
-                "could not be downloaded. Check you are connected to"
-                " the internet and try again.".format(model))
+                "could not be downloaded. Check you are connected to "
+                "the internet and try again.".format(model))
         else:
-            # save the model
-            for fp in fps:  # try saving the model
+            # save the model, try all locations
+            for ms in medaka.options.model_stores:
+                fp = os.path.join(ms, fname)
                 try:
                     d = os.path.dirname(fp)
                     pathlib.Path(d).mkdir(parents=True, exist_ok=True)
@@ -73,7 +84,9 @@ def resolve_model(model):
                 "installed to any of {}. If you cannot gain write "
                 "permissions, download the model file manually from {} and "
                 "use the downloaded model as the --model option.")
-            raise RuntimeError(msg.format(model, ' or '.join(fps), url))
+            raise RuntimeError(
+                msg.format(
+                    model, ' or '.join(medaka.options.model_stores), url))
     raise RuntimeError("Model resolution failed")
 
 

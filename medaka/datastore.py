@@ -5,9 +5,8 @@ from concurrent.futures import \
     as_completed, ProcessPoolExecutor, ThreadPoolExecutor
 import os
 import pickle
-import shutil
-import sys
 import tarfile
+import tempfile
 import warnings
 
 import numpy as np
@@ -18,52 +17,6 @@ import medaka.common
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
     import h5py
-
-
-def tar_dir(path, tar_name):
-    """Recursively tar and zip directory.
-
-    :param path: filepath to directory to tar
-    :param tar_name: filepath to zipped tar file
-
-    """
-    with tarfile.open(tar_name, "w:gz") as tar_handle:
-        for root, dirs, files in os.walk(path):
-            for fname in files:
-                tar_handle.add(os.path.join(root, fname))
-
-
-def untar_dir(filepath, unzip_path):
-    """Unpack a zipped tar file.
-
-    :param filename: filepath to .tar.gz file
-    :param unzip_path: path to unpack into
-
-    :return: path to unpacked folder
-    """
-    # unpack into unzip_path
-    tar_hdl = tarfile.open(filepath)
-    tar_hdl.extractall(path=unzip_path)
-    tar_hdl.close()
-
-    # get path to unpacked folder
-    lead_folder = os.path.split(os.path.dirname(filepath))[-1]
-    base_dir = os.path.basename(filepath).replace(".tar.gz", "")
-
-    # TODO: determine why the the 'lead folder' is sometimes included
-    unpacked_path = os.path.join(unzip_path, lead_folder, base_dir)
-    if os.path.exists(unpacked_path):
-        return unpacked_path
-    else:
-        return os.path.join(unzip_path, base_dir)
-
-
-def del_dir(path):
-    """Delete folder."""
-    try:
-        shutil.rmtree(path)
-    except Exception as e:
-        sys.stdout.write("Exception deleting folder {}: {}.".format(path, e))
 
 
 class BaseModelStore(ABC):
@@ -97,7 +50,6 @@ class ModelStore(BaseModelStore):
         """Initialize a Modelstore.
 
         :param filename: filepath to hdf file
-
         """
         self.filepath = filepath
         self.logger = medaka.common.get_named_logger('ModelStore')
@@ -118,7 +70,6 @@ class ModelStore(BaseModelStore):
 
         ..note:: keras' `load_model` cannot handle CuDNNGRU layers, hence this
             function builds the model then loads the weights.
-
         """
         with DataStore(self.filepath) as ds:
             self.logger.info('filepath {}'.format(self.filepath))
@@ -144,33 +95,36 @@ class ModelStore(BaseModelStore):
 class ModelStoreTF(BaseModelStore):
     """Read and write model to tensorflow storage directory."""
 
+    top_level_dir = 'model'
+
     def __init__(self, filepath):
         """Initialize a Modelstore.
 
         :param filename: filepath to saved_model directory
-
         """
         self.logger = medaka.common.get_named_logger('ModelStoreTF')
         self.filepath = filepath
-        self.unpacked = False
+        self.meta = None
+        self.tmpdir = None
 
     def unpack(self):
         """Unpack model files from archive."""
-        if not self.unpacked:
-            self.tmpdir = "tmp"
-            self._unpacked_filepath = untar_dir(self.filepath, self.tmpdir)
-            self.metapath = os.path.join(self._unpacked_filepath, 'meta.pkl')
-            self.unpacked = True
-            with open(self.metapath, 'rb') as handle:
-                self.meta = pickle.load(handle)
+        if self.tmpdir is None:
+            # tmpdir is removed by .cleanup()
+            self.tmpdir = tempfile.TemporaryDirectory()
+            with tarfile.open(self.filepath) as tar:
+                tar.extractall(path=self.tmpdir.name)
+            meta_file = os.path.join(
+                self.tmpdir.name, self.top_level_dir, 'meta.pkl')
+            with open(meta_file, 'rb') as fh:
+                self.meta = pickle.load(fh)
         return self
 
     def cleanup(self):
         """Clean up temporary files."""
-        if self.unpacked:
-            del_dir(self.tmpdir)
-            self.unpacked = False
-            del self.meta
+        if self.tmpdir:
+            self.meta = None
+            self.tmpdir = None
 
     def __enter__(self):
         """Context manager."""
@@ -194,14 +148,13 @@ class ModelStoreTF(BaseModelStore):
         :param time_steps: number of time points in RNN, `None` for dynamic.
 
         ..note:: this function builds the model then loads the weights.
-
         """
         self.unpack()
         model_partial_function = self.get_meta('model_function')
         self.model = model_partial_function(time_steps=time_steps)
         self.logger.info("Model {}".format(self.model))
         weights = os.path.join(
-            self._unpacked_filepath, 'variables', 'variables')
+            self.tmpdir.name, self.top_level_dir, 'variables', 'variables')
         self.logger.info("loading weights from {}".format(weights))
         self.model.load_weights(weights)
         return self.model
@@ -212,17 +165,12 @@ class ModelStoreTF(BaseModelStore):
         :param key: name of item to load.
         """
         self.unpack()
-        try:
-            return self.meta[key]
-        except Exception as e:
-            self.logger.debug("Could not load {} from {}. {}.".format(
-                key, self.metapath, e))
+        return self.meta[key]
 
     def copy_meta(self, hdf):
         """Copy metadata to hdf file.
 
         :param hdf: filename of hdf file.
-
         """
         self.unpack()
         with DataStore(hdf, 'a') as ds:

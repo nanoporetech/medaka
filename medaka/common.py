@@ -596,7 +596,7 @@ def mkdir_p(path, info=None):
         if exc.errno == errno.EEXIST and os.path.isdir(path):
             if info is not None:
                 info = " {}".format(info)
-            logging.warn("The path {} exists.{}".format(path, info))
+            logging.warning("The path {} exists.{}".format(path, info))
             pass
         else:
             raise
