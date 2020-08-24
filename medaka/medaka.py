@@ -12,7 +12,6 @@ import medaka.common
 import medaka.datastore
 import medaka.features
 import medaka.labels
-import medaka.methdaka
 import medaka.models
 import medaka.options
 import medaka.prediction
@@ -440,40 +439,6 @@ def main():
     snp_parser.add_argument('--verbose', action='store_true',
                          help='Populate VCF info fields.')
 
-    # Methylation
-    methparser = subparsers.add_parser('methylation',
-        help='methylation subcommand.',
-        parents=[_log_level()],
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    methsubparsers = methparser.add_subparsers(
-        title='methylation', description='valid methylation commands', help='additional help', dest='meth_command')
-
-    hdf2samparser = methsubparsers.add_parser('guppy2sam',
-        help='Convert Guppy .fast5 files with methylation calls to .sam file, output to stdout.',
-        parents=[_log_level()],
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    hdf2samparser.set_defaults(func=medaka.methdaka.hdf_to_sam)
-    hdf2samparser.add_argument('path', help='Input path for .fast5 files.')
-    hdf2samparser.add_argument('--reference',
-        help='.fasta containing reference sequence(s). If not given output will be unaligned sam.')
-    hdf2samparser.add_argument('--workers', type=int, default=16, help='Number of alignment threads.')
-    hdf2samparser.add_argument('--io_workers', type=int, default=4, help='Number of .fast5 reader processes.')
-    hdf2samparser.add_argument('--recursive', action='store_true', help='Search for .fast5s recursively.')
-
-    methcallparser = methsubparsers.add_parser('call',
-        help='Call methylation from .bam file.',
-        parents=[_log_level(), _rg_arg()],
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    methcallparser.set_defaults(func=medaka.methdaka.call_methylation)
-    methcallparser.add_argument('bam', help='Input .bam file (via `medaka methylation guppy2sam`).')
-    methcallparser.add_argument('reference', help='.fasta containing reference sequence(s).')
-    methcallparser.add_argument('region', help='bam region to process (chrom:start-end).')
-    methcallparser.add_argument('output', help='Output file name.')
-    methcallparser.add_argument('--meth', default='cpg', choices=list(medaka.methdaka.MOTIFS.keys()), help='methylation type.')
-    methcallparser.add_argument(
-            '--filter', type=int, nargs=2, default=(64, 128),
-            metavar=('upper', 'lower'), help='Upper (lower) score boundary to call canonical (methylated) base. Scores are in the range [0, 256].')
-
     # Tools
     toolparser = subparsers.add_parser('tools',
         help='tools subcommand.',
@@ -623,8 +588,6 @@ def main():
     if args.command == 'tools' and not hasattr(args, 'func'):
         # display help if given `medaka tools (--help)`
         toolparser.print_help()
-    elif args.command == 'methylation' and not hasattr(args, 'func'):
-        methparser.print_help()
     else:
         # do some common argument validation here
         if hasattr(args, 'bam') and args.bam is not None:

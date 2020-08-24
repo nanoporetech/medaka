@@ -1,6 +1,11 @@
 Methylation calling
 ===================
 
+.. note::
+    This functionality has been removed in Medaka 1.1.0 and moved to
+    `fast5mod <https://github.com/nanoporetech/fast5mod>`_.
+
+
 Medaka includes a basic workflow for aggregating Guppy basecalling results
 for Dcm, Dam, and CpG methylation. The workflow is currently very preliminary
 and subject to change and improvement.
