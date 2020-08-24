@@ -1,6 +1,8 @@
 """Extensions to keras API for medaka."""
 import os
 import pickle
+import shutil
+import tarfile
 from timeit import default_timer as now
 
 import numpy as np
@@ -31,6 +33,7 @@ class ModelMetaCheckpoint(ModelCheckpoint):
         if not set(medaka_meta.keys()).issubset(required_meta):
             raise KeyError(
                 '`medaka_meta may only contain: {}'.format(required_meta))
+        self.logger = medaka.common.get_named_logger("CheckPnt")
 
     def on_epoch_end(self, epoch, logs=None):
         """Perform actions at the end of an epoch."""
@@ -49,14 +52,16 @@ class ModelMetaCheckpoint(ModelCheckpoint):
 class ModelMetaCheckpointTF(ModelMetaCheckpoint):
     """Custom ModelCheckpoint to save tf model files and metadata."""
 
-    def pack_meta(self):
+    def pack_meta(self, clean=True):
         """Write meta to pickled file in tf model directory and zip."""
-        meta_filepath = os.path.join(self.epoch_fp, 'meta.pkl')
-        tar_name = self.epoch_fp + '.tar.gz'
-        with open(meta_filepath, 'wb') as handle:
+        with open(os.path.join(self.epoch_fp, 'meta.pkl'), 'wb') as handle:
             pickle.dump(self.medaka_meta, handle)
-        medaka.datastore.tar_dir(self.epoch_fp, tar_name)
-        medaka.datastore.del_dir(self.epoch_fp)
+        with tarfile.open(self.epoch_fp + '.tar.gz', "w:gz") as tar:
+            tar.add(
+                self.epoch_fp,
+                arcname=medaka.datastore.ModelStoreTF.top_level_dir)
+        if clean:
+            shutil.rmtree(self.epoch_fp)
 
 
 class SequenceBatcher(Sequence):
