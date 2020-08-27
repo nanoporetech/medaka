@@ -19,7 +19,7 @@ test:
         - make docs
 
 .many-linux: &many-linux-def
-  image: quay.io/pypa/manylinux1_x86_64
+  image: quay.io/pypa/manylinux2010_x86_64
   stage: build
   before_script:
       - echo "Nothing to do in before_script"
