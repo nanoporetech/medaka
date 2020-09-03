@@ -123,7 +123,13 @@ def build_model(feature_len, num_classes, gru_size=128,
     """
     import tensorflow as tf
     from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import Dense, GRU, CuDNNGRU, Bidirectional
+    from tensorflow.keras.layers import Dense, GRU, Bidirectional
+    from packaging import version
+
+    if version.parse(tf.version.VERSION) < version.parse("2.0"):
+        from tensorflow.keras.layers import CuDNNGRU
+    else:
+        from tensorflow.compat.v1.keras.layers import CuDNNGRU
 
     # Determine whether to use CuDNNGRU or not
     cudnn = False
