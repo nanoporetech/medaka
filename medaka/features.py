@@ -782,7 +782,7 @@ def create_samples(args):
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))
     if args.truth is None:
-        logger.warn(
+        logger.warning(
             'Running medaka features without a truth bam, '
             'unlabelled data will be produced. Is this intended?')
         time.sleep(3)
