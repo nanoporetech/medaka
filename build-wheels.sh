@@ -22,7 +22,7 @@ for minor in $@; do
     PYBIN="/opt/python/cp3${minor}-cp3${minor}m/bin"
     # auditwheel/issues/102
     "${PYBIN}/pip" install --upgrade cffi setuptools pip wheel==0.31.1
-    "${PYBIN}/pip" wheel . -w ./wheelhouse/
+    "${PYBIN}/pip" wheel --no-dependencies . -w ./wheelhouse/
 done
 
 
@@ -32,11 +32,14 @@ for whl in "wheelhouse/${PACKAGE_NAME}"*.whl; do
 done
 
 
-# Install packages
-for minor in $@; do
-    PYBIN="/opt/python/cp3${minor}-cp3${minor}m/bin"
-    "${PYBIN}/pip" install "${PACKAGE_NAME}" --no-index -f ./wheelhouse
-    "${PYBIN}/medaka_counts" --print medaka/test/data/test_reads.bam utg000001l:10000-10010
-done
+## Install packages
+if [[ "${DO_COUNT_TEST}" == "1" ]]; then
+    for minor in $@; do
+        PYBIN="/opt/python/cp3${minor}-cp3${minor}m/bin"
+        "${PYBIN}/pip" install -r requirements.txt 
+        "${PYBIN}/pip" install "${PACKAGE_NAME}" --no-index -f ./wheelhouse
+        "${PYBIN}/medaka_counts" --print medaka/test/data/test_reads.bam utg000001l:10000-10010
+    done
+fi
 
 cd wheelhouse && ls | grep -v "${PACKAGE_NAME}.*manylinux" | xargs rm

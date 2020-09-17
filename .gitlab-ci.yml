@@ -18,26 +18,65 @@ test:
         - make -j 1 test mem_check
         - make docs
 
+
+.arm-many-linux: &arm-many-linux-def
+    image: quay.io/pypa/manylinux2014_aarch64
+    stage: test
+    tags:
+        - arm64
+    variables:
+        DO_COUNT_TEST: 0
+    before_script:
+        # ARM CI image doesn't have git lfs, so need to jump some hoops
+        - yum install -y wget
+        - mkdir git-lfs && cd git-lfs
+          && wget https://github.com/git-lfs/git-lfs/releases/download/v2.12.0/git-lfs-linux-arm64-v2.12.0.tar.gz
+          && tar -xzvf git-lfs-linux-arm64-v2.12.0.tar.gz
+          && chmod +x install.sh && ./install.sh
+          && cd ..
+        - GIT_SSL_NO_VERIFY=1 git lfs pull
+        - file medaka/data/*.hdf5
+        # replace architecture of python extension (what about libhts.a?)
+        - sed -i "s/-msse3/-march=armv8-a+simd/" build.py
+    artifacts:
+        paths:
+          - wheelhouse/*.whl
+    only:
+        - tags
+
+build:arm-many-linux-5:
+    <<: *arm-many-linux-def
+    script:
+        - ./build-wheels.sh . 5
+
+build:arm-many-linux-6:
+    <<: *arm-many-linux-def
+    script:
+        - ./build-wheels.sh . 6
+
+
 .many-linux: &many-linux-def
   image: quay.io/pypa/manylinux2010_x86_64
   stage: build
-  before_script:
-      - echo "Nothing to do in before_script"
+  variables:
+      DO_COUNT_TEST: 1
   artifacts:
       paths:
           - wheelhouse/*.whl
-  only:
-      - tags
 
 build:many-linux-5:
     <<: *many-linux-def
     script:
         - ./build-wheels.sh . 5
+    only:
+        - tags
 
 build:many-linux-6:
     <<: *many-linux-def
     script:
         - ./build-wheels.sh . 6
+    only:
+        - tags
 
 build:sdist:
     stage: build
