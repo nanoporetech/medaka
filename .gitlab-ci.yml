@@ -21,7 +21,7 @@ test:
 
 .arm-many-linux: &arm-many-linux-def
     image: quay.io/pypa/manylinux2014_aarch64
-    stage: test
+    stage: build
     tags:
         - arm64
     variables:
