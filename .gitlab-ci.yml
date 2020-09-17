@@ -36,6 +36,11 @@ test:
           && cd ..
         - GIT_SSL_NO_VERIFY=1 git lfs pull
         - file medaka/data/*.hdf5
+        # strip some less useful dependencies
+        - sed -i "s/numpy==1.16.1/numpy==1.19.2/" requirements.txt
+        - sed -i "/parasail/d" requirements.txt
+        - sed -i "/pyspoa/d" requirements.txt
+        - sed -i "/whatshap/d" requirements.txt
         # replace architecture of python extension (what about libhts.a?)
         - sed -i "s/-msse3/-march=armv8-a+simd/" build.py
     artifacts:
