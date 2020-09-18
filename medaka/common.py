@@ -612,7 +612,7 @@ def grouper(gen, batch_size=4):
             except StopIteration:
                 if len(batch) > 0:
                     yield batch
-                raise StopIteration
+                return
         yield batch
 
 
