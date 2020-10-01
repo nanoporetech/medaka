@@ -195,7 +195,7 @@ def get_trimmed_reads(
         partial=True, num_qstrat=1, read_group=None):
     """Fetch reads trimmed to a region.
 
-    Overlapping chunks of the imput region will be produced, with each chunk
+    Overlapping chunks of the input region will be produced, with each chunk
     having its reads trimmed to the reference sequence coordinates of the
     chunk.
 

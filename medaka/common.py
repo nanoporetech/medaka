@@ -489,6 +489,8 @@ class Region(_Region):
 
         """
         regions = list()
+        if size >= region.size:
+            return [region]
         for start in range(region.start, region.end, size - overlap):
             end = min(start + size, region.end)
             regions.append(Region(region.ref_name, start, end))
