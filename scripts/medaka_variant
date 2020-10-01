@@ -36,6 +36,7 @@ INDEL_THRESHOLD=9
 SNP_THRESHOLD=8
 FILTER_FLAG=true
 STOPAFTERROUND0=false
+HAPLOID2DIPLOID_OPTS=""
 
 usage="
 ${medaka_version}
@@ -69,10 +70,11 @@ $(basename "$0") [-h] -i <bam>
     -N  threshold for filtering indels in final VCF (default: ${INDEL_THRESHOLD})
     -P  threshold for filtering SNPs in final VCF (default: ${SNP_THRESHOLD})
     -U  Avoid filtering of final VCF (default: do filter)
-    -S  stop after initial SNP calling from mixed reads prior to phasing."
+    -S  stop after initial SNP calling from mixed reads prior to phasing.
+    -l  split MNPs into SNPs."
 
 
-while getopts ':hi::f:r:o:m:s:T:t:pb:N:P:UdS' option; do
+while getopts ':hi::f:r:o:m:s:T:t:pb:N:P:UdSl' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; CALLS2REF=$(follow_link $OPTARG);;
@@ -89,6 +91,7 @@ while getopts ':hi::f:r:o:m:s:T:t:pb:N:P:UdS' option; do
     P  ) SNP_THRESHOLD=$OPTARG;;
     U  ) FILTER_FLAG=false;;
     S  ) STOPAFTERROUND0=true;;
+    l  ) HAPLOID2DIPLOID_OPTS="${HAPLOID2DIPLOID_OPTS} --split_mnp";;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
     :  ) echo "Option -$OPTARG requires an argument." >&2; exit 1;;
   esac
@@ -196,11 +199,12 @@ run_medaka_haploid2diploid () {
     local VCF2=$2
     local REF=$3
     local MERGED=$4
+    local OPTS=$5
 
     exit_if_file_does_not_exist ${VCF1} ${VCF2} ${REF}
     if [[ ! -e ${MERGED} ]]; then
         echo "- Running medaka haploid2diploid "
-        medaka tools haploid2diploid ${VCF1} ${VCF2} ${REF} ${MERGED} \
+        medaka tools haploid2diploid ${VCF1} ${VCF2} ${REF} ${MERGED} ${OPTS} \
             || (echo "* Failed to run medaka haploid2diploid." && exit 1)
         echo "  VCF written to ${OUTPUT}/${MERGED}."
     else
@@ -387,7 +391,7 @@ else
     
     run_medaka_haploid2diploid \
         round_${ROUND}_hap_1.vcf round_${ROUND}_hap_2.vcf \
-        ${REF} ${UNFILTERED}
+        ${REF} ${UNFILTERED} ${HAPLOID2DIPLOID_OPTS}
 
     # Add invocation of this script to VCF header
     INVOCATION_DATE="##CL=${INVOCATION}; $(date)"
