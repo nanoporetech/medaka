@@ -462,6 +462,8 @@ def main():
                          help=('Merge adjacent variants (i.e. variants with non-overlapping genomic ranges) instead' +
                                ' of just overlapping ones. If set to True, all runs of adjacent variants will be' +
                                ' merged including those which appear in just one of the input VCFs.'))
+    h2dparser.add_argument('--split_mnp', action='store_true',
+                         help='Split each mnp into multiple snps.')
 
     # split a diploid VCF into two haploid VCFs.
     d2hparser = toolsubparsers.add_parser('diploid2haploid',

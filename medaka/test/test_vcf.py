@@ -10,7 +10,7 @@ import parasail
 from medaka.vcf import (VCFWriter, VCFReader, Variant, Haploid2DiploidConverter,
                         split_variants, classify_variant, _merge_variants,
                         MetaInfo, get_padded_haplotypes, align_read_to_haps,
-                        align_reads_to_haps)
+                        align_reads_to_haps, split_mnp)
 
 root_dir = os.path.abspath(os.path.dirname(__file__))
 test1_file = os.path.join(root_dir, 'data/test1.vcf')
@@ -516,6 +516,49 @@ class TestMergeAndSplitVCFs(unittest.TestCase):
                     expected = getattr(expt, key)
                     result = getattr(got, key)
                     self.assertEqual(expected, result, 'Splitting failed for {}:{} {}.'.format(expt.chrom, expt.pos+1, key))
+
+
+class TestSplitMNP(unittest.TestCase):
+    chrom = 'chr20'
+    qual = 5
+    info = {'my_meta': 10}
+
+    def _make_variant(self, pos, ref, alt, gt):
+        return Variant(self.chrom, pos, ref, alt,
+                       genotype_data={'GT': '{}|{}'.format(*gt),
+                                      'GQ': self.qual},
+                       info=self.info)
+
+    def test_classify_variant(self):
+        cases = [
+            # initial pos, ref, alt, gt
+            # followed by split pos, ref, alt, gt
+            ((60795, 'GG', ['AC', 'AG'], (1, 2)),
+             (60795, 'G', ['A'], (1, 1)),
+             (60796, 'G', ['C'], (1, 0))),
+            ((60863, 'AA',['CC', 'AC'], (1, 2)),
+             (60863, 'A', ['C'], (1, 0)),
+             (60864, 'A', ['C'], (1, 1))),
+            ((175688, 'GG', ['CT'], (1, 0)),
+             (175688, 'G', ['C'], (1, 0)),
+             (175689, 'G', ['T'], (1, 0))),
+            ((359953, 'TGC', ['CAT'], (0, 1)),
+             (359953, 'T', ['C'], (0, 1)),
+             (359954, 'G', ['A'], (0, 1)),
+             (359955, 'C', ['T'], (0, 1))),
+            ((1000, 'TGC', ['C'], (0, 1)),  # non-MNP should come back unchanged
+             (1000, 'TGC', ['C'], (0, 1))),
+
+        ]
+        for mnp, *split_vars in cases:
+            got = split_mnp(self._make_variant(*mnp))
+            expt = [self._make_variant(*i) for i in split_vars]
+            self.assertEqual(len(expt), len(got))
+            for g, e in zip(got, expt):
+                msg = 'Attr {} failed for {}'
+                for attr in 'chrom', 'pos', 'alt', 'info', 'gt':
+                    self.assertEqual(getattr(g, attr), getattr(e, attr),
+                                     msg=msg.format(attr, mnp))
 
 
 class TestClassifyVariant(unittest.TestCase):

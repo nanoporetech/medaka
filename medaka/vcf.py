@@ -707,6 +707,42 @@ def _merge_variants(
         genotype_data=genotype_data).trim()
 
 
+def split_mnp(v):
+    """Split mvp variants into snps, leave others unchanged.
+
+    :param v: `medaka.vcf.Variant` obj
+    :returns: list of `medaka.vcf.Variant objs`
+    """
+    variants = []
+    if classify_variant(v) == 'mnp':
+        for i, ref in enumerate(v.ref):
+            pos = v.pos + i
+            alt = [a[i] for a in v.alt]
+            genotype_data = v.genotype_data.copy()
+            gt_sep = v.genotype_data['GT'][1]
+            gt = v.gt
+            # clean up alts, removing duplicates / same as ref
+            if ref in alt or len(set(alt)) != len(alt):
+                ref_and_alts = [ref] + alt
+                haps = [ref_and_alts[i] for i in gt]
+                new_alt = []
+                for a in alt:
+                    if a != ref and a not in new_alt:
+                        new_alt.append(a)
+                ref_and_new_alts = [ref] + new_alt
+                gt = tuple([ref_and_new_alts.index(a) for a in haps])
+                alt = ref_and_new_alts[1:]
+                genotype_data['GT'] = gt_sep.join(map(str, gt))
+
+            variants.append(Variant(v.chrom, pos, ref, alt, ident=v.ident,
+                                    qual=v.qual, filt=v.filt, info=v.info,
+                                    genotype_data=genotype_data))
+    else:
+        variants.append(v)
+
+    return variants
+
+
 class Haploid2DiploidConverter(object):
     """Conversion of multiple haploid `.vcf` files to a single `.vcf`."""
 
@@ -818,7 +854,10 @@ def haploid2diploid(args):
     with VCFWriter(
             args.vcfout, 'w', version='4.1', contigs=convertor.chroms,
             meta_info=convertor.meta_info) as vcf_writer:
-        for v in convertor.variants():
+        variants = convertor.variants()
+        if args.split_mnp:
+            variants = itertools.chain(split_mnp(v) for v in variants)
+        for v in variants:
             vcf_writer.write_variant(v)
 
 
