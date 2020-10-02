@@ -131,10 +131,10 @@ if __name__ == '__main__':
     check_model_lfs()
 
     pymajor, pyminor = sys.version_info[0:2]
-    if (pymajor < 3) or (pyminor not in {5, 6}):
+    if (pymajor < 3) or (pyminor not in {5, 6, 7, 8}):
         raise RuntimeError(
             '`medaka` is unsupported on your version of python, '
-            'please use python 3.5 or python 3.6.')
+            'please use python 3.5-3.8 (inclusive)')
 
     setup(
         name='medaka',
@@ -144,7 +144,7 @@ if __name__ == '__main__':
         description=__description__,
         long_description=__long_description__,
         long_description_content_type=__long_description_content_type__,
-        python_requires='>=3.5.*,<3.7',
+        python_requires='>=3.5.*,<3.9',
         packages=find_packages(exclude=['*.test', '*.test.*', 'test.*', 'test']),
         package_data={
             __pkg_name__:[os.path.join('data', '{}_model.hdf5'.format(f))

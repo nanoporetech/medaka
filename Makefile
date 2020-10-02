@@ -13,6 +13,12 @@ endif
 
 PYTHON ?= python3
 
+ifeq ($(CITEST),)
+COVFAIL=80
+else
+COVFAIL=79
+endif
+
 binaries: $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 
 SAMVER=1.10
@@ -136,7 +142,7 @@ test: install
 		--statistics
 	${IN_VENV} && pytest medaka --doctest-modules \
 		--cov=medaka --cov-report html --cov-report term \
-		--cov-fail-under=80 --cov-report term-missing
+		--cov-fail-under=${COVFAIL} --cov-report term-missing
 
 
 .PHONY: clean

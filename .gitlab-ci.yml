@@ -15,7 +15,7 @@ test:
           libssl-dev libffi-dev valgrind
     script:
         - make venv
-        - make -j 1 test mem_check
+        - CITEST=1 make -j 1 test mem_check
         - make docs
 
 
@@ -59,7 +59,6 @@ build:arm-many-linux-6:
     script:
         - ./build-wheels.sh . 6
 
-
 .many-linux: &many-linux-def
   image: quay.io/pypa/manylinux2010_x86_64
   stage: build
@@ -68,20 +67,28 @@ build:arm-many-linux-6:
   artifacts:
       paths:
           - wheelhouse/*.whl
+  only:
+      - tags
 
 build:many-linux-5:
     <<: *many-linux-def
     script:
         - ./build-wheels.sh . 5
-    only:
-        - tags
 
 build:many-linux-6:
     <<: *many-linux-def
     script:
         - ./build-wheels.sh . 6
-    only:
-        - tags
+
+build:many-linux-7:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 7
+
+build:many-linux-8:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 8
 
 build:sdist:
     stage: build
