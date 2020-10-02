@@ -1,4 +1,3 @@
-import io
 import os
 import types
 import unittest
@@ -6,8 +5,8 @@ import warnings
 
 import pytest
 
+import medaka.align
 from medaka import smolecule
-import medaka.common
 
 root_dir = os.path.abspath(os.path.dirname(__file__))
 test_fasta = os.path.join(root_dir, 'data/smolecule.fasta')
@@ -98,4 +97,3 @@ class TestRead(unittest.TestCase):
             warnings.simplefilter("always")
             read.mappy_to_template(sub_reads[0][0].seq, 'test', align=False)
             assert issubclass(w[-1].category, DeprecationWarning)
-

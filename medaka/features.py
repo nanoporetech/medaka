@@ -235,9 +235,12 @@ def get_trimmed_reads(
 
     # split large regions for performance
     regions = region.split(region_split, chunk_overlap)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) \
-            as executor:
-        results = executor.map(_process_region, regions)
+    if len(regions) > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) \
+                as executor:
+            results = executor.map(_process_region, regions)
+    else:
+        results = (_process_region(region),)
 
     return results
 

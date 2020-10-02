@@ -831,7 +831,7 @@ class HaploidLabelScheme(BaseLabelScheme):
                         genotype_data=genotype))
         return results
 
-    def decode_variants(self, sample, ref_seq):
+    def decode_variants(self, sample, ref_seq, ambig_ref=False):
         """Convert network output in sample to a set of `medaka.vcf.Variant` s.
 
         A consensus sequence is decoded and compared with a reference sequence.
@@ -840,6 +840,8 @@ class HaploidLabelScheme(BaseLabelScheme):
 
         :param sample: `medaka.common.Sample`.
         :param ref_seq: reference sequence, should be upper case.
+        :param ambig_ref: bool, if True, decode variants at ambiguous (N)
+            reference positions.
 
         :returns: list of `medaka.vcf.Variant` objects.
         """
@@ -918,13 +920,17 @@ class HaploidLabelScheme(BaseLabelScheme):
             if var_ref == var_pred:
                 # not a variant
                 continue
-            elif not set(var_ref).issubset(set(self.symbols)):
+            elif (not ambig_ref and not
+                  set(var_ref).issubset(set(self.symbols))):
                 # don't call where reference is ambiguous
                 continue
 
             var_probs = probs[start:end]
 
-            var_ref_encoded = (encoding[(s,)] for s in var_ref_with_gaps)
+            # As N is not in encoding, encode N as *
+            # This only affects calculation of quals.
+            var_ref_encoded = (encoding[(s if s != 'N' else '*',)]
+                               for s in var_ref_with_gaps)
             var_pred_encoded = (encoding[(s,)] for s in var_pred_with_gaps)
 
             ref_probs = np.array([var_probs[i, j]

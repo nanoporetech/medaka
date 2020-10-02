@@ -9,6 +9,7 @@ import logging
 import os
 import re
 
+import intervaltree
 import numpy as np
 from pkg_resources import resource_filename
 import pysam
@@ -408,6 +409,69 @@ class Sample(_Sample):
                 return False
         return True
 
+    @staticmethod
+    def trim_samples(sample_gen):
+        """Generate trimmed samples.
+
+        Samples are trimmed to remove overlap between adjacent samples.
+
+        :param sample_gen: generator yielding `medaka.common.Sample` s
+
+        :yields: (`medaka.common.Sample` view, bool is_last_in_contig,
+            bool heuristic)
+        """
+        logger = get_named_logger('TrimOverlap')
+        s1 = next(sample_gen)
+        # do not trim beginning of s1
+        start_1 = None
+        # initialise in case we have one sample
+        start_2 = None
+
+        for s2 in itertools.chain(sample_gen, (None,)):
+            s1_name = 'Unknown' if s1 is None else s1.name
+            s2_name = 'Unknown' if s2 is None else s2.name
+            heuristic = False
+
+            is_last_in_contig = False
+            # s1 is last chunk
+            if s2 is None:
+                # go to end of s1
+                end_1 = None
+                is_last_in_contig = True
+            else:
+                rel = Sample.relative_position(s1, s2)
+                # skip s2 if it is contained within s1
+                if rel is Relationship.s2_within_s1:
+                    logger.info('{} is contained within {}, skipping.'.format(
+                        s2_name, s1_name))
+                    continue
+                elif rel is Relationship.forward_overlap:
+                    end_1, start_2, _ = Sample.overlap_indices(
+                        s1, s2)
+                elif rel is Relationship.forward_gapped:
+                    is_last_in_contig = True
+                    end_1, start_2 = (None, None)
+                    msg = '{} and {} cannot be concatenated as there is ' + \
+                        'no overlap and they do not abut.'
+                    logger.info(msg.format(s1_name, s2_name))
+                else:
+                    try:
+                        end_1, start_2, heuristic = \
+                            Sample.overlap_indices(s1, s2)
+                        if heuristic:
+                            logger.debug(
+                                "Used heuristic to stitch {} and {}.".format(
+                                    s1.name, s2.name))
+                    except OverlapException as e:
+                        logger.info(
+                            "Unhandled overlap type whilst stitching chunks.")
+                        raise(e)
+
+            yield s1.slice(slice(start_1, end_1)), is_last_in_contig, heuristic
+
+            s1 = s2
+            start_1 = start_2
+
 
 # provide read only access to key region attrs
 _Region = collections.namedtuple('Region', 'ref_name start end')
@@ -760,7 +824,6 @@ def yield_from_bed(bedfile):
 
     :param bedfile: str, filepath.
     :yields: (str chrom, int start, int stop).
-
     """
     with open(bedfile) as fh:
         for line in fh:
@@ -771,3 +834,55 @@ def yield_from_bed(bedfile):
             start = int(split_line[1])
             stop = int(split_line[2])
             yield chrom, start, stop
+
+
+def complement_intervaltrees(trees, contig_lengths):
+    """Complement intervals, returning intervals not present in the input trees.
+
+    :param trees: {str contig: `intervaltree.IntervalTree` objs}
+    :param contig_lengths: {str contig: int contig length}
+    :returns: {str contig: `intervaltree.IntervalTree` objs}
+    """
+    comp = collections.defaultdict(intervaltree.IntervalTree)
+    for contig, length in contig_lengths.items():
+        comp[contig].add(intervaltree.Interval(0, length))
+    for contig, tree in trees.items():
+        for interval in tree:
+            comp[contig].chop(interval.begin, interval.end)
+    return comp
+
+
+def write_intervaltrees_to_bed(trees, outfile):
+    """Write contig intervaltrees to bed file.
+
+    :param trees: {str contig: `intervaltree.IntervalTree` objs}
+    :param outfile: str, filepath.
+    """
+    with open(outfile, 'w') as fh:
+        for contig in sorted(trees):
+            tree = trees[contig]
+            for i in sorted(tree.all_intervals):
+                fh.write("{}\t{}\t{}\n".format(contig, i.begin, i.end))
+
+
+def common_fasta_contigs(fastas, contigs=None):
+    """Get common contig names from multiple fasta files.
+
+    :param fastas: iterable of str of fasta filepaths.
+    :param contigs: iterable of str, check all fastas contain these contigs
+        raising a KeyError if they are not all present.
+
+    :returns: tuple of str, contig names.
+    """
+    fasta_contigs = {f: pysam.FastaFile(f).references for f in fastas}
+    common = set(fasta_contigs[fastas[0]])
+    for f in fastas[1:]:
+        common = common.intersection(fasta_contigs[f])
+    if contigs is not None:
+        if not common.issuperset(contigs):
+            msg = 'Contigs {} are not present in all fastas.'
+            raise KeyError(msg.format(set(contigs) - common))
+        else:
+            common = contigs
+    # return contigs in same order as in first fasta
+    return tuple([c for c in fasta_contigs[fastas[0]] if c in common])
