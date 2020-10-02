@@ -1,3 +1,18 @@
+v1.1.0
+------
+
+Update with new models and features.
+
+* Upgrade to Tensorflow 2.2.
+* Add ARM builds to PyPI release.
+* Add Python 3.7 and 3.8 builds for x86-64.
+* Add PromethION model for Guppy 4.0.11.
+* Option to split MNPs to independent SNPs (for compatibility with DeepVariant).
+* Fix a few bugs in variant annotation program.
+* Single molecule consensus program now uses `pyspoa`.
+* Remove methylation aggregation functionality.
+
+
 v1.0.3
 -------
 Minor fixes release.
