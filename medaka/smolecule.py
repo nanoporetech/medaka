@@ -2,7 +2,6 @@
 from collections import namedtuple
 from concurrent.futures import as_completed, ProcessPoolExecutor
 import os
-import re
 import subprocess
 import tempfile
 from timeit import default_timer as now
@@ -14,53 +13,8 @@ import parasail
 import pysam
 import spoa
 
+import medaka.align
 import medaka.common
-
-re_split_cigar = re.compile(r"(?P<len>\d+)(?P<op>\D+)")
-
-
-def first_cigar(cigar):
-    """Extract details of the first operation in a cigar string.
-
-    :param cigar: cigar string.
-
-    :returns: op. length, op. type
-
-    """
-    m = re.search(re_split_cigar, cigar)
-    return m.group('len'), m.group('op')
-
-
-def parasail_to_sam(result, seq):
-    """Extract reference start and sam compatible cigar string.
-
-    :param result: parasail alignment result.
-    :param seq: query sequence.
-
-    :returns: reference start coordinate, cigar string.
-
-    """
-    cigstr = result.cigar.decode.decode()
-
-    first = first_cigar(cigstr)
-    prefix = ''.join(first)
-    rstart = result.cigar.beg_ref
-    cliplen = result.cigar.beg_query
-    clip = '' if cliplen == 0 else '{}S'.format(cliplen)
-    if first[1] == 'I':
-        pre = '{}S'.format(int(first[0]) + cliplen)
-    elif first[1] == 'D':
-        pre = clip
-        rstart = int(first[0])
-    else:
-        pre = '{}{}'.format(clip, prefix)
-
-    mid = cigstr[len(prefix):]
-    end_clip = len(seq) - result.end_query - 1
-    suf = '{}S'.format(end_clip) if end_clip > 0 else ''
-    new_cigstr = ''.join((pre, mid, suf))
-    return rstart, new_cigstr
-
 
 Subread = namedtuple('Subread', 'name seq')
 Alignment = namedtuple('Alignment', 'rname qname flag rstart seq cigar')
@@ -260,7 +214,7 @@ class Read(object):
     def orient_subreads(self):
         """Find orientation of subreads with respect to consensus sequence.
 
-        :returns: `Alignment` s of subreads to consensus.
+        :returns: `medaka.align.Alignment` s of subreads to consensus.
 
         """
         # TODO: use a profile here
@@ -281,7 +235,7 @@ class Read(object):
                     result.cigar.beg_query >= result.end_query:
                 # unsure why this can happen
                 continue
-            rstart, cigar = parasail_to_sam(result, seq)
+            rstart, cigar = medaka.align.parasail_to_sam(result, seq)
             flag = 0 if is_fwd else 16
             aln = Alignment(
                 'consensus_{}'.format(self.name), sr.name,
@@ -311,7 +265,7 @@ class Read(object):
                     result.cigar.beg_query >= result.end_query:
                 # unsure why this can happen
                 continue
-            rstart, cigar = parasail_to_sam(result, seq)
+            rstart, cigar = medaka.align.parasail_to_sam(result, seq)
             flag = 0 if orient else 16
             aln = Alignment(template_name, sr.name, flag, rstart, seq, cigar)
             alignments.append(aln)
@@ -370,14 +324,9 @@ def write_bam(fname, alignments, header, bam=True):
     with pysam.AlignmentFile(fname, mode, header=header) as fh:
         for ref_id, subreads in enumerate(alignments):
             for aln in sorted(subreads, key=lambda x: x.rstart):
-                a = pysam.AlignedSegment()
-                a.reference_id = ref_id
-                a.query_name = aln.qname
-                a.query_sequence = aln.seq
-                a.reference_start = aln.rstart
-                a.cigarstring = aln.cigar
-                a.flag = aln.flag
-                a.mapping_quality = 60
+                a = medaka.align.initialise_alignment(aln.qname, ref_id,
+                                                      aln.rstart, aln.seq,
+                                                      aln.cigar, aln.flag)
                 fh.write(a)
     if mode == 'wb':
         pysam.index(fname)

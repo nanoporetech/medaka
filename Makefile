@@ -81,13 +81,13 @@ $(BINCACHEDIR)/bcftools: | $(BINCACHEDIR)
 	cp submodules/bcftools-${SAMVER}/bcftools $@
 
 
-RACONVER=1.3.1
+RACONVER=1.4.13
 $(BINCACHEDIR)/racon: | $(BINCACHEDIR)
 	@echo Making $(@F)
 	@echo GCC is $(GCC)
 	if [ ! -e submodules/racon-v${RACONVER}.tar.gz ]; then \
 	  cd submodules; \
-	  curl -L -o racon-v${RACONVER}.tar.gz https://github.com/isovic/racon/releases/download/${RACONVER}/racon-v${RACONVER}.tar.gz; \
+	  curl -L -o racon-v${RACONVER}.tar.gz https://github.com/lbcb-sci/racon/releases/download/${RACONVER}/racon-v${RACONVER}.tar.gz; \
 	  tar -xzf racon-v${RACONVER}.tar.gz; \
 	fi
 	cd submodules/racon-v${RACONVER}; \
