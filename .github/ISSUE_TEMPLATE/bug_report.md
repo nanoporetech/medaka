@@ -8,7 +8,7 @@ assignees: ''
 ---
 
 **Describe the bug**
-A clear and concise description of what the bug is.
+A clear and concise description of what the bug is including the command that you have run.
 
 **Logging**
 Please attach any relevant logging messages.
