@@ -170,6 +170,25 @@ example above) see the Model section following.
 When `medaka_consensus` has finished running, the consensus will be saved to
 `${OUTDIR}/consensus.fasta`.
 
+**Human variant calling**
+
+Variant calling on human samples can be performed with the `medaka_variant` workflow:
+
+    medaka_variant -f <REFERENCE.fasta> -b <reads.bam>
+
+which requires simply a path to the human reference sequence, and a `.bam` file
+of reads aligned to the reference.
+
+**Bacterial (ploidy-1) variant calling**
+
+Variant calling for monoploid samples is enabled through the `medaka_haploid_variant`
+workflow:
+
+    medaka_haploid_variant <reads.fastq> <ref.fasta>
+    
+which requires the reads as a `.fasta` or `.fastq` and a reference sequence as a
+`.fasta` file.
+
 
 Models
 ------
