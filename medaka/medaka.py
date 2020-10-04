@@ -311,12 +311,6 @@ class StoreDict(argparse.Action):
 def main():
     from medaka import __version__
 
-    pymajor, pyminor = sys.version_info[0:2]
-    if (pymajor < 3) or (pyminor not in {5, 6}):
-        raise RuntimeError(
-            '`medaka` is unsupported on your version of python, '
-            'please use python 3.5 or python 3.6.')
-
     parser = argparse.ArgumentParser('medaka',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     subparsers = parser.add_subparsers(title='subcommands', description='valid commands', help='additional help', dest='command')

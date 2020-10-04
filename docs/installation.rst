@@ -86,12 +86,19 @@ not be provided by the user.
 
 **Using a GPU**
 
-All installation methods will allow medaka to be used with CPU resource only.
-To enable the use of GPU resource it is necessary to install the
-``tensorflow-gpu`` package. Unfortunately depending on your python version it
-may be necessary to modify the requirements of the ``medaka`` package for it
-to run without complaining. Using the source code from github a working
-GPU-powered ``medaka`` can be configured with:
+Since version 1.1.0 ``medaka`` uses Tensorflow 2.2, prior versions used Tensorflow 1.4.
+For ``medaka`` 1.1.0 and higher installation from source or using ``pip`` can make
+immediate use of GPUs. However, note that the ``tensorflow`` package is compiled against
+specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the
+`tensorflow installation <https://www.tensorflow.org/install/gpu>`_) pages
+for further information. cuDNN can be obtained from the
+`cuDNN Archive <https://developer.nvidia.com/rdp/cudnn-archive>`_, whilst CUDA
+from the `CUDA Toolkit Archive <https://developer.nvidia.com/cuda-toolkit-archive>`.
+
+For ``medaka`` prior to version 1.1.0, to enable the use of GPU resource it is
+necessary to install the ``tensorflow-gpu`` package. Using the source code from github
+a working GPU-powered ``medaka`` can be configured with:
+
 
 .. code-block:: bash
 
@@ -100,12 +107,7 @@ GPU-powered ``medaka`` can be configured with:
     sed -i 's/tensorflow/tensorflow-gpu/' requirements.txt
     make install
 
-However, note that The ``tensorflow-gpu`` GPU package is compiled against
-specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the
-`tensorflow installation <https://www.tensorflow.org/install/gpu>`_ pages
-for further information. cuDNN can be obtained from the
-`cuDNN Archive <https://developer.nvidia.com/rdp/cudnn-archive>`_, whilst CUDA
-from the `CUDA Toolkit Archive <https://developer.nvidia.com/cuda-toolkit-archive>`_.
+*GPU usage notes:*
 
 Depending on your GPU, ``medaka`` may show out of memory errors when running.
 To avoid these the inference batch size can be reduced from the default
@@ -153,7 +155,6 @@ appropriately. When ``medaka_consensus`` has finished running, the consensus
 will be saved to ``${OUTDIR}/consensus.fasta``.
 
 .. warning::
-
 
   For best results it is important to specify the correct model, ``-m`` in the
   above, according to the basecaller used. Allowed values can be found by
@@ -221,3 +222,24 @@ It is not recommended to specify a value of ``--threads`` greater than 8 for
 Note also that ``medaka consensus`` may been seen to use resource equivalent to
 ``<threads> + 4`` as an additional 4 threads are used for reading and preparing
 input data.
+
+Human variant calling
+---------------------
+
+Variant calling on human samples can be performed with the `medaka_variant` workflow:
+
+    medaka_variant -f <REFERENCE.fasta> -b <reads.bam>
+
+which requires simply a path to the human reference sequence, and a `.bam` file
+of reads aligned to the reference.
+
+Bacterial (ploidy-1) variant calling
+------------------------------------
+
+Variant calling for monoploid samples is enabled through the `medaka_haploid_variant`
+workflow:
+
+    medaka_haploid_variant <reads.fastq> <ref.fasta>
+    
+which requires the reads as a `.fasta` or `.fastq` and a reference sequence as a
+`.fasta` file.

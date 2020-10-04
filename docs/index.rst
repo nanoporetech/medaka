@@ -1,26 +1,27 @@
 Medaka
 ======
 
-© 2018 Oxford Nanopore Technologies Ltd.
+© 2018- Oxford Nanopore Technologies Ltd.
 
-`medaka` is a tool to create a consensus sequence of nanopore sequencing data.
-This task is performed using neural networks applied a pileup of individual
-sequencing reads against a draft assembly. It outperforms graph-based methods
-operating on basecalled data, and can be competitive with state-of-the-art
-signal-based methods whilst being much faster.
+``medaka`` is a tool to create consensus sequences and variant calls from
+nanopore sequencing data.  This task is performed using neural networks applied
+a pileup of individual sequencing reads against a draft assembly. It
+outperforms graph-based methods operating on basecalled data, and can be
+competitive with state-of-the-art signal-based methods whilst being much
+faster.
 
-As input `medaka` accepts reads in either a `.fasta` or a `.fastq` file. It
-requires a draft assembly as a `.fasta`.
+As input ``medaka`` accepts reads in either a ``.fasta`` or a ``.fastq`` file. It
+requires a draft assembly as a ``.fasta``.
 
-`medaka` is distributed under the terms of the Mozilla Public License 2.0.
+``medaka`` is distributed under the terms of the Mozilla Public License 2.0.
 
 
 Features
 --------
 
-  * Requires only basecalled data (`.fasta` or `.fastq`).
+  * Requires only basecalled data (``.fasta`` or ``.fastq``).
   * Improved accurary over graph-based methods (e.g. Racon).
-  * Methylation aggregation from Guppy `.fast5` files.
+  * Methylation aggregation from Guppy ``.fast5`` files.
   * 50X faster than Nanopolish (and can run on GPUs)..
   * Benchmarks are provided (see :doc:`benchmarks`).
   * Includes extras for implementing and training bespoke correction
@@ -66,7 +67,6 @@ Table of contents
    installation
    benchmarks
    snp
-   methylation
    walkthrough
    draft_origin
    development

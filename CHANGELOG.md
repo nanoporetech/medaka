@@ -1,3 +1,9 @@
+v1.1.1
+------
+Bux fix release.
+
+* Remove pythong version check preventing Python >3.6 builds from running
+
 v1.1.0
 ------
 
