@@ -1,5 +1,5 @@
-Variant calling
-===============
+Human Variant Calling Benchmarks
+================================
 
 Medaka implements a small variant calling pipeline to call single nucleotide
 polymorphisms (SNPs) together with insertions and deletions (Indels) from Nanopore
