@@ -393,6 +393,8 @@ def main(args):
     args.tag_value = None
     args.tag_keep_missing = False
     args.RG = None
+    args.regions = None
+    args.draft = None
 
     logger = medaka.common.get_named_logger('Smolecule')
     medaka.common.mkdir_p(args.output, info='Results will be overwritten.')
@@ -444,8 +446,7 @@ def main(args):
     logger.info("Running medaka stitch.")
     args.inputs = [args.output]
     args.output = os.path.join(out_dir, 'consensus.fasta')
-    args.regions = None
-    args.jobs = args.threads
+    args.regions = None  # medaka consensus changes args.regions
     medaka.stitch.stitch(args)
     logger.info(
         "Single-molecule consensus sequences written to {}.".format(
