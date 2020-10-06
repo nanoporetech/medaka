@@ -219,7 +219,7 @@ class CompressBamTest(unittest.TestCase):
             ('read2', 0, 'TACTG', '5=', (1, 3, 1, 3, 1))}
 
         # None vs full region, no difference
-        for regions in (None, ['ref:0-10']):
+        for regions in (None, [medaka.common.Region('ref', 0, 10)]):
             args = args_class(
                 self.bam_input, self.bam_output, self.ref_fname,
                 2, regions, None)
@@ -256,7 +256,7 @@ class RLEParamsBam(unittest.TestCase):
         # Create a mock summary file with read_id and filename
         cls.summary_file = mock_summary_file(cls.fast5_fname)
 
-        regions = ['ref:0-10']
+        regions = [medaka.common.Region('ref', 0, 10)]
         args = args_class(
             cls.bam_input, cls.bam_output, cls.ref_fname,
             2, regions, (cls.fast5_dir, cls.summary_file))

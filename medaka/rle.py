@@ -228,7 +228,7 @@ def _compress_bam(bam_input, bam_output, ref_fname,
 
     :returns: None
     """
-    regions = medaka.common.get_regions(bam_input, regions)
+    regions = medaka.common.get_bam_regions(bam_input, regions)
     ref_fasta = pysam.FastaFile(ref_fname)
 
     # If fast_dir is passed, create an index

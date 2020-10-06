@@ -86,11 +86,11 @@ def predict(args):
 
     import tensorflow as tf
 
-    args.regions = medaka.common.get_regions(
-        args.bam, region_strs=args.regions)
+    bam_regions = medaka.common.get_bam_regions(
+        args.bam, regions=args.regions)
     logger = medaka.common.get_named_logger('Predict')
     logger.info('Processing region(s): {}'.format(
-        ' '.join(str(r) for r in args.regions)))
+        ' '.join(str(r) for r in bam_regions)))
 
     logger.info("Using model: {}.".format(args.model))
     with medaka.models.open_model(args.model) as model_store:
@@ -119,7 +119,7 @@ def predict(args):
         #   massive feature matrices
         MAX_REGION_SIZE = int(1e6)  # 1Mb
         regions = []
-        for region in args.regions:
+        for region in bam_regions:
             if region.size > MAX_REGION_SIZE:
                 # chunk_ovlp is mostly used in overlapping pileups (which
                 # generally end up being expanded compared to the draft

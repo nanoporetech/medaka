@@ -125,10 +125,7 @@ def snps_from_hdf(args):
     index = medaka.datastore.DataIndex(args.inputs)
 
     if args.regions is None:
-        args.regions = sorted(index.index)
-    regions = [
-        medaka.common.Region.from_string(r)
-        for r in args.regions]
+        args.regions = index.regions
 
     # lookup LabelScheme stored in HDF5
     try:
@@ -148,11 +145,15 @@ def snps_from_hdf(args):
 
     meta_info = label_scheme.snp_metainfo
 
-    ref_names = [r.ref_name for r in regions]
+    with pysam.FastaFile(args.ref_fasta) as fa:
+        lengths = dict(zip(fa.references, fa.lengths))
+
     with medaka.vcf.VCFWriter(
             args.output, 'w', version='4.1',
-            contigs=ref_names, meta_info=meta_info) as vcf_writer:
-        for reg in regions:
+            contigs=['{},length={}'.format(r.ref_name, lengths[r.ref_name])
+                     for r in args.regions],
+            meta_info=meta_info) as vcf_writer:
+        for reg in args.regions:
             logger.info("Processing {}.".format(reg))
             ref_seq = pysam.FastaFile(args.ref_fasta).fetch(
                 reference=reg.ref_name).upper()
@@ -160,7 +161,7 @@ def snps_from_hdf(args):
             samples = index.yield_from_feature_files(regions=[reg])
             trimmed_samples = medaka.common.Sample.trim_samples(samples)
 
-            for sample, is_last in trimmed_samples:
+            for sample, is_last, _ in trimmed_samples:
                 snps = label_scheme.decode_snps(
                     sample, ref_seq, threshold=args.threshold)
                 vcf_writer.write_variants(snps, sort=True)
@@ -179,10 +180,7 @@ def variants_from_hdf(args):
     index = medaka.datastore.DataIndex(args.inputs)
 
     if args.regions is None:
-        args.regions = sorted(index.index)
-    regions = [
-        medaka.common.Region.from_string(r)
-        for r in args.regions]
+        args.regions = index.regions
 
     # lookup LabelScheme stored in HDF5
     try:
@@ -211,11 +209,15 @@ def variants_from_hdf(args):
 
     meta_info = label_scheme.variant_metainfo
 
-    ref_names = [r.ref_name for r in regions]
+    with pysam.FastaFile(args.ref_fasta) as fa:
+        lengths = dict(zip(fa.references, fa.lengths))
+
     with medaka.vcf.VCFWriter(
             args.output, 'w', version='4.1',
-            contigs=ref_names, meta_info=meta_info) as vcf_writer:
-        for reg in regions:
+            contigs=['{},length={}'.format(r.ref_name, lengths[r.ref_name])
+                     for r in args.regions],
+            meta_info=meta_info) as vcf_writer:
+        for reg in args.regions:
             logger.info("Processing {}.".format(reg))
             ref_seq = pysam.FastaFile(args.ref_fasta).fetch(
                 reference=reg.ref_name).upper()
@@ -364,9 +366,12 @@ def vcf_from_fasta(args):
         out_bam = None
     else:
         out_bam = pysam.AlignmentFile(args.out_prefix + '.bam', 'wb', header=h)
+        if args.regions is not None:
+            contigs = [r.ref_name for r in args.regions]
+        else:
+            contigs = None
         alns = edlib_chunked_align_fastas(args.consensus, args.ref_fasta,
-                                          args.regions,
-                                          chunk_size=args.chunk_size,
+                                          contigs, chunk_size=args.chunk_size,
                                           pad=args.pad, mode=args.mode,
                                           header=h)
     vcf_fp = args.out_prefix + '.vcf'
@@ -376,7 +381,9 @@ def vcf_from_fasta(args):
     msg = 'Processed {:.2%} of reference.'
     bp_done = collections.Counter()
 
-    with medaka.vcf.VCFWriter(vcf_fp, contigs=ref_contigs) as writer:
+    header_contigs = ['{},length={}'.format(c, contig_lengths[c])
+                      for c in ref_contigs]
+    with medaka.vcf.VCFWriter(vcf_fp, contigs=header_contigs) as writer:
         for aln in alns:
             # reference_start is 0 based, reference_end points to one past
             # the last aligned residue, i.e. same as bed file
