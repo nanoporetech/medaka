@@ -781,7 +781,7 @@ def create_samples(args):
         raise ValueError(
             'chunk_ovlp {} is not smaller than chunk_len {}'.format(
                 args.chunk_ovlp, args.chunk_len))
-    regions = medaka.common.get_regions(args.bam, args.regions)
+    regions = medaka.common.get_bam_regions(args.bam, args.regions)
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))
     if args.truth is None:

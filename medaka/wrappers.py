@@ -118,10 +118,6 @@ def haploid_variant(args):
         args.tag_keep_missing = True
         medaka.prediction.predict(args)
 
-    # consensus sets args.regions to [medaka.common.Region],
-    # racon, stitch and consensus2vcf expect args.regions to be contig names
-    args.regions = None
-
     consensus_fasta_fp = os.path.join(args.output_dir, 'consensus.fasta')
     if os.path.isfile(consensus_fasta_fp):
         logger.info('Skipping medaka stitch, consensus fasta exists.')

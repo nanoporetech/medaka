@@ -1,7 +1,6 @@
 import argparse
 import logging
 import os
-import sys
 
 import pysam
 
@@ -114,8 +113,8 @@ class CheckBam(argparse.Action):
                     raise RuntimeError(msg.format(rg, fname, read_groups))
 
 
-class CheckIsBed(argparse.Action):
-    """Check if --region option is a bed file."""
+class RegionParser(argparse.Action):
+    """Parse regions, checking if --regions option is a bed file."""
 
     def __call__(self, parser, namespace, values, option_string=None):
         if len(values) == 1 and os.path.exists(values[0]):
@@ -123,9 +122,28 @@ class CheckIsBed(argparse.Action):
             regions = []
             for chrom, start, stop in medaka.common.yield_from_bed(values[0]):
                 regions.append('{}:{}-{}'.format(chrom, start, stop))
-            setattr(namespace, self.dest, regions)
         else:
-            setattr(namespace, self.dest, values)
+            regions = values
+        regions = [medaka.common.Region.from_string(r) for r in regions]
+        setattr(namespace, self.dest, regions)
+
+
+class RegionRefNameParser(RegionParser):
+    """Parse regions, retaining only region ref_names."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        super().__call__(parser, namespace, values, option_string=None)
+        regions = getattr(namespace, self.dest)
+        if any((r.start is not None or r.end is not None for r in regions)):
+            print('WARNING: This program can only process entire ' +
+                  'contigs, ignoring region start and end coordinates.')
+            # keep regions in order and avoid duplicating ref_names.
+            ref_names = []
+            for r in regions:
+                if r.ref_name not in regions:
+                    ref_names.append(r.ref_name)
+            regions = [medaka.common.Region(r, None, None) for r in ref_names]
+            setattr(namespace, self.dest, regions)
 
 
 def _log_level():
@@ -187,7 +205,7 @@ def _align_chunking():
 def _regions_or_bed_args():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
-    parser.add_argument('--regions', default=None, action=CheckIsBed, nargs='+',
+    parser.add_argument('--regions', default=None, action=RegionParser, nargs='+',
                         help='Genomic regions to analyse, or a bed file.')
     return parser
 
@@ -195,8 +213,9 @@ def _regions_or_bed_args():
 def _region_ref_names():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
-    parser.add_argument('--regions', default=None, nargs='+',
-                        help='Limit processing to these reference names.')
+    parser.add_argument('--regions', default=None, action=RegionRefNameParser,
+                        nargs='+',
+                        help='Genomic ref_names to process, or a bed file.')
     return parser
 
 
