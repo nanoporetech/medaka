@@ -142,7 +142,7 @@ if [[ ! -e ${CONSENSUS} ]] || ${FORCE}; then
         echo "Using medaka stitch to create consensus."
         MAXJOBS=8
         JOBS=$(( MAXJOBS < THREADS ? MAXJOBS : THREADS ))
-        medaka stitch --jobs ${JOBS} ${CONSENSUSPROBS} ${CONSENSUS} \
+        medaka stitch --threads ${JOBS} ${CONSENSUSPROBS} ${CONSENSUS} \
             || (echo "Failed to stitch consensus chunks." && exit 1)
     else
         echo "Using medaka variant to create vcf and apply to draft."
