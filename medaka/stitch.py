@@ -151,7 +151,6 @@ def stitch(args):
             worker = functools.partial(_stitcher, args.inputs, args.draft)
             for contigs, gap_tree in executor.map(worker, rgrps):
                 for name, info, seq in contigs:
-                    print('Writing {} {}'.format(name, info))
                     fasta.write('>{} {}\n{}\n'.format(name, info, seq))
                 if gap_tree is not None:
                     gap_trees.update(gap_tree)
