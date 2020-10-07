@@ -422,6 +422,14 @@ class DataIndex(object):
             self._index = self._get_sorted_index()
         return self._index
 
+    @property
+    def regions(self):
+        """Return a Region object for each ref_name in the index.
+
+        Each region will have start and end set to None.
+        """
+        return [medaka.common.Region(r, None, None) for r in self.index]
+
     def _get_sorted_index(self):
         """Get index of samples indexed by reference and ordered by start pos.
 

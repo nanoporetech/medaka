@@ -851,12 +851,17 @@ def haploid2diploid(args):
                                          only_overlapping=not args.adjacent,
                                          discard_phase=args.discard_phase)
 
+    with pysam.FastaFile(args.ref_fasta) as fa:
+        lengths = dict(zip(fa.references, fa.lengths))
+
+    contigs = ['{},length={}'.format(r, lengths[r]) for r in convertor.chroms]
+
     with VCFWriter(
-            args.vcfout, 'w', version='4.1', contigs=convertor.chroms,
+            args.vcfout, 'w', version='4.1', contigs=contigs,
             meta_info=convertor.meta_info) as vcf_writer:
         variants = convertor.variants()
         if args.split_mnp:
-            variants = itertools.chain(split_mnp(v) for v in variants)
+            variants = (s for v in variants for s in split_mnp(v))
         for v in variants:
             vcf_writer.write_variant(v)
 

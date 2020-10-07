@@ -590,34 +590,34 @@ class Region(_Region):
             (b0 < a1 and b1 > a0))
 
 
-def get_regions(bam, region_strs=None):
-    """Create `Region` objects from a bam and region strings.
+def get_bam_regions(bam, regions=None):
+    """Get regions from a bam.
+
+    Region start and end will be set to an integer value.
 
     :param bam: `.bam` file.
-    :param region_strs: iterable of str in zero-based (samtools-like)
-        region format e.g. ref:start-end or filepath containing a
-        region string per line.
+    :param regions: iterable of `medaka.common.Region` objs
 
     :returns: list of `Region` objects.
     """
     with pysam.AlignmentFile(bam) as bam_fh:
         ref_lengths = dict(zip(bam_fh.references, bam_fh.lengths))
-    if region_strs is not None:
-        if os.path.isfile(region_strs[0]):
-            with open(region_strs[0]) as fh:
-                region_strs = [line.strip() for line in fh.readlines()]
-
-        regions = []
-        for r in (Region.from_string(x) for x in region_strs):
-            start = r.start if r.start is not None else 0
-            end = r.end if r.end is not None else ref_lengths[r.ref_name]
-            regions.append(Region(r.ref_name, start, end))
+    if regions is not None:
+        new_regions = []
+        for r in regions:
+            if r.ref_name not in ref_lengths:
+                msg = 'Contig {} is not one of the bam references.'
+                raise KeyError(msg.format(r.ref_name))
+            start = max(0, r.start) if r.start is not None else 0
+            rl = ref_lengths[r.ref_name]
+            end = min(r.end, rl) if r.end is not None else rl
+            new_regions.append(Region(r.ref_name, start, end))
     else:
-        regions = [
+        new_regions = [
             Region(ref_name, 0, end)
             for ref_name, end in ref_lengths.items()]
 
-    return regions
+    return new_regions
 
 
 def ref_name_from_region_str(region_str):
@@ -670,6 +670,8 @@ def mkdir_p(path, info=None):
 
 def grouper(gen, batch_size=4):
     """Group together elements of an iterable without padding remainder."""
+    if not isinstance(gen, collections.Iterator):
+        gen = iter(gen)
     while True:
         batch = []
         for i in range(batch_size):

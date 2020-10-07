@@ -138,13 +138,12 @@ def _stitcher(inputs, draft, ref_names):
 def stitch(args):
     """Entry point for stitching program."""
     index = medaka.datastore.DataIndex(args.inputs)
-    # note args.regions is [str contig names], not [medaka.common.Region objs]
     if args.regions is None:
-        args.regions = sorted(index.index)
+        args.regions = index.regions
+
     # batch size is a simple empirical heuristic
-    rgrps = list(medaka.common.grouper(
-        (medaka.common.Region.from_string(r) for r in args.regions),
-        batch_size=max(1, len(args.regions) // (2 * args.threads))))
+    rgrps = list(medaka.common.grouper(args.regions,
+                 batch_size=max(1, len(args.regions) // (2 * args.threads))))
     gap_trees = {}
     with open(args.output, 'w') as fasta:
         Executor = concurrent.futures.ProcessPoolExecutor
@@ -152,7 +151,6 @@ def stitch(args):
             worker = functools.partial(_stitcher, args.inputs, args.draft)
             for contigs, gap_tree in executor.map(worker, rgrps):
                 for name, info, seq in contigs:
-                    print('Writing {} {}'.format(name, info))
                     fasta.write('>{} {}\n{}\n'.format(name, info, seq))
                 if gap_tree is not None:
                     gap_trees.update(gap_tree)

@@ -140,10 +140,23 @@ WASPOLISHEDBED=polished_regions_in_draft_coords.bed
 if [[ ! -e ${CONSENSUS} ]] || ${FORCE}; then
     if ! ${VCFOUT} || $rflag; then
         echo "Using medaka stitch to create consensus."
+        if $rflag; then 
+            # filling gaps with draft sequence won't currently work with rle
+            STITCH_OPTS="" 
+        else
+            STITCH_OPTS="--draft ${DRAFT}"
+            GAP_BED="${CONSENSUS}.gaps_in_draft_coords.bed"
+        fi
+
         MAXJOBS=8
         JOBS=$(( MAXJOBS < THREADS ? MAXJOBS : THREADS ))
-        medaka stitch --jobs ${JOBS} ${CONSENSUSPROBS} ${CONSENSUS} \
+        medaka stitch --threads ${JOBS} ${CONSENSUSPROBS} ${CONSENSUS} ${STITCH_OPTS} \
             || (echo "Failed to stitch consensus chunks." && exit 1)
+
+        if ! $rflag; then
+            echo "BED delineating regions which were not polished (in draft coordinates): ${OUTPUT}/${GAP_BED}"
+        fi
+
     else
         echo "Using medaka variant to create vcf and apply to draft."
         rm -rf ${VCF_OUTPUT} ${VCF_OUTPUT}.gz ${CHAIN} ${WASPOLISHEDBED}
