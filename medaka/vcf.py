@@ -861,7 +861,7 @@ def haploid2diploid(args):
             meta_info=convertor.meta_info) as vcf_writer:
         variants = convertor.variants()
         if args.split_mnp:
-            variants = itertools.chain(split_mnp(v) for v in variants)
+            variants = (s for v in variants for s in split_mnp(v))
         for v in variants:
             vcf_writer.write_variant(v)
 
