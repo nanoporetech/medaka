@@ -1,8 +1,19 @@
+v1.1.2
+------
+
+Bug fix and feature release
+
+* Fix issues in command-line argument parsing.
+* Add true ploif-1 variant caller.
+* Do not break contigs at unpolished regions (fill with input instead).
+* Add multi-nucleotide variant decomposition to be compatible with DeepVariant.
+
+
 v1.1.1
 ------
 Bux fix release.
 
-* Remove pythong version check preventing Python >3.6 builds from running
+* Remove python version check preventing Python >3.6 builds from running.
 
 v1.1.0
 ------
