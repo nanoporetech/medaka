@@ -1,6 +1,7 @@
 Unreleased
 ----------
 
+* Work around tensorflow threading issue.
 
 
 v1.1.2
@@ -9,7 +10,7 @@ v1.1.2
 Bug fix and feature release
 
 * Fix issues in command-line argument parsing.
-* Add true ploif-1 variant caller.
+* Add true ploidy-1 variant caller.
 * Do not break contigs at unpolished regions (fill with input instead).
 * Add multi-nucleotide variant decomposition to be compatible with DeepVariant.
 
