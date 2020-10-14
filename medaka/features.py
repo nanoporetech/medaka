@@ -240,7 +240,7 @@ def get_trimmed_reads(
                 as executor:
             results = executor.map(_process_region, regions)
     else:
-        results = (_process_region(region),)
+        results = iter([_process_region(region), ])
 
     return results
 
