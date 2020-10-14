@@ -672,8 +672,8 @@ def _merge_variants(
         # overall qual.
         # Use mean otherwise we might need very different thresholds for
         # short vs long variants and homozygous vs heterozygous variants.
-        info['q{}'.format(hap)] = sum((
-            float(v.qual) for v in hap_vars)) / len(hap_vars)
+        info['q{}'.format(hap)] = sum((float(v.qual) if v.qual != '.' else 0.0
+                                       for v in hap_vars)) / len(hap_vars)
         info['pos{}'.format(hap)] = ','.join(str(v.pos + 1) for v in hap_vars)
         if detailed_info:
             # + 1 as VCF is 1-based, v.pos is 0 based
