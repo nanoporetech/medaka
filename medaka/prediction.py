@@ -83,12 +83,27 @@ def predict(args):
     logger_level = logging.getLogger(__package__).level
     if logger_level > logging.DEBUG:
         os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+    logger = medaka.common.get_named_logger('Predict')
 
     import tensorflow as tf
+    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+    # There's not to much speed up to be had with threads. We (mostly) use
+    # a bidirectional GRU so its fair to set inter-operation threads to two
+    # (for the two directions).
+    if args.threads > 2:
+        logger.warning("Reducing threads to 2, anymore is a waste.")
+        args.threads = 2
+    logger.info(
+        "Setting tensorflow inter/intra-op threads to {}/1.".format(
+            args.threads))
+    os.environ["TF_NUM_INTEROP_THREADS"] = str(args.threads)
+    os.environ["TF_NUM_INTRAOP_THREADS"] = str(1)
+    # These function calls seem not to work:
+    # tf.config.threading.set_intra_op_parallelism_threads(args.threads)
+    # tf.config.threading.set_inter_op_parallelism_threads(args.threads)
 
     bam_regions = medaka.common.get_bam_regions(
         args.bam, regions=args.regions)
-    logger = medaka.common.get_named_logger('Predict')
     logger.info('Processing region(s): {}'.format(
         ' '.join(str(r) for r in bam_regions)))
 
@@ -102,11 +117,7 @@ def predict(args):
         feature_encoder.tag_keep_missing = args.tag_keep_missing
         feature_encoder.read_group = args.RG
 
-        logger.info("Setting tensorflow threads to {}.".format(args.threads))
-        tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
-        tf.config.threading.set_intra_op_parallelism_threads(args.threads)
-        tf.config.threading.set_inter_op_parallelism_threads(args.threads)
-        if tf.test.is_gpu_available(cuda_only=True):
+        if len(tf.config.list_physical_devices('GPU')) > 0:
             logger.info("Found a GPU.")
             logger.info(
                 "If cuDNN errors are observed, try setting the environment "
