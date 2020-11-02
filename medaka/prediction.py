@@ -93,6 +93,14 @@ def predict(args):
     if args.threads > 2:
         logger.warning("Reducing threads to 2, anymore is a waste.")
         args.threads = 2
+        if len(tf.config.list_physical_devices('GPU')) == 0:
+            logger.info(
+                "It looks like you are running medaka without a GPU "
+                "and attempted to set a high number of threads. We "
+                "have scaled this down to an optimal number. If you "
+                "wish to improve performance please see "
+                "https://nanoporetech.github.io/medaka/"
+                "installation.html#improving-parallelism.")
     logger.info(
         "Setting tensorflow inter/intra-op threads to {}/1.".format(
             args.threads))
