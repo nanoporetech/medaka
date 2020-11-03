@@ -126,6 +126,7 @@ def haploid_variant(args):
         args.inputs = [consensus_probs_fp]
         args.output = consensus_fasta_fp
         args.draft = racon_cons_fp
+        args.fillgaps = True
         medaka.stitch.stitch(args)
 
     logger.info('Running medaka tools consensus2vcf.')

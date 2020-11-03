@@ -304,13 +304,13 @@ class DataStore(object):
         :param key: str, sample name.
         :returns: `medaka.common.Sample` object.
         """
-        s = dict()
+        s = {x: None for x in medaka.common.Sample._fields}
+        group = self.fh['{}/{}'.format(self._sample_path_, key)]
         for field in medaka.common.Sample._fields:
-            pth = '{}/{}/{}'.format(self._sample_path_, key, field)
             try:
-                s[field] = self.fh[pth][()]
+                s[field] = group[field][()]
             except KeyError:
-                s[field] = None
+                pass
             else:
                 # handle loading of bytestrings
                 if isinstance(s[field], np.ndarray) and \
@@ -464,7 +464,7 @@ class DataIndex(object):
 
         return ref_names_ordered
 
-    def yield_from_feature_files(self, regions=None, samples=None):
+    def yield_from_feature_files(self, regions=None, samples=None, workers=8):
         """Yield `medaka.common.Sample` objects from one or more feature files.
 
         :regions: list of `medaka.common.Region` s for which to yield samples.
@@ -474,16 +474,13 @@ class DataIndex(object):
         :yields: `medaka.common.Sample` objects.
 
         """
-        if samples is not None:
-            # yield samples in the order they are asked for
-            for sample, fname in samples:
-                yield DataStore(fname).load_sample(sample)
-        else:
+        if samples is None:
             all_samples = self.index
             if regions is None:
                 regions = [
                     medaka.common.Region.from_string(x)
                     for x in sorted(all_samples)]
+            samples = list()
             for reg in regions:
                 if reg.ref_name not in self.index:
                     continue
@@ -494,5 +491,12 @@ class DataIndex(object):
                         int(float(sample['start'])),
                         int(float(sample['end'])) + 1)
                     if sam_reg.overlaps(reg):
-                        with DataStore(sample['filename']) as store:
-                            yield store.load_sample(sample['sample_key'])
+                        samples.append(
+                            (sample['sample_key'], sample['filename']))
+        # yield samples reusing filehandle where possible
+        ds, ds_fname = None, None
+        for key, fname in samples:
+            if fname != ds_fname:
+                ds = DataStore(fname)
+                ds_fname = fname
+            yield ds.load_sample(key)

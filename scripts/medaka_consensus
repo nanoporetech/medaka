@@ -17,7 +17,7 @@ done < <(medaka tools list_models) # Available models on first line, default con
 MODEL=${modeldata[1]##* }
 BATCH_SIZE=100
 FORCE=false
-VCFOUT=false
+NOFILLGAPS=false
 
 iflag=false
 dflag=false
@@ -35,8 +35,7 @@ $(basename "$0") [-h] -i <fastx>
     -i  fastx input basecalls (required).
     -d  fasta input assembly (required).
     -o  output folder (default: medaka).
-    -v  output vcf of changes, and bed file of polished regions.
-        (note that this slows down consensus calculation).
+    -g  don't fill gaps in consensus with draft sequence.
     -m  medaka model, (default: ${MODEL}).
         ${modeldata[0]}.
         Alternatively a .hdf file from 'medaka train'.
@@ -45,13 +44,13 @@ $(basename "$0") [-h] -i <fastx>
     -b  batchsize, controls memory use (default: ${BATCH_SIZE})."
 
 
-while getopts ':hi::d:o:vm:ft:b:' option; do
+while getopts ':hi::d:o:gm:ft:b:' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
     d  ) dflag=true; DRAFT=$(follow_link $OPTARG);;
     o  ) OUTPUT=$OPTARG;;
-    v  ) VCFOUT=true;;
+    g  ) NOFILLGAPS=true;;
     m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
     f  ) FORCE=true;;
     t  ) THREADS=$OPTARG;;
@@ -133,43 +132,15 @@ else
     echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
 fi
 
-VCF_OUTPUT=variants.vcf
 CONSENSUS=consensus.fasta
-CHAIN=draft_to_consensus.chain
-WASPOLISHEDBED=polished_regions_in_draft_coords.bed
 if [[ ! -e ${CONSENSUS} ]] || ${FORCE}; then
-    if ! ${VCFOUT} || $rflag; then
-        echo "Using medaka stitch to create consensus."
-        if $rflag; then 
-            # filling gaps with draft sequence won't currently work with rle
-            STITCH_OPTS="" 
-        else
-            STITCH_OPTS="--draft ${DRAFT}"
-            GAP_BED="${CONSENSUS}.gaps_in_draft_coords.bed"
-        fi
-
-        MAXJOBS=8
-        JOBS=$(( MAXJOBS < THREADS ? MAXJOBS : THREADS ))
-        medaka stitch --threads ${JOBS} ${CONSENSUSPROBS} ${CONSENSUS} ${STITCH_OPTS} \
-            || (echo "Failed to stitch consensus chunks." && exit 1)
-
-        if ! $rflag; then
-            echo "BED delineating regions which were not polished (in draft coordinates): ${OUTPUT}/${GAP_BED}"
-        fi
-
-    else
-        echo "Using medaka variant to create vcf and apply to draft."
-        rm -rf ${VCF_OUTPUT} ${VCF_OUTPUT}.gz ${CHAIN} ${WASPOLISHEDBED}
-        medaka variant ${DRAFT} ${CONSENSUSPROBS} ${VCF_OUTPUT} \
-             || (echo "Failed to call variants." && exit 1)
-        echo "Applying variants"
-        bgzip ${VCF_OUTPUT}
-        tabix -p vcf ${VCF_OUTPUT}.gz
-        bcftools consensus -f ${DRAFT} --sample SAMPLE -c ${CHAIN} ${VCF_OUTPUT}.gz > ${CONSENSUS}
-        echo "VCF with changes made by medaka: ${OUTPUT}/${VCF_OUTPUT}.gz"
-        medaka tools hdf_to_bed ${CONSENSUSPROBS} ${WASPOLISHEDBED}
-        echo "BED delineating regions which were polished (in draft coordinates): ${OUTPUT}/${WASPOLISHEDBED}"
+    STITCH_OPTS=""
+    if $rflag || ${NOFILLGAPS}; then
+        STITCH_OPTS="--no-fillgaps"
     fi
+    medaka stitch ${CONSENSUSPROBS} ${DRAFT} ${CONSENSUS} \
+        --threads ${THREADS} ${STITCH_OPTS} \
+        || (echo "Failed to stitch consensus chunks." && exit 1)
     echo "Polished assembly written to ${OUTPUT}/${CONSENSUS}, have a nice day."
     FORCE=true
 else

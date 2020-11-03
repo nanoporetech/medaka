@@ -421,15 +421,13 @@ class Sample(_Sample):
             bool heuristic)
         """
         logger = get_named_logger('TrimOverlap')
+
         s1 = next(sample_gen)
         # do not trim beginning of s1
         start_1 = None
         # initialise in case we have one sample
         start_2 = None
-
         for s2 in itertools.chain(sample_gen, (None,)):
-            s1_name = 'Unknown' if s1 is None else s1.name
-            s2_name = 'Unknown' if s2 is None else s2.name
             heuristic = False
 
             is_last_in_contig = False
@@ -443,7 +441,7 @@ class Sample(_Sample):
                 # skip s2 if it is contained within s1
                 if rel is Relationship.s2_within_s1:
                     logger.info('{} is contained within {}, skipping.'.format(
-                        s2_name, s1_name))
+                        s2.name, s1.name))
                     continue
                 elif rel is Relationship.forward_overlap:
                     end_1, start_2, _ = Sample.overlap_indices(
@@ -453,7 +451,7 @@ class Sample(_Sample):
                     end_1, start_2 = (None, None)
                     msg = '{} and {} cannot be concatenated as there is ' + \
                         'no overlap and they do not abut.'
-                    logger.info(msg.format(s1_name, s2_name))
+                    logger.info(msg.format(s1.name, s2.name))
                 else:
                     try:
                         end_1, start_2, heuristic = \
@@ -468,9 +466,54 @@ class Sample(_Sample):
                         raise(e)
 
             yield s1.slice(slice(start_1, end_1)), is_last_in_contig, heuristic
-
             s1 = s2
             start_1 = start_2
+
+    @staticmethod
+    def trim_samples_to_region(samples, start=None, end=None):
+        """Trim a stream of samples to overlap exactly co-ordinates.
+
+        :param start: start co-ordinate.
+        :param end: (exclusive) end co-ordinate.
+
+        .. note:: the input samples are expected to be derived from the
+            same reference sequence. The `start` and `end` parameters
+            are positions in this single sequence.
+        """
+        samples = Sample.trim_samples(samples)
+
+        sample, last, heuristic = next(samples)
+        if start is not None:
+            # trim first (other near first) sample
+            while True:
+                if sample.positions['major'][0] > start:
+                    # the samples don't span to the start of the region
+                    break
+                query = np.array([(start, 0)], dtype=sample.positions.dtype)
+                sample_start = np.searchsorted(sample.positions, query[0])
+                sample = sample.slice(slice(sample_start, None))
+                # originally the sample may have intersected the region, but
+                # after trimming the overlap between samples and removing the
+                # front its size could have been reduce to zero
+                if len(sample.positions) > 0:
+                    break
+                sample, last, heuristic = next(samples)
+
+        first = sample, last, heuristic
+        if end is None:
+            yield first
+            yield from samples
+        else:
+            for sample, last, heuristic in itertools.chain((first, ), samples):
+                if sample.positions['major'][-1] > end:
+                    sample_end = np.searchsorted(
+                        sample.positions['major'], end)
+                    yield (
+                        sample.slice(slice(None, sample_end)),
+                        last, heuristic)
+                    break
+                else:
+                    yield sample, last, heuristic
 
 
 # provide read only access to key region attrs
