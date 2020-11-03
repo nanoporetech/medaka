@@ -1,5 +1,11 @@
-Unreleased
-----------
+v0.1.2
+------
+
+Performance release
+
+* Improve inference performance by 30%.
+* Add efficient multiprocessing to `medaka stitch`.
+* Fix long-standing issue where genome regions could be unprocessed.
 
 
 v1.1.3
