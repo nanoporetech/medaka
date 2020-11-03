@@ -465,12 +465,18 @@ def main():
         parents=[_log_level(), _region_ref_names()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     sparser.set_defaults(func=medaka.stitch.stitch)
-    sparser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
-    sparser.add_argument('output', help='Output .fasta.', default='consensus.fasta')
-    sparser.add_argument('--draft', help='Draft .fasta, if provided, ' +
-                         'consensus gaps will be filled with unpolished ' +
-                         'draft sequence to avoid contig fragmentation.')
-    sparser.add_argument('--threads', default=1, type=int, help='Number of worker processes to use.')
+    sparser.add_argument('inputs',
+        help='Consensus .hdf files.', nargs='+')
+    sparser.add_argument('draft',
+        help='Draft .fasta. Consensus gaps will be filled with unpolished '
+        'draft sequence to avoid contig fragmentation.')
+    sparser.add_argument('output',
+        help='Output .fasta.', default='consensus.fasta')
+    sparser.add_argument('--threads',
+        help='Number of worker processes to use.', default=1, type=int)
+    sparser.add_argument('--no-fillgaps',
+        help="Don't fill gaps in consensus sequence with draft sequence.",
+        default=True, action='store_false', dest='fillgaps')
 
     var_parser = subparsers.add_parser('variant',
         help='Decode probabilities to VCF.',
