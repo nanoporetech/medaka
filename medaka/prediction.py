@@ -230,12 +230,10 @@ class DataLoader(object):
         self._results = queue.Queue(maxsize=self.sample_cache_size)
         self._batches = queue.Queue(maxsize=batch_cache_size)
         self.region_cache_size = 4
-        self.have_data = threading.Event()
         self.remainders = []
 
         self.logger.info('Initializing data loader')
         # loading of samples from regions
-        self.have_data.set()
         self.thread = threading.Thread(target=self._fill_parallel)
         self.thread.daemon = True
         self.thread.start()
@@ -251,7 +249,7 @@ class DataLoader(object):
     def __next__(self):
         """Generate batches of data for inference.
 
-        :yields: (list of `Samples`, ndarray of stacks features).
+        :returns: (list of `Samples`, ndarray of stacks features).
         """
         while True:
             try:
@@ -259,7 +257,7 @@ class DataLoader(object):
             except queue.Empty:
                 pass
             else:
-                if batch is None:
+                if batch is StopIteration:
                     raise StopIteration
                 else:
                     return batch
@@ -272,7 +270,8 @@ class DataLoader(object):
             for sample in samples:
                 self._results.put(sample)
             self.remainders.extend(remain)
-        self.have_data.clear()
+        # signal everything has been processed
+        self._results.put(StopIteration)
 
     def _fill_parallel(self):
         # process multiple regions at a time, up to a maximum to limit memory
@@ -334,7 +333,7 @@ class DataLoader(object):
                 for sample in samples:
                     self._results.put(sample)
         # signal everything has been processed
-        self.have_data.clear()
+        self._results.put(StopIteration)
 
     @staticmethod
     def _run_region(bam, region, *args, **kwargs):
@@ -344,18 +343,15 @@ class DataLoader(object):
 
     def _samples(self):
         """Iterate over items in internal network input cache."""
-        while self.have_data.is_set():
+        while True:
             try:
                 res = self._results.get(timeout=0.1)
             except queue.Empty:
-                if not self.have_data.is_set():
-                    break
+                pass
             else:
+                if res is StopIteration:
+                    break
                 yield res
-
-        if not self._results.empty():
-            yield self._results.get()
-        return
 
     def _make_batches(self):
         for data in medaka.common.grouper(self._samples(), self.batch_size):
@@ -375,4 +371,4 @@ class DataLoader(object):
                     pass
                 else:
                     break
-        self._batches.put(None)
+        self._batches.put(StopIteration)
