@@ -3,6 +3,7 @@ import collections
 import concurrent.futures
 import functools
 import itertools
+import logging
 import operator
 
 import intervaltree
@@ -38,7 +39,7 @@ def stitch_from_probs(h5_fp, region):
     :returns: list of (region string, sequence).
     """
     logger = medaka.common.get_named_logger('Stitch')
-    logger.info("Stitching region: {}".format(str(region)))
+    logger.debug("Stitching region: {}".format(str(region)))
     index = medaka.datastore.DataIndex(h5_fp)
     label_scheme = index.metadata['label_scheme']
     logger.debug("Label decoding is:\n{}".format(
@@ -70,12 +71,8 @@ def stitch_from_probs(h5_fp, region):
             (s.ref_name, start, s.positions[-1]['major']),
             seq_parts))
 
-    logger.info("Used heuristic {} times for {}.".format(
+    logger.debug("Used heuristic {} times for {}.".format(
         heuristic_use, region))
-    if len(contigs) > 0:
-        print(contigs[0][0], contigs[-1][0])
-    else:
-        print("no contigs found")
     return contigs
 
 
@@ -149,6 +146,8 @@ def collapse_neighbours(contigs):
 
 def stitch(args):
     """Entry point for stitching program."""
+    index_log = medaka.common.get_named_logger('DataIndex')
+    index_log.setLevel(logging.WARNING)
     index = medaka.datastore.DataIndex(args.inputs)
     if args.regions is None:
         args.regions = index.regions
