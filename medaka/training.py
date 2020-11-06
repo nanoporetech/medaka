@@ -109,9 +109,6 @@ def run_training(
         'label_scheme': batcher.label_scheme,
         'feature_encoder': batcher.feature_encoder}
 
-    opts = dict(
-        verbose=1, save_weights_only=False, save_best_only=False, mode='max')
-
     if isinstance(
             batcher.label_scheme, medaka.labels.DiploidZygosityLabelScheme):
         metrics = ['binary_accuracy']
@@ -140,17 +137,22 @@ def run_training(
     else:
         raise ValueError('Unknown optimizer: {}'.format(optimizer))
 
+    opts = dict(
+        verbose=1, save_weights_only=False, mode='max')
+
     callbacks = []
+    # write a model at the end of every epoch
+    callbacks.append(ModelMetaCheckpointTF(
+        model_metadata, os.path.join(train_name, 'model-{epoch:02d}'),
+        save_best_only=False, **opts))
+
     for metric in call_back_metrics:
+        # Validation result keys are prefixed with val_
         for m in metric, 'val_{}'.format(metric):
-            best_fn = 'model.best.{}'.format(m)
-            improv_fn = 'model-' + metric + '-improvement-{epoch:02d}-{' \
-                + metric + ':.2f}'
-            logger.info('output files: {}, {}'.format(improv_fn, best_fn))
-            for fn in best_fn, improv_fn:
-                callbacks.append(ModelMetaCheckpointTF(
-                    model_metadata, os.path.join(train_name, fn),
-                    monitor=m, **opts))
+            fn = 'model.best.{}'.format(m)
+            callbacks.append(ModelMetaCheckpointTF(
+                model_metadata, os.path.join(train_name, fn),
+                monitor=m, save_best_only=True, **opts))
     callbacks.extend([
         # Stop when no improvement
         EarlyStopping(monitor='val_loss', patience=20),
