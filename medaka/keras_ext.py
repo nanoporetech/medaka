@@ -38,7 +38,7 @@ class ModelMetaCheckpoint(ModelCheckpoint):
     def on_epoch_end(self, epoch, logs=None):
         """Perform actions at the end of an epoch."""
         super(ModelMetaCheckpoint, self).on_epoch_end(epoch, logs)
-        self.epoch_fp = self.filepath.format(epoch=epoch + 1, **logs)
+        self.epoch_fp = self.filepath.format(epoch=epoch, **logs)
         if os.path.exists(self.epoch_fp):
             self.pack_meta()
 
