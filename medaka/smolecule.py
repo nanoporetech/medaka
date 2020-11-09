@@ -444,9 +444,11 @@ def main(args):
     t3 = now()
 
     logger.info("Running medaka stitch.")
+    args.draft = spoa_file
     args.inputs = [args.output]
     args.output = os.path.join(out_dir, 'consensus.fasta')
     args.regions = None  # medaka consensus changes args.regions
+    args.fillgaps = False
     medaka.stitch.stitch(args)
     logger.info(
         "Single-molecule consensus sequences written to {}.".format(
