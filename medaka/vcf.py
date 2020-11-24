@@ -647,11 +647,10 @@ def _merge_variants(
             'A variant occurs after the end of the reference sequence.')
     ref = ref_seq[interval.begin: interval.end]
     alts_dict = collections.OrderedDict()
-    info = {}
     mixed_vars = collections.defaultdict(list)
     for v in interval.data:
         mixed_vars[str(_get_hap(v, trees))].append(v)
-    qual = 0.0
+    haps_to_skip = set()
     for hap, hap_vars in sorted(mixed_vars.items()):
         alt = list(ref)
         for v in hap_vars:
@@ -668,6 +667,19 @@ def _merge_variants(
             assert ref_seq[v.pos:v.pos + len(v.ref)] == v.ref
             alt[start_i:end_i] = [''] * len(v.ref)
             alt[start_i] = v.alt[0]
+
+        # if two nearby variants cancel each other out, we could end up having
+        # an alt that is the ref.
+        if ''.join(alt) == ref:
+            haps_to_skip.add(hap)
+            continue
+        alts_dict[hap] = ''.join(alt)
+
+    for hap in haps_to_skip:
+        del mixed_vars[hap]
+    info = {}
+    qual = 0.0
+    for hap, hap_vars in sorted(mixed_vars.items()):
         # calculate mean GQ for each haplotype, and take mean of these for
         # overall qual.
         # Use mean otherwise we might need very different thresholds for
@@ -680,7 +692,6 @@ def _merge_variants(
             info['ref{}'.format(hap)] = ','.join((v.ref for v in hap_vars))
             info['alt{}'.format(hap)] = ','.join((v.alt[0] for v in hap_vars))
         qual += info['q{}'.format(hap)] / len(mixed_vars)
-        alts_dict[hap] = ''.join(alt)
 
     haps = list(alts_dict.keys())
     alts = list(alts_dict.values())
