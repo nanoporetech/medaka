@@ -10,52 +10,62 @@ import medaka.stitch
 class TestStitch(unittest.TestCase):
 
     def test_fill_gaps(self):
-
-        # create gapped consensus contigs
         bases = 'ATGCN'
         def rand_seq(n):
             return  ''.join(np.random.choice(list(bases), n, replace=True))
         cases = [
-            ('chr1',  # name
-             'chr1',  # info (after gap-filling stitching)
-             rand_seq(20),  # draft seq
-             ((3, 7), (11, 15)), # polished contig boundaries (end exclusive)
-             ((0, 3), (7, 11), (15, 20))),  # gaps
-            ('chr2',
-             'chr2',
-             rand_seq(25),
-             ((0, 5), (6, 7), (10, 12), (16, 25)),
-             ((5, 6), (7, 10), (12, 16))),
-            ('chr3',  # no gap-filling required
-             'chr3',
-             rand_seq(50),
-             ((0, 50),),
-             ())
+            (
+                'no_gaps',  # no gap-filling required
+                rand_seq(50),
+                ((0, 50),),
+                ()),
+            (
+                'inside_gaps',
+                rand_seq(25),
+                ((0, 5), (6, 7), (10, 12), (16, 25)),
+                ((5, 6), (7, 10), (12, 16))),
+            (
+                'outside_gaps',  # name
+                rand_seq(20),  # draft seq
+                ((3, 7), (11, 15)),  # polished contig boundaries (end exclusive)
+                ((0, 3), (7, 11), (15, 20))),  # implied gaps
         ]
 
         _, draft = tempfile.mkstemp()
         contigs = []
         with open(draft, 'w') as fh:
-            for ref_name, _, full_seq, bounds, gaps, in cases:
+            for ref_name, full_seq, bounds, gaps, in cases:
                 fh.write('>{}\n{}\n'.format(ref_name, full_seq))
                 contigs.extend([
-                    ('{}_segment{}'.format(ref_name, i),
-                    # -1 as medaka sample names are end inclusive
-                    '{}:{}.0-{}.0'.format(ref_name, start,  end - 1),
-                    full_seq[start:end])
-                    for i, (start, end) in enumerate(bounds)
-                ])
+                    ((ref_name, start,  end - 1), [full_seq[start:end]])
+                    for i, (start, end) in enumerate(bounds)])
 
         results, gap_trees = medaka.stitch.fill_gaps(contigs, draft)
 
         self.assertEqual(len(results), len(cases))
         for i, (case, result) in enumerate(zip(cases, results)):
-            for item, descr in (0, 'chrom'), (1, 'info'), (2, 'sequence'):
-                msg = 'Failed case {} {}'.format(i, descr)
-                self.assertEqual(case[item], result[item], msg=msg)
+            # check filled sequence
+            self.assertEqual(
+                case[1], ''.join(result[1]), msg="Sequence for case '{}'.".format(case[0]))
             # check gaps are correct
+            msg = 'Gaps incorrect for case {}.'.format(i,)
             sorted_gaps = tuple([(i.begin, i.end) for i in sorted(
                 gap_trees[case[0]], key=operator.attrgetter('begin'))])
-            self.assertEqual(case[-1], sorted_gaps, msg=msg.format(i, 'gaps'))
-
+            self.assertEqual(case[-1], sorted_gaps, msg=msg)
         os.remove(draft)
+
+    def test_010_fill_neighbours(self):
+        seq = 'ATCG'
+        contigs = iter([
+            (('chr1', 0, 1000), [seq] * 2),
+            (('chr1', 1001, 2000), [seq] * 2),  # join with above
+            (('chr2', 0, 1000), [seq] * 2),
+            (('chr2', 2000, 3000), [seq] * 2),  # not joined
+            (('chr3', 3001, 1000), [seq] * 2)])  # not joined
+        expected = [
+            (('chr1', 0, 2000), [seq] * 4),
+            (('chr2', 0, 1000), [seq] * 2),
+            (('chr2', 2000, 3000), [seq] * 2),  # not joined
+            (('chr3', 3001, 1000), [seq] * 2)]  # not joined
+        contigs = list(medaka.stitch.collapse_neighbours(contigs))
+        self.assertEqual(contigs, expected, 'Fill neighbours')

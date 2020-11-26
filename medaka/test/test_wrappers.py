@@ -28,7 +28,6 @@ class HaploidVariant(unittest.TestCase):
         """
         from tensorflow.python.eager import context
         context._context = None
-        #context._create_context()
 
         parser = medaka_parsers._haploid_variant_argparser()
         args = [self.__reads_fasta__.name, self.__ref_fasta__, '-o', self.__output_dir__.name]
@@ -39,5 +38,3 @@ class HaploidVariant(unittest.TestCase):
         vcf = medaka.vcf.VCFReader(vcf_fp, cache=False)
         variant = next(vcf.fetch())
         self.assertEqual(variant.chrom, 'utg000001l')
-
-

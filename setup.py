@@ -11,6 +11,7 @@ from setuptools.command.build_ext import build_ext
 import subprocess
 
 __pkg_name__ = 'medaka'
+__dist_name__ = 'medaka'
 __author__ = 'ont-research'
 __description__ = 'Neural network sequence error correction.'
 
@@ -137,7 +138,7 @@ if __name__ == '__main__':
             'please use python 3.5-3.8 (inclusive)')
 
     setup(
-        name='medaka',
+        name=__dist_name__,
         version=__version__,
         url='https://github.com/nanoporetech/{}'.format(__pkg_name__),
         author=__author__,

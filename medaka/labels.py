@@ -1008,14 +1008,15 @@ class HaploidLabelScheme(BaseLabelScheme):
 
         :returns: str, consensus sequence
         """
-        # property access is slow
-        decode = self._decoding
+        # special case for singleton label
+        decode = np.array([ord(x) for x in self.symbols], dtype='u1')
         # most probable class
         mp = np.argmax(sample.label_probs, -1)
-        seq = ''.join((decode[x][0] for x in mp))
-        # delete gap symbol from sequence
         if not with_gaps:
-            seq = seq.replace('*', '')
+            gap = self.symbols.index('*')
+            mp = mp[mp != gap]
+        seq = decode[mp]
+        seq = np.frombuffer(seq, dtype='S1').tobytes().decode()
         return seq
 
 

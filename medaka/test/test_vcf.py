@@ -492,7 +492,25 @@ class TestMergeAndSplitVCFs(unittest.TestCase):
             result = getattr(got, key)
             self.assertEqual(expected, result, 'Merging failed for {}:{} {}.'.format(expt.chrom, expt.pos+1, key))
 
+    def test_004_check_merge_multi_bug(self):
+        # if we have two indels on one haplotype that cancel each other out
+        # (e.g. insertion of a T followed by a deletion of a T)
+        # check we don't have an alt that is the same as the ref.
+        ref_seq = 'TTTTTTTTTT'
+        chrom='chrom1'
 
+        h1 = [Variant(chrom, 0, 'TTTTT', alt='T', qual=5, genotype_data={'GT':'1/1'})]
+        h2 = [Variant(chrom, 1, 'T', alt='TT', qual=10, genotype_data={'GT':'1/1'}),
+              Variant(chrom, 3, 'TT', alt='T', qual=10, genotype_data={'GT':'1/1'})]
+        expt = Variant(chrom, 0, 'TTTTT', alt='T', qual=5, genotype_data={'GT':'1|0'})
+
+        comb_interval, trees = self.intervaltree_prep(h1, h2, ref_seq)
+        # preserve phase otherwise alts could be switched around
+        got = _merge_variants(comb_interval, trees, ref_seq, discard_phase=False)
+        for key in  ('chrom', 'pos', 'ref', 'qual', 'alt', 'gt', 'phased'):
+            expected = getattr(expt, key)
+            result = getattr(got, key)
+            self.assertEqual(expected, result, 'Merging failed for {}:{} {}.'.format(expt.chrom, expt.pos+1, key))
 
     def test_002_check_split(self):
         self.split_fps.extend(split_variants(self.vcf_merged))

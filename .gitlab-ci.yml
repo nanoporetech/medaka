@@ -70,6 +70,13 @@ build:arm-many-linux-6:
   only:
       - tags
 
+.switch-to-cpu: &switch-to-cpu
+    before_script:
+        - export PACKAGE_NAME=medaka-cpu
+        - sed -i 's/tensorflow/tensorflow-cpu/' requirements.txt
+
+
+# Tensorflow (gpu) builds
 build:many-linux-5:
     <<: *many-linux-def
     script:
@@ -89,6 +96,33 @@ build:many-linux-8:
     <<: *many-linux-def
     script:
         - ./build-wheels.sh . 8
+
+
+# Tensorflow-cpu wheels
+build-cpu:many-linux-5:
+    <<: *many-linux-def
+    <<: *switch-to-cpu
+    script:
+        - ./build-wheels.sh . 5
+
+build-cpu:many-linux-6:
+    <<: *many-linux-def
+    <<: *switch-to-cpu
+    script:
+        - ./build-wheels.sh . 6
+
+build-cpu:many-linux-7:
+    <<: *many-linux-def
+    <<: *switch-to-cpu
+    script:
+        - ./build-wheels.sh . 7
+
+build-cpu:many-linux-8:
+    <<: *many-linux-def
+    <<: *switch-to-cpu
+    script:
+        - ./build-wheels.sh . 8
+
 
 build:sdist:
     stage: build
