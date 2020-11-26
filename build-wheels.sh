@@ -4,7 +4,11 @@ set -e -x
 export MANYLINUX=1
 export MEDAKA_DIST=1
 
-PACKAGE_NAME='medaka'
+if [[ -z "${PACKAGE_NAME}" ]]; then
+    PACKAGE_NAME='medaka'
+fi
+PACKAGE_FILE_NAME=${PACKAGE_NAME//-/_}
+sed -i "s/__dist_name__ = 'medaka'/__dist_name__ = '${PACKAGE_NAME}'/" setup.py
 
 workdir=$1
 shift
@@ -34,7 +38,7 @@ done
 
 
 # Bundle external shared libraries into the wheels
-for whl in "wheelhouse/${PACKAGE_NAME}"*.whl; do
+for whl in "wheelhouse/${PACKAGE_FILE_NAME}"*.whl; do
     auditwheel repair "${whl}" -w ./wheelhouse/
 done
 
@@ -53,4 +57,4 @@ if [[ "${DO_COUNT_TEST}" == "1" ]]; then
     done
 fi
 
-cd wheelhouse && ls | grep -v "${PACKAGE_NAME}.*manylinux" | xargs rm
+cd wheelhouse && ls | grep -v "${PACKAGE_FILE_NAME}.*manylinux" | xargs rm
