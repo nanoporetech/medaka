@@ -1,3 +1,12 @@
+v1.2.1
+------
+
+Minor release
+
+* Fix issue whereby variant ALTs were created equal to REF.
+* Build a medaka-cpu package depending on tensorflow-cpu.
+
+
 v1.2.0
 ------
 
