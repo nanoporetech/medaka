@@ -1,3 +1,4 @@
+from argparse import Namespace
 from collections import OrderedDict, Counter, namedtuple
 import os
 import tempfile
@@ -14,7 +15,7 @@ from medaka.common import yield_from_bed
 from medaka.vcf import (VCFWriter, VCFReader, Variant, Haploid2DiploidConverter,
                         split_variants, classify_variant, _merge_variants,
                         MetaInfo, get_padded_haplotypes, align_read_to_haps,
-                        align_reads_to_haps, split_mnp)
+                        align_reads_to_haps, annotate_vcf_n_reads, split_mnp)
 
 root_dir = os.path.abspath(os.path.dirname(__file__))
 test1_file = os.path.join(root_dir, 'data/test1.vcf')
@@ -681,9 +682,9 @@ class TestAlignReadToHaps(unittest.TestCase):
         for (hap, exp), got in zip(haps_scores, scores):
             self.assertEqual(exp, got, msg='Failed for hap {}'.format(hap))
 
-class TestAlignReadToHaps(unittest.TestCase):
+class TestAlignReadsToHaps(unittest.TestCase):
 
-    def test_align_read_to_haps(self):
+    def test_align_reads_to_haps(self):
         haps = [
             'ATGCTTTTT*GCTAC',  # ref
             'ATGCTTaTT*GCTAC',  # alt 1
@@ -734,3 +735,42 @@ class TestAlignReadToHaps(unittest.TestCase):
         reads_ws = [(False, r) for r in reads]
         exp = Counter({(False, 0): 2, (False, 1): 1, (False, 2): 1})
         self.assertAlmostEqual(align_reads_to_haps(reads_ws, haps)[0], exp)
+
+
+class TestAnnotateVCFs(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.vcf = os.path.join(root_dir, 'data/test_annotate.vcf')
+        cls.ref_fasta = os.path.join(root_dir, 'data/test_annotate_ref.fasta')
+        cls.bam = os.path.join(root_dir, 'data/test_annotate.bam')
+        cls.rg = 'nCoV-2019_2'
+
+    def test_vcf_annotate(self):
+        variants_annotated = [
+                Variant('MN908947.3', 29748, 'ACGATCGAGTG', alt=['A'],
+                    ident='.', qual=243.965, filt='PASS',
+                    info='AR=0,0;DP=200;DPS=100,100;DPSP=199;SC=19484,20327,22036,23215;SR=1,2,98,98',
+                    genotype_data=OrderedDict([('GT','1'), ('GQ', '244')])),
+                Variant('MN908947.3', 29764, 'TGAACAATGCT',
+                    alt=['A'], ident='.', qual=243.965, filt='PASS',
+                    info='AR=0,0;DP=200;DPS=100,100;DPSP=199;SC=19970,21140,15773,16751;SR=99,100,0,0',
+                    genotype_data=OrderedDict([('GT','1'), ('GQ', '244')])),
+                Variant('MN908947.3', 29788, 'TATATGGAAGA',
+                     alt=['A'], ident='.', qual=243.965, filt='PASS',
+                    info='AR=0,0;DP=199;DPS=99,100;DPSP=197;SC=26174,28129,19085,20315;SR=96,100,1,0',
+                    genotype_data=OrderedDict([('GT', '1'), ('GQ','244')]))
+        ]
+
+        with tempfile.NamedTemporaryFile() as vcfout:
+            # Annotate vcf
+            args = Namespace(RG=self.rg, vcf=self.vcf,ref_fasta=self.ref_fasta,
+                            bam=self.bam, vcfout=vcfout.name,
+                             chunk_size=100000, pad=25, dpsp=True)
+            annotate_vcf_n_reads(args)
+
+            # Read in output variants and compare with expected annotated variants
+            vcf_reader = VCFReader(vcfout.name)
+            for i, v in enumerate(vcf_reader.fetch()):
+                self.assertEqual(v, variants_annotated[i],
+                                 'Annotation failed for variant: {} {}.'.format(v.chrom, v.pos))

@@ -562,8 +562,12 @@ def main():
     annparser.add_argument('ref_fasta', help='Reference .fasta file.')
     annparser.add_argument('bam', help='Input alignments.', action=CheckBam)
     annparser.add_argument('vcfout', help='Output .vcf.')
+    annparser.add_argument('--chunk_size', default=500000, type=int,
+        help='Chunk size for building pileups.')
     annparser.add_argument('--pad', default=25, type=int,
         help='Padding width either side of variant for realignment.')
+    annparser.add_argument('--dpsp', default=False, action='store_true',
+        help='Calulate depth and alignment score of spanning reads')
 
     # call variants by alignment of a consensus sequence to a reference
     c2vparser = toolsubparsers.add_parser('consensus2vcf',
