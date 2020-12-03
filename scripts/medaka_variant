@@ -37,6 +37,7 @@ SNP_THRESHOLD=8
 FILTER_FLAG=true
 STOPAFTERROUND0=false
 HAPLOID2DIPLOID_OPTS=""
+SAMPLE="SAMPLE"
 
 usage="
 ${medaka_version}
@@ -74,7 +75,7 @@ $(basename "$0") [-h] -i <bam>
     -l  split MNPs into SNPs."
 
 
-while getopts ':hi::f:r:o:m:s:T:t:pb:N:P:UdSl' option; do
+while getopts ':hi::f:r:o:m:s:T:t:pb:N:P:UdSn:l' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; CALLS2REF=$(follow_link $OPTARG);;
@@ -91,12 +92,14 @@ while getopts ':hi::f:r:o:m:s:T:t:pb:N:P:UdSl' option; do
     P  ) SNP_THRESHOLD=$OPTARG;;
     U  ) FILTER_FLAG=false;;
     S  ) STOPAFTERROUND0=true;;
+    n  ) SAMPLE=$OPTARG;;
     l  ) HAPLOID2DIPLOID_OPTS="${HAPLOID2DIPLOID_OPTS} --split_mnp";;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
     :  ) echo "Option -$OPTARG requires an argument." >&2; exit 1;;
   esac
 done
 shift $(($OPTIND - 1))
+
 
 if ! $iflag; then
   echo "$usage" >&2;
@@ -237,7 +240,9 @@ run_whatshap_tag () {
     local BAMOUT=$2
     if [[ ! -e ${BAMOUT} ]]; then
         echo "- Running whatshap tag for: ${VCFIN} > ${BAMOUT}"
-        whatshap haplotag -o ${BAMOUT} --reference ${REF} ${VCFIN} ${CALLS2REF} ${WHATSHAPOPTS} \
+	# Leaving out -o completely did not work for me
+        whatshap haplotag -o /dev/stdout --reference ${REF} ${VCFIN} ${CALLS2REF} ${WHATSHAPOPTS} \
+	    | samtools addreplacerg -O BAM -r "@RG\tID:${SAMPLE}\tSM:${SAMPLE}" - > ${BAMOUT} \
             || (echo "Failed to partition reads in round 0." && exit 1)
         echo "  Tagged reads written to ${OUTPUT}/${BAMOUT}."
     else
@@ -356,6 +361,9 @@ UNPHASEDVCF=round_${ROUND}_hap_mixed_unphased.vcf
 run_medaka_consensus ${CALLS2REF} ${CONSENSUSPROBS} ${SNPMODEL}
 run_medaka_snp ${CONSENSUSPROBS} ${UNPHASEDVCF}
 
+# Set correct sample name
+sed -i "s#\tSAMPLE#\t${SAMPLE}#" ${UNPHASEDVCF}
+
 # check empty vcf, write empty final output
 UNFILTERED=round_1_unfiltered.vcf
 FINAL=round_1.vcf
@@ -395,7 +403,9 @@ else
 
     # Add invocation of this script to VCF header
     INVOCATION_DATE="##CL=${INVOCATION}; $(date)"
-    sed -i "/^#CHROM.*/i ${INVOCATION_DATE}" ${UNFILTERED} 
+    sed -i "/^#CHROM.*/i ${INVOCATION_DATE}" ${UNFILTERED}  
+    # Set correct sample name
+    sed -i "s#\tSAMPLE#\t${SAMPLE}#" ${UNFILTERED}
 
     if $FILTER_FLAG; then
         # Filter resulting vcf
