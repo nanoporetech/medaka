@@ -422,6 +422,10 @@ else
         FINALPHASED=round_1_phased.vcf
         run_phase_vcf ${FINAL} ${FINALPHASED}
         FINAL=${FINALPHASED}
+    else
+	mv ${FINAL} ${FINAL}_tmp
+	whatshap unphase ${FINAL}_tmp > ${FINAL}
+	rm -f ${FINAL}_tmp
     fi
 fi
 
