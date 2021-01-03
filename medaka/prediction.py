@@ -94,7 +94,7 @@ def predict(args):
     if args.threads > 2:
         logger.warning("Reducing threads to 2, anymore is a waste.")
         args.threads = 2
-        if len(tf.config.list_physical_devices('GPU')) == 0:
+        if len(tf.test.gpu_device_name()) == 0:
             logger.info(
                 "It looks like you are running medaka without a GPU "
                 "and attempted to set a high number of threads. We "
@@ -126,7 +126,7 @@ def predict(args):
         feature_encoder.tag_keep_missing = args.tag_keep_missing
         feature_encoder.read_group = args.RG
 
-        if len(tf.config.list_physical_devices('GPU')) > 0:
+        if len(tf.test.gpu_device_name()) > 0:
             logger.info("Found a GPU.")
             logger.info(
                 "If cuDNN errors are observed, try setting the environment "
