@@ -133,7 +133,7 @@ def build_model(feature_len, num_classes, gru_size=128,
 
     #  Tensorflow2 uses a fast cuDNN implementation if a GPU is available
     #  and the arguments to the layer meet the CuDNN kernal requirements
-    if tf.config.list_physical_devices('GPU'):
+    if len(tf.test.gpu_device_name()) > 0:
         logger.info("GPU available: building model with cudnn optimization")
 
     model = Sequential()
