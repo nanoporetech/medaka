@@ -72,7 +72,8 @@ $(basename "$0") [-h] -i <bam>
     -P  threshold for filtering SNPs in final VCF (default: ${SNP_THRESHOLD})
     -U  Avoid filtering of final VCF (default: do filter)
     -S  stop after initial SNP calling from mixed reads prior to phasing.
-    -l  split MNPs into SNPs."
+    -l  split MNPs into SNPs.
+    -n  set this sample name in the output VCF and phased bam."
 
 
 while getopts ':hi::f:r:o:m:s:T:t:pb:N:P:UdSn:l' option; do
