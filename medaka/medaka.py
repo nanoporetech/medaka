@@ -230,6 +230,7 @@ def _chunking_feature_args(batch_size=100, chunk_len=10000, chunk_ovlp=1000):
 
 def _validate_common_args(args):
     """Do some common argument validation."""
+    logger = medaka.common.get_named_logger('ValidArgs')
     if hasattr(args, 'bam') and args.bam is not None:
         RG = args.RG if hasattr(args, 'RG') else None
         CheckBam.check_read_groups(args.bam, RG)
