@@ -330,6 +330,9 @@ class StoreDict(argparse.Action):
 
 def main():
     from medaka import __version__
+    # Some users report setting this helps them resolve issues on their
+    # filesystems. 
+    os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
 
     parser = argparse.ArgumentParser('medaka',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)

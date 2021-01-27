@@ -107,6 +107,7 @@ def predict(args):
             args.threads))
     os.environ["TF_NUM_INTEROP_THREADS"] = str(args.threads)
     os.environ["TF_NUM_INTRAOP_THREADS"] = str(1)
+    os.environ["OMP_NUM_THREADS"] = str(1)  # this one is for the conda builds
     # These function calls seem not to work:
     # tf.config.threading.set_intra_op_parallelism_threads(args.threads)
     # tf.config.threading.set_inter_op_parallelism_threads(args.threads)
