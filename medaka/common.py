@@ -422,7 +422,11 @@ class Sample(_Sample):
         """
         logger = get_named_logger('TrimOverlap')
 
-        s1 = next(sample_gen)
+        try:
+            s1 = next(sample_gen)
+        except StopIteration:
+            # there were no samples to process
+            return
         # do not trim beginning of s1
         start_1 = None
         # initialise in case we have one sample
@@ -482,7 +486,11 @@ class Sample(_Sample):
         """
         samples = Sample.trim_samples(samples)
 
-        sample, last, heuristic = next(samples)
+        try:
+            sample, last, heuristic = next(samples)
+        except StopIteration:
+            # there were no samples
+            return
         if start is not None:
             # trim first (other near first) sample
             while True:
