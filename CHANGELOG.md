@@ -1,3 +1,15 @@
+v1.2.2
+------
+
+Minor release
+
+ * Fixed incorrect read depth annotations in VCFs.
+ * Added `-n` option to `medaka_variant` to add a sample field to outputs.
+ * Fixed missing files in PyPI source distribution.
+ * Set `HDF5_USE_FILE_LOCKING=FALSE`, which some users report as useful.
+ * Set `OMP_NUM_THREADS=1` required to make Tensorflow anaconda use CPU resource sensibly.
+ * Fix `StopIteration` issues in newer Pythons.
+
 v1.2.1
 ------
 
