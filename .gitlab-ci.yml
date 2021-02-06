@@ -154,7 +154,6 @@ push-github:
         - apt-get update -qq && apt-get install -y -qq
           git python3-all-dev python-virtualenv
         - mkdir ~/.ssh/
-        #TODO: fill in details here
         - cp $RESEARCH_BOT_GH_KEY ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
         - echo -e "Host github.com\n\tStrictHostKeyChecking no\n\tHostname ssh.github.com\n\tPort 443\n\n" > ~/.ssh/config
         - git config --global user.email "research.git@nanoporetech.com"
