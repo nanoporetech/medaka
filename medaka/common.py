@@ -505,7 +505,11 @@ class Sample(_Sample):
                 # front its size could have been reduce to zero
                 if len(sample.positions) > 0:
                     break
-                sample, last, heuristic = next(samples)
+                try:
+                    sample, last, heuristic = next(samples)
+                except StopIteration:
+                    # the samples were all before the start of the region
+                    return
 
         first = sample, last, heuristic
         if end is None:

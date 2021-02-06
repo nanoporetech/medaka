@@ -1266,10 +1266,14 @@ def get_trimmed_reads(bam, region, partial, read_group):
 
     :returns: [(bool is_rev, str trimmed read sequence)]
     """
-    region_got, reads = next(
-        medaka.features.get_trimmed_reads(region, bam, partial=partial,
-                                          read_group=read_group,
-                                          region_split=2*region.size))
+    try:
+        region_got, reads = next(
+            medaka.features.get_trimmed_reads(
+                region, bam, partial=partial,
+                read_group=read_group,
+                region_split=2*region.size))
+    except StopIteration:
+        return list()
     if not region == region_got:  # check region was not e.g. split
         msg = 'Expected region {}, got region {}'
         raise ValueError(msg.format(region, region_got))
