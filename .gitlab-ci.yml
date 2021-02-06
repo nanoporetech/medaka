@@ -149,16 +149,16 @@ deploy:pypi:
 
 
 push-github:
-    stage: push
+    stage: deploy
     before_script:
         - apt-get update -qq && apt-get install -y -qq
-          git python3-pip
+          git python3-all-dev python-virtualenv
         - mkdir ~/.ssh/
         #TODO: fill in details here
-        - cp $BOT_GH_KEY ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
+        - cp $RESEARCH_BOT_GH_KEY ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
         - echo -e "Host github.com\n\tStrictHostKeyChecking no\n\tHostname ssh.github.com\n\tPort 443\n\n" > ~/.ssh/config
-        - git config --global user.email "<username>@nanoporetech.com"
-        - git config --global user.name "<username>"
+        - git config --global user.email "research.git@nanoporetech.com"
+        - git config --global user.name "ontresearch"
     script:
         # Push master and tag to github
         - git remote add ont ${CI_REPOSITORY_URL} || true
@@ -171,9 +171,10 @@ push-github:
         - git push github master
         - git push github ${CI_COMMIT_TAG}
         # Make a github release page
-        - git clone https://github.com/epi2me-labs/github_release
-        - pip3 install -r github_release/requirements.txt
-        - github_release/make_release ${CI_PROJECT_NAME} ${CI_COMMIT_TAG} CHANGELOG.md ${BOT_GH_TOKEN}
+        - make build
+        - source pypi_build/bin/activate
+        - pip install git+git://github.com/epi2me-labs/github_release.git
+        - github_release ${CI_PROJECT_NAME} ${CI_COMMIT_TAG} CHANGELOG.md ${RESEARCH_BOT_GH_TOKEN}
           --artifacts dist/*.tar.gz
     only:
         - tags
