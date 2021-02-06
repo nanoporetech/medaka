@@ -172,7 +172,7 @@ R10.3 model and small fixes
 
 ## [v0.11.4]
 
-Bugfix
+Bugfix release
 
 ### Fixed
  - Fix invalid specification of variant calling model.
