@@ -127,7 +127,10 @@ def collapse_neighbours(contigs):
 
     :param contigs: a stream of ordered (partial)-contigs.
     """
-    contig = next(contigs)
+    try:
+        contig = next(contigs)
+    except StopIteration:
+        return
     ref_name, start, stop = contig[0]
     buffer = contig[1]
     for contig in contigs:

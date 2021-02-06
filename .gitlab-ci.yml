@@ -146,3 +146,34 @@ deploy:pypi:
         - twine upload dist/*.tar.gz wheelhouse/*.whl
     only:
         - tags
+
+
+push-github:
+    stage: deploy
+    before_script:
+        - apt-get update -qq && apt-get install -y -qq
+          git python3-all-dev python-virtualenv
+        - mkdir ~/.ssh/
+        - cp $RESEARCH_BOT_GH_KEY ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
+        - echo -e "Host github.com\n\tStrictHostKeyChecking no\n\tHostname ssh.github.com\n\tPort 443\n\n" > ~/.ssh/config
+        - git config --global user.email "research.git@nanoporetech.com"
+        - git config --global user.name "ontresearch"
+    script:
+        # Push master and tag to github
+        - git remote add ont ${CI_REPOSITORY_URL} || true
+        - git remote add github git@github.com:nanoporetech/${CI_PROJECT_NAME}.git || true
+        - git fetch ont dev --tags
+        - git fetch ont master
+        - git fetch github master
+        - git checkout --track github/master || git checkout master
+        - git merge ${CI_COMMIT_TAG}
+        - git push github master
+        - git push github ${CI_COMMIT_TAG}
+        # Make a github release page
+        - make build
+        - source pypi_build/bin/activate
+        - pip install git+git://github.com/epi2me-labs/github_release.git
+        - github_release ${CI_PROJECT_NAME} ${CI_COMMIT_TAG} CHANGELOG.md ${RESEARCH_BOT_GH_TOKEN}
+          --artifacts dist/*.tar.gz
+    only:
+        - tags

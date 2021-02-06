@@ -1088,6 +1088,7 @@ def get_homozygous_regions(args):
 def annotate_vcf_n_reads(args):
     """Entry point to annotate a vcf with read depth and supporting reads."""
     ref_fasta = pysam.FastaFile(args.ref_fasta)
+    logger = medaka.common.get_named_logger('Annotate vcf')
 
     vcf = VCFReader(args.vcf)
     chrom = None
@@ -1121,47 +1122,113 @@ def annotate_vcf_n_reads(args):
              match, mismatch, g_open, g_ext)
          ),
     ]
+
+    # get chrom coordinates
+    logger.info('Getting chrom coordinates')
+    variants = list(vcf.fetch())
+    chroms = vcf.chroms
+    chrom_regions = []
+    for chrom in chroms:
+        chr_var = list(vcf.fetch(ref_name=chrom))
+        chr_start = chr_var[0].pos
+        chr_end = chr_var[-1].pos
+        chrom_regions.append(medaka.common.Region(chrom, chr_start, chr_end+1))
+
+    logger.info('Chunking regions')
+    # chunk each contig and catenate chunks into single array
+    region_chunks = np.array([])
+    for chrom_region in chrom_regions:
+        chunks = chrom_region.split(size=args.chunk_size, overlap=0)
+        region_chunks = np.concatenate((region_chunks, chunks), axis=None) \
+            if region_chunks.size else chunks
+
+    feature_encoder = medaka.features.CountsFeatureEncoder(
+                        read_group=args.RG, normalise='fwd_rev')
+    feature_indices = feature_encoder.feature_indices.items()
+
     meta_info = vcf.meta + [str(MetaInfo(*m)) for m in ann_meta]
     with VCFWriter(args.vcfout, 'w', version='4.1', contigs=vcf.chroms,
                    meta_info=meta_info) as vcf_writer:
-        for v in vcf.fetch():
-            if chrom is None or chrom != v.chrom:
-                chrom = v.chrom
-                ref_seq = ref_fasta.fetch(chrom)
 
-            # get read depth by strand at the variant (without padding)
-            depth_by_strand = collections.Counter()
-            # medaka.features.get_trimmed_reads seems to behave oddly if the
-            # region only spans 1 base, hence v.pos + 2
-            var_reg = medaka.common.Region(chrom, v.pos, v.pos + 2)
-            reads = get_trimmed_reads(args.bam, var_reg, partial=True,
-                                      read_group=args.RG)
-            for is_rev, _ in reads:
-                depth_by_strand[is_rev] += 1
-            v.info['DP'] = str(sum(depth_by_strand.values()))
-            v.info['DPS'] = '{},{}'.format(depth_by_strand[False],
-                                           depth_by_strand[True])
+        for i, chunk in enumerate(region_chunks):
+            logger.info('Processing chunk with coordinates: {}-{}'.format(
+                                chunk.start, chunk.end))
+            variants = list(vcf.fetch(chunk.ref_name, chunk.start, chunk.end))
+            if len(variants) > 0:  # check if variants in chunk
+                chrom = variants[0].chrom
+                ref_seq = ref_fasta.fetch(chunk.ref_name)
+                trimmed_chunk = medaka.common.Region(chrom,
+                                                     variants[0].pos,
+                                                     variants[-1].pos+1)
+                pileup = medaka.features.pileup_counts(
+                                                trimmed_chunk, args.bam,
+                                                read_group=args.RG)
 
-            # get read depth by strand at the variant (with padding)
-            padded_haps, pad_reg = get_padded_haplotypes(v, ref_seq, args.pad)
-            reads = get_trimmed_reads(args.bam, pad_reg, partial=False,
-                                      read_group=args.RG)
-            counts, scores = align_reads_to_haps(reads, padded_haps, g_open,
-                                                 g_ext, matrix)
-            v.info['DPSP'] = sum(counts.values())
-            sr = []  # counts of supporting reads for each hap by strand
-            sc = []  # total scores for each hap by strand
-            haps = list(range(1 + len(v.alt)))  # ref and alts
-            is_revs = [False, True]
-            for hap in haps:
-                for is_rev in is_revs:
-                    sr.append(counts[(is_rev, hap)])
-                    sc.append(scores[(is_rev, hap)])
-            v.info['SR'] = ','.join(map(str, sr))
-            v.info['SC'] = ','.join(map(str, sc))
-            v.info['AR'] = '{},{}'.format(*[counts[(is_rev, None)]
-                                            for is_rev in is_revs])
-            vcf_writer.write_variant(v)
+                # if pileup_counts returns pileup in chunks then merge and
+                # pad out between chunks
+                merged_counts = []
+                plp_positions = []
+
+                prev_pos = None
+                for p, (counts, positions) in enumerate(pileup):
+                    if p > 0:
+                        next_pos = positions[0][0]
+                        pad_size = next_pos-(prev_pos+1)
+                        # pad between pileup counts
+                        padding = [np.zeros(10, dtype=int)]*pad_size
+                        merged_counts.extend(padding)
+                        # pad between position coordinates
+                        plp_positions.extend(np.arange(prev_pos+1, next_pos))
+
+                    # get pileup indices for non insertion entries
+                    is_major_pos = positions['minor'] == 0
+
+                    # counts arrays
+                    merged_counts.extend(counts[is_major_pos])
+
+                    # positions
+                    plp_positions.extend(
+                        [x[0] for x in positions[is_major_pos]])
+
+                    prev_pos = positions[-1][0]
+
+                for v in variants:
+                    plp_index = v.pos - plp_positions[0]
+                    count = merged_counts[plp_index]
+                    dt_depth = {}
+                    # get read depth at pos (fwd, rev)"
+                    for (dt, is_rev), inds in feature_indices:
+                        dt_depth[is_rev] = np.sum(count[inds])
+
+                    v.info['DP'] = np.sum(count)
+                    v.info['DPS'] = '{},{}'.format(
+                                    dt_depth[False], dt_depth[True])
+
+                    # get read depth by strand at the variant (with padding)
+                    if args.dpsp:
+                        padded_haps, pad_reg = get_padded_haplotypes(
+                                                    v, ref_seq, args.pad)
+                        reads = get_trimmed_reads(args.bam, pad_reg,
+                                                  partial=False,
+                                                  read_group=args.RG)
+                        counts, scores = align_reads_to_haps(reads,
+                                                             padded_haps,
+                                                             g_open,
+                                                             g_ext, matrix)
+                        v.info['DPSP'] = sum(counts.values())
+                        sr = []  # cnts of reads supporting each hap by strand
+                        sc = []  # total scores for each hap by strand
+                        haps = list(range(1 + len(v.alt)))  # ref and alts
+                        is_revs = [False, True]
+                        for hap in haps:
+                            for is_rev in is_revs:
+                                sr.append(counts[(is_rev, hap)])
+                                sc.append(scores[(is_rev, hap)])
+                        v.info['SR'] = ','.join(map(str, sr))
+                        v.info['SC'] = ','.join(map(str, sc))
+                        v.info['AR'] = '{},{}'.format(*[counts[(is_rev, None)]
+                                                      for is_rev in is_revs])
+                    vcf_writer.write_variant(v)
 
 
 def get_padded_haplotypes(var, ref_seq, pad):
@@ -1199,10 +1266,14 @@ def get_trimmed_reads(bam, region, partial, read_group):
 
     :returns: [(bool is_rev, str trimmed read sequence)]
     """
-    region_got, reads = next(
-        medaka.features.get_trimmed_reads(region, bam, partial=partial,
-                                          read_group=read_group,
-                                          region_split=2*region.size))
+    try:
+        region_got, reads = next(
+            medaka.features.get_trimmed_reads(
+                region, bam, partial=partial,
+                read_group=read_group,
+                region_split=2*region.size))
+    except StopIteration:
+        return list()
     if not region == region_got:  # check region was not e.g. split
         msg = 'Expected region {}, got region {}'
         raise ValueError(msg.format(region, region_got))
