@@ -160,7 +160,6 @@ push-github:
         - git config --global user.name "ontresearch"
     script:
         # Push master and tag to github
-        - export CI_COMMIT_TAG="v1.2.2-rc.2"
         - git remote add ont ${CI_REPOSITORY_URL} || true
         - git remote add github git@github.com:nanoporetech/${CI_PROJECT_NAME}.git || true
         - git fetch ont dev --tags
@@ -177,5 +176,4 @@ push-github:
         - github_release ${CI_PROJECT_NAME} ${CI_COMMIT_TAG} CHANGELOG.md ${RESEARCH_BOT_GH_TOKEN}
           --artifacts dist/*.tar.gz
     only:
-        #- tags
-        - /^cjwtest$/
+        - tags
