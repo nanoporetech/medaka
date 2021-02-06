@@ -415,8 +415,8 @@ def main():
         help='Run inference from a trained model and alignments.',
         parents=[_log_level(), _chunking_feature_args(), _regions_or_bed_args(), _model_arg(), _rg_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    cparser.add_argument('bam', help='Input alignments.', action=CheckBam)
     cparser.set_defaults(func=medaka.prediction.predict)
+    cparser.add_argument('bam', help='Input alignments.', action=CheckBam)
     cparser.add_argument('output', help='Output file.')
     cparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
     cparser.add_argument('--check_output', action='store_true', default=False,
@@ -434,9 +434,9 @@ def main():
         help='Create consensus sequences from single-molecule reads.',
         parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500), _model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    smparser.add_argument('fasta', nargs='+', help='Single-molecule reads, one file per read.')
     smparser.set_defaults(func=medaka.smolecule.main)
     smparser.add_argument('output', help='Output directory.')
+    smparser.add_argument('fasta', nargs='+', help='Single-molecule reads, one file per read.')
     smparser.add_argument('--method', choices=['racon', 'spoa'], default='spoa', help='Pre-medaka consensus generation method.')
     smparser.add_argument('--depth', type=int, default=3, help='Minimum subread count.')
     smparser.add_argument('--length', type=int, default=400, help='Minimum median subread length.')
@@ -451,6 +451,7 @@ def main():
         help='Run inference from a trained model on existing features.',
         parents=[_log_level(), _model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    # TODO: why doesn't this have a .set_defaults?
     cfparser.add_argument('features', nargs='+', help='Pregenerated features (from medaka features).')
 
     # Compression of fasta/q to quality-RLE fastq
