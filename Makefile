@@ -119,6 +119,8 @@ IN_VENV=. ./venv/bin/activate
 venv/bin/activate:
 	test -d venv || virtualenv venv --python=$(PYTHON) --prompt "(medaka) "
 	${IN_VENV} && pip install pip --upgrade
+	# setuptools 53.0.0 trips up on whatshap deps
+	${IN_VENV} && pip install setuptools==52.0.0
 
 
 .PHONY: check_lfs
