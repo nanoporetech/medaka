@@ -484,6 +484,8 @@ class Sample(_Sample):
             same reference sequence. The `start` and `end` parameters
             are positions in this single sequence.
         """
+        # trim samples to remove overlaps. This may change whether a sample
+        # overlaps the target region or not, which we take care of below.
         samples = Sample.trim_samples(samples)
 
         try:
@@ -492,7 +494,7 @@ class Sample(_Sample):
             # there were no samples
             return
         if start is not None:
-            # trim first (other near first) sample
+            # trim first sample (and possibly others)
             while True:
                 if sample.positions['major'][0] > start:
                     # the samples don't span to the start of the region
@@ -513,17 +515,19 @@ class Sample(_Sample):
 
         first = sample, last, heuristic
         if end is None:
+            # not trimming to end coord, just yield everything
             yield first
             yield from samples
         else:
             for sample, last, heuristic in itertools.chain((first, ), samples):
-                if sample.positions['major'][-1] > end:
+                if sample.positions['major'][-1] >= end:  # end is exclusive
+                    # trim this sample then return
                     sample_end = np.searchsorted(
                         sample.positions['major'], end)
                     yield (
                         sample.slice(slice(None, sample_end)),
                         last, heuristic)
-                    break
+                    return
                 else:
                     yield sample, last, heuristic
 
