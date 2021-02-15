@@ -1,4 +1,3 @@
-
 # Builds a cache of binaries which can just be copied for CI
 BINARIES=samtools minimap2 tabix bgzip racon bcftools
 BINCACHEDIR=bincache
@@ -21,7 +20,7 @@ endif
 
 binaries: $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 
-SAMVER=1.10
+SAMVER=1.11
 submodules/samtools-$(SAMVER)/Makefile:
 	cd submodules; \
 		curl -L -o samtools-${SAMVER}.tar.bz2 https://github.com/samtools/samtools/releases/download/${SAMVER}/samtools-${SAMVER}.tar.bz2; \
@@ -120,6 +119,8 @@ IN_VENV=. ./venv/bin/activate
 venv/bin/activate:
 	test -d venv || virtualenv venv --python=$(PYTHON) --prompt "(medaka) "
 	${IN_VENV} && pip install pip --upgrade
+	# setuptools 53.0.0 trips up on whatshap deps
+	${IN_VENV} && pip install setuptools==52.0.0
 
 
 .PHONY: check_lfs

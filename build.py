@@ -4,7 +4,7 @@ import os
 from cffi import FFI
 
 #TODO: configure this better
-samver="1.10"
+samver="1.11"
 htslib_dir=os.path.join('submodules', 'samtools-{}'.format(samver), 'htslib-{}'.format(samver))
 
 libraries=['m', 'z', 'lzma', 'bz2', 'pthread', 'curl', 'crypto']
