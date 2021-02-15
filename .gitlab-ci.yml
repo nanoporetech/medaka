@@ -49,11 +49,6 @@ test:
     only:
         - tags
 
-build:arm-many-linux-5:
-    <<: *arm-many-linux-def
-    script:
-        - ./build-wheels.sh . 5
-
 build:arm-many-linux-6:
     <<: *arm-many-linux-def
     script:
