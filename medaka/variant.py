@@ -383,7 +383,10 @@ def vcf_from_fasta(args):
 
     header_contigs = ['{},length={}'.format(c, contig_lengths[c])
                       for c in ref_contigs]
-    with medaka.vcf.VCFWriter(vcf_fp, contigs=header_contigs) as writer:
+    meta_info = [medaka.vcf.MetaInfo(
+        'FORMAT', 'GT', 1, 'String', 'Medaka genotype.')]
+    with medaka.vcf.VCFWriter(
+            vcf_fp, contigs=header_contigs, meta_info=meta_info) as writer:
         for aln in alns:
             # reference_start is 0 based, reference_end points to one past
             # the last aligned residue, i.e. same as bed file
