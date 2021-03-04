@@ -6,7 +6,7 @@ edlib
 grpcio 
 h5py<3.0.0            # tf has a pin for this, but pip gets confused
 intervaltree
-tensorflow==2.2.0
+tensorflow==2.2.2
 numpy
 mappy
 ont_fast5_api

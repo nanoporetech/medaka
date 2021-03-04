@@ -5,19 +5,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [unreleased]
+### Changed
+ - Updated Tensorflow requirement to 2.2.2
+
+
 ## [v1.2.3]
-## Fixed
+### Fixed
  - Off-by-one error during stitching of consensus chunks.
+
 
 ## [v1.2.2]
 
 Minor release
 
-## Fixed
+### Fixed
  - Fixed incorrect read depth annotations in VCFs.
  - Fixed missing files in PyPI source distribution.
  - Fix `StopIteration` issues in newer Pythons.
-## Added
+### Added
  - Added `-n` option to `medaka_variant` to add a sample field to outputs.
  - Set `HDF5_USE_FILE_LOCKING=FALSE`, which some users report as useful.
  - Set `OMP_NUM_THREADS=1` required to make Tensorflow anaconda use CPU resource sensibly.
@@ -472,8 +478,7 @@ Development release.
 ## [v0.4.0]
 
 Performance and bugfix release.
- 
-### Fixed
+
 ### Added
  - Large refactoring of feature and sample generation. Fixes many small bugs
   and edge cases
