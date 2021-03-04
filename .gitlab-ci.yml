@@ -5,19 +5,154 @@ stages:
     - build
     - deploy
 
-test:
+# Install a particular Python and set PYTHON envvar for Makefile 
+.install-pyenv: &install-pyenv |
+    git clone https://github.com/pyenv/pyenv.git ~/.pyenv
+    export PYENV_ROOT="$HOME/.pyenv"
+    export PATH="$PYENV_ROOT/bin:$PATH"
+    PYTHON_CONFIGURE_OPTS="--enable-shared" pyenv install ${PYENV_VERSION}
+    export PYTHON=$(PYENV_VERSION=$PYENV_VERSION pyenv which python)
+
+.preparetest: &preparetest
     stage: test
     before_script:
-        - apt-get update -qq && apt-get install -y -qq
-          gcc make cmake curl wget
-          python3-all-dev python-virtualenv
+        - export DEBIAN_FRONTEND=noninteractive
+        - apt-get update -qq
+        - apt-get install -y -qq 
+          gcc make cmake curl wget git
           zlib1g-dev libbz2-dev liblzma-dev libncurses5-dev libcurl4-gnutls-dev
           libssl-dev libffi-dev valgrind
-    script:
-        - make venv
-        - CITEST=1 make -j 1 test mem_check
-        - make docs
+          libreadline7 libreadline-dev sqlite3 libsqlite3-dev
+        - *install-pyenv
 
+
+.minimal-python: &minimal-python
+    before_script:
+        - export DEBIAN_FRONTEND=noninteractive
+        - apt-get update -qq && apt-get install -y -qq
+          python3-all-dev python3-venv
+
+
+# medaka test suite on various Pythons
+.pytest: &pytest
+    <<: *preparetest
+    script:
+        - make -j 4 binaries
+        - make test
+
+test-3.6.12:
+    variables:
+        PYENV_VERSION: 3.6.12
+    <<: *pytest
+
+test-3.7.9:
+    variables:
+        PYENV_VERSION: 3.7.9
+    <<: *pytest
+
+test-3.8.7:
+    variables:
+        PYENV_VERSION: 3.8.7
+    <<: *pytest
+
+test-mem-check:
+    variables:
+        PYENV_VERSION: 3.6.12
+    <<: *preparetest
+    script:
+        - make mem_check
+
+test-docs:
+    variables:
+        PYENV_VERSION: 3.6.12
+    <<: *preparetest
+    script:
+        - make install docs
+
+###
+# Source distribution
+#
+
+build:sdist:
+    stage: build
+    <<: *minimal-python
+    script:
+        - make sdist
+    artifacts:
+        paths:
+            - dist/*.tar.gz
+
+###
+# Many linux builds
+#
+
+.many-linux: &many-linux-def
+  image: quay.io/pypa/manylinux2010_x86_64
+  stage: build
+  variables:
+      DO_COUNT_TEST: 1
+  artifacts:
+      paths:
+          - wheelhouse/*.whl
+  only:
+      - tags
+
+.switch-to-cpu: &switch-to-cpu
+    before_script:
+        - export PACKAGE_NAME=medaka-cpu
+        - sed -i 's/tensorflow/tensorflow-cpu/' requirements.txt
+
+### Tensorflow (gpu) builds
+
+build:many-linux-5:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 5
+
+build:many-linux-6:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 6
+
+build:many-linux-7:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 7
+
+build:many-linux-8:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 8
+
+### Tensorflow-cpu wheels
+
+build-cpu:many-linux-5:
+    <<: *many-linux-def
+    <<: *switch-to-cpu
+    script:
+        - ./build-wheels.sh . 5
+
+build-cpu:many-linux-6:
+    <<: *many-linux-def
+    <<: *switch-to-cpu
+    script:
+        - ./build-wheels.sh . 6
+
+build-cpu:many-linux-7:
+    <<: *many-linux-def
+    <<: *switch-to-cpu
+    script:
+        - ./build-wheels.sh . 7
+
+build-cpu:many-linux-8:
+    <<: *many-linux-def
+    <<: *switch-to-cpu
+    script:
+        - ./build-wheels.sh . 8
+
+###
+# ARM builds, need more work
+#
 
 .arm-many-linux: &arm-many-linux-def
     image: quay.io/pypa/manylinux2014_aarch64
@@ -54,100 +189,28 @@ build:arm-many-linux-6:
     script:
         - ./build-wheels.sh . 6
 
-.many-linux: &many-linux-def
-  image: quay.io/pypa/manylinux2010_x86_64
-  stage: build
-  variables:
-      DO_COUNT_TEST: 1
-  artifacts:
-      paths:
-          - wheelhouse/*.whl
-  only:
-      - tags
 
-.switch-to-cpu: &switch-to-cpu
-    before_script:
-        - export PACKAGE_NAME=medaka-cpu
-        - sed -i 's/tensorflow/tensorflow-cpu/' requirements.txt
+###
+# Deploy stages
+#
 
-
-# Tensorflow (gpu) builds
-build:many-linux-5:
-    <<: *many-linux-def
-    script:
-        - ./build-wheels.sh . 5
-
-build:many-linux-6:
-    <<: *many-linux-def
-    script:
-        - ./build-wheels.sh . 6
-
-build:many-linux-7:
-    <<: *many-linux-def
-    script:
-        - ./build-wheels.sh . 7
-
-build:many-linux-8:
-    <<: *many-linux-def
-    script:
-        - ./build-wheels.sh . 8
-
-
-# Tensorflow-cpu wheels
-build-cpu:many-linux-5:
-    <<: *many-linux-def
-    <<: *switch-to-cpu
-    script:
-        - ./build-wheels.sh . 5
-
-build-cpu:many-linux-6:
-    <<: *many-linux-def
-    <<: *switch-to-cpu
-    script:
-        - ./build-wheels.sh . 6
-
-build-cpu:many-linux-7:
-    <<: *many-linux-def
-    <<: *switch-to-cpu
-    script:
-        - ./build-wheels.sh . 7
-
-build-cpu:many-linux-8:
-    <<: *many-linux-def
-    <<: *switch-to-cpu
-    script:
-        - ./build-wheels.sh . 8
-
-
-build:sdist:
-    stage: build
-    before_script:
-        - apt-get update -qq && apt-get install -y -qq
-          python3-all-dev python-virtualenv
-    script:
-        - make sdist
-    artifacts:
-        paths:
-            - dist/*.tar.gz
-
+# Send all tags to PyPI
 deploy:pypi:
     stage: deploy
-    before_script:
-        - apt-get update -qq && apt-get install -y -qq
-          python3-all-dev python-virtualenv
+    <<: *minimal-python
     script:
-        - make build
+        - make pypi_build/bin/activate
         - source pypi_build/bin/activate
         - twine upload dist/*.tar.gz wheelhouse/*.whl
     only:
         - tags
 
-
+# Send all tags matching vX.Y.Z to github (code and release)
 push-github:
     stage: deploy
     before_script:
         - apt-get update -qq && apt-get install -y -qq
-          git python3-all-dev python-virtualenv git-lfs
+          git python3-all-dev git-lfs
         - mkdir ~/.ssh/
         - cp $RESEARCH_BOT_GH_KEY ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
         - echo -e "Host github.com\n\tStrictHostKeyChecking no\n\tHostname ssh.github.com\n\tPort 443\n\n" > ~/.ssh/config
@@ -171,4 +234,6 @@ push-github:
         - github_release ${CI_PROJECT_NAME} ${CI_COMMIT_TAG} CHANGELOG.md ${RESEARCH_BOT_GH_TOKEN}
           --artifacts dist/*.tar.gz
     only:
-        - tags
+        - /^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$/
+    except:
+        - branches
