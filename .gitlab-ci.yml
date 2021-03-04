@@ -217,7 +217,7 @@ push-github:
         - git push github master
         - git push github ${CI_COMMIT_TAG}
         # Make a github release page
-        - make build
+        - make pypi_build/bin/activate
         - source pypi_build/bin/activate
         - pip install git+https://github.com/epi2me-labs/github_release.git
         - github_release ${CI_PROJECT_NAME} ${CI_COMMIT_TAG} CHANGELOG.md ${RESEARCH_BOT_GH_TOKEN}
