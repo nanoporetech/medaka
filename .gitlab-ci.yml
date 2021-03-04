@@ -104,11 +104,6 @@ build:sdist:
 
 ### Tensorflow (gpu) builds
 
-build:many-linux-5:
-    <<: *many-linux-def
-    script:
-        - ./build-wheels.sh . 5
-
 build:many-linux-6:
     <<: *many-linux-def
     script:
@@ -125,12 +120,6 @@ build:many-linux-8:
         - ./build-wheels.sh . 8
 
 ### Tensorflow-cpu wheels
-
-build-cpu:many-linux-5:
-    <<: *many-linux-def
-    <<: *switch-to-cpu
-    script:
-        - ./build-wheels.sh . 5
 
 build-cpu:many-linux-6:
     <<: *many-linux-def
