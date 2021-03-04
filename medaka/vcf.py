@@ -1102,25 +1102,28 @@ def annotate_vcf_n_reads(args):
     # check it is indeed a symmetric
     match = matrix.matrix[0, 0]
     mismatch = matrix.matrix[0, 1]
-    assert dict(zip(*np.unique(matrix.matrix[:4, :4], return_counts=True))
-                ) == {mismatch: 12, match: 4}
+    mat_dict = dict(zip(
+        *np.unique(matrix.matrix[:4, :4], return_counts=True)))
+    assert mat_dict == {mismatch: 12, match: 4}
     assert np.unique(matrix.matrix.diagonal()[:4])[0] == match
+
     ann_meta = [
         ('INFO', 'DP', 1, 'Integer', pref + 'at pos'),
         ('INFO', 'DPS', 2, 'Integer', pref + 'at pos' + suff),
         ('INFO', 'DPSP', 1, 'Integer',
-         pref + 'spanning pos +-{}'.format(args.pad)),
-        ('INFO', 'SR', '.', 'Integer', 'Depth of spanning reads by strand ' +
-         'which best align to each allele ' +
-         '(ref fwd, ref rev, alt1 fwd, alt1 rev, etc.)'),
-        ('INFO', 'AR', 2, 'Integer', 'Depth of ambiguous spanning reads by ' +
-         'strand which align equally well to all alleles (fwd, rev)'),
-        ('INFO', 'SC', '.', 'Integer', 'Total alignment score to each allele' +
-         ' of spanning reads by strand ' +
-         '(ref fwd, ref rev, alt1 fwd, alt1 rev, etc.) aligned with parasail' +
-         ' match {}, mismatch {}, open {}, extend {}'.format(
-             match, mismatch, g_open, g_ext)
-         ),
+            pref + 'spanning pos +-{}'.format(args.pad)),
+        ('INFO', 'SR', '.', 'Integer',
+            'Depth of spanning reads by strand which best align to each '
+            'allele (ref fwd, ref rev, alt1 fwd, alt1 rev, etc.)'),
+        ('INFO', 'AR', 2, 'Integer',
+            'Depth of ambiguous spanning reads by strand which align '
+            'equally well to all alleles (fwd, rev)'),
+        ('INFO', 'SC', '.', 'Integer',
+            'Total alignment score to each allele of spanning reads by '
+            'strand (ref fwd, ref rev, alt1 fwd, alt1 rev, etc.) '
+            'aligned with parasail: '
+            'match {}, mismatch {}, open {}, extend {}'.format(
+                 match, mismatch, g_open, g_ext)),
     ]
 
     # get chrom coordinates
@@ -1143,92 +1146,86 @@ def annotate_vcf_n_reads(args):
             if region_chunks.size else chunks
 
     feature_encoder = medaka.features.CountsFeatureEncoder(
-                        read_group=args.RG, normalise='fwd_rev')
+       read_group=args.RG, normalise='fwd_rev')
     feature_indices = feature_encoder.feature_indices.items()
 
     meta_info = vcf.meta + [str(MetaInfo(*m)) for m in ann_meta]
-    with VCFWriter(args.vcfout, 'w', version='4.1', contigs=vcf.chroms,
-                   meta_info=meta_info) as vcf_writer:
-
+    with VCFWriter(
+            args.vcfout, 'w', version='4.1', contigs=vcf.chroms,
+            meta_info=meta_info) as vcf_writer:
         for i, chunk in enumerate(region_chunks):
-            logger.info('Processing chunk with coordinates: {}-{}'.format(
-                                chunk.start, chunk.end))
+            logger.info(
+                'Processing chunk with coordinates: {}-{}'.format(
+                    chunk.start, chunk.end))
+
             variants = list(vcf.fetch(chunk.ref_name, chunk.start, chunk.end))
-            if len(variants) > 0:  # check if variants in chunk
-                chrom = variants[0].chrom
-                ref_seq = ref_fasta.fetch(chunk.ref_name)
-                trimmed_chunk = medaka.common.Region(chrom,
-                                                     variants[0].pos,
-                                                     variants[-1].pos+1)
-                pileup = medaka.features.pileup_counts(
-                                                trimmed_chunk, args.bam,
-                                                read_group=args.RG)
+            if len(variants) == 0:
+                continue
 
-                # if pileup_counts returns pileup in chunks then merge and
-                # pad out between chunks
-                merged_counts = []
-                plp_positions = []
+            chrom = variants[0].chrom
+            ref_seq = ref_fasta.fetch(chunk.ref_name)
+            trimmed_chunk = medaka.common.Region(
+                chrom, variants[0].pos, variants[-1].pos+1)
+            pileup = medaka.features.pileup_counts(
+                trimmed_chunk, args.bam, read_group=args.RG)
 
-                prev_pos = None
-                for p, (counts, positions) in enumerate(pileup):
-                    if p > 0:
-                        next_pos = positions[0][0]
-                        pad_size = next_pos-(prev_pos+1)
-                        # pad between pileup counts
-                        padding = [np.zeros(10, dtype=int)]*pad_size
-                        merged_counts.extend(padding)
-                        # pad between position coordinates
-                        plp_positions.extend(np.arange(prev_pos+1, next_pos))
+            # pileup_counts can return discontiguous(and not fully spanning)
+            # chunks, pad to make lookups below faster
+            merged_counts = list()
+            prev_pos = variants[0].pos - 1
+            for counts, positions in pileup:
+                # pad any missing columns (includes from before first)
+                next_pos = positions['major'][0]
+                if next_pos != prev_pos + 1:
+                    pad_size = next_pos - prev_pos - 1
+                    if pad_size < 1:
+                        raise ValueError("Calculated negative pad size.")
+                    merged_counts.append(
+                        np.zeros((pad_size, 10), dtype=int))
+                # get pileup indices for non insertion entries
+                is_major_pos = positions['minor'] == 0
+                merged_counts.append(counts[is_major_pos])
+                prev_pos = positions['major'][-1]
+            # maybe end (to avoid index errors below)
+            pad = variants[-1].pos - prev_pos
+            if pad > 0:
+                merged_counts.append(np.zeros((pad, 10), dtype=int))
+            merged_counts = np.concatenate(merged_counts)
 
-                    # get pileup indices for non insertion entries
-                    is_major_pos = positions['minor'] == 0
+            first_pos = variants[0].pos
+            for v in variants:
+                count = merged_counts[v.pos - first_pos]
+                dt_depth = {}
+                # get read depth at pos (fwd, rev)
+                for (dt, is_rev), inds in feature_indices:
+                    dt_depth[is_rev] = np.sum(count[inds])
 
-                    # counts arrays
-                    merged_counts.extend(counts[is_major_pos])
+                v.info['DP'] = np.sum(count)
+                v.info['DPS'] = '{},{}'.format(
+                    dt_depth[False], dt_depth[True])
 
-                    # positions
-                    plp_positions.extend(
-                        [x[0] for x in positions[is_major_pos]])
-
-                    prev_pos = positions[-1][0]
-
-                for v in variants:
-                    plp_index = v.pos - plp_positions[0]
-                    count = merged_counts[plp_index]
-                    dt_depth = {}
-                    # get read depth at pos (fwd, rev)"
-                    for (dt, is_rev), inds in feature_indices:
-                        dt_depth[is_rev] = np.sum(count[inds])
-
-                    v.info['DP'] = np.sum(count)
-                    v.info['DPS'] = '{},{}'.format(
-                                    dt_depth[False], dt_depth[True])
-
-                    # get read depth by strand at the variant (with padding)
-                    if args.dpsp:
-                        padded_haps, pad_reg = get_padded_haplotypes(
-                                                    v, ref_seq, args.pad)
-                        reads = get_trimmed_reads(args.bam, pad_reg,
-                                                  partial=False,
-                                                  read_group=args.RG)
-                        counts, scores = align_reads_to_haps(reads,
-                                                             padded_haps,
-                                                             g_open,
-                                                             g_ext, matrix)
-                        v.info['DPSP'] = sum(counts.values())
-                        sr = []  # cnts of reads supporting each hap by strand
-                        sc = []  # total scores for each hap by strand
-                        haps = list(range(1 + len(v.alt)))  # ref and alts
-                        is_revs = [False, True]
-                        for hap in haps:
-                            for is_rev in is_revs:
-                                sr.append(counts[(is_rev, hap)])
-                                sc.append(scores[(is_rev, hap)])
-                        v.info['SR'] = ','.join(map(str, sr))
-                        v.info['SC'] = ','.join(map(str, sc))
-                        v.info['AR'] = '{},{}'.format(*[counts[(is_rev, None)]
-                                                      for is_rev in is_revs])
-                    vcf_writer.write_variant(v)
+                # get read depth by strand at the variant (with padding)
+                if args.dpsp:
+                    padded_haps, pad_reg = get_padded_haplotypes(
+                        v, ref_seq, args.pad)
+                    reads = get_trimmed_reads(
+                        args.bam, pad_reg, partial=False, read_group=args.RG)
+                    counts, scores = align_reads_to_haps(
+                        reads, padded_haps, g_open, g_ext, matrix)
+                    v.info['DPSP'] = sum(counts.values())
+                    sr = []  # cnts of reads supporting each hap by strand
+                    sc = []  # total scores for each hap by strand
+                    haps = list(range(1 + len(v.alt)))  # ref and alts
+                    is_revs = [False, True]
+                    for hap in haps:
+                        for is_rev in is_revs:
+                            sr.append(counts[(is_rev, hap)])
+                            sc.append(scores[(is_rev, hap)])
+                    v.info['SR'] = ','.join(map(str, sr))
+                    v.info['SC'] = ','.join(map(str, sc))
+                    v.info['AR'] = '{},{}'.format(
+                        *[counts[(is_rev, None)] for is_rev in is_revs])
+                vcf_writer.write_variant(v)
 
 
 def get_padded_haplotypes(var, ref_seq, pad):

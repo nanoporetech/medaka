@@ -26,9 +26,6 @@ class HaploidVariant(unittest.TestCase):
     def test_run(self):
         """Test that the pipeline runs and that we get a vcf file containing at least one variant.
         """
-        from tensorflow.python.eager import context
-        context._context = None
-
         parser = medaka_parsers._haploid_variant_argparser()
         args = [self.__reads_fasta__.name, self.__ref_fasta__, '-o', self.__output_dir__.name]
         args = parser.parse_args(args)

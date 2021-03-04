@@ -11,16 +11,12 @@ SEDI=sed -i
 endif
 
 PYTHON ?= python3
-
-ifeq ($(CITEST),)
-COVFAIL=80
-else
-COVFAIL=79
-endif
+VENV ?= venv
+COVFAIL = 80
 
 binaries: $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 
-SAMVER=1.11
+SAMVER=$(shell sed -n 's/samver = "\(.*\)"/\1/p' build.py)
 submodules/samtools-$(SAMVER)/Makefile:
 	cd submodules; \
 		curl -L -o samtools-${SAMVER}.tar.bz2 https://github.com/samtools/samtools/releases/download/${SAMVER}/samtools-${SAMVER}.tar.bz2; \
@@ -112,12 +108,11 @@ scripts/mini_align:
 	curl https://raw.githubusercontent.com/nanoporetech/pomoxis/master/scripts/mini_align -o $@
 	chmod +x $@
 
+venv: ${VENV}/bin/activate
+IN_VENV=. ./${VENV}/bin/activate
 
-venv: venv/bin/activate
-IN_VENV=. ./venv/bin/activate
-
-venv/bin/activate:
-	test -d venv || virtualenv venv --python=$(PYTHON) --prompt "(medaka) "
+$(VENV)/bin/activate:
+	test -d $(VENV) || $(PYTHON) -m venv $(VENV) --prompt "medaka"
 	${IN_VENV} && pip install pip --upgrade
 	# setuptools 53.0.0 trips up on whatshap deps
 	${IN_VENV} && pip install setuptools==52.0.0
@@ -132,6 +127,11 @@ check_lfs: venv
 install: venv check_lfs scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 	${IN_VENV} && pip install -r requirements.txt
 	${IN_VENV} && MEDAKA_BINARIES=1 python setup.py install
+
+.PHONY: develop
+develop: install
+	# this is because the copying of binaries only works for an install, not a develop
+	${IN_VENV} && pip uninstall -y medaka && python setup.py develop
 
 
 .PHONY: test
@@ -149,14 +149,13 @@ test: install
 .PHONY: clean
 clean: clean_htslib
 	(${IN_VENV} && python setup.py clean) || echo "Failed to run setup.py clean"
-	rm -rf libhts.a libmedaka.abi3.so venv build dist/ medaka.egg-info/ __pycache__ medaka.egg-info
+	rm -rf libhts.a libmedaka.abi3.so venv* build dist/ medaka.egg-info/ __pycache__ medaka.egg-info
 	find . -name '*.pyc' -delete
 
 
 .PHONY: mem_check
-mem_check: install pileup
-	${IN_VENV} && python -c "import medaka.test.test_counts as tc; tc.create_simple_bam('mem_test.bam', tc.simple_data['calls'])"
-	valgrind --error-exitcode=1 --tool=memcheck ./pileup mem_test.bam ref:1-8 || (ret=$$?; rm mem_test.bam* && exit $$ret)
+mem_check: pileup
+	valgrind --error-exitcode=1 --tool=memcheck ./pileup medaka/test/data/test_reads.bam utg000001l:5000-5500 || (ret=$$?; rm mem_test.bam* && exit $$ret)
 	rm -rf mem_test.bam*
 
 
@@ -180,11 +179,11 @@ trim_reads: libhts.a
 wheels:
 	docker run -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/build-wheels.sh /io 5 6
 
-.PHONY: build
-build: pypi_build/bin/activate
+.PHONY: build_env
+build_env: pypi_build/bin/activate
 IN_BUILD=. ./pypi_build/bin/activate
 pypi_build/bin/activate:
-	test -d pypi_build || virtualenv pypi_build --python=python3 --prompt "(pypi) "
+	test -d pypi_build || $(PYTHON) -m venv pypi_build --prompt "pypi"
 	${IN_BUILD} && pip install pip --upgrade
 	${IN_BUILD} && pip install --upgrade pip setuptools twine wheel readme_renderer[md]
 
