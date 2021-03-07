@@ -6,11 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [v1.2.5]
-## Fixed
+### Fixed
  - Variant annotation when more than one CHROM record in VCF.
 
 ## [v1.2.4]
-## Fixed
+### Fixed
  - Variant annotation when counts matrix does not span variants.
 
 ### Changed
