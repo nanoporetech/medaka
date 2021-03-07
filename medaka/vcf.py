@@ -12,6 +12,7 @@ import numpy as np
 import parasail
 import pysam
 
+import libmedaka
 from medaka import __version__ as medaka_version
 import medaka.common
 import medaka.features
@@ -1135,28 +1136,27 @@ def annotate_vcf_n_reads(args):
         chr_var = list(vcf.fetch(ref_name=chrom))
         chr_start = chr_var[0].pos
         chr_end = chr_var[-1].pos
-        chrom_regions.append(medaka.common.Region(chrom, chr_start, chr_end+1))
-
-    logger.info('Chunking regions')
-    # chunk each contig and catenate chunks into single array
-    region_chunks = np.array([])
-    for chrom_region in chrom_regions:
-        chunks = chrom_region.split(size=args.chunk_size, overlap=0)
-        region_chunks = np.concatenate((region_chunks, chunks), axis=None) \
-            if region_chunks.size else chunks
+        chrom_regions.append(
+            medaka.common.Region(chrom, chr_start, chr_end + 1))
 
     feature_encoder = medaka.features.CountsFeatureEncoder(
        read_group=args.RG, normalise='fwd_rev')
     feature_indices = feature_encoder.feature_indices.items()
+    featlen = libmedaka.lib.featlen
 
     meta_info = vcf.meta + [str(MetaInfo(*m)) for m in ann_meta]
     with VCFWriter(
             args.vcfout, 'w', version='4.1', contigs=vcf.chroms,
             meta_info=meta_info) as vcf_writer:
+        # process all chroms in chunks
+        # TODO: seems wasteful: we're calculating pileup counts for the whole
+        #       genome but could have very few variants
+        region_chunks = itertools.chain.from_iterable(
+            r.split(size=args.chunk_size, overlap=0) for r in chrom_regions)
         for i, chunk in enumerate(region_chunks):
             logger.info(
-                'Processing chunk with coordinates: {}-{}'.format(
-                    chunk.start, chunk.end))
+                'Processing chunk with coordinates: {}:{}-{}'.format(
+                    chunk.ref_name, chunk.start, chunk.end))
 
             variants = list(vcf.fetch(chunk.ref_name, chunk.start, chunk.end))
             if len(variants) == 0:
@@ -1181,15 +1181,15 @@ def annotate_vcf_n_reads(args):
                     if pad_size < 1:
                         raise ValueError("Calculated negative pad size.")
                     merged_counts.append(
-                        np.zeros((pad_size, 10), dtype=int))
+                        np.zeros((pad_size, featlen), dtype=int))
                 # get pileup indices for non insertion entries
                 is_major_pos = positions['minor'] == 0
                 merged_counts.append(counts[is_major_pos])
                 prev_pos = positions['major'][-1]
-            # maybe end (to avoid index errors below)
+            # maybe pad end (to avoid index errors below)
             pad = variants[-1].pos - prev_pos
             if pad > 0:
-                merged_counts.append(np.zeros((pad, 10), dtype=int))
+                merged_counts.append(np.zeros((pad, featlen), dtype=int))
             merged_counts = np.concatenate(merged_counts)
 
             first_pos = variants[0].pos

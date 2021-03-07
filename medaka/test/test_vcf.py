@@ -1,5 +1,6 @@
 from argparse import Namespace
 from collections import OrderedDict, Counter, namedtuple
+from copy import deepcopy
 import os
 import tempfile
 import unittest
@@ -759,8 +760,10 @@ class TestAnnotateVCFs(unittest.TestCase):
                 Variant('MN908947.3', 29788, 'TATATGGAAGA',
                      alt=['A'], ident='.', qual=243.965, filt='PASS',
                     info='AR=0,0;DP=199;DPS=99,100;DPSP=197;SC=26174,28129,19085,20315;SR=96,100,1,0',
-                    genotype_data=OrderedDict([('GT', '1'), ('GQ','244')]))
-        ]
+                    genotype_data=OrderedDict([('GT', '1'), ('GQ','244')]))]
+        variants_annotated = variants_annotated + deepcopy(variants_annotated)
+        for i in range(3, 6):
+            variants_annotated[i].chrom = "Duplicate"
 
         with tempfile.NamedTemporaryFile() as vcfout:
             # Annotate vcf
@@ -773,4 +776,4 @@ class TestAnnotateVCFs(unittest.TestCase):
             vcf_reader = VCFReader(vcfout.name)
             for i, v in enumerate(vcf_reader.fetch()):
                 self.assertEqual(v, variants_annotated[i],
-                                 'Annotation failed for variant: {} {}.'.format(v.chrom, v.pos))
+                                 'Annotation failed for variant {}: {} {}.'.format(i, v.chrom, v.pos))
