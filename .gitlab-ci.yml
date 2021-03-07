@@ -199,7 +199,7 @@ push-github:
     stage: deploy
     before_script:
         - apt-get update -qq && apt-get install -y -qq
-          git python3-all-dev git-lfs
+          git python3-all-dev python3-venv git-lfs
         - mkdir ~/.ssh/
         - cp $RESEARCH_BOT_GH_KEY ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
         - echo -e "Host github.com\n\tStrictHostKeyChecking no\n\tHostname ssh.github.com\n\tPort 443\n\n" > ~/.ssh/config
