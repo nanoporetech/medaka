@@ -64,8 +64,10 @@ def minimap2(query, ref, out_bam, preset='map-ont', extra_args=None,
 
     logger = medaka.common.get_named_logger('ALIGN')
     logger.info('Aligning {} to {}'.format(query, ref))
-    aln_cmd = ['minimap2', ref, query, '-x', preset, '-t', threads, '-a',
-               '--secondary=no', '--MD', '-L'] + extra_args
+    aln_cmd = ['minimap2', '-ax', preset, '-t', threads,
+               '--secondary=no', '--MD', '-L']
+    aln_cmd += extra_args
+    aln_cmd += [ref, query]
     sort_cmd = ['samtools', 'sort', '--output-fmt', 'BAM', '-o', out_bam,
                 '-@', threads]
     logger.info(' '.join(aln_cmd + ['|'] + sort_cmd))
@@ -74,7 +76,7 @@ def minimap2(query, ref, out_bam, preset='map-ont', extra_args=None,
     p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
     _ = p2.communicate()[0]
     logger.info('Indexing bam')
-    index_cmd = ['samtools', 'index', out_bam, '-@', threads]
+    index_cmd = ['samtools', 'index', out_bam]
     logger.info(' '.join(index_cmd))
     p3 = subprocess.Popen(index_cmd, stdout=subprocess.PIPE)
     _ = p3.communicate()[0]
