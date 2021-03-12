@@ -1,4 +1,4 @@
-﻿
+
 ![Oxford Nanopore Technologies logo](https://github.com/nanoporetech/medaka/raw/master/images/ONT_logo_590x106.png)
 
 
@@ -114,7 +114,7 @@ Since version 1.1.0 `medaka` uses Tensorflow 2.2, prior versions used Tensorflow
 For `medaka` 1.1.0 and higher installation from source or using `pip` can make
 immediate use of GPUs. However, note that the `tensorflow` package is compiled against
 specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the
-[tensorflow installation](https://www.tensorflow.org/install/gpu) pages
+[tensorflow installation](https://www.tensorflow.org/install/source#gpu) pages
 for further information. cuDNN can be obtained from the
 [cuDNN Archive](https://developer.nvidia.com/rdp/cudnn-archive), whilst CUDA
 from the [CUDA Toolkit Archive](https://developer.nvidia.com/cuda-toolkit-archive).
