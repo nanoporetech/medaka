@@ -116,6 +116,8 @@ def haploid_variant(args):
         args.tag_value = None
         args.RG = None
         args.tag_keep_missing = True
+        args.bam_chunk = int(1e6)
+        args.bam_workers = 2
         medaka.prediction.predict(args)
 
     consensus_fasta_fp = os.path.join(args.output_dir, 'consensus.fasta')

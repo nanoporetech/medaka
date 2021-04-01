@@ -419,6 +419,8 @@ def main():
     cparser.add_argument('bam', help='Input alignments.', action=CheckBam)
     cparser.add_argument('output', help='Output file.')
     cparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
+    cparser.add_argument('--bam_workers', type=int, default=2, help='Number of workers used to prepare data from bam.')
+    cparser.add_argument('--bam_chunk', type=int, default=int(1e6), help='Size of reference chunks each worker parses from bam. (can be used to control memory use).')
     cparser.add_argument('--check_output', action='store_true', default=False,
             help='Verify integrity of output file after inference.')
     cparser.add_argument('--save_features', action='store_true', default=False,
