@@ -1,5 +1,4 @@
 """Inference program and ancilliary functions."""
-from concurrent.futures import as_completed, ThreadPoolExecutor
 import logging
 import os
 import queue
@@ -17,13 +16,15 @@ import medaka.models
 def run_prediction(
         output, bam, regions, model, feature_encoder,
         chunk_len, chunk_ovlp, batch_size=200,
-        save_features=False, enable_chunking=True):
+        save_features=False, enable_chunking=True,
+        bam_workers=2):
     """Inference worker."""
     logger = medaka.common.get_named_logger('PWorker')
 
     # start loading data
     loader = DataLoader(
-        bam, regions, batch_size, batch_cache_size=4,
+        bam, regions, batch_size,
+        batch_cache_size=8, bam_workers=2,
         feature_encoder=feature_encoder,
         chunk_len=chunk_len, chunk_overlap=chunk_ovlp,
         enable_chunking=enable_chunking)
@@ -34,6 +35,7 @@ def run_prediction(
             total_region_mbases))
 
     remainder_regions = list()
+    n_batches = 0
     with medaka.datastore.DataStore(output, 'a') as ds:
         mbases_done = 0
         cache_size_log_interval = 5
@@ -42,6 +44,7 @@ def run_prediction(
         tlast = t0
         tcache = t0
         for data, x_data in loader:
+            n_batches += 1
             class_probs = model.predict_on_batch(x_data)
             for sample, prob, feat in zip(data, class_probs, x_data):
                 # write out positions and predictions for later analysis
@@ -74,6 +77,7 @@ def run_prediction(
                     total_region_mbases, t1 - t0))
 
     remainder_regions = loader.remainders
+    logger.info("Processed {} batches".format(n_batches))
     logger.info("All done, {} remainder regions.".format(
         len(remainder_regions)))
     return remainder_regions
@@ -138,15 +142,14 @@ def predict(args):
 
         # Split overly long regions to maximum size so as to not create
         #   massive feature matrices
-        MAX_REGION_SIZE = int(1e6)  # 1Mb
         regions = []
         for region in bam_regions:
-            if region.size > MAX_REGION_SIZE:
+            if region.size > args.bam_chunk:
                 # chunk_ovlp is mostly used in overlapping pileups (which
                 # generally end up being expanded compared to the draft
                 # coordinate system)
                 regs = region.split(
-                    MAX_REGION_SIZE, overlap=args.chunk_ovlp,
+                    args.bam_chunk, overlap=args.chunk_ovlp,
                     fixed_size=False)
             else:
                 regs = [region]
@@ -161,8 +164,8 @@ def predict(args):
         remainder_regions = run_prediction(
             args.output, args.bam, regions, model, feature_encoder,
             args.chunk_len, args.chunk_ovlp,
-            batch_size=args.batch_size, save_features=args.save_features
-        )
+            batch_size=args.batch_size, save_features=args.save_features,
+            bam_workers=args.bam_workers)
 
         # short/remainder regions: just do things without chunking. We can do
         # this here because we now have the size of all pileups (and know they
@@ -219,29 +222,40 @@ class DataLoader(object):
         """
         self.logger = medaka.common.get_named_logger('DLoader')
         self.bam = bam
-        self.regions = regions
         self.batch_size = batch_size
-        self.batch_cache_size = batch_cache_size
         self.bam_workers = bam_workers
         self.kwargs = kwargs
 
-        # try to load samples for one more batch than necessary to
-        # maintain batch cache
-        self.sample_cache_size = (batch_cache_size + 1) * batch_size
-        self._results = queue.Queue(maxsize=self.sample_cache_size)
+        # Memory use is dominated by number of workers as each will
+        # produce many batches in one shot. We make workers
+        # block when many samples have been calculated.
+        sample_cache_size = batch_cache_size * batch_size
+        batch_cache_size = 0  # batch things ASAP
+        self._samples = queue.Queue(maxsize=sample_cache_size)
         self._batches = queue.Queue(maxsize=batch_cache_size)
-        self.region_cache_size = 4
-        self.remainders = []
+        # fill input queue before workers start
+        self._regions = queue.Queue()
+        for r in regions:
+            self._regions.put(r)
+        self.remainders = list()
 
-        self.logger.info('Initializing data loader')
-        # loading of samples from regions
-        self.thread = threading.Thread(target=self._fill_parallel)
-        self.thread.daemon = True
-        self.thread.start()
+        # loading of feature data into samples
+        self._sample_workers = list()
+        for i in range(bam_workers):
+            t = threading.Thread(
+                target=self._region_worker, name="Sample-{}".format(i))
+            t.daemon = True
+            t.start()
+            self._sample_workers.append(t)
         # loading of samples into batches
-        self.bthread = threading.Thread(target=self._make_batches)
-        self.bthread.daemon = True
-        self.bthread.start()
+        self._bthread = threading.Thread(
+            target=self._batch_worker, name="Batch-{}".format(i))
+        self._bthread.daemon = True
+        self._bthread.start()
+
+        self.logger.debug(
+            "Initialised. Batch size:{}. Workers:{}. Cache:{}".format(
+                batch_size, bam_workers, sample_cache_size))
 
     def __iter__(self):
         """Simply return self."""
@@ -255,86 +269,20 @@ class DataLoader(object):
         while True:
             try:
                 batch = self._batches.get_nowait()
+                self.logger.debug(
+                    "Batches ready: {}. Samples ready: {} ({} batches)".format(
+                        self._batches.qsize(), self._samples.qsize(),
+                        self._samples.qsize()/self.batch_size))
             except queue.Empty:
                 pass
             else:
+                self._batches.task_done()
                 if batch is StopIteration:
-                    raise StopIteration
-                else:
-                    return batch
-
-    def _fill_serial(self):
-        # process one region at a time
-        for region in self.regions:
-            samples, remain = self._run_region(
-                self.bam, region, *self.args, **self.kwargs)
-            for sample in samples:
-                self._results.put(sample)
-            self.remainders.extend(remain)
-        # signal everything has been processed
-        self._results.put(StopIteration)
-
-    def _fill_parallel(self):
-        # process multiple regions at a time, up to a maximum to limit memory
-        # use. Note that the number of workers also serves as a memory
-        # limit when data is being consumed as fast as it is produced.
-        regions = iter(self.regions)
-        futures = dict()
-        submitted = True
-        t0 = now()
-        cache_check_interval = 3
-        min_region_cache = 4
-        with ThreadPoolExecutor(max_workers=self.bam_workers) as executor:
-            while True:
-                if submitted:
-                    try:
-                        submit_reg = next(regions)
-                    except StopIteration:
-                        break
-                # try to submit
-                if len(futures) < self.region_cache_size:
-                    self.logger.debug("Submitting {}.".format(submit_reg))
-                    futures[str(submit_reg)] = executor.submit(
-                        self._run_region, self.bam, submit_reg,
-                        **self.kwargs)
-                    submitted = True
-                else:
-                    submitted = False
-                # try to fetch
-                done = []
-                for kreg, fut in futures.items():
-                    if fut.done():
-                        samples, remain = fut.result()
-                        self.remainders.extend(remain)
-                        for sample in samples:
-                            self._results.put(sample)
-                        done.append(kreg)
-                for kreg in done:
-                    del futures[kreg]
-                # keep things flowing
-                if now() - t0 > cache_check_interval:
-                    t0 = now()
-                    if self._results.qsize() < 0.5 * self.sample_cache_size:
-                        self.logger.debug(
-                            "Expanding region cache from {},".format(
-                                self.region_cache_size))
-                        self.region_cache_size += 1
-                    elif self._results.qsize() > 0.9 * self.sample_cache_size:
-                        self.logger.debug(
-                            "Reducing region cache from {},".format(
-                                self.region_cache_size))
-                        self.region_cache_size = max(
-                            min_region_cache, self.region_cache_size - 1)
-                    else:
-                        self.logger.debug("Region cache is good size.")
-            # collect remaining futures
-            for fut in as_completed(futures.values()):
-                samples, remain = fut.result()
-                self.remainders.extend(remain)
-                for sample in samples:
-                    self._results.put(sample)
-        # signal everything has been processed
-        self._results.put(StopIteration)
+                    # we have a single batch worker, safe to stop after
+                    # seeing a single StopIteration
+                    break
+                return batch
+        raise StopIteration
 
     @staticmethod
     def _run_region(bam, region, *args, **kwargs):
@@ -342,20 +290,44 @@ class DataLoader(object):
             bam, region, *args, **kwargs)
         return data_gen.samples, data_gen._quarantined
 
-    def _samples(self):
-        """Iterate over items in internal network input cache."""
+    def _region_worker(self):
+        t = threading.current_thread()
+        self.logger.debug("{}: started".format(t.name))
         while True:
             try:
-                res = self._results.get(timeout=0.1)
+                region = self._regions.get_nowait()
+            except queue.Empty:
+                self._samples.put(StopIteration)
+                break
+            else:
+                samples, remain = self._run_region(
+                    self.bam, region, **self.kwargs)
+                for sample in samples:
+                    self._samples.put(sample)
+                self.remainders.extend(remain)
+                self._regions.task_done()
+        self.logger.debug("{}: finished".format(t.name))
+
+    def _get_samples(self):
+        """Iterate over items in internal network input cache."""
+        nstops = 0  # careful to track workers have all signalled stop
+        while True:
+            try:
+                res = self._samples.get_nowait()
             except queue.Empty:
                 pass
             else:
+                self._samples.task_done()
                 if res is StopIteration:
-                    break
-                yield res
+                    nstops += 1
+                    if nstops == self.bam_workers:
+                        break
+                else:
+                    yield res
 
-    def _make_batches(self):
-        for data in medaka.common.grouper(self._samples(), self.batch_size):
+    def _batch_worker(self):
+        for data in medaka.common.grouper(
+                self._get_samples(), self.batch_size):
             batch = np.stack([x.features for x in data])
             # remake the samples pointing their .features to view the batch,
             # note this doesn't save memory because the .features are already
@@ -365,11 +337,5 @@ class DataLoader(object):
             data = [
                 sample.amend(features=feat)
                 for feat, sample in zip(batch, data)]
-            while True:
-                try:
-                    self._batches.put((data, batch))
-                except queue.Full:
-                    pass
-                else:
-                    break
+            self._batches.put((data, batch))
         self._batches.put(StopIteration)
