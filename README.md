@@ -35,8 +35,7 @@ Features
   * Works on Linux and MacOS.
   * Open source (Mozilla Public License 2.0).
 
-Tools to enable the creation of draft assemblies can be found in a sister
-project [pomoxis](https://github.com/nanoporetech/pomoxis).
+For creating draft assemblies we recommend [Flye](https://github.com/fenderglass/Flye).
 
 Documentation can be found at https://nanoporetech.github.io/medaka/.
 
@@ -48,15 +47,18 @@ Medaka can be installed in one of several ways.
 
 **Installation with conda**
 
-Perhaps the simplest way to start using medaka on both Linux and MacOS is
+Perhaps the simplest way to start using medaka is
 through conda; medaka is available via the
 [bioconda](https://anaconda.org/bioconda/medaka) channel:
 
     conda create -n medaka -c conda-forge -c bioconda medaka
 
+Occasionally the conda releases lag behind the source code and
+[PyPI](https://pypi.org/project/medaka/) releases.
+
 **Installation with pip**
 
-For those who prefer python's native pacakage manager, medaka is also available
+For those who prefer Python's native pacakage manager, medaka is also available
 on pypi and can be installed using pip:
 
     pip install medaka
@@ -77,7 +79,7 @@ Using this method requires the user to provide several binaries:
  * [tabix](https://github.com/samtools/htslib), and
  * [bgzip](https://github.com/samtools/htslib)
 
-and place these within the `PATH`. `samtools/bgzip/tabix` version 1.9 and
+and place these within the `PATH`. `samtools/bgzip/tabix` version 1.11 and
 `minimap2` version 2.17 are recommended as these are those used in development
 of medaka.
 
