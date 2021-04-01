@@ -484,52 +484,42 @@ class Sample(_Sample):
             same reference sequence. The `start` and `end` parameters
             are positions in this single sequence.
         """
-        # trim samples to remove overlaps. This may change whether a sample
-        # overlaps the target region or not, which we take care of below.
-        samples = Sample.trim_samples(samples)
-
-        try:
-            sample, last, heuristic = next(samples)
-        except StopIteration:
-            # there were no samples
-            return
-        if start is not None:
-            # trim first sample (and possibly others)
-            while True:
-                if sample.positions['major'][0] > start:
-                    # the samples don't span to the start of the region
-                    break
-                query = np.array([(start, 0)], dtype=sample.positions.dtype)
-                sample_start = np.searchsorted(sample.positions, query[0])
-                sample = sample.slice(slice(sample_start, None))
-                # originally the sample may have intersected the region, but
-                # after trimming the overlap between samples and removing the
-                # front its size could have been reduce to zero
+        def _trim_starts(samples):
+            if start is None:
+                yield from samples
+            # trim all samples in a stream to start on or after start
+            # remove from the stream samples that end before start
+            for sample, last, heuristic in samples:
+                if sample.positions['major'][-1] < start:
+                    continue  # don't need sample that ends before target
+                if sample.positions['major'][0] < start:
+                    query = np.array(
+                        [(start, 0)], dtype=sample.positions.dtype)
+                    samp_start = np.searchsorted(sample.positions, query[0])
+                    sample = sample.slice(slice(samp_start, None))
                 if len(sample.positions) > 0:
-                    break
-                try:
-                    sample, last, heuristic = next(samples)
-                except StopIteration:
-                    # the samples were all before the start of the region
-                    return
-
-        first = sample, last, heuristic
-        if end is None:
-            # not trimming to end coord, just yield everything
-            yield first
-            yield from samples
-        else:
-            for sample, last, heuristic in itertools.chain((first, ), samples):
-                if sample.positions['major'][-1] >= end:  # end is exclusive
-                    # trim this sample then return
-                    sample_end = np.searchsorted(
-                        sample.positions['major'], end)
-                    yield (
-                        sample.slice(slice(None, sample_end)),
-                        last, heuristic)
-                    return
-                else:
                     yield sample, last, heuristic
+
+        def _trim_ends(samples):
+            if end is None:
+                yield from samples
+            # trim all samples in a stream to end before end
+            # remove from the stream samples that end after end
+            for sample, last, heuristic in samples:
+                if sample.positions['major'][0] >= end:
+                    return  # don't need any samples that start after end
+                if sample.positions['major'][-1] >= end:
+                    samp_end = np.searchsorted(sample.positions['major'], end)
+                    sample = sample.slice(slice(None, samp_end))
+                if len(sample.positions) > 0:
+                    yield sample, last, heuristic
+
+        # this multistage filtering is a bit gratuitous but at least its
+        # transparent and clear: trim overlaps->trim_starts->trim_ends
+        # note: we cannot do overlapping last as that can run into
+        # "s1 is contained in s2", but s1 will already have been yielded
+        samples = _trim_ends(_trim_starts(Sample.trim_samples(samples)))
+        yield from samples
 
 
 # provide read only access to key region attrs

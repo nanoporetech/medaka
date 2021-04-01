@@ -46,7 +46,6 @@ def stitch_from_probs(h5_fp, region):
         '\n'.join('{}: {}'.format(k, v)
                   for k, v in label_scheme._decoding.items())))
 
-    # TODO: add trimming to region
     samples = index.yield_from_feature_files(regions=[region])
     data_gen = medaka.common.Sample.trim_samples_to_region(
         samples, start=region.start, end=region.end)

@@ -362,6 +362,8 @@ class DataIndex(object):
         :param threads: number of threads to use for indexing.
         """
         self.logger = medaka.common.get_named_logger('DataIndex')
+        if isinstance(filenames, str):
+            filenames = [filenames]
         self.filenames = filenames
         self.threads = threads
         self.n_files = len(self.filenames)
