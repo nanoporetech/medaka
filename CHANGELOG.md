@@ -4,15 +4,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.2.6]
+### Changed
+ - Rewrote inference data loading code for clarity.
+ - Removed pinned BioPython pin.
+ - Formally update htslib program requirements to 1.11.
+### Removed
+ - Support for Python 3.5.
+### Fixed
+ - Corner case in consensus stitching.
+
 
 ## [v1.2.5]
 ### Fixed
  - Variant annotation when more than one CHROM record in VCF.
 
+
 ## [v1.2.4]
 ### Fixed
  - Variant annotation when counts matrix does not span variants.
-
 ### Changed
  - Updated Tensorflow requirement to 2.2.2
 
