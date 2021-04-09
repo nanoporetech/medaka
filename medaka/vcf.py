@@ -1089,7 +1089,7 @@ def get_homozygous_regions(args):
 def annotate_vcf_n_reads(args):
     """Entry point to annotate a vcf with read depth and supporting reads."""
     ref_fasta = pysam.FastaFile(args.ref_fasta)
-    logger = medaka.common.get_named_logger('Annotate vcf')
+    logger = medaka.common.get_named_logger('Annotate')
 
     vcf = VCFReader(args.vcf)
     chrom = None
@@ -1163,7 +1163,7 @@ def annotate_vcf_n_reads(args):
                 continue
 
             chrom = variants[0].chrom
-            ref_seq = ref_fasta.fetch(chunk.ref_name)
+            ref_seq = ref_fasta.fetch(chunk.ref_name).upper()
             trimmed_chunk = medaka.common.Region(
                 chrom, variants[0].pos, variants[-1].pos+1)
             pileup = medaka.features.pileup_counts(
@@ -1238,7 +1238,7 @@ def get_padded_haplotypes(var, ref_seq, pad):
     :returns: (padded ref, padded alt 1, ... padded alt n),
               padded medaka.common.Region
     """
-    ref_seq_var = ref_seq[var.pos:var.pos + len(var.ref)]
+    ref_seq_var = ref_seq[var.pos:var.pos + len(var.ref)].upper()
     if not var.ref == ref_seq_var:
         msg = 'Ref sequences {} and {} differ at {}:{}, check your files.'
         raise ValueError(msg.format(var.ref, ref_seq_var, var.chrom, var.pos))

@@ -158,13 +158,12 @@ if __name__ == '__main__':
         entry_points = {
             'console_scripts': [
                 '{0} = {0}.{0}:main'.format(__pkg_name__),
-                '{0}_haploid_variant = {0}.{0}:haploid_variant_cmdline'.format(__pkg_name__),
                 '{0}_counts = {0}.medaka_counts:main'.format(__pkg_name__),
                 '{0}_data_path = {0}.{1}:{2}'.format(__pkg_name__, 'common', 'print_data_path'),
                 '{0}_version_report = {0}:report_binaries'.format(__pkg_name__, )
             ]
         },
-        scripts=['scripts/medaka_consensus', 'scripts/medaka_variant', 'scripts/mini_align', 'scripts/hdf2tf.py'],
+        scripts=['scripts/medaka_consensus', 'scripts/medaka_variant', 'scripts/medaka_haploid_variant', 'scripts/mini_align', 'scripts/hdf2tf.py'],
         zip_safe=False,
         cmdclass={
             'build_ext': HTSBuild
