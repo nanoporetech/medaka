@@ -52,7 +52,7 @@ class ModelStore(BaseModelStore):
         :param filename: filepath to hdf file
         """
         self.filepath = filepath
-        self.logger = medaka.common.get_named_logger('ModelStore')
+        self.logger = medaka.common.get_named_logger('MdlStore')
 
     def __enter__(self):
         """Create context for handling a modelstore file."""
@@ -102,7 +102,7 @@ class ModelStoreTF(BaseModelStore):
 
         :param filename: filepath to saved_model directory
         """
-        self.logger = medaka.common.get_named_logger('ModelStoreTF')
+        self.logger = medaka.common.get_named_logger('MdlStrTF')
         self.filepath = filepath
         self.meta = None
         self.tmpdir = None
@@ -194,7 +194,7 @@ class DataStore(object):
         self.filename = filename
         self.mode = mode
 
-        self.logger = medaka.common.get_named_logger('DataStore')
+        self.logger = medaka.common.get_named_logger('DataStre')
 
         self.write_executor = ThreadPoolExecutor(1)
         self.write_futures = []
@@ -361,7 +361,7 @@ class DataIndex(object):
         :param filenames: list of files to index.
         :param threads: number of threads to use for indexing.
         """
-        self.logger = medaka.common.get_named_logger('DataIndex')
+        self.logger = medaka.common.get_named_logger('DataIndx')
         if isinstance(filenames, str):
             filenames = [filenames]
         self.filenames = filenames

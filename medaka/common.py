@@ -420,7 +420,7 @@ class Sample(_Sample):
         :yields: (`medaka.common.Sample` view, bool is_last_in_contig,
             bool heuristic)
         """
-        logger = get_named_logger('TrimOverlap')
+        logger = get_named_logger('TrimOlap')
 
         try:
             s1 = next(sample_gen)

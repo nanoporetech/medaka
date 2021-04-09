@@ -684,36 +684,3 @@ def main():
     else:
         _validate_common_args(args)
         args.func(args)
-
-def _haploid_variant_argparser():
-    fparser = _chunking_feature_args()
-    fparser._action_groups[1].title = 'medaka consensus batching options.'
-    mparser = _model_arg()
-    mparser._action_groups[1].title = 'medaka consensus model options.'
-
-    parser = argparse.ArgumentParser(
-        'medaka_haploid_variant',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        description='Haploid variant calling pipeline.',
-        parents=[_log_level(), fparser, mparser, _align_chunking()],
-    )
-    parser.add_argument('reads_fastx', help='Input reads (can be gzipped).')
-    parser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
-    parser.add_argument('-o', '--output_dir', default='medaka_haploid_variant',
-                        help='Output directory, should not exist.')
-    parser.add_argument('-t', '--threads', type=int, default=1,
-                        help='Number of threads used by inference.')
-    return parser
-
-
-def haploid_variant_cmdline():
-    """Command line haploid variant calling tool."""
-    parser = _haploid_variant_argparser()
-    args = parser.parse_args()
-    _validate_common_args(args)
-
-    logging.basicConfig(format='[%(asctime)s - %(name)s] %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
-    logger = logging.getLogger(__package__)
-    logger.setLevel(args.log_level)
-
-    medaka.wrappers.haploid_variant(args)
