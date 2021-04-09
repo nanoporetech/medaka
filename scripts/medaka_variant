@@ -126,7 +126,7 @@ run_extract_region_from_bam () {
     if [[ ! -e ${BAMOUT} ]]; then
         echo "- Extracting regions $REGIONS from bam ${BAMIN} "
         samtools view -b -h ${BAMIN} -@ ${THREADS} -o ${BAMOUT} ${REGIONS} \
-            || (echo "* Failed to extract regions from bam." && exit 1)
+            || { echo "* Failed to extract regions from bam."; exit 1; }
     else 
         echo "- Not extracting regions from bam, ${BAMOUT} exists."
     fi
@@ -148,7 +148,7 @@ run_medaka_consensus () {
     if [[ ! -e ${PROBS} ]]; then
         echo "- Running medaka consensus with ${BAM} --model ${MEDAKAMODEL} ${EXTRAOPTS}"
         medaka consensus ${BAM} ${PROBS} --model ${MEDAKAMODEL} --batch_size ${BATCH_SIZE} ${REG_OPT} --threads ${THREADS} ${EXTRAOPTS} \
-            || (echo "* Failed to run medaka consensus." && exit 1)
+            || { echo "* Failed to run medaka consensus."; exit 1; }
     else 
         echo "- Not running medaka consensus, ${PROBS} exists."
     fi
@@ -168,7 +168,7 @@ run_medaka_snp () {
     if [[ ! -e ${VCF} ]]; then
         echo "- Running medaka snp"
         medaka snp ${REF} ${PROBS} ${VCF} ${REG_OPT} ${EXTRAOPTS} \
-            || (echo "* Failed to call snps from consensus probabilities." && exit 1)
+            || { echo "* Failed to call snps from consensus probabilities."; exit 1; }
         echo "  VCF written to ${OUTPUT}/${VCF}."
     else
         echo "- Using existing output:  ${OUTPUT}/${VCF}."
@@ -189,7 +189,7 @@ run_medaka_variant () {
     if [[ ! -e ${VCF} ]]; then
         echo "- Running medaka variant"
         medaka variant ${REF} ${PROBS} ${VCF} ${REG_OPT} ${EXTRAOPTS} \
-            || (echo "* Failed to call variants from consensus probabilities." && exit 1)
+            || { echo "* Failed to call variants from consensus probabilities."; exit 1; }
         echo "  VCF written to ${OUTPUT}/${VCF}."
     else
         echo "- Using existing output:  ${OUTPUT}/${VCF}."
@@ -209,7 +209,7 @@ run_medaka_haploid2diploid () {
     if [[ ! -e ${MERGED} ]]; then
         echo "- Running medaka haploid2diploid "
         medaka tools haploid2diploid ${VCF1} ${VCF2} ${REF} ${MERGED} ${OPTS} \
-            || (echo "* Failed to run medaka haploid2diploid." && exit 1)
+            || { echo "* Failed to run medaka haploid2diploid."; exit 1; }
         echo "  VCF written to ${OUTPUT}/${MERGED}."
     else
         echo "- Using existing output:  ${OUTPUT}/${MERGED}."
@@ -228,7 +228,7 @@ run_phase_vcf () {
     elif [[ ! -e ${VCFOUT} ]]; then
         echo "- Running whatshap phase for: ${VCFIN} > ${VCFOUT}."
         whatshap phase --reference ${REF} -o ${VCFOUT} ${VCFIN} ${CALLS2REF} ${WHATSHAPOPTS} \
-            || (echo "* Failed to phase variants in ${VCFIN}." && exit 1)
+            || { echo "* Failed to phase variants in ${VCFIN}."; exit 1; }
         echo "  Phased VCF written to ${OUTPUT}/${VCFOUT}."
     else
         echo "- Using existing output:  ${OUTPUT}/${VCFOUT}."
@@ -244,7 +244,7 @@ run_whatshap_tag () {
 	# Leaving out -o completely did not work for me
         whatshap haplotag -o /dev/stdout --reference ${REF} ${VCFIN} ${CALLS2REF} ${WHATSHAPOPTS} \
 	    | samtools addreplacerg -O BAM -r "@RG\tID:${SAMPLE}\tSM:${SAMPLE}" - > ${BAMOUT} \
-            || (echo "Failed to partition reads in round 0." && exit 1)
+            || { echo "Failed to partition reads in round 0."; exit 1; }
         echo "  Tagged reads written to ${OUTPUT}/${BAMOUT}."
     else
         echo "- Using existing output:  ${OUTPUT}/${BAMOUT}."
@@ -260,7 +260,7 @@ run_bgzip () {
     if [[ ! -e ${FILEOUT} ]]; then
         echo "- Compressing ${FILEIN}."
         bgzip -c ${FILEIN} > ${FILEOUT} \
-            || (echo "* Failed to compress ${FILEIN}." && exit 1)
+            || { echo "* Failed to compress ${FILEIN}."; exit 1; }
         echo "  Compressed file written to ${OUTPUT}/${FILEOUT}."
     else
         echo "- Using existing output:  ${OUTPUT}/${FILEOUT}."
@@ -276,7 +276,7 @@ run_tabix () {
     if [[ ! -e ${FILEOUT} ]]; then
         echo "- Indexing ${FILEIN}."
         tabix -p vcf ${FILEIN} \
-            || (echo "* Failed to compress ${FILEIN}." && exit 1)
+            || { echo "* Failed to compress ${FILEIN}."; exit 1; }
         echo "  Indexed file written to ${OUTPUT}/${FILEOUT}."
     else
         echo "- Using existing output:  ${OUTPUT}/${FILEOUT}."
@@ -291,7 +291,7 @@ run_samtools_faidx () {
     if [[ ! -e ${FILEOUT} ]]; then
         echo " - Indexing ${FILEIN}."
         samtools faidx ${FILEIN} \
-            || (echo " * Failed to index ${FILEIN}." && exit 1)
+            || { echo " * Failed to index ${FILEIN}."; exit 1; }
         echo "  Created index ${OUTPUT}/${FILEOUT}."
     else
         echo "- Using existing output:  ${OUTPUT}/${FILEOUT}."
@@ -307,7 +307,7 @@ run_samtools_index () {
     if [[ ! -e ${INDEX} ]]; then
         echo "- Running samtools index on ${BAM}."
         samtools index -@ ${THREADS} ${BAM}  \
-            || (echo "* Failed to index bam ${BAM}." && exit 1)
+            || { echo "* Failed to index bam ${BAM}."; exit 1; }
         echo "  Bam index in ${OUTPUT}/${INDEX}."
     else
         echo "- Using existing output:  ${OUTPUT}/${INDEX}."
@@ -317,7 +317,7 @@ run_samtools_index () {
 exit_if_file_does_not_exist () {
     for FILE in "$@"; do
         if [[ ! -e ${FILE} ]]; then
-            echo "* Could not find file ${FILE}, exiting." && exit 1
+            echo "* Could not find file ${FILE}, exiting."; exit 1;
         fi
     done
 }

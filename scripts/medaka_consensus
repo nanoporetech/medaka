@@ -114,7 +114,7 @@ ALIGN_PARAMS=$(medaka tools get_alignment_params --model $MODEL)
 if [[ ! -e ${CALLS2DRAFT}.bam ]] || ${FORCE}; then
     echo "Aligning basecalls to draft"
     mini_align -i ${BASECALLS} -r ${DRAFT} -p ${CALLS2DRAFT} -t ${THREADS} -m -f $ALIGN_PARAMS \
-      || (echo "Failed to run alignment of reads to draft." && exit 1)
+      || { echo "Failed to run alignment of reads to draft."; exit 1; } 
     FORCE=true
 else
     echo "Not aligning basecalls to draft, ${CALLS2DRAFT}.bam exists."
@@ -126,7 +126,7 @@ if [[ ! -e ${CONSENSUSPROBS} ]] || ${FORCE}; then
     rm -rf ${CONSENSUSPROBS}
     medaka consensus ${CALLS2DRAFT}.bam ${CONSENSUSPROBS} \
         --model ${MODEL} --batch_size ${BATCH_SIZE} --threads ${THREADS} \
-        || (echo "Failed to run medaka consensus." && exit 1)
+        || { echo "Failed to run medaka consensus."; exit 1; }
     FORCE=true
 else
     echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
@@ -140,7 +140,7 @@ if [[ ! -e ${CONSENSUS} ]] || ${FORCE}; then
     fi
     medaka stitch ${CONSENSUSPROBS} ${DRAFT} ${CONSENSUS} \
         --threads ${THREADS} ${STITCH_OPTS} \
-        || (echo "Failed to stitch consensus chunks." && exit 1)
+        || { echo "Failed to stitch consensus chunks."; exit 1 }
     echo "Polished assembly written to ${OUTPUT}/${CONSENSUS}, have a nice day."
     FORCE=true
 else
