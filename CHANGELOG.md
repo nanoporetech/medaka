@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
  - Haploid variant calling reverted to old-style methodology.
 ### Fixed
  - Early exits on error in `medaka_consensus` and `medaka_variant`.
+ - `INFO` field of VCFs is now correctly `.` when empty.
  
 
 ## [v1.2.6]
