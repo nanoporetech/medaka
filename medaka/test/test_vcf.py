@@ -87,6 +87,12 @@ class TestVariant(unittest.TestCase):
             got = getattr(self.variant, key)
             self.assertEqual(got, exp)
 
+    def test_015_empty_info(self):
+        params = deepcopy(self.base_parameters)
+        del params['info']
+        variant = Variant(**params)
+        self.assertEqual(variant.info_string, ".")
+
     def test_020_inequalities(self):
         """Check equality of two variants."""
 
