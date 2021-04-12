@@ -48,7 +48,8 @@ def parse_tags_to_string(tags):
 
     :param tags: dictionary containing "tag" meta data of a variant.
 
-    :returns: the string representation of the tags.
+    :returns: the string representation of the tags (which may be
+        "." if the input dictionary is empty).
     """
     str_tags = []
     for key, value in sorted(tags.items()):
@@ -59,7 +60,10 @@ def parse_tags_to_string(tags):
             if isinstance(value, (tuple, list)):
                 value = ','.join((str(x) for x in value))
             str_tags.append('{}={}'.format(key, value))
-    return ';'.join(str_tags)
+    if len(tags) > 0:
+        return ';'.join(str_tags)
+    else:
+        return '.'
 
 
 def parse_string_to_tags(string, splitter=','):
@@ -71,7 +75,7 @@ def parse_string_to_tags(string, splitter=','):
     :returns: dictionary of tags.
 
     """
-    tags = {}
+    tags = dict()
     for field in string.split(';'):
         if field in ['', '.']:
             continue
