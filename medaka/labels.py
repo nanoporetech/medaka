@@ -848,7 +848,6 @@ class HaploidLabelScheme(BaseLabelScheme):
 
         :returns: list of `medaka.vcf.Variant` objects.
         """
-        logger = medaka.common.get_named_logger("CallVars")
         if sample.positions['minor'][0] != 0:
             raise ValueError(
                 "The first position of a sample must not be an insertion.")
@@ -879,8 +878,6 @@ class HaploidLabelScheme(BaseLabelScheme):
             _variants = list()
             info = dict()
             for p, base, q in zip(_pos, _ref, _quals):
-                logger.info("Reference allele {} at: {} with {}".format(
-                    base, p, q))
                 genotype = {'GT': '0', 'GQ': self._pfmt(q, 0)}
                 _variants.append(
                     medaka.vcf.Variant(

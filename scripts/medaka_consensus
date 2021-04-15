@@ -140,7 +140,7 @@ if [[ ! -e ${CONSENSUS} ]] || ${FORCE}; then
     fi
     medaka stitch ${CONSENSUSPROBS} ${DRAFT} ${CONSENSUS} \
         --threads ${THREADS} ${STITCH_OPTS} \
-        || { echo "Failed to stitch consensus chunks."; exit 1 }
+        || { echo "Failed to stitch consensus chunks."; exit 1; }
     echo "Polished assembly written to ${OUTPUT}/${CONSENSUS}, have a nice day."
     FORCE=true
 else
