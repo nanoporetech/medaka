@@ -497,6 +497,8 @@ def main():
                             help='Populate VCF info fields.')
     var_parser.add_argument('--ambig_ref', action='store_true',
                          help='Decode variants at ambiguous reference positions.')
+    var_parser.add_argument('--gvcf', action='store_true',
+                         help='Output VCF records for reference loci predicted to be non-variant.')
 
     # TODO do we still need this?
     snp_parser = subparsers.add_parser('snp',

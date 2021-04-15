@@ -831,7 +831,8 @@ class HaploidLabelScheme(BaseLabelScheme):
                         genotype_data=genotype))
         return results
 
-    def decode_variants(self, sample, ref_seq, ambig_ref=False):
+    def decode_variants(
+            self, sample, ref_seq, ambig_ref=False, return_all=False):
         """Convert network output in sample to a set of `medaka.vcf.Variant` s.
 
         A consensus sequence is decoded and compared with a reference sequence.
@@ -839,66 +840,105 @@ class HaploidLabelScheme(BaseLabelScheme):
         reported in the output `medaka.vcf.Variant` s.
 
         :param sample: `medaka.common.Sample`.
-        :param ref_seq: reference sequence, should be upper case.
+        :param ref_seq: reference sequence, should be upper case
         :param ambig_ref: bool, if True, decode variants at ambiguous (N)
             reference positions.
+        :param return_all: bool, emit VCF records with `'.'` ALT for reference
+            positions which contain no variant.
 
         :returns: list of `medaka.vcf.Variant` objects.
         """
+        logger = medaka.common.get_named_logger("CallVars")
+        if sample.positions['minor'][0] != 0:
+            raise ValueError(
+                "The first position of a sample must not be an insertion.")
+
         pos = sample.positions
         probs = sample.label_probs
-
-        assert sample.positions['minor'][0] == 0
+        encoding = self._encoding
 
         # array of symbols retaining gaps
         predicted = np.array(list(
             self.decode_consensus(sample, with_gaps=True)))
 
         # get reference sequence with insertions marked as '*'
+        reference = np.fromiter(
+            (ref_seq[p['major']] if p['minor'] == 0 else '*' for p in pos),
+            dtype='|U1', count=len(pos))
 
-        def get_symbol(p):
-            return ref_seq[p['major']] if p['minor'] == 0 else '*'
-
-        reference = np.fromiter((get_symbol(p) for p in pos),
-                                dtype='|U1', count=len(pos))
+        def make_ref_records(rstart, rend):
+            # for each minor == 0 position, create a <REF> variant
+            _pos = pos[rstart:rend]
+            is_ref = _pos['minor'] == 0
+            _pos = _pos[is_ref]['major']
+            _probs = probs[rstart:rend][is_ref]
+            _ref = reference[rstart:rend][is_ref]
+            _enc = [encoding[(s if s != 'N' else '*',)] for s in _ref]
+            _quals = self._phred(
+                1.0 - np.array(_probs[np.arange(_probs.shape[0]), _enc]))
+            _variants = list()
+            info = dict()
+            for p, base, q in zip(_pos, _ref, _quals):
+                logger.info("Reference allele {} at: {} with {}".format(
+                    base, p, q))
+                genotype = {'GT': '0', 'GQ': self._pfmt(q, 0)}
+                _variants.append(
+                    medaka.vcf.Variant(
+                        sample.ref_name, p, base,
+                        alt='.', filt='PASS', info=info, qual=self._pfmt(q),
+                        genotype_data=genotype))
+            return _variants
 
         # find variants by looking for runs of labels which differ.
         # If both labels are gap, we don't want to consider this a
         # match so as to avoid splitting up long insertions if
         # there happens to be a gap label in ref and pred.
         mismatch = predicted != reference
-        both_gap = np.logical_and(predicted == '*',
-                                  reference == '*')
+        both_gap = np.logical_and(
+            predicted == '*', reference == '*')
         is_variant = np.logical_or(mismatch, both_gap)
 
-        # medaka.common.rle requires numeric input
         runs = medaka.rle.rle(is_variant)
-        variant_runs = runs[np.where(runs['value'])]
+        if not return_all:
+            runs = runs[np.where(runs['value'])]
         variants = []
-        encoding = self._encoding
-        for run in variant_runs:
-            start = run['start']
-            end = start + run['length']
+        for rlen, rstart, is_variant in runs:
+            rend = rstart + rlen
+            if return_all:
+                if not is_variant:
+                    variants.extend(make_ref_records(rstart, rend))
+                    continue
+                else:
+                    # the last thing added to `variants` was a non-variant
+                    # If the current variant starts on an insertion column
+                    # we need to remove that last entry.
+                    # TODO: it would be better to flag is_variant blocks
+                    #       such that all columns with common major coord
+                    #       are grouped together
+                    if pos[rstart]['minor'] != 0:
+                        try:
+                            variants.pop()
+                        except IndexError:
+                            pass
+
             # if call or ref starts with gap, pad left
             # (or right if we are at start of genome).
-            pad_right = False
             # if chunks start with a deletion, need to pad (see comment below).
+            pad_right = False
             pad_del_at_start_of_chunk = False
-            while ((not pad_right and
-                    (reference[start] == '*' or
-                     predicted[start] == '*'))
-                   or
-                   (pad_right and
-                    (reference[end] == '*' or
-                     predicted[end] == '*'))):
+            while (
+                (not pad_right and
+                    (reference[rstart] == '*' or predicted[rstart] == '*'))
+                or (pad_right and
+                    (reference[rend] == '*' or predicted[rend] == '*'))):
 
-                if tuple(pos[start]) == (0, 0) or pad_right:
-                    end += 1
+                if tuple(pos[rstart]) == (0, 0) or pad_right:
+                    rend += 1
                     # avoid getting stuck in loop if there is a run
                     # of dels at start of ref
                     pad_right = True
-                elif (start == 0 and pos[start]['minor'] == 0
-                      and predicted[start] == '*'):
+                elif (rstart == 0 and pos[rstart]['minor'] == 0
+                      and predicted[rstart] == '*'):
                     # If variant calling is being performed on a region (rather
                     # than an entire chr), it is possible that a chunk will
                     # start with a deletion. In which case, the VCF spec says
@@ -908,39 +948,43 @@ class HaploidLabelScheme(BaseLabelScheme):
                     pad_del_at_start_of_chunk = True
                     break
                 else:
-                    assert start != 0
-                    start -= 1
+                    assert rstart != 0
+                    rstart -= 1
 
-            var_ref_with_gaps = ''.join(s for s in reference[start:end])
+            # get the ref/predicted sequence with/without gaps
+            var_ref_with_gaps = ''.join(s for s in reference[rstart:rend])
+            var_pred_with_gaps = ''.join(s for s in predicted[rstart:rend])
             var_ref = var_ref_with_gaps.replace('*', '')
-
-            var_pred_with_gaps = ''.join(s for s in predicted[start:end])
             var_pred = var_pred_with_gaps.replace('*', '')
 
+            # its possible for things to reduce to not being a variant.
+            # also maybe skip things if reference contains ambiguous symbols
             if var_ref == var_pred:
-                # not a variant
+                if return_all:
+                    variants.extend(make_ref_records(rstart, rend))
                 continue
-            elif (not ambig_ref and not
-                  set(var_ref).issubset(set(self.symbols))):
-                # don't call where reference is ambiguous
+            elif (not ambig_ref and
+                    not set(var_ref).issubset(set(self.symbols))):
                 continue
-
-            var_probs = probs[start:end]
 
             # As N is not in encoding, encode N as *
             # This only affects calculation of quals.
-            var_ref_encoded = (encoding[(s if s != 'N' else '*',)]
-                               for s in var_ref_with_gaps)
-            var_pred_encoded = (encoding[(s,)] for s in var_pred_with_gaps)
+            var_ref_encoded = (
+                encoding[(s if s != 'N' else '*',)]
+                for s in var_ref_with_gaps)
+            var_pred_encoded = (
+                encoding[(s,)] for s in var_pred_with_gaps)
 
-            ref_probs = np.array([var_probs[i, j]
-                                 for i, j in enumerate(var_ref_encoded)])
-            pred_probs = np.array([var_probs[i, j]
-                                  for i, j in enumerate(var_pred_encoded)])
+            # calculate probabilities
+            var_probs = probs[rstart:rend]
+            ref_probs = np.array(
+                [var_probs[i, j] for i, j in enumerate(var_ref_encoded)])
+            pred_probs = np.array(
+                [var_probs[i, j] for i, j in enumerate(var_pred_encoded)])
+            ref_quals = self._phred(1.0 - ref_probs)
+            pred_quals = self._phred(1.0 - pred_probs)
 
-            ref_quals = [self._phred(1 - p) for p in ref_probs]
-            pred_quals = [self._phred(1 - p) for p in pred_probs]
-
+            info = dict()
             if self.verbose:
                 info = {
                     'ref_seq': var_ref_with_gaps,
@@ -949,26 +993,22 @@ class HaploidLabelScheme(BaseLabelScheme):
                     'pred_qs': ','.join((self._pfmt(q) for q in pred_quals)),
                     'ref_q': self._pfmt(sum(ref_quals)),
                     'pred_q': self._pfmt(sum(pred_quals)),
-                    'n_cols': len(pred_quals)
-                }
-            else:
-                info = {}
+                    'n_cols': len(pred_quals)}
 
             # log likelihood ratio
             qual = sum(pred_quals) - sum(ref_quals)
             genotype = {'GT': '1', 'GQ': self._pfmt(qual, 0)}
-
-            var_pos = pos['major'][start]
-
+            # position in reference sequence
+            var_pos = pos['major'][rstart]
             if pad_del_at_start_of_chunk:
                 var_pos -= 1
                 var_ref = ref_seq[var_pos] + var_ref
                 var_pred = ref_seq[var_pos] + var_pred
-
-            variant = medaka.vcf.Variant(sample.ref_name, var_pos, var_ref,
-                                         alt=var_pred, filt='PASS', info=info,
-                                         qual=self._pfmt(qual),
-                                         genotype_data=genotype)
+            # create the variant record
+            variant = medaka.vcf.Variant(
+                sample.ref_name, var_pos, var_ref,
+                alt=var_pred, filt='PASS', info=info, qual=self._pfmt(qual),
+                genotype_data=genotype)
             variant = variant.trim()
             variants.append(variant)
 
