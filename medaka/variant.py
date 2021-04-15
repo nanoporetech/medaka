@@ -229,7 +229,8 @@ def variants_from_hdf(args):
 
             for sample in joined_samples:
                 variants = label_scheme.decode_variants(
-                    sample, ref_seq, ambig_ref=args.ambig_ref)
+                    sample, ref_seq, ambig_ref=args.ambig_ref,
+                    return_all=args.gvcf)
                 vcf_writer.write_variants(variants, sort=True)
 
 
