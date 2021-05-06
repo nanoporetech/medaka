@@ -169,7 +169,7 @@ The pipeline described above is implemented in the ``medaka_variant`` program:
 .. code-block:: bash
 
     source ${MEDAKA}
-    medaka_variant -f <REFERENCE.fasta> -b <reads.bam>
+    medaka_variant -f <REFERENCE.fasta> -i <reads.bam>
 
 This will run all steps of the process described above, finally outputting a
 phased ``.vcf`` variant file.
