@@ -175,7 +175,7 @@ When `medaka_consensus` has finished running, the consensus will be saved to
 
 Variant calling on human samples can be performed with the `medaka_variant` workflow:
 
-    medaka_variant -f <REFERENCE.fasta> -b <reads.bam>
+    medaka_variant -f <REFERENCE.fasta> -i <reads.bam>
 
 which requires simply a path to the human reference sequence, and a `.bam` file
 of reads aligned to the reference.
