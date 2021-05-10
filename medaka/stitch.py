@@ -148,27 +148,38 @@ def collapse_neighbours(contigs):
 
 def stitch(args):
     """Entry point for stitching program."""
+    logger = medaka.common.get_named_logger("Stitcher")
     index_log = medaka.common.get_named_logger('DataIndex')
     index_log.setLevel(logging.WARNING)
     index = medaka.datastore.DataIndex(args.inputs)
-    if args.regions is None:
-        args.regions = index.regions
+    draft = pysam.FastaFile(args.draft)
+    draft_lengths = dict(zip(draft.references, draft.lengths))
+
+    # regions requested for processing
+    req_regions = args.regions
+    if req_regions is None:
+        req_regions = {
+            medaka.common.Region.from_string(r) for r in draft.references}
 
     # split up draft contigs into chunks for parallelism
     MAX_REGION_SIZE = int(1e6)
-    draft = pysam.FastaFile(args.draft)
-    draft_lengths = dict(zip(draft.references, draft.lengths))
-    regions = list()
-    for ref_name, start, end in args.regions:
+    regions_to_process = list()
+    index_region_names = {r.ref_name for r in index.regions}
+    for ref_name, start, end in req_regions:
+        if ref_name not in index_region_names:
+            # for clarity: don't try to process data which doesn't exist.
+            # This shouldn't be strictly necessary, just for sanity.
+            continue
         if start is None:
             start = 0
         if end is None:
             end = draft_lengths[ref_name]
-        regions.append(medaka.common.Region(ref_name, start, end))
-    args.regions = regions
+        regions_to_process.append(medaka.common.Region(ref_name, start, end))
+    # regions will be sections for which we have at least some data for
+    # the corresponding contig
     regions = itertools.chain.from_iterable((
         r.split(MAX_REGION_SIZE, overlap=0, fixed_size=False)
-        for r in args.regions))
+        for r in regions_to_process))
 
     gap_trees = {}
     with open(args.output, 'w') as fasta:
@@ -202,7 +213,23 @@ def stitch(args):
                         fasta.write(s)
                     fasta.write("\n")
                     ref_name = rname
+        # the data index doesn't contain entries for contigs that
+        # were entirely skipped (and we explicitely removed these
+        # from consideration above). If desired, go back and copy
+        # theses across verbatim, and fill in an entry in the gap_trees
+        if args.fillgaps:
+            processed_regions = {r.ref_name for r in regions_to_process}
+            required_regions = {r.ref_name for r in req_regions}
+            missing = required_regions - processed_regions
+            for reg in missing:
+                logger.info(
+                    "Copying contig '{}' verbatim from input.".format(reg))
+                seq = draft.fetch(reg)
+                fasta.write(">{}\n{}\n".format(reg, seq))
+                tree = intervaltree.IntervalTree()
+                tree.addi(0, draft_lengths[reg])
+                gap_trees[reg] = tree
 
-    if args.draft is not None:
+    if args.fillgaps:
         bed_out = args.output + '.gaps_in_draft_coords.bed'
         medaka.common.write_intervaltrees_to_bed(gap_trees, bed_out)
