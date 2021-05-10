@@ -395,6 +395,7 @@ def main(args):
     args.RG = None
     args.regions = None
     args.draft = None
+    args.bam_chunk = int(1e6)
 
     logger = medaka.common.get_named_logger('Smolecule')
     medaka.common.mkdir_p(args.output, info='Results will be overwritten.')
