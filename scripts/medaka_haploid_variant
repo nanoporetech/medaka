@@ -85,8 +85,8 @@ if $rleflag; then
     exit 1
 fi
 
-if [[ $MODEL != *"variant"* ]]; then
-  echo "WARNING: The model '$MODEL' is not recommended for use with this program."
+if [[ "${MODEL}" != *"variant"* ]]; then
+  echo "WARNING: The model '${MODEL}' is not recommended for use with this program."
   echo "         Please select a model named with 'variant' in its name. It is"
   echo "         preferable to use a model with the 'variant' and 'prom' tags for "
   echo "         MinION/GridION data over one with the 'min' tag but not 'variant'."
@@ -96,8 +96,8 @@ echo "Checking program versions"
 echo "This is ${medaka_version}"
 medaka_version_report || exit 1
 
-if [[ ! -e ${OUTPUT} ]]; then
-  mkdir -p ${OUTPUT}
+if [[ ! -e "${OUTPUT}" ]]; then
+  mkdir -p "${OUTPUT}"
 elif ${FORCE}; then
   echo "Warning: Output will be overwritten (-f flag)"
 else
@@ -108,10 +108,10 @@ cd ${OUTPUT}
 
 
 CALLS2REF=calls_to_ref
-ALIGN_PARAMS=$(medaka tools get_alignment_params --model $MODEL)
-if [[ ! -e ${CALLS2REF}.bam ]] || ${FORCE}; then
+ALIGN_PARAMS=$(medaka tools get_alignment_params --model "${MODEL}")
+if [[ ! -e "${CALLS2REF}.bam" ]] || ${FORCE}; then
     echo "Aligning basecalls to reference"
-    mini_align -i ${BASECALLS} -r ${REFERENCE} -p ${CALLS2REF} -t ${THREADS} -m -f $ALIGN_PARAMS \
+    mini_align -i "${BASECALLS}" -r "${REFERENCE}" -p "${CALLS2REF}" -t "${THREADS}" -m -f ${ALIGN_PARAMS} \
       || { echo "Failed to run alignment of reads to draft." ; exit 1; }
     FORCE=true
 else
@@ -119,11 +119,11 @@ else
 fi
 
 CONSENSUSPROBS=consensus_probs.hdf
-if [[ ! -e ${CONSENSUSPROBS} ]] || ${FORCE}; then
+if [[ ! -e "${CONSENSUSPROBS}" ]] || ${FORCE}; then
     echo "Running medaka consensus"
-    rm -rf ${CONSENSUSPROBS}
-    medaka consensus ${CALLS2REF}.bam ${CONSENSUSPROBS} \
-        --model ${MODEL} --batch_size ${BATCH_SIZE} --threads ${THREADS} \
+    rm -rf "${CONSENSUSPROBS}"
+    medaka consensus "${CALLS2REF}.bam" "${CONSENSUSPROBS}" \
+        --model "${MODEL}" --batch_size "${BATCH_SIZE}" --threads "${THREADS}" \
         || { echo "Failed to run medaka consensus."; exit 1; }
     FORCE=true
 else
@@ -131,8 +131,8 @@ else
 fi
 
 VARIANTS=medaka.vcf
-if [[ ! -e ${VARIANTS} ]] || ${FORCE}; then
-    medaka variant ${REFERENCE} ${CONSENSUSPROBS} ${VARIANTS} \
+if [[ ! -e "${VARIANTS}" ]] || ${FORCE}; then
+    medaka variant "${REFERENCE}" "${CONSENSUSPROBS}" "${VARIANTS}" \
         || { echo "Failed to create variants."; exit 1; }
     FORCE=true
 else
@@ -140,8 +140,8 @@ else
 fi
 
 ANNOTATED=medaka.annotated.vcf
-if [[ ! -e ${ANNOTATED} ]] || ${FORCE}; then
-    medaka tools annotate ${ANNOT_OPTS} ${VARIANTS} ${REFERENCE} ${CALLS2REF}.bam ${ANNOTATED} \
+if [[ ! -e "${ANNOTATED}" ]] || ${FORCE}; then
+    medaka tools annotate ${ANNOT_OPTS} "${VARIANTS}" "${REFERENCE}" "${CALLS2REF}.bam" "${ANNOTATED}" \
         || { echo "Failed to annotate variants."; exit 1; }
     echo "Variants written to ${OUTPUT}/${ANNOTATED}, have a nice day."
     FORCE=true
