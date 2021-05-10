@@ -204,7 +204,7 @@ DOCSRC = docs
 
 .PHONY: docs
 docs: venv
-	${IN_VENV} && pip install sphinx sphinx_rtd_theme sphinx-argparse
+	${IN_VENV} && pip install sphinx==3.5.4 sphinx_rtd_theme sphinx-argparse
 	${IN_VENV} && cd $(DOCSRC) && $(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 	rm -rf docs/modules.rst docs/medaka.rst  
 	@echo

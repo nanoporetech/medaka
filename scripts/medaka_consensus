@@ -79,67 +79,67 @@ echo "Checking program versions"
 echo "This is ${medaka_version}"
 medaka_version_report || exit 1
 
-if [[ ! -e ${OUTPUT} ]]; then
-  mkdir -p ${OUTPUT}
+if [[ ! -e "${OUTPUT}" ]]; then
+  mkdir -p "${OUTPUT}"
 elif ${FORCE}; then
   echo "Warning: Output will be overwritten (-f flag)"
 else
   echo "Warning: Output ${OUTPUT} already exists, may use old results."
 fi
 
-cd ${OUTPUT}
+cd "${OUTPUT}"
 
 rflag=$(medaka tools is_rle_model --model $MODEL)
 [[ $rflag == "True" ]] && rflag=true || rflag=false
 
 if $rflag; then
-  COMPRESSED_BASECALLS=basecalls.fastrle.gz
-  COMPRESSED_DRAFT=draft.fastrle.gz
-  if [[ ! -e ${COMPRESSED_BASECALLS} ]] ||  [[ ! -e ${COMPRESSED_DRAFT} ]] || ${FORCE}; then
+  COMPRESSED_BASECALLS="basecalls.fastrle.gz"
+  COMPRESSED_DRAFT="draft.fastrle.gz"
+  if [[ ! -e "${COMPRESSED_BASECALLS}" ]] ||  [[ ! -e "${COMPRESSED_DRAFT}" ]] || ${FORCE}; then
     echo "Compressing draft and basecalls."
 
-    medaka fastrle ${BASECALLS} | bgzip > ${COMPRESSED_BASECALLS}
-    medaka fastrle ${DRAFT} | bgzip > ${COMPRESSED_DRAFT}
+    medaka fastrle "${BASECALLS}" | bgzip > "${COMPRESSED_BASECALLS}"
+    medaka fastrle "${DRAFT}" | bgzip > "${COMPRESSED_DRAFT}"
 
-    BASECALLS=${COMPRESSED_BASECALLS}
-    DRAFT=${COMPRESSED_DRAFT}
+    BASECALLS="${COMPRESSED_BASECALLS}"
+    DRAFT="${COMPRESSED_DRAFT}"
     FORCE=true
   else
     echo "Not compressing basecalls and draft, ${COMPRESSED_BASECALLS} and ${COMPRESSED_DRAFT} exist."
   fi
 fi
 
-CALLS2DRAFT=calls_to_draft
+CALLS2DRAFT="calls_to_draft"
 ALIGN_PARAMS=$(medaka tools get_alignment_params --model $MODEL)
-if [[ ! -e ${CALLS2DRAFT}.bam ]] || ${FORCE}; then
+if [[ ! -e "${CALLS2DRAFT}.bam" ]] || ${FORCE}; then
     echo "Aligning basecalls to draft"
-    mini_align -i ${BASECALLS} -r ${DRAFT} -p ${CALLS2DRAFT} -t ${THREADS} -m -f $ALIGN_PARAMS \
+    mini_align -i "${BASECALLS}" -r "${DRAFT}" -p "${CALLS2DRAFT}" -t "${THREADS}" -m -f ${ALIGN_PARAMS} \
       || { echo "Failed to run alignment of reads to draft."; exit 1; } 
     FORCE=true
 else
     echo "Not aligning basecalls to draft, ${CALLS2DRAFT}.bam exists."
 fi
 
-CONSENSUSPROBS=consensus_probs.hdf
-if [[ ! -e ${CONSENSUSPROBS} ]] || ${FORCE}; then
+CONSENSUSPROBS="consensus_probs.hdf"
+if [[ ! -e "${CONSENSUSPROBS}" ]] || ${FORCE}; then
     echo "Running medaka consensus"
-    rm -rf ${CONSENSUSPROBS}
-    medaka consensus ${CALLS2DRAFT}.bam ${CONSENSUSPROBS} \
-        --model ${MODEL} --batch_size ${BATCH_SIZE} --threads ${THREADS} \
+    rm -rf "${CONSENSUSPROBS}"
+    medaka consensus "${CALLS2DRAFT}.bam" "${CONSENSUSPROBS}" \
+        --model "${MODEL}" --batch_size "${BATCH_SIZE}" --threads "${THREADS}" \
         || { echo "Failed to run medaka consensus."; exit 1; }
     FORCE=true
 else
     echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
 fi
 
-CONSENSUS=consensus.fasta
-if [[ ! -e ${CONSENSUS} ]] || ${FORCE}; then
+CONSENSUS="consensus.fasta"
+if [[ ! -e "${CONSENSUS}" ]] || ${FORCE}; then
     STITCH_OPTS=""
     if $rflag || ${NOFILLGAPS}; then
         STITCH_OPTS="--no-fillgaps"
     fi
-    medaka stitch ${CONSENSUSPROBS} ${DRAFT} ${CONSENSUS} \
-        --threads ${THREADS} ${STITCH_OPTS} \
+    medaka stitch "${CONSENSUSPROBS}" "${DRAFT}" "${CONSENSUS}" \
+        --threads "${THREADS}" ${STITCH_OPTS} \
         || { echo "Failed to stitch consensus chunks."; exit 1; }
     echo "Polished assembly written to ${OUTPUT}/${CONSENSUS}, have a nice day."
     FORCE=true

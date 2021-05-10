@@ -122,15 +122,15 @@ run_extract_region_from_bam () {
     local BAMOUT=$2
     local REGIONS=$3
 
-    exit_if_file_does_not_exist ${BAMIN} ${BAMIN}.bai
-    if [[ ! -e ${BAMOUT} ]]; then
+    exit_if_file_does_not_exist "${BAMIN}" "${BAMIN}.bai"
+    if [[ ! -e "${BAMOUT}" ]]; then
         echo "- Extracting regions $REGIONS from bam ${BAMIN} "
-        samtools view -b -h ${BAMIN} -@ ${THREADS} -o ${BAMOUT} ${REGIONS} \
+        samtools view -b -h "${BAMIN}" -@ "${THREADS}" -o "${BAMOUT}" ${REGIONS} \
             || { echo "* Failed to extract regions from bam."; exit 1; }
     else 
         echo "- Not extracting regions from bam, ${BAMOUT} exists."
     fi
-    run_samtools_index ${BAMOUT}
+    run_samtools_index "${BAMOUT}"
 }
 
 run_medaka_consensus () {
@@ -144,10 +144,10 @@ run_medaka_consensus () {
     else
         local REG_OPT=""
     fi
-    exit_if_file_does_not_exist ${BAM} ${BAM}.bai
-    if [[ ! -e ${PROBS} ]]; then
+    exit_if_file_does_not_exist "${BAM}" "${BAM}.bai"
+    if [[ ! -e "${PROBS}" ]]; then
         echo "- Running medaka consensus with ${BAM} --model ${MEDAKAMODEL} ${EXTRAOPTS}"
-        medaka consensus ${BAM} ${PROBS} --model ${MEDAKAMODEL} --batch_size ${BATCH_SIZE} ${REG_OPT} --threads ${THREADS} ${EXTRAOPTS} \
+        medaka consensus "${BAM}" "${PROBS}" --model "${MEDAKAMODEL}" --batch_size "${BATCH_SIZE}" ${REG_OPT} --threads "${THREADS}" ${EXTRAOPTS} \
             || { echo "* Failed to run medaka consensus."; exit 1; }
     else 
         echo "- Not running medaka consensus, ${PROBS} exists."
@@ -164,10 +164,10 @@ run_medaka_snp () {
     else
         local REG_OPT=""
     fi
-    exit_if_file_does_not_exist ${PROBS} ${REF}
-    if [[ ! -e ${VCF} ]]; then
+    exit_if_file_does_not_exist "${PROBS}" "${REF}"
+    if [[ ! -e "${VCF}" ]]; then
         echo "- Running medaka snp"
-        medaka snp ${REF} ${PROBS} ${VCF} ${REG_OPT} ${EXTRAOPTS} \
+        medaka snp "${REF}" "${PROBS}" "${VCF}" ${REG_OPT} ${EXTRAOPTS} \
             || { echo "* Failed to call snps from consensus probabilities."; exit 1; }
         echo "  VCF written to ${OUTPUT}/${VCF}."
     else
@@ -185,10 +185,10 @@ run_medaka_variant () {
     else
         local REG_OPT=""
     fi
-    exit_if_file_does_not_exist ${PROBS} ${REF}
-    if [[ ! -e ${VCF} ]]; then
+    exit_if_file_does_not_exist "${PROBS}" "${REF}"
+    if [[ ! -e "${VCF}" ]]; then
         echo "- Running medaka variant"
-        medaka variant ${REF} ${PROBS} ${VCF} ${REG_OPT} ${EXTRAOPTS} \
+        medaka variant "${REF}" "${PROBS}" "${VCF}" ${REG_OPT} ${EXTRAOPTS} \
             || { echo "* Failed to call variants from consensus probabilities."; exit 1; }
         echo "  VCF written to ${OUTPUT}/${VCF}."
     else
@@ -205,10 +205,10 @@ run_medaka_haploid2diploid () {
     local MERGED=$4
     local OPTS=$5
 
-    exit_if_file_does_not_exist ${VCF1} ${VCF2} ${REF}
-    if [[ ! -e ${MERGED} ]]; then
+    exit_if_file_does_not_exist "${VCF1}" "${VCF2}" "${REF}"
+    if [[ ! -e "${MERGED}" ]]; then
         echo "- Running medaka haploid2diploid "
-        medaka tools haploid2diploid ${VCF1} ${VCF2} ${REF} ${MERGED} ${OPTS} \
+        medaka tools haploid2diploid "${VCF1}" "${VCF2}" "${REF}" "${MERGED}" ${OPTS} \
             || { echo "* Failed to run medaka haploid2diploid."; exit 1; }
         echo "  VCF written to ${OUTPUT}/${MERGED}."
     else
@@ -220,14 +220,14 @@ run_phase_vcf () {
     echo "+ Phasing vcf"
     local VCFIN=$1 
     local VCFOUT=$2
-    exit_if_file_does_not_exist ${VCFIN}
+    exit_if_file_does_not_exist "${VCFIN}"
     run_samtools_faidx ${REF}
-    if ! grep -c -m 1 -v -q "#" ${UNPHASEDVCF}; then
+    if ! grep -c -m 1 -v -q "#" "${UNPHASEDVCF}"; then
         echo "- Input vcf has no records, writing empty vcf"
-        cp ${VCFIN} ${VCFOUT}
-    elif [[ ! -e ${VCFOUT} ]]; then
+        cp "${VCFIN}" "${VCFOUT}"
+    elif [[ ! -e "${VCFOUT}" ]]; then
         echo "- Running whatshap phase for: ${VCFIN} > ${VCFOUT}."
-        whatshap phase --reference ${REF} -o ${VCFOUT} ${VCFIN} ${CALLS2REF} ${WHATSHAPOPTS} \
+        whatshap phase --reference "${REF}" -o "${VCFOUT}" "${VCFIN}" "${CALLS2REF}" ${WHATSHAPOPTS} \
             || { echo "* Failed to phase variants in ${VCFIN}."; exit 1; }
         echo "  Phased VCF written to ${OUTPUT}/${VCFOUT}."
     else
@@ -239,43 +239,43 @@ run_whatshap_tag () {
     echo "+ Tagging reads"
     local VCFIN=$1
     local BAMOUT=$2
-    if [[ ! -e ${BAMOUT} ]]; then
+    if [[ ! -e "${BAMOUT}" ]]; then
         echo "- Running whatshap tag for: ${VCFIN} > ${BAMOUT}"
 	# Leaving out -o completely did not work for me
-        whatshap haplotag -o /dev/stdout --reference ${REF} ${VCFIN} ${CALLS2REF} ${WHATSHAPOPTS} \
-	    | samtools addreplacerg -O BAM -r "@RG\tID:${SAMPLE}\tSM:${SAMPLE}" - > ${BAMOUT} \
+        whatshap haplotag -o /dev/stdout --reference "${REF}" "${VCFIN}" "${CALLS2REF}" ${WHATSHAPOPTS} \
+	    | samtools addreplacerg -O BAM -r "@RG\tID:${SAMPLE}\tSM:${SAMPLE}" - > "${BAMOUT}" \
             || { echo "Failed to partition reads in round 0."; exit 1; }
         echo "  Tagged reads written to ${OUTPUT}/${BAMOUT}."
     else
         echo "- Using existing output:  ${OUTPUT}/${BAMOUT}."
     fi
-    run_samtools_index ${BAMOUT}
+    run_samtools_index "${BAMOUT}"
 }
 
 run_bgzip () {
     echo "+ Compressing vcf"
     local FILEIN=$1
     local FILEOUT=$2
-    exit_if_file_does_not_exist ${FILEIN}
+    exit_if_file_does_not_exist "${FILEIN}"
     if [[ ! -e ${FILEOUT} ]]; then
         echo "- Compressing ${FILEIN}."
-        bgzip -c ${FILEIN} > ${FILEOUT} \
+        bgzip -c "${FILEIN}" > "${FILEOUT}" \
             || { echo "* Failed to compress ${FILEIN}."; exit 1; }
         echo "  Compressed file written to ${OUTPUT}/${FILEOUT}."
     else
         echo "- Using existing output:  ${OUTPUT}/${FILEOUT}."
     fi
-    run_tabix ${FILEOUT} 
+    run_tabix "${FILEOUT}"
 }
 
 run_tabix () {
     echo "+ Indexing vcf"
     local FILEIN=$1
     local FILEOUT=${1}.tbi
-    exit_if_file_does_not_exist ${FILEIN}
-    if [[ ! -e ${FILEOUT} ]]; then
+    exit_if_file_does_not_exist "${FILEIN}"
+    if [[ ! -e "${FILEOUT}" ]]; then
         echo "- Indexing ${FILEIN}."
-        tabix -p vcf ${FILEIN} \
+        tabix -p vcf "${FILEIN}" \
             || { echo "* Failed to compress ${FILEIN}."; exit 1; }
         echo "  Indexed file written to ${OUTPUT}/${FILEOUT}."
     else
@@ -287,10 +287,10 @@ run_samtools_faidx () {
     echo "+ Indexing fasta"
     local FILEIN=$1
     local FILEOUT=${1}.fai
-    exit_if_file_does_not_exist ${FILEIN}
-    if [[ ! -e ${FILEOUT} ]]; then
+    exit_if_file_does_not_exist "${FILEIN}"
+    if [[ ! -e "${FILEOUT}" ]]; then
         echo " - Indexing ${FILEIN}."
-        samtools faidx ${FILEIN} \
+        samtools faidx "${FILEIN}" \
             || { echo " * Failed to index ${FILEIN}."; exit 1; }
         echo "  Created index ${OUTPUT}/${FILEOUT}."
     else
@@ -302,11 +302,11 @@ run_samtools_index () {
     echo "+ Indexing bam"
     local BAM=$1
     local INDEX=${BAM}.bai
-    exit_if_file_does_not_exist ${BAM}
+    exit_if_file_does_not_exist "${BAM}"
 
-    if [[ ! -e ${INDEX} ]]; then
+    if [[ ! -e "${INDEX}" ]]; then
         echo "- Running samtools index on ${BAM}."
-        samtools index -@ ${THREADS} ${BAM}  \
+        samtools index -@ "${THREADS}" "${BAM}"  \
             || { echo "* Failed to index bam ${BAM}."; exit 1; }
         echo "  Bam index in ${OUTPUT}/${INDEX}."
     else
@@ -316,8 +316,8 @@ run_samtools_index () {
 
 exit_if_file_does_not_exist () {
     for FILE in "$@"; do
-        if [[ ! -e ${FILE} ]]; then
-            echo "* Could not find file ${FILE}, exiting."; exit 1;
+        if [[ ! -e "${FILE}" ]]; then
+            echo "* Could not find file '${FILE}', exiting."; exit 1;
         fi
     done
 }
@@ -330,24 +330,24 @@ echo "++ Preparing data"
 echo "- Checking program versions"
 medaka_version_report || exit 1
 
-if [[ ! -e ${OUTPUT} ]]; then
-  mkdir -p ${OUTPUT}
+if [[ ! -e "${OUTPUT}" ]]; then
+  mkdir -p "${OUTPUT}"
 else
-  echo "- Warning: Output ${OUTPUT} already exists, may use old results."
+  echo "- Warning: Output '${OUTPUT}' already exists, may use old results."
 fi
 
-cd ${OUTPUT}
+cd "${OUTPUT}"
 
 # check input bam, bam index and ref exist
-exit_if_file_does_not_exist ${CALLS2REF} ${CALLS2REF}.bai ${REF}
+exit_if_file_does_not_exist "${CALLS2REF}" "${CALLS2REF}.bai" "${REF}"
 
 # if regions have been provided, extract that region from the input bam
 # (whatshap currently does not have a region string option). 
 
 if [ -n "${REGIONS}" ]; then
     CALLS2REF_EXTRACTED=$(basename ${CALLS2REF})
-    run_extract_region_from_bam ${CALLS2REF} ${CALLS2REF_EXTRACTED} ${REGIONS}
-    CALLS2REF=${CALLS2REF_EXTRACTED}
+    run_extract_region_from_bam "${CALLS2REF}" "${CALLS2REF_EXTRACTED}" ${REGIONS}
+    CALLS2REF="${CALLS2REF_EXTRACTED}"
 fi
 
 
@@ -357,33 +357,33 @@ echo ""
 echo "++ Running first pass to haplotag reads."
 ROUND=0
 
-CONSENSUSPROBS=round_${ROUND}_hap_mixed_probs.hdf
-UNPHASEDVCF=round_${ROUND}_hap_mixed_unphased.vcf
-run_medaka_consensus ${CALLS2REF} ${CONSENSUSPROBS} ${SNPMODEL}
-run_medaka_snp ${CONSENSUSPROBS} ${UNPHASEDVCF}
+CONSENSUSPROBS="round_${ROUND}_hap_mixed_probs.hdf"
+UNPHASEDVCF="round_${ROUND}_hap_mixed_unphased.vcf"
+run_medaka_consensus "${CALLS2REF}" "${CONSENSUSPROBS}" "${SNPMODEL}"
+run_medaka_snp "${CONSENSUSPROBS}" "${UNPHASEDVCF}"
 
 # Set correct sample name
-sed -i "s#\tSAMPLE#\t${SAMPLE}#" ${UNPHASEDVCF}
+sed -i "s#\tSAMPLE#\t${SAMPLE}#" "${UNPHASEDVCF}"
 
 # check empty vcf, write empty final output
-UNFILTERED=round_1_unfiltered.vcf
-FINAL=round_1.vcf
+UNFILTERED="round_1_unfiltered.vcf"
+FINAL="round_1.vcf"
 
-if ! grep -c -m 1 -v -q "#" ${UNPHASEDVCF}; then
+if ! grep -c -m 1 -v -q "#" "${UNPHASEDVCF}"; then
     echo "- First pass vcf has no records, writing empty vcf and finishing."
-    cp ${UNPHASEDVCF} ${FINAL}  # this gets us the header
-elif ${STOPAFTERROUND0}; then
+    cp "${UNPHASEDVCF}" "${FINAL}"  # this gets us the header
+elif "${STOPAFTERROUND0}"; then
     echo "- Stopping after first pass, copying ${UNPHASEDVCF} to ${FINAL}."
     echo "- Final VCF written to ${OUTPUT}/${FINAL}"
-    cp ${UNPHASEDVCF} ${FINAL}
+    cp "${UNPHASEDVCF}" "${FINAL}"
     exit 0
 else
-    PHASEDVCF=round_${ROUND}_hap_mixed_phased.vcf
-    PHASEDVCFGZ=${PHASEDVCF}.gz
-    PHASEDBAM=round_${ROUND}_hap_mixed_phased.bam
-    run_phase_vcf ${UNPHASEDVCF} ${PHASEDVCF} 
-    run_bgzip ${PHASEDVCF} ${PHASEDVCFGZ}
-    run_whatshap_tag ${PHASEDVCFGZ} ${PHASEDBAM}
+    PHASEDVCF="round_${ROUND}_hap_mixed_phased.vcf"
+    PHASEDVCFGZ="${PHASEDVCF}.gz"
+    PHASEDBAM="round_${ROUND}_hap_mixed_phased.bam"
+    run_phase_vcf "${UNPHASEDVCF}" "${PHASEDVCF}"
+    run_bgzip "${PHASEDVCF}" "${PHASEDVCFGZ}"
+    run_whatshap_tag "${PHASEDVCFGZ}" "${PHASEDBAM}"
     
     ###
     # Second pass to call haplotypes and merge to form phased diploid vcf
@@ -391,42 +391,42 @@ else
     echo "++ Running second pass to produce variant calls."
     ROUND=1
     for HAP in 1 2; do
-        PROBS=round_${ROUND}_hap_${HAP}_probs.hdf
-        VCF=round_${ROUND}_hap_${HAP}.vcf
-        run_medaka_consensus ${PHASEDBAM} ${PROBS} ${MODEL} \
+        PROBS="round_${ROUND}_hap_${HAP}_probs.hdf"
+        VCF="round_${ROUND}_hap_${HAP}.vcf"
+        run_medaka_consensus "${PHASEDBAM}" "${PROBS}" "${MODEL}" \
             "--tag_name HP --tag_value ${HAP} --tag_keep_missing"
-        run_medaka_variant ${PROBS} ${VCF}
+        run_medaka_variant "${PROBS}" "${VCF}"
     done;
     
     run_medaka_haploid2diploid \
-        round_${ROUND}_hap_1.vcf round_${ROUND}_hap_2.vcf \
-        ${REF} ${UNFILTERED} ${HAPLOID2DIPLOID_OPTS}
+        "round_${ROUND}_hap_1.vcf" "round_${ROUND}_hap_2.vcf" \
+        "${REF}" "${UNFILTERED}" ${HAPLOID2DIPLOID_OPTS}
 
     # Add invocation of this script to VCF header
     INVOCATION_DATE="##CL=${INVOCATION}; $(date)"
-    sed -i "/^#CHROM.*/i ${INVOCATION_DATE}" ${UNFILTERED}  
+    sed -i "/^#CHROM.*/i ${INVOCATION_DATE}" "${UNFILTERED}"
     # Set correct sample name
-    sed -i "s#\tSAMPLE#\t${SAMPLE}#" ${UNFILTERED}
+    sed -i "s#\tSAMPLE#\t${SAMPLE}#" "${UNFILTERED}"
 
     if $FILTER_FLAG; then
         # Filter resulting vcf
         FILTER="(((TYPE=\"snp\" | TYPE=\"mnp\") & (QUAL > ${SNP_THRESHOLD})) | ((TYPE!=\"snp\" & TYPE!=\"mnp\") & (QUAL > ${INDEL_THRESHOLD})))"
-        bcftools filter --threads $THREADS -s lowqual -i "${FILTER}" ${UNFILTERED} > ${FINAL}
+        bcftools filter --threads "${THREADS}" -s lowqual -i "${FILTER}" "${UNFILTERED}" > "${FINAL}"
         # pyvcf used in whatshap<=0.18 can't parse the ##FILTER=<ID=lowqual header line added by bcftools filter which contains escaped quotes.
-        sed -i 's/\\"//g' ${FINAL}
+        sed -i 's/\\"//g' "${FINAL}"
     else
         echo "Skipping filtering of VCF (-U option)"
-        mv ${UNFILTERED} ${FINAL}
+        mv "${UNFILTERED}" "${FINAL}"
     fi 
 
     if ${PHASEOUT}; then
-        FINALPHASED=round_1_phased.vcf
-        run_phase_vcf ${FINAL} ${FINALPHASED}
-        FINAL=${FINALPHASED}
+        FINALPHASED="round_1_phased.vcf"
+        run_phase_vcf "${FINAL}" "${FINALPHASED}"
+        FINAL="${FINALPHASED}"
     else
-	mv ${FINAL} ${FINAL}_tmp
-	whatshap unphase ${FINAL}_tmp > ${FINAL}
-	rm -f ${FINAL}_tmp
+	mv "${FINAL}" "${FINAL}_tmp"
+	whatshap unphase "${FINAL}_tmp" > "${FINAL}"
+	rm -f "${FINAL}_tmp"
     fi
 fi
 
