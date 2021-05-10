@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 ### Fixed
 - Added missing default option to arparse instance in smolecule command.
+- Copy across contigs with no aligned reads during `medaka stitch`.
+- Quote strings in bash scripts to allow filenames with spaces.
 
 ## [v1.3.2]
 ### Fixed
