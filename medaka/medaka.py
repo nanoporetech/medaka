@@ -411,6 +411,8 @@ def main():
     vgrp.add_argument('--validation_features', nargs='+', default=None, help='Paths to validation data')
 
     # Consensus from bam input
+    # NB: any args added here should be set to default values in smolecule:main()
+    #     to avoid attribute errors in that program.
     cparser = subparsers.add_parser('consensus',
         help='Run inference from a trained model and alignments.',
         parents=[_log_level(), _chunking_feature_args(), _regions_or_bed_args(), _model_arg(), _rg_arg()],
