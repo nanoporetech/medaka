@@ -137,13 +137,13 @@ class RegionRefNameParser(RegionParser):
         if any((r.start is not None or r.end is not None for r in regions)):
             print('WARNING: This program can only process entire ' +
                   'contigs, ignoring region start and end coordinates.')
-            # keep regions in order and avoid duplicating ref_names.
-            ref_names = []
-            for r in regions:
-                if r.ref_name not in regions:
-                    ref_names.append(r.ref_name)
-            regions = [medaka.common.Region(r, None, None) for r in ref_names]
-            setattr(namespace, self.dest, regions)
+        # keep regions in order but avoid duplicating ref_names.
+        ref_names = []
+        for r in regions:
+            if r.ref_name not in ref_names:
+                ref_names.append(r.ref_name)
+        regions = [medaka.common.Region(r, None, None) for r in ref_names]
+        setattr(namespace, self.dest, regions)
 
 
 def _log_level():

@@ -1,17 +1,19 @@
 import operator
 import os
+import random
 import unittest
 from unittest.mock import patch
 import tempfile
 
 import numpy as np
+import pysam
 
 from medaka.common import Region
 import medaka.stitch
 
 class TestStitch(unittest.TestCase):
 
-    def test_fill_gaps(self):
+    def test_010_fill_gaps(self):
         bases = 'ATGCN'
         def rand_seq(n):
             return  ''.join(np.random.choice(list(bases), n, replace=True))
@@ -56,7 +58,7 @@ class TestStitch(unittest.TestCase):
             self.assertEqual(case[-1], sorted_gaps, msg=msg)
         os.remove(draft)
 
-    def test_010_fill_neighbours(self):
+    def test_020_fill_neighbours(self):
         seq = 'ATCG'
         contigs = iter([
             (('chr1', 0, 1000), [seq] * 2),
@@ -73,24 +75,72 @@ class TestStitch(unittest.TestCase):
         self.assertEqual(contigs, expected, 'Fill neighbours')
 
 
+class Args:
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+class MyFastaFile:
+
+    def __init__(*args, **kwargs):
+        pass
+
+    @property
+    def references(self):
+        return ['utg1190', 'scaffold_117']
+
+    @property
+    def lengths(self):
+        return [16772114, 45079626]
+
+    def fetch(self, reference, start=None, end=None, region=None):
+        if start is None:
+            start = 0
+        if end is None:
+            end = self.lengths[self.references.index(reference)]
+        return "".join(random.choices('ACGT', k=end - start))
+
+
+
 class RegressionStitch(unittest.TestCase):
 
-    @patch('pysam.FastaFile')
-    def test_001_cases(self, FastaFile):
-        class Args:
-            def __init__(self, **kwargs):
-                for k, v in kwargs.items():
-                    setattr(self, k, v)
-        files = {1:"utg1190", 2:"scaffold_117"}
-        FastaFile.return_value = Args(references=['scaffold_117', 'utg1190'], lengths=[45079626, 16772114])
-        temp = tempfile.NamedTemporaryFile()
-        args = Args(draft="", threads=1, output=temp.name, fillgaps=False)
+    @patch('pysam.FastaFile', MyFastaFile)
+    def _run_one(self, expected, fillgaps=False, regions=None):
+        args = Args(draft="", threads=1, regions=regions, fillgaps=fillgaps)
 
-        for fid, region in files.items():
-            fname = os.path.join(os.path.dirname(__file__), "data", "test_stitch_{}.hdf".format(fid))
-            args.inputs = fname
-            args.regions=[Region.from_string(region)]
-            try:
-                medaka.stitch.stitch(args)
-            except Exception as e:
-                self.fail("Stitching raise and Exception:\n {}".format(e))
+        outputs = list()
+        for fid, (region, exp), in enumerate(zip(MyFastaFile().references, expected), 1):
+            with tempfile.NamedTemporaryFile(delete=False) as temp:
+                args.output = temp.name
+                args.inputs = os.path.join(os.path.dirname(__file__), "data", "test_stitch_{}.hdf".format(fid))
+                try:
+                    medaka.stitch.stitch(args)
+                except Exception as e:
+                    self.fail("Stitching raise and Exception:\n {}".format(e))
+                outputs.append(temp)
+        return outputs
+
+
+    def _check(self, files, expected):
+        for file, exp in zip(files, expected):
+            with pysam.FastaFile(file.name) as fh:
+                self.assertEqual(exp, fh.references)
+
+
+    def test_001_cases(self):
+        # each file should have just one entry
+        expected = [
+            ['utg1190_0'],
+            ['scaffold_117_0']]
+        files = self._run_one(expected, regions=None, fillgaps=False)
+        self._check(files, expected)
+
+
+    def test_002_copy_missing(self):
+        # each file should have both entries, note how the missing
+        # contig comes second
+        expected = [
+            ['utg1190', 'scaffold_117'],
+            ['scaffold_117', 'utg1190']]
+        files = self._run_one(expected, regions=None, fillgaps=True)
+        self._check(files, expected)
