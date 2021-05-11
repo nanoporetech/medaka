@@ -15,6 +15,7 @@ import spoa
 
 import medaka.align
 import medaka.common
+import medaka.medaka
 
 Subread = namedtuple('Subread', 'name seq')
 Alignment = namedtuple('Alignment', 'rname qname flag rstart seq cigar')
@@ -388,14 +389,24 @@ def poa_workflow(reads, threads, method='spoa'):
 
 def main(args):
     """Entry point for repeat read consensus creation."""
-    # arg parser does not supply these
-    args.tag_name = None
-    args.tag_value = None
-    args.tag_keep_missing = False
-    args.RG = None
-    args.regions = None
-    args.draft = None
-    args.bam_chunk = int(1e6)
+    parser = medaka.medaka.medaka_parser()
+    defaults = parser.parse_args([
+        "consensus", medaka.medaka.CheckBam.fake_sentinel,
+        "fake_out"])
+
+    class MyArgs:
+        """Wrap the given args with defaults for prediction function."""
+
+        myargs = args
+        mydefaults = defaults
+
+        def __getattr__(self, attr):
+            try:
+                return getattr(self.myargs, attr)
+            except AttributeError:
+                return getattr(self.mydefaults, attr)
+
+    args = MyArgs()
 
     logger = medaka.common.get_named_logger('Smolecule')
     medaka.common.mkdir_p(args.output, info='Results will be overwritten.')

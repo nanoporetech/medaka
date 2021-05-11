@@ -53,8 +53,17 @@ class CheckBlockSize(argparse.Action):
 
 class CheckBam(argparse.Action):
     """Check a bam is a bam."""
+    fake_sentinel = "CheckBAMFake.bam"  # see below
 
     def __call__(self, parser, namespace, values, option_string=None):
+        # allow us to skip the file exist check. This is used to allow
+        # smolecule to run the consensus argument parser to inherit arguments
+        # required to run the prediction program without itself having all
+        # the arguments on its CLI
+        if values == self.fake_sentinel:
+            setattr(namespace, self.dest, values)
+            return
+
         if not os.path.exists(values):
             raise RuntimeError(
                 "Filepath for '--{}' argument does not exist ({})".format(
@@ -328,12 +337,9 @@ class StoreDict(argparse.Action):
         setattr(namespace, self.dest, my_dict)
 
 
-def main():
+def medaka_parser():
+    """Create the medaka command-line interface."""
     from medaka import __version__
-    # Some users report setting this helps them resolve issues on their
-    # filesystems. 
-    os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
-
     parser = argparse.ArgumentParser('medaka',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     subparsers = parser.add_subparsers(title='subcommands', description='valid commands', help='additional help', dest='command')
@@ -360,7 +366,6 @@ def main():
         nargs=2, help=(
             'Root directory containing the fast5 files and .tsv file with '
             'columns filename and read_id.'))
-
 
     # Creation of feature files
     fparser = subparsers.add_parser('features',
@@ -666,7 +671,14 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     dwnldparser.set_defaults(func=download_models)
 
+    return parser
 
+
+def main():
+    # Some users report setting this helps them resolve issues on their
+    # filesystems. 
+    os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
+    parser = medaka_parser()
     args = parser.parse_args()
 
     # https://github.com/tensorflow/tensorflow/issues/26691
