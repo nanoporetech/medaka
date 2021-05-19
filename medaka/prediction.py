@@ -176,20 +176,24 @@ def predict(args):
             logger.info("Processing {} short region(s).".format(
                 len(remainder_regions)))
 
+            # switch to running model eagerly since we don't want to retrace
+            # the model every time the pileup width changes. This also avoids
+            # creating a thread that does not die for every retrace
             model = model_store.load_model(time_steps=None)
-            for region in remainder_regions:
-                new_remainders = run_prediction(
-                    args.output, args.bam, [region[0]], model,
-                    feature_encoder,
-                    args.chunk_len, args.chunk_ovlp,  # these won't be used
-                    batch_size=args.batch_size,
-                    save_features=args.save_features, enable_chunking=False)
-                if len(new_remainders) > 0:
-                    # shouldn't get here
-                    ignored = [x[0] for x in new_remainders]
-                    n_ignored = len(ignored)
-                    logger.warning("{} regions were not processed: {}.".format(
-                        n_ignored, ignored))
+            model.run_eagerly = True
+            remainers = [r[0] for r in remainder_regions]
+            new_remainders = run_prediction(
+                args.output, args.bam, remainers, model,
+                feature_encoder,
+                args.chunk_len, args.chunk_ovlp,  # these won't be used
+                batch_size=1,  # everything is a different size, cant batch
+                save_features=args.save_features, enable_chunking=False)
+            if len(new_remainders) > 0:
+                # shouldn't get here
+                ignored = [x[0] for x in new_remainders]
+                n_ignored = len(ignored)
+                logger.warning("{} regions were not processed: {}.".format(
+                    n_ignored, ignored))
 
         logger.info("Finished processing all regions.")
 
@@ -249,7 +253,7 @@ class DataLoader(object):
             self._sample_workers.append(t)
         # loading of samples into batches
         self._bthread = threading.Thread(
-            target=self._batch_worker, name="Batch-{}".format(i))
+            target=self._batch_worker, name="Batcher")
         self._bthread.daemon = True
         self._bthread.start()
 
@@ -297,6 +301,7 @@ class DataLoader(object):
             try:
                 region = self._regions.get_nowait()
             except queue.Empty:
+                # when queue is empty there will never be more items
                 self._samples.put(StopIteration)
                 break
             else:
@@ -315,15 +320,17 @@ class DataLoader(object):
             try:
                 res = self._samples.get_nowait()
             except queue.Empty:
+                # more items may come
                 pass
             else:
-                self._samples.task_done()
                 if res is StopIteration:
                     nstops += 1
                     if nstops == self.bam_workers:
+                        self._samples.task_done()
                         break
                 else:
                     yield res
+                    self._samples.task_done()
 
     def _batch_worker(self):
         for data in medaka.common.grouper(
