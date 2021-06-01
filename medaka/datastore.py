@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict, OrderedDict
 from concurrent.futures import \
     as_completed, ProcessPoolExecutor, ThreadPoolExecutor
+import contextlib
 import os
 import pickle
 import tarfile
@@ -112,6 +113,8 @@ class ModelStoreTF(BaseModelStore):
         if self.tmpdir is None:
             # tmpdir is removed by .cleanup()
             self.tmpdir = tempfile.TemporaryDirectory()
+            self._exitstack = contextlib.ExitStack()
+            self._exitstack.enter_context(self.tmpdir)
             with tarfile.open(self.filepath) as tar:
                 tar.extractall(path=self.tmpdir.name)
             meta_file = os.path.join(
@@ -125,6 +128,8 @@ class ModelStoreTF(BaseModelStore):
         if self.tmpdir:
             self.meta = None
             self.tmpdir = None
+            self._exitstack.close()
+            del self._exitstack
 
     def __enter__(self):
         """Context manager."""
