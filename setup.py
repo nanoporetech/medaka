@@ -148,7 +148,7 @@ if __name__ == '__main__':
         python_requires='>3.5.*,<3.9',
         packages=find_packages(exclude=['*.test', '*.test.*', 'test.*', 'test']),
         package_data={
-            __pkg_name__:[os.path.join('data', '{}_model.hdf5'.format(f))
+            __pkg_name__:[os.path.join('data', '{}_model.tar.gz'.format(f))
                           for f in bundled_models],
         },
         cffi_modules=["build.py:ffibuilder"],
