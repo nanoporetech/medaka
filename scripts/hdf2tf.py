@@ -22,9 +22,14 @@ def main():
     parser.add_argument(
         '--force', action='store_true',
         help='Allow existing model to be overwritten')
+    parser.add_argument(
+        '--output', help='Output file')
     args = parser.parse_args()
-    model_name = os.path.splitext(args.input_model)[0]
-    out_name = model_name + '.tar.gz'
+    if args.output is None:
+        model_name = os.path.splitext(args.input_model)[0]
+        out_name = model_name + '.tar.gz'
+    else:
+        out_name = args.output
 
     if os.path.exists(out_name):
         if not args.force:
@@ -34,8 +39,9 @@ def main():
             os.remove(out_name)
 
     # get what we need from the old model
-    with medaka.datastore.ModelStore(args.input_model) as ms:
+    with medaka.models.open_model(args.input_model) as ms:
         model = ms.load_model(time_steps=None)
+        model.compile()
         _medaka_meta = {
             'model_function': ms.get_meta('model_function'),
             'label_scheme': ms.get_meta("label_scheme"),
@@ -47,7 +53,7 @@ def main():
             epoch_fp = tmpdir
             medaka_meta = _medaka_meta
         mock = Mock()
-        save_model(model, tmpdir)
+        save_model(model, tmpdir, include_optimizer=True)
         medaka.keras_ext.ModelMetaCheckpointTF.pack_meta(mock, clean=False)
         shutil.move(tmpdir + '.tar.gz', out_name)
         sys.stdout.write("Model written to {}\n".format(out_name))
