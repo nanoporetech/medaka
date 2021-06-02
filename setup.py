@@ -43,7 +43,7 @@ spec.loader.exec_module(_options)
 def check_model_lfs():
     # determine if data files look like LFS stubs, fail if they are
     model = _options.default_models['consensus']
-    default_model = os.path.join(__pkg_path__, 'data', '{}_model.hdf5'.format(model))
+    default_model = os.path.join(__pkg_path__, 'data', '{}_model.tar.gz'.format(model))
     stub_signature = "ASCII text"
     if os.path.exists(default_model):
         stdout = subprocess.check_output(['file', default_model])
