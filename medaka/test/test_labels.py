@@ -95,6 +95,42 @@ class LabelSchemeTest(object):
             data = pickle.load(f)
 
 
+class VariantBoundaries(unittest.TestCase):
+
+    def test_001_boundaries(self):
+        find_variants = medaka.labels.HaploidLabelScheme._find_variants
+        cases = [
+            # no variants
+            ([0, 0, 0, 0], 'ATCG', 'ATCG', '----'),
+            # single insert
+            ([0, 1, 0, 0], 'A*CG', 'ATCG', '-+--'),
+            # multi insert
+            ([0, 1, 2, 0], 'A**G', 'ATCG', '-++-'),
+            # multiple insert, some ref bases
+            ([0, 1, 2, 3], 'A***', 'ATC*', '-+++'),
+            ([0, 1, 2, 3], 'A***', 'A*CG', '-+++'),
+            # multi insert at end, test boundary
+            ([0, 1, 2, 3], 'A***', 'ATC*', '-+++'),
+            ([0, 1, 2, 3], 'A***', 'A*CG', '-+++'),
+            # substitution
+            ([0, 0, 0, 0], 'ATCG', 'AACG', '-+--'),
+            ([0, 0, 0, 0], 'ATCG', 'ATCC', '---+'),
+            # complex
+            ([0, 1, 2, 3], 'A***', 'CTC*', '++++'),
+            ([0, 1, 2, 3], 'A***', 'C*CG', '++++'),
+            ([0, 1, 2, 3, 0], 'A***A', 'CTC*A', '++++-'),
+            ([0, 1, 2, 3, 0], 'A***A', 'C*CGG', '+++++'),
+            ([0, 1, 2, 3, 0, 1, 2], 'A***A**', 'CTC*A*A', '++++-++'),
+            ([0, 1, 2, 3, 0, 1, 2], 'A***A**', 'C*CGGA*', '+++++++'),
+        ]
+        for i, (minor, ref, pred, exp) in enumerate(cases):
+            aref = np.fromiter(ref, dtype='|U1')
+            apred = np.fromiter(pred, dtype='|U1')
+            output = find_variants(minor, aref, apred)
+            output = ''.join('+' if x else '-' for x in output)
+            self.assertEqual(exp, output, "case {}".format(i))
+
+
 class HaploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
 
     @classmethod
