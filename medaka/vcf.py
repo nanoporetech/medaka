@@ -144,6 +144,18 @@ class MetaInfo(object):
         return self.__repr__()
 
 
+class GenotypeData(dict):
+    """Represent a genotype.
+
+    The class serves only to ensure that the GT
+    key comes first in the resulting dictionary.i
+    """
+
+    def __init__(self, GT, **kwargs):
+        """Initialize a genotype dict."""
+        super().__init__(GT=GT, **kwargs)
+
+
 class Variant(object):
     """Representation of a genomic variant."""
 
@@ -181,7 +193,10 @@ class Variant(object):
         else:
             self.info = parse_string_to_tags(info)
         if genotype_data is not None:
-            self.genotype_data = self._sort_genotype_data(genotype_data)
+            if isinstance(genotype_data, GenotypeData):
+                self.genotype_data = genotype_data
+            else:
+                self.genotype_data = self._sort_genotype_data(genotype_data)
         else:
             self.genotype_data = collections.OrderedDict()
 
@@ -201,12 +216,8 @@ class Variant(object):
     @staticmethod
     def _sort_genotype_data(gd):
         """Sort genotype data."""
-        # GT must be first if present
-        sorted_keys = ['GT'] if 'GT' in gd else []
-        # others follow in alphabetical order
-        sorted_keys.extend(k for k in sorted(gd) if k != 'GT')
-        # order dict returned to retain order
-        return collections.OrderedDict((k, gd[k]) for k in sorted_keys)
+        return GenotypeData(
+            gd['GT'], **{k: v for k, v in gd.items() if k != 'GT'})
 
     @property
     def genotype_keys(self):
@@ -322,36 +333,84 @@ class Variant(object):
         d.update(self.genotype_data)
         return d
 
-    def trim(self):
-        """Return new trimmed Variant with minimal ref and alt sequence."""
-        def get_trimmed_start_ref_alt(seqs):
-            def trim_start(seqs):
-                min_len = min([len(s) for s in seqs])
+    def trim(self, reference=None):
+        """Return new trimmed Variant with minimal REF and ALT sequence.
+
+        :param reference: full reference sequence of CHROM associated with
+            variant. If not provided the returned variant will be
+            parsimonious but not left aligned.
+
+        https://genome.sph.umich.edu/wiki/Variant_Normalization
+        """
+        def trim_start(var, rev=False):
+            if rev:
+                seqs = [var.ref[::-1]] + [s[::-1] for s in var.alt]
+            else:
+                seqs = [var.ref] + var.alt
+            min_len = min([len(s) for s in seqs])
+            trim_start = 0
+            for bases in zip(*seqs):
+                bases = list(bases)
+                bases_same = len(set(bases)) == 1
+                if not bases_same or trim_start == min_len - 1:
+                    break
+                if bases_same:
+                    trim_start += 1
+            seqs = [s[trim_start:] for s in seqs]
+            if rev:
+                seqs = [s[::-1] for s in seqs]
                 trim_start = 0
-                for bases in zip(*seqs):
-                    bases = list(bases)
-                    bases_same = len(set(bases)) == 1
-                    if not bases_same or trim_start == min_len - 1:
+            var.pos += trim_start
+            var.ref = seqs[0]
+            var.alt = seqs[1:]
+            return var
+
+        def trim_end_and_align(var, ref):
+            seqs = [var.ref] + var.alt
+            changed = True
+            while changed:
+                changed = False
+                # if all equal on end then right truncate
+                if all(len(s) > 0 for s in seqs) and \
+                        len(set(s[-1] for s in seqs)) == 1:
+                    seqs = [s[:-1] for s in seqs]
+                    changed = True
+                # if any is empty, left pad from reference
+                if any(len(s) == 0 for s in seqs):
+                    if var.pos == 0:
+                        # handle multibase deletion at start of reference
+                        # e.g. "CA" > "" will become "CAT" > "T"
+                        seqs = [s + reference[len(seqs[0])] for s in seqs]
                         break
-                    if bases_same:
-                        trim_start += 1
-                return trim_start, [s[trim_start:] for s in seqs]
+                    else:
+                        var.pos -= 1
+                        seqs = [reference[var.pos] + s for s in seqs]
+                        changed = True
+            var.ref = seqs[0]
+            var.alt = seqs[1:]
+            return var
 
-            # trim ends
-            rev_seqs = [s[::-1] for s in seqs]
-            _, trimmed_rev_seqs = trim_start(rev_seqs)
-            seqs = [s[::-1] for s in trimmed_rev_seqs]
-
-            trim_start, seqs = trim_start(seqs)
-            return trim_start, seqs
-
+        # trim ends then trim start
         trimmed = self.deep_copy()
-        seqs = [trimmed.ref] + trimmed.alt
-        trim_start, (ref, *alt) = get_trimmed_start_ref_alt(seqs)
-        trimmed.pos += trim_start
-        trimmed.ref = ref
-        trimmed.alt = alt
+        if reference is None:
+            trimmed = trim_start(trimmed, rev=True)
+        else:
+            trimmed = trim_end_and_align(trimmed, reference)
+        trimmed = trim_start(trimmed)
         return trimmed
+
+    def normalize(self, reference):
+        """Return a normalized variant.
+
+        :param reference: full reference sequence of CHROM associated with
+            variant.
+
+        https://genome.sph.umich.edu/wiki/Variant_Normalization
+        """
+        # normalization doesn't like equal sequences
+        if all(x == self.ref for x in self.alt):
+            return self
+        return self.trim(reference=reference)
 
     def split_haplotypes(self):
         """Split multiploid variants into list of non-ref haploid variants.

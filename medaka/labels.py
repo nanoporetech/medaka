@@ -10,6 +10,7 @@ import intervaltree
 import numpy as np
 import pysam
 
+import libmedaka
 import medaka.common
 import medaka.rle
 import medaka.vcf
@@ -385,9 +386,16 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
     def _pfmt(p, dp=3):
         """Cast float to string rounding to dp decimal places.
 
-        Used to format probabilities and quality scores for vcf output.
+        :param p: float or ndarray.
+        :param dp: decimal places.
+
+        Used to format probabilities and quality scores for VCF output.
         """
-        return '{:.{dp}f}'.format(round(p, dp), dp=dp)
+        if isinstance(p, np.ndarray):
+            fmt = "%.{}f".format(dp)
+            return np.char.mod(fmt, p)
+        else:
+            return '{:.{dp}f}'.format(round(p, dp), dp=dp)
 
     @abc.abstractmethod
     def _alignment_to_pairs(self, aln):
@@ -831,6 +839,26 @@ class HaploidLabelScheme(BaseLabelScheme):
                         genotype_data=genotype))
         return results
 
+    @staticmethod
+    def _find_variants(minor, reference, prediction):
+        if minor[0] != 0:
+            raise ValueError(
+                "minor array must contain 0 entry at index 0. "
+                "Found: {}.".format(minor[0]))
+        ffi = libmedaka.ffi
+        length = len(minor)
+        minor = np.ascontiguousarray(minor, np.uintp)
+        p_minor = ffi.cast("size_t *", minor.ctypes.data)
+        reference = np.ascontiguousarray(reference, dtype='|U1')
+        p_reference = ffi.cast("wchar_t *", reference.ctypes.data)
+        prediction = np.ascontiguousarray(prediction, dtype='|U1')
+        p_prediction = ffi.cast("wchar_t *", prediction.ctypes.data)
+        out = np.zeros(length, dtype=np.bool)
+        p_out = ffi.cast("bool *", out.ctypes.data)
+        libmedaka.lib.variant_columns(
+            p_minor, p_reference, p_prediction, p_out, length)
+        return out
+
     def decode_variants(
             self, sample, ref_seq, ambig_ref=False, return_all=False):
         """Convert network output in sample to a set of `medaka.vcf.Variant` s.
@@ -852,101 +880,27 @@ class HaploidLabelScheme(BaseLabelScheme):
             raise ValueError(
                 "The first position of a sample must not be an insertion.")
 
+        # TODO: the code below uses all of: unicode arrays, python strings,
+        #  and integer encodings. This could be simplified
         pos = sample.positions
         probs = sample.label_probs
         encoding = self._encoding
 
         # array of symbols retaining gaps
-        predicted = np.array(list(
-            self.decode_consensus(sample, with_gaps=True)))
-
+        predicted = self.decode_consensus(sample, with_gaps=True, dtype='|U1')
         # get reference sequence with insertions marked as '*'
-        reference = np.fromiter(
-            (ref_seq[p['major']] if p['minor'] == 0 else '*' for p in pos),
-            dtype='|U1', count=len(pos))
+        reference = np.full(len(pos), "*", dtype="|U1")
+        reference[pos['minor'] == 0] = np.fromiter(
+            ref_seq[pos['major'][0]:pos['major'][-1] + 1],
+            dtype='|U1')
+        # find variant columns using prescription
+        is_variant = self._find_variants(pos['minor'], reference, predicted)
 
-        def make_ref_records(rstart, rend):
-            # for each minor == 0 position, create a <REF> variant
-            _pos = pos[rstart:rend]
-            is_ref = _pos['minor'] == 0
-            _pos = _pos[is_ref]['major']
-            _probs = probs[rstart:rend][is_ref]
-            _ref = reference[rstart:rend][is_ref]
-            _enc = [encoding[(s if s != 'N' else '*',)] for s in _ref]
-            _quals = self._phred(
-                1.0 - np.array(_probs[np.arange(_probs.shape[0]), _enc]))
-            _variants = list()
-            info = dict()
-            for p, base, q in zip(_pos, _ref, _quals):
-                genotype = {'GT': '0', 'GQ': self._pfmt(q, 0)}
-                _variants.append(
-                    medaka.vcf.Variant(
-                        sample.ref_name, p, base,
-                        alt='.', filt='PASS', info=info, qual=self._pfmt(q),
-                        genotype_data=genotype))
-            return _variants
-
-        # find variants by looking for runs of labels which differ.
-        # If both labels are gap, we don't want to consider this a
-        # match so as to avoid splitting up long insertions if
-        # there happens to be a gap label in ref and pred.
-        mismatch = predicted != reference
-        both_gap = np.logical_and(
-            predicted == '*', reference == '*')
-        is_variant = np.logical_or(mismatch, both_gap)
-
-        runs = medaka.rle.rle(is_variant)
-        if not return_all:
-            runs = runs[np.where(runs['value'])]
         variants = []
-        for rlen, rstart, is_variant in runs:
+        runs = medaka.rle.rle(is_variant)
+        runs = runs[np.where(runs['value'])]
+        for rlen, rstart, is_var in runs:
             rend = rstart + rlen
-            if return_all:
-                if not is_variant:
-                    variants.extend(make_ref_records(rstart, rend))
-                    continue
-                else:
-                    # the last thing added to `variants` was a non-variant
-                    # If the current variant starts on an insertion column
-                    # we need to remove that last entry.
-                    # TODO: it would be better to flag is_variant blocks
-                    #       such that all columns with common major coord
-                    #       are grouped together
-                    if pos[rstart]['minor'] != 0:
-                        try:
-                            variants.pop()
-                        except IndexError:
-                            pass
-
-            # if call or ref starts with gap, pad left
-            # (or right if we are at start of genome).
-            # if chunks start with a deletion, need to pad (see comment below).
-            pad_right = False
-            pad_del_at_start_of_chunk = False
-            while (
-                (not pad_right and
-                    (reference[rstart] == '*' or predicted[rstart] == '*'))
-                or (pad_right and
-                    (reference[rend] == '*' or predicted[rend] == '*'))):
-
-                if tuple(pos[rstart]) == (0, 0) or pad_right:
-                    rend += 1
-                    # avoid getting stuck in loop if there is a run
-                    # of dels at start of ref
-                    pad_right = True
-                elif (rstart == 0 and pos[rstart]['minor'] == 0
-                      and predicted[rstart] == '*'):
-                    # If variant calling is being performed on a region (rather
-                    # than an entire chr), it is possible that a chunk will
-                    # start with a deletion. In which case, the VCF spec says
-                    # one should pad left.  This means creating a variant which
-                    # asserts that the base at the previous position was not a
-                    # variant - something we have no evidence of.
-                    pad_del_at_start_of_chunk = True
-                    break
-                else:
-                    assert rstart != 0
-                    rstart -= 1
 
             # get the ref/predicted sequence with/without gaps
             var_ref_with_gaps = ''.join(s for s in reference[rstart:rend])
@@ -954,11 +908,9 @@ class HaploidLabelScheme(BaseLabelScheme):
             var_ref = var_ref_with_gaps.replace('*', '')
             var_pred = var_pred_with_gaps.replace('*', '')
 
-            # its possible for things to reduce to not being a variant.
-            # also maybe skip things if reference contains ambiguous symbols
-            if var_ref == var_pred:
-                if return_all:
-                    variants.extend(make_ref_records(rstart, rend))
+            # del followed by insertion can lead to non-variant
+            # maybe skip things if reference contains ambiguous symbols
+            if var_ref == var_pred and is_var:
                 continue
             elif (not ambig_ref and
                     not set(var_ref).issubset(set(self.symbols))):
@@ -997,17 +949,40 @@ class HaploidLabelScheme(BaseLabelScheme):
             genotype = {'GT': '1', 'GQ': self._pfmt(qual, 0)}
             # position in reference sequence
             var_pos = pos['major'][rstart]
-            if pad_del_at_start_of_chunk:
-                var_pos -= 1
+            if pos['minor'][rstart] != 0:
+                # variant starts on insert, prepend ref base (normalization
+                # doesnt handle this)
                 var_ref = ref_seq[var_pos] + var_ref
                 var_pred = ref_seq[var_pos] + var_pred
-            # create the variant record
+            # create the variant record and normalize
             variant = medaka.vcf.Variant(
                 sample.ref_name, var_pos, var_ref,
                 alt=var_pred, filt='PASS', info=info, qual=self._pfmt(qual),
                 genotype_data=genotype)
-            variant = variant.trim()
+            variant = variant.normalize(reference=ref_seq)
             variants.append(variant)
+
+        if return_all:
+            # to avoid complications from deletions and multi-reference spans,
+            #  we simply output a record for every minor == 0 position
+            sites = pos['minor'] == 0
+            _pos = pos['major'][sites]
+            _probs = probs[sites]
+            _ref = reference[sites]
+            _enc = [encoding[(s if s != 'N' else '*',)] for s in _ref]
+            _quals = self._phred(
+                1.0 - np.array(_probs[np.arange(_probs.shape[0]), _enc]))
+            _quals_flt = np.char.mod("%.3f", _quals)
+            _quals_int = np.char.mod("%d", np.rint(_quals))
+            info = dict()
+            for p, base, qf, qi in zip(_pos, _ref, _quals_flt, _quals_int):
+                genotype = medaka.vcf.GenotypeData(GT='0', GQ=qi)
+                variants.append(
+                    medaka.vcf.Variant(
+                        sample.ref_name, p, base,
+                        alt='.', filt='.', info=info, qual=qf,
+                        genotype_data=genotype))
+            variants.sort(key=lambda x: x.pos)
 
         return variants
 
@@ -1037,7 +1012,7 @@ class HaploidLabelScheme(BaseLabelScheme):
                       'Number of medaka pileup columns in variant call')])
         return m
 
-    def decode_consensus(self, sample, with_gaps=False):
+    def decode_consensus(self, sample, with_gaps=False, dtype=None):
         """Convert network output to consensus sequence by argmax decoding.
 
         :param sample: medaka.common.Sample
@@ -1045,15 +1020,19 @@ class HaploidLabelScheme(BaseLabelScheme):
 
         :returns: str, consensus sequence
         """
-        # special case for singleton label
-        decode = np.array([ord(x) for x in self.symbols], dtype='u1')
         # most probable class
         mp = np.argmax(sample.label_probs, -1)
         if not with_gaps:
             gap = self.symbols.index('*')
             mp = mp[mp != gap]
-        seq = decode[mp]
-        seq = np.frombuffer(seq, dtype='S1').tobytes().decode()
+        if dtype is None:
+            # special case for singleton label
+            decode = np.array([ord(x) for x in self.symbols], dtype='u1')
+            seq = decode[mp]
+            seq = np.frombuffer(seq, dtype='S1').tobytes().decode()
+        else:
+            decode = np.fromiter(self.symbols, dtype=dtype)
+            seq = decode[mp]
         return seq
 
 

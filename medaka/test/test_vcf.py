@@ -137,6 +137,7 @@ class TestVariant(unittest.TestCase):
         self.assertEqual(variant2.gt, expected_gt)
 
 
+
 class TestReader(unittest.TestCase):
 
     @classmethod
@@ -297,6 +298,34 @@ class TestTrim(unittest.TestCase):
         v_expt = Variant('20', 14369, ref='TAGT', alt=['T'])
         v_trim = v_orig.trim()
         self.assertEqual(v_expt, v_trim, 'Trimming failed for {}.'.format(v_expt))
+
+
+    def test_040_normalize_parsimony(self):
+        """Test cases from https://genome.sph.umich.edu/wiki/Variant_Normalization"""
+        # note: POS in document are 1-based, we use 0-based
+        reference = "GGGGCATGGGG"
+        correct = Variant("chr1", 4, 'CAT', alt=['TGC'])
+        variants = [
+            (Variant("chr1", 3, 'GCAT', alt=['GTGC']), "not left trimmed"),
+            (Variant("chr1", 4, 'CATG', alt=['TGCG']), "not right trimmed"),
+            (Variant("chr1", 3, 'GCATG', alt=['GTGCG']), "not left and right trimmed"),
+            (correct, "normalised")]
+        for v, case in variants:
+            norm = v.normalize(reference)
+            self.assertEqual(norm, correct, case)
+
+    def test_045_normalize_left_align(self):
+        reference = "GGGCACACACAGGG"
+        correct = Variant("chr1", 2, "GCA", alt=["G"])
+        variants = [
+            (Variant("chr1", 7, "CA", alt=[""]), "not left aligned and alt is empty"),
+            (Variant("chr1", 5, "CAC", alt=["C"]), "not left aligned and alt is empty"),
+            (Variant("chr1", 2, "GCACA", alt=["GCA"]), "not left aligned and alt is empty"),
+            (Variant("chr1", 1, "GGCA", alt=["GG"]), "not left aligned and alt is empty"),
+            (correct, "normalized")]
+        for v, case in variants:
+            norm = v.normalize(reference)
+            self.assertEqual(norm, correct, case)
 
 
 class TestSplitHaplotypes(unittest.TestCase):
