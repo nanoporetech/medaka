@@ -294,9 +294,10 @@ def fastrle(args):
 
 def download_models(args):
     logger = medaka.common.get_named_logger('ResolveModels')
-    for model in medaka.options.allowed_models:
-        fp = ResolveModel.resolve_model(model)
-        logger.info('Model {} resolves to {}'.format(model, fp))
+    for model in args.models:
+        ns = argparse.Namespace()
+        fp = ResolveModel('--model', 'model')(None, ns, [model], 'model')
+        logger.info('Model {} is stored at: {}'.format(model, ns.model))
 
 
 class StoreDict(argparse.Action):
@@ -669,6 +670,9 @@ def medaka_parser():
         help='Download model files for any models not already installed.',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    dwnldparser.add_argument(
+        '--models', nargs='+', default=medaka.options.allowed_models,
+        help='Model(s) to download to cache.')
     dwnldparser.set_defaults(func=download_models)
 
     return parser
@@ -696,7 +700,8 @@ def main():
 
     if args.command == 'tools' and not hasattr(args, 'func'):
         # display help if given `medaka tools (--help)`
-        toolparser.print_help()
+        # TODO: is there a cleaner way to access this?
+        parser.__dict__['_actions'][1].choices['tools'].print_help()
     else:
         _validate_common_args(args)
         args.func(args)
