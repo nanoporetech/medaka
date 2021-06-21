@@ -62,7 +62,7 @@ class ModelStore(BaseModelStore):
     def __exit__(self, exception_type, exception_value, traceback):
         """Exit context manager."""
         if exception_type is not None:
-            self.logger.info('ModelStore exception {}'.format(exception_type))
+            self.logger.info('ModelStore exception {}'.format(exception_value))
 
     def load_model(self, time_steps=None):
         """Load a model from an .hdf file.

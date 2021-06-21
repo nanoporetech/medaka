@@ -24,7 +24,7 @@ def resolve_model(model):
 
     :returns: str: filepath to hdf model file or TF model directory.
     """
-    suffixes = ("_model.hdf5", "_model.tar.gz")
+    suffixes = ("_model.tar.gz", "_model.hdf5")
     if os.path.exists(model):  # model is path to model file
         return model
     elif model not in medaka.options.allowed_models:
