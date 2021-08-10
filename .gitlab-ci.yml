@@ -221,7 +221,23 @@ push-github:
         - pip install pip --upgrade
         - pip install git+https://github.com/epi2me-labs/github_release.git
         - github_release ${CI_PROJECT_NAME} ${CI_COMMIT_TAG} CHANGELOG.md ${RESEARCH_BOT_GH_TOKEN} --artifacts dist/*.tar.gz
-    only:
-        - /^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$/
-    except:
-        - branches
+    rules:
+        - if: '$CI_COMMIT_TAG =~ /^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$/'
+
+push-dockerhub:
+    image: ${DOCKERDEV_IMAGE} 
+    stage: deploy
+    script:
+        - VERSION=$CI_COMMIT_TAG
+        - TAG="ontresearch/medaka:${VERSION}"
+        - LATEST="ontresearch/medaka:latest"
+        - BUILD_CMD="docker build -t ${TAG} ."
+        - echo "${BUILD_CMD}"
+        - ${BUILD_CMD}
+        - docker tag ${TAG} ${LATEST}
+        - echo ${DOCKERHUB_TOKEN} | docker login --username ${DOCKERHUB_USER} --password-stdin
+        - docker push ${TAG}
+        - docker push ${LATEST}
+    rules:
+        - if: '$CI_COMMIT_TAG =~ /^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$/'
+

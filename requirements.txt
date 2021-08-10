@@ -7,7 +7,7 @@ grpcio
 h5py<3.0.0            # tf has a pin for this, but pip gets confused
 intervaltree
 tensorflow==2.2.2
-numpy
+numpy<1.19.0,>=1.16.0 # similarly for this
 mappy
 ont_fast5_api
 parasail

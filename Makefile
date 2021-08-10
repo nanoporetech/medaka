@@ -14,6 +14,8 @@ PYTHON ?= python3
 VENV ?= venv
 COVFAIL = 80
 
+VERSION := $(shell grep "__version__" medaka/__init__.py | awk '{gsub("\"","",$$3); print $$3}')
+
 binaries: $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 
 SAMVER=$(shell sed -n 's/samver = "\(.*\)"/\1/p' build.py)
@@ -128,6 +130,7 @@ install: venv check_lfs scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)
 	${IN_VENV} && pip install -r requirements.txt
 	${IN_VENV} && MEDAKA_BINARIES=1 python setup.py install
 
+
 .PHONY: develop
 develop: install
 	# this is because the copying of binaries only works for an install, not a develop
@@ -144,6 +147,20 @@ test: install
 	${IN_VENV} && pytest medaka --doctest-modules \
 		--cov=medaka --cov-report html --cov-report term \
 		--cov-fail-under=${COVFAIL} --cov-report term-missing
+
+
+# mainly here for the Dockerfile
+.PHONY: install_root
+install_root: check_lfs scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
+	pip3 install pip --upgrade
+	pip3 install setuptools==52.0.0
+	pip3 install -r requirements.txt
+	MEDAKA_BINARIES=1 python3 setup.py install
+
+.PHONY: docker
+docker:
+	@echo Building version: '${VERSION}'
+	docker build -t ontresearch/medaka:v${VERSION} .
 
 
 .PHONY: clean

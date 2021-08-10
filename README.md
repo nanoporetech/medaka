@@ -147,6 +147,22 @@ environment variable to have `medaka` run without failure:
 In this situation a further reduction in batch size may be required.
 
 
+**Using Docker**
+
+The source code repository contains a `Dockerfile` which can be used to create
+a GPU compatible Docker container image with the appropriate CUDA and cuDNN
+library versions for running medaka. The image is built on top of images
+[provided by NVIDIA](https://hub.docker.com/r/nvidia/cuda) designed to run with the [NVIDIA Container
+Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+With the toolkit setup on your host computer the following command can be used
+to run the latest version of medaka:
+
+    docker run --rm --gpus 0 ontresearch/medaka:latest medaka --help
+
+(The `--gpus` option can be amended as appropriate for your environment). Versioned
+tags are also available.
+
+
 Usage
 -----
 
