@@ -12,6 +12,7 @@ RUN \
         libssl-dev libffi-dev \
         libreadline7 libreadline-dev sqlite3 libsqlite3-dev file \
         python3-all-dev python3-venv python3-pip \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3 10 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY . /tmp/medaka
