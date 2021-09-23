@@ -21,8 +21,8 @@ current_models = [
     # r9 consensus
     'r941_min_fast_g507', 'r941_min_hac_g507', 'r941_min_sup_g507',
     'r941_prom_fast_g507', 'r941_prom_hac_g507', 'r941_prom_sup_g507',
-    # r10 consensus
-    'r103_fast_g507', 'r103_hac_g507', 'r103_sup_g507',
+    # r104 e81 consensus
+    'r104_e81_fast_g5015', 'r104_e81_hac_g5015', 'r104_e81_sup_g5015',
     # r9 variant calling
     'r941_prom_hac_snp_g507', 'r941_prom_hac_variant_g507',
 ]
@@ -35,6 +35,7 @@ archived_models = [
     # r10 consensus
     'r10_min_high_g303', 'r10_min_high_g340',
     'r103_min_high_g345', 'r103_min_high_g360', 'r103_prom_high_g360',
+    'r103_fast_g507', 'r103_hac_g507', 'r103_sup_g507',
     # snp and variant - flipflop
     'r941_prom_snp_g303', 'r941_prom_variant_g303',
     'r941_prom_snp_g322', 'r941_prom_variant_g322',

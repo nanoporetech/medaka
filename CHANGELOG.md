@@ -5,8 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [unreleased]
+
+## [v1.4.4]
 ### Changed
 - tensorflow requirement to ~=2.2.2
+### Added
+- R10.4 E8.1 consensus models for Guppy version 5.0.15.
 
 ## [v1.4.3]
 ### Fixed
