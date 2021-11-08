@@ -186,10 +186,10 @@ build-cpu:many-linux-8:
     only:
         - tags
 
-build:arm-many-linux-6:
-    <<: *arm-many-linux-def
-    script:
-        - ./build-wheels.sh . 6
+#build:arm-many-linux-6:
+#    *arm-many-linux-def
+#    script:
+#        - ./build-wheels.sh . 6
 
 
 ###
