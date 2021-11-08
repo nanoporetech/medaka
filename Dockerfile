@@ -1,4 +1,4 @@
-FROM nvidia/cuda:10.1-cudnn7-runtime-ubuntu18.04
+FROM nvidia/cuda:11.0.3-cudnn8-runtime-ubuntu18.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 LABEL maintainer="Oxford Nanopore Technologies"
@@ -11,7 +11,7 @@ RUN \
         zlib1g-dev libbz2-dev liblzma-dev libncurses5-dev libcurl4-gnutls-dev \
         libssl-dev libffi-dev \
         libreadline7 libreadline-dev sqlite3 libsqlite3-dev file \
-        python3-all-dev python3-venv python3-pip \
+        python3-all-dev python3-venv python3-pip python3-setuptools \
     && update-alternatives --install /usr/bin/python python /usr/bin/python3 10 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -21,7 +21,3 @@ RUN \
     && make install_root \
     && cd / \
     && rm -rf /tmp/medaka \
-    && medaka --help \
-    && samtools --help
-
-

@@ -5,6 +5,10 @@ stages:
     - build
     - deploy
 
+variables:
+    DOCKERTAG: "medaka/medaka:latest"
+
+
 # Install a particular Python and set PYTHON envvar for Makefile 
 .install-pyenv: &install-pyenv |
     git clone https://github.com/pyenv/pyenv.git ~/.pyenv
@@ -68,6 +72,15 @@ test-docs:
     <<: *preparetest
     script:
         - make install docs
+
+
+test-docker:
+    image: ${DOCKERDEV_IMAGE} 
+    stage: test
+    script:
+        - apk --no-cache add make
+        - DOCKERTAG=$DOCKERTAG make docker
+        - docker run --rm -v $PWD:/data $DOCKERTAG medaka_consensus -i /data/medaka/test/data/test_reads.fasta.gz -d /data/medaka/test/data/draft_ref.fasta -o /data/dockertest
 
 ###
 # Source distribution
@@ -228,16 +241,15 @@ push-dockerhub:
     image: ${DOCKERDEV_IMAGE} 
     stage: deploy
     script:
-        - VERSION=$CI_COMMIT_TAG
-        - TAG="ontresearch/medaka:${VERSION}"
-        - LATEST="ontresearch/medaka:latest"
-        - BUILD_CMD="docker build -t ${TAG} ."
-        - echo "${BUILD_CMD}"
-        - ${BUILD_CMD}
-        - docker tag ${TAG} ${LATEST}
+        - apk --no-cache add make
         - echo ${DOCKERHUB_TOKEN} | docker login --username ${DOCKERHUB_USER} --password-stdin
-        - docker push ${TAG}
+        - DOCKERTAG=$DOCKERTAG make docker
+        - LATEST="ontresearch/medaka:latest"
+        - TAG="ontresearch/medaka:$CI_COMMIT_TAG"
+        - docker tag $DOCKERTAG $LATEST 
+        - docker tag $DOCKERTAG $TAG
         - docker push ${LATEST}
+        - docker push ${TAG}
     rules:
         - if: '$CI_COMMIT_TAG =~ /^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$/'
 

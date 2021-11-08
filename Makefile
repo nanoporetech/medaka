@@ -12,6 +12,7 @@ endif
 
 PYTHON ?= python3
 VENV ?= venv
+DOCKERTAG ?= "medaka/medaka:latest"
 COVFAIL = 80
 
 VERSION := $(shell grep "__version__" medaka/__init__.py | awk '{gsub("\"","",$$3); print $$3}')
@@ -29,7 +30,7 @@ submodules/samtools-$(SAMVER)/Makefile:
 libhts.a: submodules/samtools-$(SAMVER)/Makefile
 	# this is required only to add in -fpic so we can build python module
 	@echo Compiling $(@F)
-	cd submodules/samtools-${SAMVER}/htslib-${SAMVER}/ && CFLAGS=-fpic ./configure && make
+	cd submodules/samtools-${SAMVER}/htslib-${SAMVER}/ && CFLAGS="-fpic -std=c99 -mtune=haswell -O3" ./configure && make
 	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$@ $@
 
 
@@ -157,10 +158,11 @@ install_root: check_lfs scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)
 	pip3 install -r requirements.txt
 	MEDAKA_BINARIES=1 python3 setup.py install
 
+
 .PHONY: docker
-docker:
-	@echo Building version: '${VERSION}'
-	docker build -t ontresearch/medaka:v${VERSION} .
+docker: clean
+	@echo Building docker tag: '$(DOCKERTAG)'
+	docker build -t $(DOCKERTAG) .
 
 
 .PHONY: clean
