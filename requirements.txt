@@ -1,17 +1,16 @@
 # medaka requirements. 
 # Add comments to keep track of why we are using particular versions
-biopython
 cffi
 edlib
 grpcio 
-h5py<3.0.0            # tf has a pin for this, but pip gets confused
+h5py
 intervaltree
-tensorflow~=2.2.2
-numpy<1.19.0,>=1.16.0 # similarly for this
+tensorflow~=2.4.1
+numpy
 mappy
 ont_fast5_api
 parasail
-pysam==0.16.0.1       # 0.16.0 is broken, various others too
+pysam>=0.16.0.1       # 0.16.0 is broken, various others too
 pyspoa>=0.0.3         # 0.0.2 has portable instruction set, and py38 wheels
 requests
 whatshap>=0.18        # added --ignore-read-groups to haplotag

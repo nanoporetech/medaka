@@ -33,7 +33,7 @@ ffibuilder.set_source("libmedaka",
             'medaka_bamiter.c', 'medaka_common.c', 'medaka_counts.c',
             'fastrle.c', 'medaka_trimbam.c', 'medaka_pytrimbam.c',
             'medaka_rnn_variants.c')],
-    extra_compile_args=['-std=c99', '-msse3', '-O3'],
+    extra_compile_args=['-std=c99', '-mtune=haswell', '-O3'],
     extra_objects=['libhts.a']
 )
 
