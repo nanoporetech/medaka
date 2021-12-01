@@ -13,8 +13,16 @@ medaka_version=$(medaka --version)
 modeldata=()
 while read -r line; do
     modeldata+=("$line")
-done < <(medaka tools list_models) # Available models on first line, default consensus model on next line
+done < <(medaka tools list_models)
+# 0: Available models
+# 1: default consensus model
+# 2: default variant model
 MODEL=${modeldata[1]##* }
+MODELS=$(
+    echo ${modeldata[0]} | sed 's/Available://' | python -c \
+        "import sys; import itertools; mods=[f'{x[:-1]}' for x in sys.stdin.readline().split() if ('variant' not in x and 'snp' not in x)]; print(' '.join(mods))"
+)
+
 BATCH_SIZE=100
 FORCE=false
 NOFILLGAPS=false
@@ -29,7 +37,7 @@ ${medaka_version}
 Assembly polishing via neural networks. The input assembly should be
 preprocessed with racon.
 
-$(basename "$0") [-h] -i <fastx>
+$(basename "$0") [-h] -i <fastx> -d <fasta>
 
     -h  show this help text.
     -i  fastx input basecalls (required).
@@ -37,8 +45,8 @@ $(basename "$0") [-h] -i <fastx>
     -o  output folder (default: medaka).
     -g  don't fill gaps in consensus with draft sequence.
     -m  medaka model, (default: ${MODEL}).
-        ${modeldata[0]}.
-        Alternatively a .hdf file from 'medaka train'.
+        Choices: ${MODELS}
+        Alternatively a .tar.gz/.hdf file from 'medaka train'.
     -f  Force overwrite of outputs (default will reuse existing outputs).
     -t  number of threads with which to create features (default: 1).
     -b  batchsize, controls memory use (default: ${BATCH_SIZE})."

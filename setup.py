@@ -163,7 +163,7 @@ if __name__ == '__main__':
                 '{0}_version_report = {0}:report_binaries'.format(__pkg_name__, )
             ]
         },
-        scripts=['scripts/medaka_consensus', 'scripts/medaka_variant', 'scripts/medaka_haploid_variant', 'scripts/mini_align', 'scripts/hdf2tf.py'],
+        scripts=['scripts/medaka_consensus', 'scripts/medaka_haploid_variant', 'scripts/mini_align', 'scripts/hdf2tf.py'],
         zip_safe=False,
         cmdclass={
             'build_ext': HTSBuild

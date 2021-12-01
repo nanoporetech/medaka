@@ -16,9 +16,13 @@ while read -r line; do
 done < <(medaka tools list_models)
 # 0: Available models
 # 1: default consensus model
-# 2: default SNP model
-# 3: default variant model
-MODEL=${modeldata[3]##* }
+# 2: default variant model
+MODEL=${modeldata[2]##* }
+MODELS=$(
+    echo ${modeldata[0]} | sed 's/Available://' | python -c \
+        "import sys; import itertools; mods=[f'{x[:-1]}' for x in sys.stdin.readline().split() if 'variant' in x]; print(' '.join(mods))"
+)
+
 BATCH_SIZE=100
 ANNOT_OPTS=""
 FORCE=false
@@ -32,15 +36,14 @@ ${medaka_version}
 
 Haploid variant calling via neural networks.
 
-$(basename "$0") [-h] -i <fastx>
+$(basename "$0") [-h] -i <fastx> -r <fasta>
 
     -h  show this help text.
     -i  fastx input basecalls (required).
     -r  fasta reference sequence (required).
     -o  output folder (default: medaka).
     -m  medaka model, (default: ${MODEL}).
-        ${modeldata[0]}.
-        A model named with 'variant' should be used with this program.
+        Choices: $MODELS.
     -s  Perform read realignment when annotating variants.
     -f  Force overwrite of outputs (default will reuse existing outputs).
     -t  number of threads with which to create features (default: 1).
