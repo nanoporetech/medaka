@@ -24,7 +24,8 @@ current_models = [
     # r104 e81 consensus
     'r104_e81_fast_g5015', 'r104_e81_hac_g5015', 'r104_e81_sup_g5015',
     # r9 variant calling
-    'r941_prom_hac_snp_g507', 'r941_prom_hac_variant_g507',
+    'r941_min_hac_variant_g507',
+    'r941_prom_hac_variant_g507',
 ]
 archived_models = [
     # r9 consensus
@@ -43,9 +44,10 @@ archived_models = [
     'r103_prom_snp_g3210', 'r103_prom_variant_g3210',
     # snp and variant - crf guppy507
     'r941_min_fast_snp_g507', 'r941_min_fast_variant_g507',
-    'r941_min_hac_snp_g507', 'r941_min_hac_variant_g507',
+    'r941_min_hac_snp_g507',
     'r941_min_sup_snp_g507', 'r941_min_sup_variant_g507',
     'r941_prom_fast_snp_g507', 'r941_prom_fast_variant_g507',
+    'r941_prom_hac_snp_g507',
     'r941_prom_sup_snp_g507', 'r941_prom_sup_variant_g507',
     'r103_fast_snp_g507', 'r103_fast_variant_g507',
     'r103_hac_snp_g507', 'r103_hac_variant_g507',
@@ -56,8 +58,7 @@ archived_models = [
 allowed_models = sorted(current_models + archived_models)
 default_models = {
     'consensus': 'r941_min_hac_g507',
-    'snp': 'r941_prom_hac_snp_g507',
-    'variant': 'r941_prom_hac_variant_g507'}
+    'variant': 'r941_min_hac_variant_g507'}
 
 alignment_params = {
     'rle': "-M 5 -S 4 -O 2 -E 3",

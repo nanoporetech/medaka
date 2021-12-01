@@ -5,21 +5,17 @@
 Medaka
 ======
 
-[![Build Status](https://travis-ci.org/nanoporetech/medaka.svg?branch=master)](https://travis-ci.org/nanoporetech/medaka)
-
 [![](https://img.shields.io/pypi/v/medaka.svg)](https://pypi.org/project/medaka/)
 [![](https://img.shields.io/pypi/wheel/medaka.svg)](https://pypi.org/project/medaka/)
-
 [![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)](https://anaconda.org/bioconda/medaka)
 [![](https://img.shields.io/conda/pn/bioconda/medaka.svg)](https://anaconda.org/bioconda/medaka)
 
 
 `medaka` is a tool to create consensus sequences and variant calls from
-nanopore sequencing data.  This task is performed using neural networks applied
-a pileup of individual sequencing reads against a draft assembly. It
-outperforms graph-based methods operating on basecalled data, and can be
-competitive with state-of-the-art signal-based methods whilst being much
-faster.
+nanopore sequencing data. This task is performed using neural networks applied
+a pileup of individual sequencing reads against a draft assembly. It provides
+state-of-the-art results outperforming sequence-graph based methods and
+signal-based methods, whilst also being faster.
 
 © 2018- Oxford Nanopore Technologies Ltd.
 
@@ -29,16 +25,12 @@ Features
   * Requires only basecalled data. (`.fasta` or `.fastq`)
   * Improved accurary over graph-based methods (e.g. Racon).
   * 50X faster than Nanopolish (and can run on GPUs).
-  * Benchmarks are provided [here](https://nanoporetech.github.io/medaka/benchmarks.html).
   * Includes extras for implementing and training bespoke correction
     networks.
   * Works on Linux and MacOS.
   * Open source (Mozilla Public License 2.0).
 
 For creating draft assemblies we recommend [Flye](https://github.com/fenderglass/Flye).
-
-Documentation can be found at https://nanoporetech.github.io/medaka/.
-
 
 Installation
 ------------
@@ -187,14 +179,6 @@ example above) see the Model section following.
 When `medaka_consensus` has finished running, the consensus will be saved to
 `${OUTDIR}/consensus.fasta`.
 
-**Human variant calling**
-
-Variant calling on human samples can be performed with the `medaka_variant` workflow:
-
-    medaka_variant -f <REFERENCE.fasta> -i <reads.bam>
-
-which requires simply a path to the human reference sequence, and a `.bam` file
-of reads aligned to the reference.
 
 **Bacterial (ploidy-1) variant calling**
 
@@ -228,19 +212,62 @@ files). Where a version of Guppy has been used without an exactly corresponding
 medaka model, the medaka model with the highest version equal to or less than
 the guppy version should be selected.
 
-### Origin of the draft sequence
 
-Medaka has been trained to correct draft sequences processed through
-[racon](https://github.com/isovic/racon) with:
+Improving parallelism
+---------------------
 
-    racon -m 8 -x -6 -g -8 -w 500 ...
+The `medaka_consensus` program is good for simple datasets but perhaps not
+optimal for running large datasets at scale. A higher level of parallelism
+can be achieved by running independently the component steps of
+`medaka_consensus`. The program performs three tasks:
+
+1. alignment of reads to input assembly (via `mini_align` which is a thin
+   veil over `minimap2`)
+2. running of consensus algorithm across assembly regions
+   (`medaka consensus`, note no underscore!)
+3. aggregation of the results of 2. to create consensus sequences
+   (`medaka stitch`)
+
+The three steps are discrete, and can be split apart and run independently. In
+most cases, Step 2. is the bottleneck and can be trivially parallelized. The
+`medaka consensus` program can be supplied a `--regions`
+argument which will restrict its action to particular assembly sequences from
+the `.bam` file output in Step 1. Therefore individual jobs can be run for batches
+of assembly sequences simultaneously. In the final step, `medaka stitch`
+can take as input one or more of the `.hdf` files output by Step 2.
+
+So in summary something like this is possible:
+
+.. code-block:: bash
+
+    # align reads to assembly
+    mini_align -i basecalls.fasta -r assembly.fasta -P -m \
+        -p calls_to_draft.bam -t <threads>
+    # run lots of jobs like this, change model as appropriate
+    mkdir results
+    medaka consensus calls_to_draft.bam results/contigs1-4.hdf \
+        --model r941_min_fast_g303 --batch 200 --threads 8 \
+        --region contig1 contig2 contig3 contig4
+    ...
+    # wait for jobs, then collate results
+    medaka stitch results/*.hdf polished.assembly.fasta
+
+It is not recommended to specify a value of `--threads` greater than 2 for
+`medaka consensus` since the compute scaling efficiency is poor beyond this.
+Note also that `medaka consensus` may been seen to use resources equivalent to
+`<threads> + 4` as an additional 4 threads are used for reading and preparing
+input data.
+
+
+Origin of the draft sequence
+----------------------------
+
+Medaka has been trained to correct draft sequences output from the 
+[Flye](https://github.com/fenderglass/Flye) assembler.
 
 Processing a draft sequence from alternative sources (e.g. the output of
 [canu](https://github.com/marbl/canu) or
 [wtdbg2](https://github.com/ruanjue/wtdbg2)) may lead to different results.
-
-The [documentation](https://nanoporetech.github.io/medaka/draft_origin.html)
-provides a discussion and some guidance on how to obtain a draft sequence.
 
 
 Acknowledgements

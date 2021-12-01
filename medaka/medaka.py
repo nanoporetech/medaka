@@ -282,7 +282,7 @@ def print_alignment_params(args):
 
 def print_all_models(args):
     print('Available:', ', '.join(medaka.options.allowed_models))
-    for key in ('consensus', 'snp', 'variant'):
+    for key in ('consensus', 'variant'):
         # medaka_variant relies on this order
         print('Default {}: '.format(key), medaka.options.default_models[key])
 

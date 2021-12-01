@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [v1.5.0]
+### Changed
+- Updated tensorflow requirement to ~=2.4.4.
+- Spruced-up documentation.
+### Added
+- Light testing of Docker build.
+### Removed
+- Remove `medaka_variant` in deference of clair3.
+
 ## [v1.5.0.rc1]
 ### Changed
 - Updated tensorflow requirement to ~=2.4.4.
