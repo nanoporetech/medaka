@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v1.5.0]
 ### Changed
-- Updated tensorflow requirement to ~=2.4.4.
+- Updated tensorflow requirement to ~=2.5.2.
 - Spruced-up documentation.
 ### Added
 - Light testing of Docker build.

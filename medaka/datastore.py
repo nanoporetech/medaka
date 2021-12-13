@@ -321,6 +321,8 @@ class DataStore(object):
                 if isinstance(s[field], np.ndarray) and \
                         isinstance(s[field][0], type(b'')):
                     s[field] = np.char.decode(s[field])
+                if isinstance(s[field], bytes):
+                    s[field] = s[field].decode()
         return medaka.common.Sample(**s)
 
     def _write_dataset(self, location, data):
