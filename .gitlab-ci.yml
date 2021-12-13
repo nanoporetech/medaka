@@ -59,6 +59,13 @@ test-3.8.7:
         PYENV_VERSION: 3.8.7
     <<: *pytest
 
+
+test-3.9.9:
+    variables:
+        PYENV_VERSION: 3.9.9
+    <<: *pytest
+
+
 test-mem-check:
     variables:
         PYENV_VERSION: 3.6.12
@@ -124,6 +131,11 @@ build:many-linux-8:
     script:
         - ./build-wheels.sh . 8
 
+build:many-linux-9:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 9
+
 ### Tensorflow-cpu wheels
 
 build-cpu:many-linux-6:
@@ -143,6 +155,12 @@ build-cpu:many-linux-8:
     <<: *switch-to-cpu
     script:
         - ./build-wheels.sh . 8
+
+build-cpu:many-linux-9:
+    <<: *many-linux-def
+    <<: *switch-to-cpu
+    script:
+        - ./build-wheels.sh . 9
 
 ###
 # ARM builds, need more work
