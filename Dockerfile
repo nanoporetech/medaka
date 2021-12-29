@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.0.3-cudnn8-runtime-ubuntu18.04
+FROM nvidia/cuda:11.2.2-cudnn8-runtime-ubuntu18.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 LABEL maintainer="Oxford Nanopore Technologies"
