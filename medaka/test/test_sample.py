@@ -4,6 +4,7 @@ import numpy as np
 import os
 
 from medaka.common import Region, Relationship, Sample, OverlapException
+import medaka.labels
 
 root_dir = os.path.abspath(os.path.dirname(__file__))
 test_file = os.path.join(root_dir, 'data/test_probs.hdf')
@@ -309,3 +310,76 @@ class TestSample(unittest.TestCase):
             s.amend(fake_attr=None)
 
 
+class TestTrimSamples(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+
+        cls.ls = medaka.labels.HaploidLabelScheme()
+
+        pos1 = np.array([(0, 0), (0, 1), (1, 0), (2, 0),
+                         (2, 1), (2, 2), (3, 0), (4, 0),
+                         (4, 1), (4, 2), (4, 3)],
+                        dtype=[('major', int), ('minor', int)])
+        pos2 = np.array([(4, 1), (4, 2), (4, 3), (4, 5),
+                         (5, 0), (6, 0), (6, 1), (7, 0)],
+                        dtype=[('major', int), ('minor', int)])
+        pos3 = np.array([(6, 0), (6, 1), (7, 0), (7, 1)],
+                        dtype=[('major', int), ('minor', int)])
+        cls.samples = []
+        data_dim = 10
+        for pos in pos1, pos2, pos3:
+            data = np.random.random_sample(
+                size=data_dim*len(pos)).reshape((len(pos), data_dim))
+            cls.samples.append(
+                medaka.common.Sample(ref_name='contig1', features=data,
+                                     ref_seq=None, labels=data, positions=pos,
+                                     label_probs=data))
+
+        slices = [slice(0, 9),
+                  slice(1, 6),
+                  slice(1, None)]
+        # get the expected sliced chunks
+        cls.sliced = [s.slice(sl) for s, sl in zip(cls.samples, slices)]
+
+
+    def test_works(self):
+        # test simple case of 3 chained samples
+
+        trimmed = list(Sample.trim_samples((s for s in self.samples)))
+
+        for i, (expt, (got, is_last_in_contig, heuristic)) in enumerate(
+            zip(self.sliced, trimmed)):
+            self.assertEqual(got, expt)
+            if i == len(self.sliced) - 1:
+                self.assertTrue(is_last_in_contig)
+            else:
+                self.assertFalse(is_last_in_contig)
+
+
+    def test_gapped(self):
+        # check we get is_last_in_contig if we have a gap between samples
+        trimmed = list(Sample.trim_samples(
+            (s for s in self.samples[::2])))
+        for i, (expt, (got, is_last_in_contig, heuristic)) in enumerate(
+            zip(self.samples[::2], trimmed)):
+            self.assertEqual(got, expt)
+            self.assertTrue(is_last_in_contig)
+
+
+    def test_raises(self):
+        # test we get an exception if we e.g. provide samples from different
+        # refs or samples out of order
+        self.assertRaises(OverlapException,
+            lambda x: list(Sample.trim_samples(x)),
+                iter(self.samples[::-1]))
+
+
+    def test_single_sample(self):
+        # test that if we provide a single sample, we get the same sample back
+
+        results = list(Sample.trim_samples(iter([self.samples[0]])))
+        self.assertEqual(len(results), 1)
+        got, is_last_in_contig, heuristic = results[0]
+        self.assertEqual(got, self.samples[0])
+        self.assertTrue(is_last_in_contig)

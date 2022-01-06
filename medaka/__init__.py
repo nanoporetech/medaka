@@ -4,7 +4,7 @@ import functools
 import os
 import subprocess
 
-__version__ = '0.12.1'
+__version__ = "1.5.0"
 
 
 def check_minimap2_version():
@@ -57,10 +57,10 @@ check_bcftools_version = functools.partial(
 
 required_version = {
     'minimap2': LooseVersion('2.11'),
-    'samtools': LooseVersion('1.9'),
-    'tabix': LooseVersion('1.9'),
-    'bgzip': LooseVersion('1.9'),
-    'bcftools': LooseVersion('1.9'),
+    'samtools': LooseVersion('1.11'),
+    'tabix': LooseVersion('1.11'),
+    'bgzip': LooseVersion('1.11'),
+    'bcftools': LooseVersion('1.11'),
 }
 
 get_version = {

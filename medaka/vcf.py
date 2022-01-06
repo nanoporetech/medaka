@@ -9,10 +9,13 @@ from threading import Lock
 
 import intervaltree
 import numpy as np
+import parasail
 import pysam
 
+import libmedaka
 from medaka import __version__ as medaka_version
 import medaka.common
+import medaka.features
 
 
 def self_return(x):
@@ -45,7 +48,8 @@ def parse_tags_to_string(tags):
 
     :param tags: dictionary containing "tag" meta data of a variant.
 
-    :returns: the string representation of the tags.
+    :returns: the string representation of the tags (which may be
+        "." if the input dictionary is empty).
     """
     str_tags = []
     for key, value in sorted(tags.items()):
@@ -56,7 +60,10 @@ def parse_tags_to_string(tags):
             if isinstance(value, (tuple, list)):
                 value = ','.join((str(x) for x in value))
             str_tags.append('{}={}'.format(key, value))
-    return ';'.join(str_tags)
+    if len(tags) > 0:
+        return ';'.join(str_tags)
+    else:
+        return '.'
 
 
 def parse_string_to_tags(string, splitter=','):
@@ -68,8 +75,10 @@ def parse_string_to_tags(string, splitter=','):
     :returns: dictionary of tags.
 
     """
-    tags = {}
+    tags = dict()
     for field in string.split(';'):
+        if field in ['', '.']:
+            continue
         try:
             tag, value = field.split('=')
             if tag in all_info_fields.keys():
@@ -135,6 +144,18 @@ class MetaInfo(object):
         return self.__repr__()
 
 
+class GenotypeData(dict):
+    """Represent a genotype.
+
+    The class serves only to ensure that the GT
+    key comes first in the resulting dictionary.i
+    """
+
+    def __init__(self, GT, **kwargs):
+        """Initialize a genotype dict."""
+        super().__init__(GT=GT, **kwargs)
+
+
 class Variant(object):
     """Representation of a genomic variant."""
 
@@ -172,7 +193,10 @@ class Variant(object):
         else:
             self.info = parse_string_to_tags(info)
         if genotype_data is not None:
-            self.genotype_data = self._sort_genotype_data(genotype_data)
+            if isinstance(genotype_data, GenotypeData):
+                self.genotype_data = genotype_data
+            else:
+                self.genotype_data = self._sort_genotype_data(genotype_data)
         else:
             self.genotype_data = collections.OrderedDict()
 
@@ -192,12 +216,8 @@ class Variant(object):
     @staticmethod
     def _sort_genotype_data(gd):
         """Sort genotype data."""
-        # GT must be first if present
-        sorted_keys = ['GT'] if 'GT' in gd else []
-        # others follow in alphabetical order
-        sorted_keys.extend(k for k in sorted(gd) if k != 'GT')
-        # order dict returned to retain order
-        return collections.OrderedDict((k, gd[k]) for k in sorted_keys)
+        return GenotypeData(
+            gd['GT'], **{k: v for k, v in gd.items() if k != 'GT'})
 
     @property
     def genotype_keys(self):
@@ -313,36 +333,84 @@ class Variant(object):
         d.update(self.genotype_data)
         return d
 
-    def trim(self):
-        """Return new trimmed Variant with minimal ref and alt sequence."""
-        def get_trimmed_start_ref_alt(seqs):
-            def trim_start(seqs):
-                min_len = min([len(s) for s in seqs])
+    def trim(self, reference=None):
+        """Return new trimmed Variant with minimal REF and ALT sequence.
+
+        :param reference: full reference sequence of CHROM associated with
+            variant. If not provided the returned variant will be
+            parsimonious but not left aligned.
+
+        https://genome.sph.umich.edu/wiki/Variant_Normalization
+        """
+        def trim_start(var, rev=False):
+            if rev:
+                seqs = [var.ref[::-1]] + [s[::-1] for s in var.alt]
+            else:
+                seqs = [var.ref] + var.alt
+            min_len = min([len(s) for s in seqs])
+            trim_start = 0
+            for bases in zip(*seqs):
+                bases = list(bases)
+                bases_same = len(set(bases)) == 1
+                if not bases_same or trim_start == min_len - 1:
+                    break
+                if bases_same:
+                    trim_start += 1
+            seqs = [s[trim_start:] for s in seqs]
+            if rev:
+                seqs = [s[::-1] for s in seqs]
                 trim_start = 0
-                for bases in zip(*seqs):
-                    bases = list(bases)
-                    bases_same = len(set(bases)) == 1
-                    if not bases_same or trim_start == min_len - 1:
+            var.pos += trim_start
+            var.ref = seqs[0]
+            var.alt = seqs[1:]
+            return var
+
+        def trim_end_and_align(var, ref):
+            seqs = [var.ref] + var.alt
+            changed = True
+            while changed:
+                changed = False
+                # if all equal on end then right truncate
+                if all(len(s) > 0 for s in seqs) and \
+                        len(set(s[-1] for s in seqs)) == 1:
+                    seqs = [s[:-1] for s in seqs]
+                    changed = True
+                # if any is empty, left pad from reference
+                if any(len(s) == 0 for s in seqs):
+                    if var.pos == 0:
+                        # handle multibase deletion at start of reference
+                        # e.g. "CA" > "" will become "CAT" > "T"
+                        seqs = [s + reference[len(seqs[0])] for s in seqs]
                         break
-                    if bases_same:
-                        trim_start += 1
-                return trim_start, [s[trim_start:] for s in seqs]
+                    else:
+                        var.pos -= 1
+                        seqs = [reference[var.pos] + s for s in seqs]
+                        changed = True
+            var.ref = seqs[0]
+            var.alt = seqs[1:]
+            return var
 
-            # trim ends
-            rev_seqs = [s[::-1] for s in seqs]
-            _, trimmed_rev_seqs = trim_start(rev_seqs)
-            seqs = [s[::-1] for s in trimmed_rev_seqs]
-
-            trim_start, seqs = trim_start(seqs)
-            return trim_start, seqs
-
+        # trim ends then trim start
         trimmed = self.deep_copy()
-        seqs = [trimmed.ref] + trimmed.alt
-        trim_start, (ref, *alt) = get_trimmed_start_ref_alt(seqs)
-        trimmed.pos += trim_start
-        trimmed.ref = ref
-        trimmed.alt = alt
+        if reference is None:
+            trimmed = trim_start(trimmed, rev=True)
+        else:
+            trimmed = trim_end_and_align(trimmed, reference)
+        trimmed = trim_start(trimmed)
         return trimmed
+
+    def normalize(self, reference):
+        """Return a normalized variant.
+
+        :param reference: full reference sequence of CHROM associated with
+            variant.
+
+        https://genome.sph.umich.edu/wiki/Variant_Normalization
+        """
+        # normalization doesn't like equal sequences
+        if all(x == self.ref for x in self.alt):
+            return self
+        return self.trim(reference=reference)
 
     def split_haplotypes(self):
         """Split multiploid variants into list of non-ref haploid variants.
@@ -643,11 +711,10 @@ def _merge_variants(
             'A variant occurs after the end of the reference sequence.')
     ref = ref_seq[interval.begin: interval.end]
     alts_dict = collections.OrderedDict()
-    info = {}
     mixed_vars = collections.defaultdict(list)
     for v in interval.data:
         mixed_vars[str(_get_hap(v, trees))].append(v)
-    qual = 0.0
+    haps_to_skip = set()
     for hap, hap_vars in sorted(mixed_vars.items()):
         alt = list(ref)
         for v in hap_vars:
@@ -664,19 +731,31 @@ def _merge_variants(
             assert ref_seq[v.pos:v.pos + len(v.ref)] == v.ref
             alt[start_i:end_i] = [''] * len(v.ref)
             alt[start_i] = v.alt[0]
+
+        # if two nearby variants cancel each other out, we could end up having
+        # an alt that is the ref.
+        if ''.join(alt) == ref:
+            haps_to_skip.add(hap)
+            continue
+        alts_dict[hap] = ''.join(alt)
+
+    for hap in haps_to_skip:
+        del mixed_vars[hap]
+    info = {}
+    qual = 0.0
+    for hap, hap_vars in sorted(mixed_vars.items()):
         # calculate mean GQ for each haplotype, and take mean of these for
         # overall qual.
         # Use mean otherwise we might need very different thresholds for
         # short vs long variants and homozygous vs heterozygous variants.
-        info['q{}'.format(hap)] = sum((
-            float(v.qual) for v in hap_vars)) / len(hap_vars)
+        info['q{}'.format(hap)] = sum((float(v.qual) if v.qual != '.' else 0.0
+                                       for v in hap_vars)) / len(hap_vars)
         info['pos{}'.format(hap)] = ','.join(str(v.pos + 1) for v in hap_vars)
         if detailed_info:
             # + 1 as VCF is 1-based, v.pos is 0 based
             info['ref{}'.format(hap)] = ','.join((v.ref for v in hap_vars))
             info['alt{}'.format(hap)] = ','.join((v.alt[0] for v in hap_vars))
         qual += info['q{}'.format(hap)] / len(mixed_vars)
-        alts_dict[hap] = ''.join(alt)
 
     haps = list(alts_dict.keys())
     alts = list(alts_dict.values())
@@ -695,12 +774,48 @@ def _merge_variants(
                 gts = [1, 0]
         gt = gt_sep.join(map(str, gts))
 
-    genotype_data = {'GT': gt, 'GQ': qual}
+    genotype_data = {'GT': gt, 'GQ': round(qual)}
 
     return Variant(
         v.chrom, interval.begin, ref, alt=alts,
         filt='PASS', info=info, qual=qual,
         genotype_data=genotype_data).trim()
+
+
+def split_mnp(v):
+    """Split mvp variants into snps, leave others unchanged.
+
+    :param v: `medaka.vcf.Variant` obj
+    :returns: list of `medaka.vcf.Variant objs`
+    """
+    variants = []
+    if classify_variant(v) == 'mnp':
+        for i, ref in enumerate(v.ref):
+            pos = v.pos + i
+            alt = [a[i] for a in v.alt]
+            genotype_data = v.genotype_data.copy()
+            gt_sep = v.genotype_data['GT'][1]
+            gt = v.gt
+            # clean up alts, removing duplicates / same as ref
+            if ref in alt or len(set(alt)) != len(alt):
+                ref_and_alts = [ref] + alt
+                haps = [ref_and_alts[i] for i in gt]
+                new_alt = []
+                for a in alt:
+                    if a != ref and a not in new_alt:
+                        new_alt.append(a)
+                ref_and_new_alts = [ref] + new_alt
+                gt = tuple([ref_and_new_alts.index(a) for a in haps])
+                alt = ref_and_new_alts[1:]
+                genotype_data['GT'] = gt_sep.join(map(str, gt))
+
+            variants.append(Variant(v.chrom, pos, ref, alt, ident=v.ident,
+                                    qual=v.qual, filt=v.filt, info=v.info,
+                                    genotype_data=genotype_data))
+    else:
+        variants.append(v)
+
+    return variants
 
 
 class Haploid2DiploidConverter(object):
@@ -795,9 +910,13 @@ class Haploid2DiploidConverter(object):
         # 'Number' value should be ‘G’.
         m.append(MetaInfo(
             'FORMAT', 'GT', 'G', 'String', 'Genotype'))
-        # if this is not a float, vcf benchmarking tools may fail
+        # VCF spec states that GQ should be an int, and whatshap >0.18 will
+        # fail to parse the vcf if it's a float.
+        # vcf benchmarking tools which require a float could use the QUAL
+        # as we write out the same number for QUAL and GQ, the QG is just
+        # rounded.
         m.append(MetaInfo(
-            'FORMAT', 'GQ', 'G', 'Float', 'Genotype quality score'))
+            'FORMAT', 'GQ', 'G', 'Integer', 'Genotype quality score'))
         return m
 
 
@@ -807,10 +926,18 @@ def haploid2diploid(args):
                                          only_overlapping=not args.adjacent,
                                          discard_phase=args.discard_phase)
 
+    with pysam.FastaFile(args.ref_fasta) as fa:
+        lengths = dict(zip(fa.references, fa.lengths))
+
+    contigs = ['{},length={}'.format(r, lengths[r]) for r in convertor.chroms]
+
     with VCFWriter(
-            args.vcfout, 'w', version='4.1', contigs=convertor.chroms,
+            args.vcfout, 'w', version='4.1', contigs=contigs,
             meta_info=convertor.meta_info) as vcf_writer:
-        for v in convertor.variants():
+        variants = convertor.variants()
+        if args.split_mnp:
+            variants = (s for v in variants for s in split_mnp(v))
+        for v in variants:
             vcf_writer.write_variant(v)
 
 
@@ -1020,3 +1147,246 @@ def get_homozygous_regions(args):
     logger.info(msg.format(
         len(hetero_regions), 'heterozygous', args.min_len,
         reg.name, reg_len, hetero_len, hetero_len / reg_len))
+
+
+def annotate_vcf_n_reads(args):
+    """Entry point to annotate a vcf with read depth and supporting reads."""
+    ref_fasta = pysam.FastaFile(args.ref_fasta)
+    logger = medaka.common.get_named_logger('Annotate')
+
+    vcf = VCFReader(args.vcf)
+    chrom = None
+    pref = 'Depth of reads '
+    suff = ' by strand (fwd, rev)'
+    g_open = 5
+    g_ext = 3
+    # use parasail.dnafull (match 5, mismatch -4)
+    # change INFO below if you change this.
+    matrix = parasail.dnafull
+    # check it is indeed a symmetric
+    match = matrix.matrix[0, 0]
+    mismatch = matrix.matrix[0, 1]
+    mat_dict = dict(zip(
+        *np.unique(matrix.matrix[:4, :4], return_counts=True)))
+    assert mat_dict == {mismatch: 12, match: 4}
+    assert np.unique(matrix.matrix.diagonal()[:4])[0] == match
+
+    ann_meta = [
+        ('INFO', 'DP', 1, 'Integer', pref + 'at pos'),
+        ('INFO', 'DPS', 2, 'Integer', pref + 'at pos' + suff),
+        ('INFO', 'DPSP', 1, 'Integer',
+            pref + 'spanning pos +-{}'.format(args.pad)),
+        ('INFO', 'SR', '.', 'Integer',
+            'Depth of spanning reads by strand which best align to each '
+            'allele (ref fwd, ref rev, alt1 fwd, alt1 rev, etc.)'),
+        ('INFO', 'AR', 2, 'Integer',
+            'Depth of ambiguous spanning reads by strand which align '
+            'equally well to all alleles (fwd, rev)'),
+        ('INFO', 'SC', '.', 'Integer',
+            'Total alignment score to each allele of spanning reads by '
+            'strand (ref fwd, ref rev, alt1 fwd, alt1 rev, etc.) '
+            'aligned with parasail: '
+            'match {}, mismatch {}, open {}, extend {}'.format(
+                 match, mismatch, g_open, g_ext)),
+    ]
+
+    # get chrom coordinates
+    logger.info('Getting chrom coordinates')
+    variants = list(vcf.fetch())
+    chroms = vcf.chroms
+    chrom_regions = []
+    for chrom in chroms:
+        chr_var = list(vcf.fetch(ref_name=chrom))
+        chr_start = chr_var[0].pos
+        chr_end = chr_var[-1].pos
+        chrom_regions.append(
+            medaka.common.Region(chrom, chr_start, chr_end + 1))
+
+    feature_encoder = medaka.features.CountsFeatureEncoder(
+       read_group=args.RG, normalise='fwd_rev')
+    feature_indices = feature_encoder.feature_indices.items()
+    featlen = libmedaka.lib.featlen
+
+    meta_info = vcf.meta + [str(MetaInfo(*m)) for m in ann_meta]
+    with VCFWriter(
+            args.vcfout, 'w', version='4.1', contigs=vcf.chroms,
+            meta_info=meta_info) as vcf_writer:
+        # process all chroms in chunks
+        # TODO: seems wasteful: we're calculating pileup counts for the whole
+        #       genome but could have very few variants
+        region_chunks = itertools.chain.from_iterable(
+            r.split(size=args.chunk_size, overlap=0) for r in chrom_regions)
+        for i, chunk in enumerate(region_chunks):
+            logger.info(
+                'Processing chunk with coordinates: {}:{}-{}'.format(
+                    chunk.ref_name, chunk.start, chunk.end))
+
+            variants = list(vcf.fetch(chunk.ref_name, chunk.start, chunk.end))
+            if len(variants) == 0:
+                continue
+
+            chrom = variants[0].chrom
+            ref_seq = ref_fasta.fetch(chunk.ref_name).upper()
+            trimmed_chunk = medaka.common.Region(
+                chrom, variants[0].pos, variants[-1].pos+1)
+            pileup = medaka.features.pileup_counts(
+                trimmed_chunk, args.bam, read_group=args.RG)
+
+            # pileup_counts can return discontiguous(and not fully spanning)
+            # chunks, pad to make lookups below faster
+            merged_counts = list()
+            prev_pos = variants[0].pos - 1
+            for counts, positions in pileup:
+                # pad any missing columns (includes from before first)
+                next_pos = positions['major'][0]
+                if next_pos != prev_pos + 1:
+                    pad_size = next_pos - prev_pos - 1
+                    if pad_size < 1:
+                        raise ValueError("Calculated negative pad size.")
+                    merged_counts.append(
+                        np.zeros((pad_size, featlen), dtype=int))
+                # get pileup indices for non insertion entries
+                is_major_pos = positions['minor'] == 0
+                merged_counts.append(counts[is_major_pos])
+                prev_pos = positions['major'][-1]
+            # maybe pad end (to avoid index errors below)
+            pad = variants[-1].pos - prev_pos
+            if pad > 0:
+                merged_counts.append(np.zeros((pad, featlen), dtype=int))
+            merged_counts = np.concatenate(merged_counts)
+
+            first_pos = variants[0].pos
+            for v in variants:
+                count = merged_counts[v.pos - first_pos]
+                dt_depth = {}
+                # get read depth at pos (fwd, rev)
+                for (dt, is_rev), inds in feature_indices:
+                    dt_depth[is_rev] = np.sum(count[inds])
+
+                v.info['DP'] = np.sum(count)
+                v.info['DPS'] = '{},{}'.format(
+                    dt_depth[False], dt_depth[True])
+
+                # get read depth by strand at the variant (with padding)
+                if args.dpsp:
+                    padded_haps, pad_reg = get_padded_haplotypes(
+                        v, ref_seq, args.pad)
+                    reads = get_trimmed_reads(
+                        args.bam, pad_reg, partial=False, read_group=args.RG)
+                    counts, scores = align_reads_to_haps(
+                        reads, padded_haps, g_open, g_ext, matrix)
+                    v.info['DPSP'] = sum(counts.values())
+                    sr = []  # cnts of reads supporting each hap by strand
+                    sc = []  # total scores for each hap by strand
+                    haps = list(range(1 + len(v.alt)))  # ref and alts
+                    is_revs = [False, True]
+                    for hap in haps:
+                        for is_rev in is_revs:
+                            sr.append(counts[(is_rev, hap)])
+                            sc.append(scores[(is_rev, hap)])
+                    v.info['SR'] = ','.join(map(str, sr))
+                    v.info['SC'] = ','.join(map(str, sc))
+                    v.info['AR'] = '{},{}'.format(
+                        *[counts[(is_rev, None)] for is_rev in is_revs])
+                vcf_writer.write_variant(v)
+
+
+def get_padded_haplotypes(var, ref_seq, pad):
+    """Get padded haplotypes for a variant.
+
+    :param var: `medaka.vcf.Variant` obj
+    :ref_seq: str, entire reference sequence for var.chrom
+    :pad: int, padding either side of variant.
+
+    :returns: (padded ref, padded alt 1, ... padded alt n),
+              padded medaka.common.Region
+    """
+    ref_seq_var = ref_seq[var.pos:var.pos + len(var.ref)].upper()
+    if not var.ref == ref_seq_var:
+        msg = 'Ref sequences {} and {} differ at {}:{}, check your files.'
+        raise ValueError(msg.format(var.ref, ref_seq_var, var.chrom, var.pos))
+    left_start = max(0, var.pos - pad)
+    left_end = var.pos
+    right_start = var.pos + len(var.ref)
+    right_end = min(len(ref_seq), right_start + pad)
+    pad_left = ref_seq[left_start: left_end]
+    pad_right = ref_seq[right_start: right_end]
+    padded = [pad_left + hap + pad_right for hap in [var.ref] + var.alt]
+    region = medaka.common.Region(var.chrom, left_start, right_end)
+    return tuple(padded), region
+
+
+def get_trimmed_reads(bam, region, partial, read_group):
+    """Get trimmed reads without reference.
+
+    :param bam: bam containing reads
+    :param region: `medaka.common.Region` obj
+    :param partial: bool, whether to keep reads which don't fully span region.
+    :param read_group: str, used for read filtering.
+
+    :returns: [(bool is_rev, str trimmed read sequence)]
+    """
+    try:
+        region_got, reads = next(
+            medaka.features.get_trimmed_reads(
+                region, bam, partial=partial,
+                read_group=read_group,
+                region_split=2*region.size))
+    except StopIteration:
+        return list()
+    if not region == region_got:  # check region was not e.g. split
+        msg = 'Expected region {}, got region {}'
+        raise ValueError(msg.format(region, region_got))
+    # first read is ref, remove it.
+    ref_is_rev, ref_seq = reads.pop(0)
+    return reads
+
+
+def align_reads_to_haps(reads, haps, g_open=5, g_ext=3,
+                        matrix=parasail.dnafull):
+    """Get trimmed reads without reference.
+
+    :param reads: [(bool is_rev, str trimmed read sequence)]
+    :param haps: (padded ref, padded alt 1, ... padded alt n)
+    :param g_open: int, gap opening penalty
+    :param g_ext: int, gap extend penalty
+    :param matrix: int matrix shape (16, 16) substitution matrix.
+
+    :returns: (`collections.Counter` counts of reads which align best to each
+        haplotype with keys (is_rev, best_hap). best_hap is None in
+        the case of tied alignment scores.
+        `collections.Counter` summed scores with keys (is_rev, int hap).)
+    """
+    hap_counts = collections.Counter()
+    total_scores = collections.Counter()
+    for is_rev, read_seq in reads:
+        scores = align_read_to_haps(read_seq, haps, g_open, g_ext, matrix)
+        # Find argmax score, or None if all scores equal
+        if len(set(scores)) == 1:
+            best_hap = None
+        else:
+            best_hap = np.argmax(scores)
+        # counts of best haplotypes
+        hap_counts[(is_rev, best_hap)] += 1
+        # summed alignment score for each haplotype
+        for hap, score in enumerate(scores):
+            total_scores[(is_rev, hap)] += score
+    return hap_counts, total_scores
+
+
+def align_read_to_haps(read, haps, g_open=5, g_ext=3, matrix=parasail.dnafull):
+    """Get trimmed reads without reference.
+
+    :param read: str trimmed read sequence
+    :param haps: (padded ref, padded alt 1, ... padded alt n)
+    :param g_open: int, gap opening penalty
+    :param g_ext: int, gap extend penalty
+    :param matrix: int matrix shape (16, 16) substitution matrix.
+
+    :returns: [int, scores]
+    """
+    scores = []
+    for i, hap in enumerate(haps):
+        algn = parasail.sw_trace_striped_32(read, hap, g_open, g_ext, matrix)
+        scores.append(algn.score)
+    return scores

@@ -5,59 +5,265 @@ stages:
     - build
     - deploy
 
-test:
+variables:
+    DOCKERTAG: "medaka/medaka:latest"
+
+
+# Install a particular Python and set PYTHON envvar for Makefile 
+.install-pyenv: &install-pyenv |
+    git clone https://github.com/pyenv/pyenv.git ~/.pyenv
+    export PYENV_ROOT="$HOME/.pyenv"
+    export PATH="$PYENV_ROOT/bin:$PATH"
+    PYTHON_CONFIGURE_OPTS="--enable-shared" pyenv install ${PYENV_VERSION}
+    export PYTHON=$(PYENV_VERSION=$PYENV_VERSION pyenv which python)
+
+.preparetest: &preparetest
     stage: test
     before_script:
-        - apt-get update -qq && apt-get install -y -qq
-          gcc make cmake curl wget
-          python3-all-dev python-virtualenv
+        - export DEBIAN_FRONTEND=noninteractive
+        - apt-get update -qq
+        - apt-get install -y -qq 
+          gcc make cmake curl wget git
           zlib1g-dev libbz2-dev liblzma-dev libncurses5-dev libcurl4-gnutls-dev
           libssl-dev libffi-dev valgrind
-    script:
-        - make venv
-        - make -j 1 test mem_check
-        - make docs
+          libreadline7 libreadline-dev sqlite3 libsqlite3-dev
+        - *install-pyenv
 
-.many-linux: &many-linux-def
-  image: quay.io/pypa/manylinux1_x86_64
-  stage: build
-  before_script:
-      - echo "Nothing to do in before_script"
-  artifacts:
-      paths:
-          - wheelhouse/*.whl
-  only:
-      - tags
 
-build:many-linux-5:
-    <<: *many-linux-def
-    script:
-        - ./build-wheels.sh . 5
+.minimal-python: &minimal-python
+    before_script:
+        - export DEBIAN_FRONTEND=noninteractive
+        - apt-get update -qq && apt-get install -y -qq
+          python3-all-dev python3-venv
 
-build:many-linux-6:
-    <<: *many-linux-def
+
+# medaka test suite on various Pythons
+.pytest: &pytest
+    <<: *preparetest
     script:
-        - ./build-wheels.sh . 6
+        - make -j 4 binaries
+        - make test
+
+test-3.6.12:
+    variables:
+        PYENV_VERSION: 3.6.12
+    <<: *pytest
+
+test-3.7.9:
+    variables:
+        PYENV_VERSION: 3.7.9
+    <<: *pytest
+
+test-3.8.7:
+    variables:
+        PYENV_VERSION: 3.8.7
+    <<: *pytest
+
+
+test-3.9.9:
+    variables:
+        PYENV_VERSION: 3.9.9
+    <<: *pytest
+
+
+test-mem-check:
+    variables:
+        PYENV_VERSION: 3.6.12
+    <<: *preparetest
+    script:
+        - make mem_check
+
+test-docker:
+    image: ${DOCKERDEV_IMAGE} 
+    stage: test
+    script:
+        - apk --no-cache add make
+        - DOCKERTAG=$DOCKERTAG make docker
+        - docker run --rm -v $PWD:/data $DOCKERTAG medaka_consensus -i /data/medaka/test/data/test_reads.fasta.gz -d /data/medaka/test/data/draft_ref.fasta -o /data/dockertest
+
+###
+# Source distribution
+#
 
 build:sdist:
     stage: build
-    before_script:
-        - apt-get update -qq && apt-get install -y -qq
-          python3-all-dev python-virtualenv
+    <<: *minimal-python
     script:
         - make sdist
     artifacts:
         paths:
             - dist/*.tar.gz
 
+###
+# Many linux builds
+#
+
+.many-linux: &many-linux-def
+  image: quay.io/pypa/manylinux2010_x86_64
+  stage: build
+  variables:
+      DO_COUNT_TEST: 1
+  artifacts:
+      paths:
+          - wheelhouse/*.whl
+  only:
+      - tags
+
+.switch-to-cpu: &switch-to-cpu
+    before_script:
+        - export PACKAGE_NAME=medaka-cpu
+        - sed -i 's/tensorflow/tensorflow-cpu/' requirements.txt
+
+### Tensorflow (gpu) builds
+
+build:many-linux-6:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 6
+
+build:many-linux-7:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 7
+
+build:many-linux-8:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 8
+
+build:many-linux-9:
+    <<: *many-linux-def
+    script:
+        - ./build-wheels.sh . 9
+
+### Tensorflow-cpu wheels
+
+build-cpu:many-linux-6:
+    <<: *many-linux-def
+    <<: *switch-to-cpu
+    script:
+        - ./build-wheels.sh . 6
+
+build-cpu:many-linux-7:
+    <<: *many-linux-def
+    <<: *switch-to-cpu
+    script:
+        - ./build-wheels.sh . 7
+
+build-cpu:many-linux-8:
+    <<: *many-linux-def
+    <<: *switch-to-cpu
+    script:
+        - ./build-wheels.sh . 8
+
+build-cpu:many-linux-9:
+    <<: *many-linux-def
+    <<: *switch-to-cpu
+    script:
+        - ./build-wheels.sh . 9
+
+###
+# ARM builds, need more work
+#
+
+.arm-many-linux: &arm-many-linux-def
+    image: quay.io/pypa/manylinux2014_aarch64
+    stage: build
+    tags:
+        - arm64
+    variables:
+        DO_COUNT_TEST: 0
+    before_script:
+        # ARM CI image doesn't have git lfs, so need to jump some hoops
+        - yum install -y wget
+        - mkdir git-lfs && cd git-lfs
+          && wget https://github.com/git-lfs/git-lfs/releases/download/v2.12.0/git-lfs-linux-arm64-v2.12.0.tar.gz
+          && tar -xzvf git-lfs-linux-arm64-v2.12.0.tar.gz
+          && chmod +x install.sh && ./install.sh
+          && cd ..
+        - GIT_SSL_NO_VERIFY=1 git lfs pull
+        - file medaka/data/*.hdf5
+        # strip some less useful dependencies
+        - sed -i "s/numpy==1.16.1/numpy==1.19.2/" requirements.txt
+        - sed -i "/parasail/d" requirements.txt
+        - sed -i "/pyspoa/d" requirements.txt
+        - sed -i "/whatshap/d" requirements.txt
+        # replace architecture of python extension (what about libhts.a?)
+        - sed -i "s/-msse3/-march=armv8-a+simd/" build.py
+    artifacts:
+        paths:
+          - wheelhouse/*.whl
+    only:
+        - tags
+
+#build:arm-many-linux-6:
+#    *arm-many-linux-def
+#    script:
+#        - ./build-wheels.sh . 6
+
+
+###
+# Deploy stages
+#
+
+# Send all tags to PyPI
 deploy:pypi:
     stage: deploy
-    before_script:
-        - apt-get update -qq && apt-get install -y -qq
-          python3-all-dev python-virtualenv
+    <<: *minimal-python
     script:
-        - make build
+        - make pypi_build/bin/activate
         - source pypi_build/bin/activate
         - twine upload dist/*.tar.gz wheelhouse/*.whl
     only:
         - tags
+
+
+.setup-gh-push:
+    before_script:
+        - apt-get update -qq && apt-get install -y -qq
+          git python3-all-dev python3-venv git-lfs
+        - mkdir ~/.ssh/
+        - cp $RESEARCH_BOT_GH_KEY ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
+        - echo -e "Host github.com\n\tStrictHostKeyChecking no\n\tHostname ssh.github.com\n\tPort 443\n\n" > ~/.ssh/config
+        - git config --global user.email "research.git@nanoporetech.com"
+        - git config --global user.name "ontresearch"
+        - git remote add ont ${CI_REPOSITORY_URL} || true
+        - git remote add github git@github.com:nanoporetech/${CI_PROJECT_NAME}.git || true
+        - git fetch ont dev --tags
+
+# Send all tags matching vX.Y.Z to github (code and release)
+push-github:
+    stage: deploy
+    extends: .setup-gh-push
+    script:
+        # Push master and tag to github
+        - git checkout ${CI_COMMIT_TAG}
+        - git branch -D master || echo "No master branch to delete"
+        - git checkout -b master
+        - git push -f github master
+        - git push github ${CI_COMMIT_TAG}
+        # Make a github release page
+        - python3 -m venv release_env --prompt "(release) "
+        - source release_env/bin/activate
+        - pip install pip --upgrade
+        - pip install git+https://github.com/epi2me-labs/github_release.git
+        - github_release ${CI_PROJECT_NAME} ${CI_COMMIT_TAG} CHANGELOG.md ${RESEARCH_BOT_GH_TOKEN} --artifacts dist/*.tar.gz
+    rules:
+        - if: '$CI_COMMIT_TAG =~ /^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$/'
+
+push-dockerhub:
+    image: ${DOCKERDEV_IMAGE} 
+    stage: deploy
+    script:
+        - apk --no-cache add make
+        - echo ${DOCKERHUB_TOKEN} | docker login --username ${DOCKERHUB_USER} --password-stdin
+        - DOCKERTAG=$DOCKERTAG make docker
+        - LATEST="ontresearch/medaka:latest"
+        - TAG="ontresearch/medaka:$CI_COMMIT_TAG"
+        - docker tag $DOCKERTAG $LATEST 
+        - docker tag $DOCKERTAG $TAG
+        - docker push ${LATEST}
+        - docker push ${TAG}
+    rules:
+        - if: '$CI_COMMIT_TAG =~ /^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$/'
+

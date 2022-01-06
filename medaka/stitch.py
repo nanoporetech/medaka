@@ -1,9 +1,15 @@
 """Creation of contiguous consensus sequences from chunked network outputs."""
+import collections
 import concurrent.futures
 import functools
 import itertools
+import logging
+import operator
 
-from medaka import common
+import intervaltree
+import pysam
+
+import medaka.common
 import medaka.datastore
 import medaka.labels
 
@@ -20,124 +26,210 @@ def write_fasta(filename, contigs):
             fasta.write('>{}\n{}\n'.format(name, seq))
 
 
-def stitch_from_probs(h5_fp, regions=None):
+def stitch_from_probs(h5_fp, region):
     """Join overlapping label probabilities from HDF5 files.
 
      Network outputs from multiple samples stored within a file are spliced
      together into a logically contiguous array and decoded to generate
      contiguous sequence(s).
 
-    :param h5_fp: iterable of HDF5 filepaths
-    :param regions: iterable of region (strings) to process
+    :param h5_fp: iterable of HDF5 filepaths.
+    :param region: `medaka.common.Region` instance
 
-    :returns: list of (region string, sequence)
+    :returns: list of (region string, sequence).
     """
-    logger = common.get_named_logger('Stitch')
-    if isinstance(regions, medaka.common.Region):
-        regions = [regions]
-    logger.info("Stitching regions: {}".format([str(r) for r in regions]))
-
+    logger = medaka.common.get_named_logger('Stitch')
+    logger.debug("Stitching region: {}".format(str(region)))
     index = medaka.datastore.DataIndex(h5_fp)
     label_scheme = index.metadata['label_scheme']
-
     logger.debug("Label decoding is:\n{}".format(
         '\n'.join('{}: {}'.format(k, v)
                   for k, v in label_scheme._decoding.items())))
 
-    def get_pos(sample, i):
-        return '{}.{}'.format(
-            sample.positions[i]['major'] + 1, sample.positions[i]['minor'])
+    samples = index.yield_from_feature_files(regions=[region])
+    data_gen = medaka.common.Sample.trim_samples_to_region(
+        samples, start=region.start, end=region.end)
+    cur_ref_name = None
+    heuristic_use = 0
+    seq_parts = list()
+    start = None
+    contigs = []
+    for s, is_last_in_contig, heuristic in data_gen:
+        cur_ref_name = s.ref_name if cur_ref_name is None else cur_ref_name
+        start = s.positions[0]['major'] if start is None else start
+        seq_parts.append(label_scheme.decode_consensus(s))
+        if is_last_in_contig:
+            contigs.append((
+                (s.ref_name, start, s.positions[-1]['major']),
+                seq_parts))
+            seq_parts = list()
+            start = None
+        heuristic_use += heuristic
+    if len(seq_parts) > 0:
+        contigs.append((
+            (s.ref_name, start, s.positions[-1]['major']),
+            seq_parts))
 
-    ref_assemblies = []
-    for reg in regions:
-        logger.info("Processing {}.".format(reg))
-        data_gen = index.yield_from_feature_files(regions=[reg])
-        seq_parts = list()
-        cur_ref_name = ''
-        cur_segment = None
-        # first sample
-        s1 = next(data_gen)
-        start = get_pos(s1, 0)
-        start_1 = None
-        start_2 = None
-        heuristic_use = 0
+    logger.debug("Used heuristic {} times for {}.".format(
+        heuristic_use, region))
+    return contigs
 
-        for s2 in itertools.chain(data_gen, (None,)):
-            s1_name = 'Unknown' if s1 is None else s1.name
-            s2_name = 'Unknown' if s2 is None else s2.name
 
-            # s1 is last chunk
-            if s2 is None:
-                end_1 = None
+def fill_gaps(contigs, draft):
+    """Fill gaps between polished contigs with draft sequence.
+
+    :param contigs: iterable of ((ref_name, start, stop), sequence parts)
+    :param draft: `pysam.FastaFile` or filepath of draft sequence.
+
+    :returns: iterable of (name, info, seq)
+    """
+    if isinstance(draft, str):
+        draft = pysam.FastaFile(draft)
+
+    contig_trees = collections.defaultdict(intervaltree.IntervalTree)
+    ordered_contigs = collections.OrderedDict()
+    for info, sequence_parts in contigs:
+        ref_name, start, stop = info
+        # add one to end of interval, as intervaltree intervals and bed file
+        # intervals are end-exclusive (i.e. they don't contain the last
+        # coordinate), whilst the last position in a sample is included.
+        contig_trees[ref_name].addi(start, stop + 1, data=sequence_parts)
+        ordered_contigs[ref_name] = None
+
+    contig_lengths = dict(zip(draft.references, draft.lengths))
+    contig_lengths = {
+        k: v for k, v in contig_lengths.items()
+        if k in contig_trees}
+    gap_trees = medaka.common.complement_intervaltrees(
+        contig_trees, contig_lengths)
+
+    stitched_contigs = []
+    for ref_name in ordered_contigs:
+        contig_trees[ref_name].update(gap_trees[ref_name])
+        draft_seq = draft.fetch(ref_name)
+        pieces = []
+        for i in sorted(
+                contig_trees[ref_name], key=operator.attrgetter('begin')):
+            if i.data is None:  # this is a gap
+                seq = [draft_seq[i.begin: i.end]]
             else:
-                # s2 ends before s1
-                if s2.last_pos <= s1.last_pos:
-                    logger.info('{} ends before {}, skipping.'.format(
-                        s2_name, s1_name
-                    ))
-                    continue
-                # s1 and s2 overlap by only one position
-                # or there is no overlap between s1 and s2
-                elif s2.first_pos >= s1.last_pos:
-                    # trigger a break
-                    end_1, start_2 = None, None
-                else:
-                    try:
-                        end_1, start_2, heuristic = \
-                            common.Sample.overlap_indices(s1, s2)
-                        if heuristic:
-                            logger.debug(
-                                "Used heuristic to stitch {} and {}.".format(
-                                    s1.name, s2.name))
-                            heuristic_use += 1
-                    except common.OverlapException as e:
-                        logger.info(
-                            "Unhandled overlap type whilst stitching chunks.")
-                        raise(e)
+                seq = i.data
+            pieces.extend(seq)
+        # return as input
+        stitched_contigs.append((
+            (ref_name, 0, contig_lengths[ref_name]), pieces))
+    return stitched_contigs, gap_trees
 
-            new_seq = label_scheme.decode_consensus(
-                s1.slice(slice(start_1, end_1)))
 
-            seq_parts.append(new_seq)
+def collapse_neighbours(contigs):
+    """Build larger contigs by joining neighbours.
 
-            if end_1 is None:
-                if s1.ref_name != cur_ref_name:
-                    cur_ref_name = s1.ref_name
-                    cur_segment = 0
-                else:
-                    cur_segment += 1
-                ref_assemblies.append((
-                    '{}_segment{}'.format(cur_ref_name, cur_segment),
-                    '{}:{}-{}'.format(cur_ref_name, start, get_pos(s1, -1)),
-                    ''.join(seq_parts)))
-                seq_parts = list()
-
-                if s2 is not None and start_2 is None:
-                    msg = 'There is no overlap betwen {} and {}'
-                    logger.info(msg.format(s1_name, s2_name))
-                    start = get_pos(s2, 0)
-
-            s1 = s2
-            start_1 = start_2
-        logger.info("Used heuristic {} times for {}.".format(
-            heuristic_use, reg))
-    return ref_assemblies
+    :param contigs: a stream of ordered (partial)-contigs.
+    """
+    try:
+        contig = next(contigs)
+    except StopIteration:
+        return
+    ref_name, start, stop = contig[0]
+    buffer = contig[1]
+    for contig in contigs:
+        c_rn, c_start, c_stop, = contig[0]
+        if c_rn == ref_name and c_start == stop + 1:
+            stop = c_stop
+            buffer.extend(contig[1])
+        else:
+            # clear buffer, start anew
+            yield (
+                (ref_name, start, stop), buffer)
+            ref_name, start, stop = contig[0]
+            buffer = contig[1]
+    yield ((ref_name, start, stop), buffer)
 
 
 def stitch(args):
     """Entry point for stitching program."""
+    logger = medaka.common.get_named_logger("Stitcher")
+    index_log = medaka.common.get_named_logger('DataIndex')
+    index_log.setLevel(logging.WARNING)
     index = medaka.datastore.DataIndex(args.inputs)
-    if args.regions is None:
-        args.regions = sorted(index.index)
-    # batch size is a simple empirical heuristic
-    regions = medaka.common.grouper(
-        (common.Region.from_string(r) for r in args.regions),
-        batch_size=max(1, len(args.regions) // (2 * args.jobs)))
+    draft = pysam.FastaFile(args.draft)
+    draft_lengths = dict(zip(draft.references, draft.lengths))
 
+    # regions requested for processing
+    req_regions = args.regions
+    if req_regions is None:
+        req_regions = {
+            medaka.common.Region.from_string(r) for r in draft.references}
+
+    # split up draft contigs into chunks for parallelism
+    MAX_REGION_SIZE = int(1e6)
+    regions_to_process = list()
+    index_region_names = {r.ref_name for r in index.regions}
+    for ref_name, start, end in req_regions:
+        if ref_name not in index_region_names:
+            # for clarity: don't try to process data which doesn't exist.
+            # This shouldn't be strictly necessary, just for sanity.
+            continue
+        if start is None:
+            start = 0
+        if end is None:
+            end = draft_lengths[ref_name]
+        regions_to_process.append(medaka.common.Region(ref_name, start, end))
+    # regions will be sections for which we have at least some data for
+    # the corresponding contig
+    regions = itertools.chain.from_iterable((
+        r.split(MAX_REGION_SIZE, overlap=0, fixed_size=False)
+        for r in regions_to_process))
+
+    gap_trees = {}
     with open(args.output, 'w') as fasta:
         Executor = concurrent.futures.ProcessPoolExecutor
-        with Executor(max_workers=args.jobs) as executor:
+        with Executor(max_workers=args.threads) as executor:
             worker = functools.partial(stitch_from_probs, args.inputs)
-            for contigs in executor.map(worker, regions):
-                for name, info, seq in contigs:
-                    fasta.write('>{} {}\n{}\n'.format(name, info, seq))
+            # we rely on map being ordered
+            pieces = itertools.chain.from_iterable(
+                executor.map(worker, regions))
+            contigs = collapse_neighbours(pieces)
+            if args.fillgaps:
+                # TODO: ideally fill_gaps would be a generator
+                contigs, gt = fill_gaps(contigs, args.draft)
+                gap_trees.update(gt)
+                for (ref_name, start, stop), seq_parts in contigs:
+                    fasta.write(">{}\n".format(ref_name))
+                    for s in seq_parts:
+                        fasta.write(s)
+                    fasta.write("\n")
+            else:
+                ref_name = None
+                counter = 0
+                for (rname, start, stop), seq_parts in contigs:
+                    if ref_name == rname:
+                        counter += 1
+                    else:
+                        counter = 0
+                    fasta.write(">{}_{} {}-{}\n".format(
+                        rname, counter, start, stop + 1))
+                    for s in seq_parts:
+                        fasta.write(s)
+                    fasta.write("\n")
+                    ref_name = rname
+        # the data index doesn't contain entries for contigs that
+        # were entirely skipped (and we explicitely removed these
+        # from consideration above). If desired, go back and copy
+        # theses across verbatim, and fill in an entry in the gap_trees
+        if args.fillgaps:
+            processed_regions = {r.ref_name for r in regions_to_process}
+            required_regions = {r.ref_name for r in req_regions}
+            missing = required_regions - processed_regions
+            for reg in missing:
+                logger.info(
+                    "Copying contig '{}' verbatim from input.".format(reg))
+                seq = draft.fetch(reg)
+                fasta.write(">{}\n{}\n".format(reg, seq))
+                tree = intervaltree.IntervalTree()
+                tree.addi(0, draft_lengths[reg])
+                gap_trees[reg] = tree
+
+    if args.fillgaps:
+        bed_out = args.output + '.gaps_in_draft_coords.bed'
+        medaka.common.write_intervaltrees_to_bed(gap_trees, bed_out)

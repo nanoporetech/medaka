@@ -1,40 +1,67 @@
+import os
 import tempfile
 import unittest
 
 import numpy as np
 import tensorflow
 
-import medaka.medaka as _medaka
 from medaka import models
 from medaka.common import Sample
-from medaka.datastore import DataStore
 from medaka.features import BaseFeatureEncoder
 from medaka.labels import BaseLabelScheme
+import medaka.options
 
 
-class TestModels(unittest.TestCase):
+class TestModelFiles(unittest.TestCase):
 
-    def test_000_load_all_models(self):
-        for name, model_file in _medaka.model_dict.items():
-            model = models.load_model(model_file)
-            self.assertIsInstance(model, tensorflow.keras.models.Model)
-            # Check we can get necessary functions for inference
-            with DataStore(model_file) as ds:
+    def test_000_total_bundled_size(self):
+        total = 0
+        for name in medaka.options.current_models:
+            model_file = models.resolve_model(name)
+            total += os.path.getsize(model_file)
+        self.assertLess(total / 1024 / 1024, 45, "Bundled model file size too large")
+
+    def test_001_default_models(self):
+        for name in medaka.options.default_models.values():
+            if name not in medaka.options.current_models:
+                self.fail('Default Model {} not in current_models'.format(model_file))
+
+    def test_010_failed_download(self):
+        name = 'garbage'
+        medaka.options.allowed_models.append(name)
+        with self.assertRaises(medaka.models.DownloadError):
+            models.resolve_model(name)
+        medaka.options.allowed_models.pop()
+
+    def test_011_success_download(self):
+        name = 'r941_min_high_g351'
+        model_file = models.resolve_model(name)
+        tmp_file = "{}.tmp".format(model_file)
+        os.rename(model_file, tmp_file)
+        new_file = models.resolve_model(name)
+        self.assertTrue(os.path.isfile(new_file))
+        os.remove(new_file)
+        os.rename(tmp_file, model_file)
+
+    def test_999_load_all_models(self):
+        for name in medaka.options.allowed_models:
+            model_file = models.resolve_model(name)
+            with medaka.models.open_model(model_file) as ds:
+                model = ds.load_model()
+                self.assertIsInstance(model, tensorflow.keras.models.Model)
                 feature_encoder = ds.get_meta('feature_encoder')
                 self.assertIsInstance(feature_encoder, BaseFeatureEncoder)
                 label_scheme = ds.get_meta('label_scheme')
                 self.assertIsInstance(label_scheme, BaseLabelScheme)
 
-    def test_001_default_models(self):
-        for model_file in (_medaka.default_consensus_model, _medaka.default_snp_model, _medaka.default_variant_model):
-            if model_file not in _medaka.model_dict:
-                self.fail('Model {} not in model_dict'.format(model_file))
 
+class TestBuildModel(unittest.TestCase):
 
-    def test_001_build_all_models(self):
+    def test_000_build_all_models(self):
         num_classes, time_steps, feat_len = 5, 5, 5
         for name, func in models.model_builders.items():
             model = func(feat_len, num_classes, time_steps=time_steps)
+
 
 
 class TestMajorityModel(unittest.TestCase):

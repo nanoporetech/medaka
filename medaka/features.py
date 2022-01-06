@@ -146,6 +146,7 @@ def pileup_counts(
     :param dtype_prefixes: prefixes for query names which to separate counts.
         If `None` (or of length 1), counts are not split.
     :param region_split: largest region to process in single thread.
+        Regions are processed in parallel and stitched before being returned.
     :param workers: worker threads for calculating pileup.
     :param tag_name: two letter tag name by which to filter reads.
     :param tag_value: integer value of tag for reads to keep.
@@ -154,7 +155,10 @@ def pileup_counts(
     :param weibull_summation: use a Weibull partial-counts approach,
         requires 'WL' and 'WK' float-array tags.
 
-    :returns: pileup counts array, reference positions, insertion positions
+    :returns: iterator of tuples
+        (pileup counts array, reference positions, insertion positions)
+        Multiple chunks are returned if there are discontinuities in
+        positions caused e.g. by gaps in coverage.
     """
     lib = libmedaka.lib
     featlen = lib.featlen
@@ -191,8 +195,8 @@ def get_trimmed_reads(
         partial=True, num_qstrat=1, read_group=None):
     """Fetch reads trimmed to a region.
 
-    Overlapping chunks of the imput region will be produced, with each chunk
-    having its reads trimmed to the reference sequence coordinates of th
+    Overlapping chunks of the input region will be produced, with each chunk
+    having its reads trimmed to the reference sequence coordinates of the
     chunk.
 
     :param region: `medaka.common.Region` object
@@ -208,7 +212,7 @@ def get_trimmed_reads(
     :param partial: whether to keep reads which don't fully span the region.
     :param num_qstrat: number of layers for qscore stratification.
 
-    :returns: lists of trimmed reads.
+    :returns: iterator of lists of trimmed reads.
     """
     ffi, lib = libmedaka.ffi, libmedaka.lib
     (num_dtypes, dtypes, _dtypes, tag_name, tag_value,
@@ -231,9 +235,12 @@ def get_trimmed_reads(
 
     # split large regions for performance
     regions = region.split(region_split, chunk_overlap)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) \
-            as executor:
-        results = executor.map(_process_region, regions)
+    if len(regions) > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) \
+                as executor:
+            results = executor.map(_process_region, regions)
+    else:
+        results = iter([_process_region(region), ])
 
     return results
 
@@ -597,6 +604,47 @@ class HardRLEFeatureEncoder(CountsFeatureEncoder):
         return len(self.dtypes) * featlen * self.num_qstrat
 
 
+class SymHardRLEFeatureEncoder(HardRLEFeatureEncoder):
+    """HRLE encoder where lack of insertion == deletion.
+
+    In minor positions, when a read spans an insertion but
+    does not contain the inserted base, this will be counted
+    as a deletion.
+    """
+
+    def _pileup_function(self, region, bam):
+        [(counts, positions)] = super()._pileup_function(region, bam)
+
+        minor_inds = np.where(positions['minor'] > 0)
+        major_pos_at_minor_inds = positions['major'][minor_inds]
+        major_ind_at_minor_inds = np.searchsorted(
+            positions['major'], major_pos_at_minor_inds, side='left')
+
+        # Correct count of indels in minor positions, where reads that
+        # do not contain the insertion are not counted as deletion in
+        # minor positions, unlike in major positions
+        for (dt, is_rev), inds in self.feature_indices.items():
+            dt_depth = np.sum(counts[:, inds], axis=1)
+
+            # Every dtype needs a vector with size featlen x num_qstrat,
+            # the elements divided in two (split fwd/reverse). Also, by design,
+            # indels in RLE pileups are accumulated in  the first layer of
+            # stratification available to that dtype. E.g., for num_qstrat=2
+            # and 2 dtypes, 'R1' and 'R2':
+            # {('R1', False): [4, 5, 6, 7, 9, 14, 15, 16, 17, 19],
+            #  ('R1', True): [0, 1, 2, 3, 8, 10, 11, 12, 13, 18],
+            #  ('R2', False): [24, 25, 26, 27, 29, 34, 35, 36, 37, 39],
+            #  ('R2', True): [20, 21, 22, 23, 28, 30, 31, 32, 33, 38]}
+            featlen_index = libmedaka.lib.rev_del if is_rev else \
+                libmedaka.lib.fwd_del
+            dtype_size = libmedaka.lib.featlen * self.num_qstrat
+            del_ind = [x for x in inds if x % dtype_size == featlen_index][0]
+            counts[minor_inds, del_ind] = dt_depth[major_ind_at_minor_inds] -\
+                dt_depth[minor_inds]
+
+        return [(counts, positions)]
+
+
 class SoftRLEFeatureEncoder(HardRLEFeatureEncoder):
     """Create pileups using soft RLE calls."""
 
@@ -733,11 +781,11 @@ def create_samples(args):
         raise ValueError(
             'chunk_ovlp {} is not smaller than chunk_len {}'.format(
                 args.chunk_ovlp, args.chunk_len))
-    regions = medaka.common.get_regions(args.bam, args.regions)
+    regions = medaka.common.get_bam_regions(args.bam, args.regions)
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))
     if args.truth is None:
-        logger.warn(
+        logger.warning(
             'Running medaka features without a truth bam, '
             'unlabelled data will be produced. Is this intended?')
         time.sleep(3)

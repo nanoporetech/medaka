@@ -2,6 +2,7 @@ import os
 import re
 import sys
 from glob import glob
+import importlib.util
 import shutil
 from setuptools import setup, find_packages, Extension
 from setuptools import Distribution, Command
@@ -10,6 +11,7 @@ from setuptools.command.build_ext import build_ext
 import subprocess
 
 __pkg_name__ = 'medaka'
+__dist_name__ = 'medaka'
 __author__ = 'ont-research'
 __description__ = 'Neural network sequence error correction.'
 
@@ -33,13 +35,15 @@ if mo:
 else:
     raise RuntimeError('Unable to find version string in "{}/__init__.py".'.format(__pkg_name__))
 
+_options_path = os.path.join(__pkg_name__, 'options.py')
+spec = importlib.util.spec_from_file_location("medaka.options", _options_path)
+_options = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(_options)
+
 def check_model_lfs():
     # determine if data files look like LFS stubs, fail if they are
-    defmodel = open(os.path.join(__pkg_name__, '{}.py'.format(__pkg_name__)), 'r').read()
-    modelsre = r"^default_consensus_model = '(.*)'"
-    mo = re.search(modelsre, defmodel, re.M)
-    model = mo.group(1)
-    default_model = os.path.join(__pkg_path__, 'data', '{}_model.hdf5'.format(model))
+    model = _options.default_models['consensus']
+    default_model = os.path.join(__pkg_path__, 'data', '{}_model.tar.gz'.format(model))
     stub_signature = "ASCII text"
     if os.path.exists(default_model):
         stdout = subprocess.check_output(['file', default_model])
@@ -84,6 +88,13 @@ if os.environ.get("MEDAKA_BINARIES") is not None:
         ])
     )
 
+# to avoid pypi pacakges getting too big we only bundle some models
+if os.environ.get('MEDAKA_DIST') is not None:
+    bundled_models = _options.current_models
+else:
+    bundled_models = _options.allowed_models
+print("Bundling models: {}".format(bundled_models))
+
 class HTSBuild(build_ext):
     # uses the Makefile to build libhts.a, this will get done before the cffi extension
     def run(self):
@@ -121,23 +132,24 @@ if __name__ == '__main__':
     check_model_lfs()
 
     pymajor, pyminor = sys.version_info[0:2]
-    if (pymajor < 3) or (pyminor not in {5, 6}):
+    if (pymajor < 3) or (pyminor not in {6, 7, 8, 9}):
         raise RuntimeError(
             '`medaka` is unsupported on your version of python, '
-            'please use python 3.5 or python 3.6.')
+            'please use python 3.6-3.9 (inclusive)')
 
     setup(
-        name='medaka',
+        name=__dist_name__,
         version=__version__,
         url='https://github.com/nanoporetech/{}'.format(__pkg_name__),
         author=__author__,
         description=__description__,
         long_description=__long_description__,
         long_description_content_type=__long_description_content_type__,
-        python_requires='>=3.5.*,<3.7',
+        python_requires='>3.5.*,<3.10',
         packages=find_packages(exclude=['*.test', '*.test.*', 'test.*', 'test']),
         package_data={
-            __pkg_name__:[os.path.join('data','*.hdf5')],
+            __pkg_name__:[os.path.join('data', '{}_model.tar.gz'.format(f))
+                          for f in bundled_models],
         },
         cffi_modules=["build.py:ffibuilder"],
         install_requires=install_requires,
@@ -151,7 +163,7 @@ if __name__ == '__main__':
                 '{0}_version_report = {0}:report_binaries'.format(__pkg_name__, )
             ]
         },
-        scripts=['scripts/medaka_consensus', 'scripts/medaka_variant', 'scripts/mini_align'],
+        scripts=['scripts/medaka_consensus', 'scripts/medaka_haploid_variant', 'scripts/mini_align', 'scripts/hdf2tf.py'],
         zip_safe=False,
         cmdclass={
             'build_ext': HTSBuild

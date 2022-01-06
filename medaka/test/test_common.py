@@ -15,9 +15,9 @@ class TestMkdir(unittest.TestCase):
     def test_001_directory_not_overwritten(self):
         dirname = str(uuid.uuid4())
         medaka.common.mkdir_p(dirname)
-        t0 = os.path.getmtime(dirname) 
+        t0 = os.path.getmtime(dirname)
         medaka.common.mkdir_p(dirname)
         t1 = os.path.getmtime(dirname)
-        #time stamp of directory unchanged after calling mkdir_p twice
+        # time stamp of directory unchanged after calling mkdir_p twice
         self.assertEqual(t0, t1)
         os.rmdir(dirname)

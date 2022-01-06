@@ -1,17 +1,186 @@
 """Storing of training and inference data to file."""
+from abc import ABC, abstractmethod
 from collections import defaultdict, OrderedDict
 from concurrent.futures import \
     as_completed, ProcessPoolExecutor, ThreadPoolExecutor
+import contextlib
+import os
 import pickle
+import tarfile
+import tempfile
 import warnings
 
 import numpy as np
 
 import medaka.common
 
+
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
     import h5py
+
+
+class BaseModelStore(ABC):
+    """Base class for model store classes."""
+
+    @abstractmethod
+    def __init__(*args, **kwargs):
+        """Initialize feature encoder."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def load_model(self, time_steps):
+        """Load a model from hdf file/tensorflow directory."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_meta(self, key):
+        """Retrieve a meta data item."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def copy_meta(self, key):
+        """Copy meta data to hdf."""
+        raise NotImplementedError
+
+
+class ModelStore(BaseModelStore):
+    """Read and write model and meta to a hdf file."""
+
+    def __init__(self, filepath):
+        """Initialize a Modelstore.
+
+        :param filename: filepath to hdf file
+        """
+        self.filepath = filepath
+        self.logger = medaka.common.get_named_logger('MdlStore')
+
+    def __enter__(self):
+        """Create context for handling a modelstore file."""
+        return self
+
+    def __exit__(self, exception_type, exception_value, traceback):
+        """Exit context manager."""
+        if exception_type is not None:
+            self.logger.info('ModelStore exception {}'.format(exception_value))
+
+    def load_model(self, time_steps=None):
+        """Load a model from an .hdf file.
+
+        :param time_steps: number of time points in RNN, `None` for dynamic.
+
+        ..note:: keras' `load_model` cannot handle CuDNNGRU layers, hence this
+            function builds the model then loads the weights.
+        """
+        with DataStore(self.filepath) as ds:
+            self.logger.info('filepath {}'.format(self.filepath))
+            model_partial_function = ds.get_meta('model_function')
+            model = model_partial_function(time_steps=time_steps)
+            model.load_weights(self.filepath)
+        return model
+
+    def get_meta(self, key):
+        """Retrieve a meta data item.
+
+        :param key: name of item to load.
+        """
+        with DataStore(self.filepath) as ds:
+            return ds.get_meta(key)
+
+    def copy_meta(self, other):
+        """Copy meta data to hdf."""
+        with DataStore(self.filepath) as ds:
+            return ds.copy_meta(other)
+
+
+class ModelStoreTF(BaseModelStore):
+    """Read and write model to tensorflow storage directory."""
+
+    top_level_dir = 'model'
+
+    def __init__(self, filepath):
+        """Initialize a Modelstore.
+
+        :param filename: filepath to saved_model directory
+        """
+        self.logger = medaka.common.get_named_logger('MdlStrTF')
+        self.filepath = filepath
+        self.meta = None
+        self.tmpdir = None
+
+    def unpack(self):
+        """Unpack model files from archive."""
+        if self.tmpdir is None:
+            # tmpdir is removed by .cleanup()
+            self.tmpdir = tempfile.TemporaryDirectory()
+            self._exitstack = contextlib.ExitStack()
+            self._exitstack.enter_context(self.tmpdir)
+            with tarfile.open(self.filepath) as tar:
+                tar.extractall(path=self.tmpdir.name)
+            meta_file = os.path.join(
+                self.tmpdir.name, self.top_level_dir, 'meta.pkl')
+            with open(meta_file, 'rb') as fh:
+                self.meta = pickle.load(fh)
+        return self
+
+    def cleanup(self):
+        """Clean up temporary files."""
+        if self.tmpdir:
+            self.meta = None
+            self.tmpdir = None
+            self._exitstack.close()
+            del self._exitstack
+
+    def __enter__(self):
+        """Context manager."""
+        self.unpack()
+        return self
+
+    def __exit__(self, exception_type, exception_value, traceback):
+        """Remove temporary unpack_filepath."""
+        self.cleanup()
+        if exception_type is not None:
+            self.logger.info('ModelStoreTF exception {}'.format(
+                exception_type))
+
+    def __del__(self):
+        """Run cleanup on destroy."""
+        self.cleanup()
+
+    def load_model(self, time_steps=None):
+        """Load a model from a tf saved_model file.
+
+        :param time_steps: number of time points in RNN, `None` for dynamic.
+
+        ..note:: this function builds the model then loads the weights.
+        """
+        self.unpack()
+        model_partial_function = self.get_meta('model_function')
+        self.model = model_partial_function(time_steps=time_steps)
+        self.logger.info("Model {}".format(self.model))
+        weights = os.path.join(
+            self.tmpdir.name, self.top_level_dir, 'variables', 'variables')
+        self.logger.info("loading weights from {}".format(weights))
+        self.model.load_weights(weights)
+        return self.model
+
+    def get_meta(self, key):
+        """Load (deserialise) a meta data item.
+
+        :param key: name of item to load.
+        """
+        self.unpack()
+        return self.meta[key]
+
+    def copy_meta(self, hdf):
+        """Copy metadata to hdf file.
+
+        :param hdf: filename of hdf file.
+        """
+        self.unpack()
+        with DataStore(hdf, 'a') as ds:
+            for k, v in self.meta.items():
+                ds.set_meta(v, k)
 
 
 class DataStore(object):
@@ -30,7 +199,7 @@ class DataStore(object):
         self.filename = filename
         self.mode = mode
 
-        self.logger = medaka.common.get_named_logger('DataStore')
+        self.logger = medaka.common.get_named_logger('DataStre')
 
         self.write_executor = ThreadPoolExecutor(1)
         self.write_futures = []
@@ -140,18 +309,20 @@ class DataStore(object):
         :param key: str, sample name.
         :returns: `medaka.common.Sample` object.
         """
-        s = dict()
+        s = {x: None for x in medaka.common.Sample._fields}
+        group = self.fh['{}/{}'.format(self._sample_path_, key)]
         for field in medaka.common.Sample._fields:
-            pth = '{}/{}/{}'.format(self._sample_path_, key, field)
             try:
-                s[field] = self.fh[pth][()]
+                s[field] = group[field][()]
             except KeyError:
-                s[field] = None
+                pass
             else:
                 # handle loading of bytestrings
                 if isinstance(s[field], np.ndarray) and \
                         isinstance(s[field][0], type(b'')):
                     s[field] = np.char.decode(s[field])
+                if isinstance(s[field], bytes):
+                    s[field] = s[field].decode()
         return medaka.common.Sample(**s)
 
     def _write_dataset(self, location, data):
@@ -197,7 +368,9 @@ class DataIndex(object):
         :param filenames: list of files to index.
         :param threads: number of threads to use for indexing.
         """
-        self.logger = medaka.common.get_named_logger('DataIndex')
+        self.logger = medaka.common.get_named_logger('DataIndx')
+        if isinstance(filenames, str):
+            filenames = [filenames]
         self.filenames = filenames
         self.threads = threads
         self.n_files = len(self.filenames)
@@ -258,6 +431,14 @@ class DataIndex(object):
             self._index = self._get_sorted_index()
         return self._index
 
+    @property
+    def regions(self):
+        """Return a Region object for each ref_name in the index.
+
+        Each region will have start and end set to None.
+        """
+        return [medaka.common.Region(r, None, None) for r in self.index]
+
     def _get_sorted_index(self):
         """Get index of samples indexed by reference and ordered by start pos.
 
@@ -292,7 +473,7 @@ class DataIndex(object):
 
         return ref_names_ordered
 
-    def yield_from_feature_files(self, regions=None, samples=None):
+    def yield_from_feature_files(self, regions=None, samples=None, workers=8):
         """Yield `medaka.common.Sample` objects from one or more feature files.
 
         :regions: list of `medaka.common.Region` s for which to yield samples.
@@ -302,16 +483,13 @@ class DataIndex(object):
         :yields: `medaka.common.Sample` objects.
 
         """
-        if samples is not None:
-            # yield samples in the order they are asked for
-            for sample, fname in samples:
-                yield DataStore(fname).load_sample(sample)
-        else:
+        if samples is None:
             all_samples = self.index
             if regions is None:
                 regions = [
                     medaka.common.Region.from_string(x)
                     for x in sorted(all_samples)]
+            samples = list()
             for reg in regions:
                 if reg.ref_name not in self.index:
                     continue
@@ -322,5 +500,12 @@ class DataIndex(object):
                         int(float(sample['start'])),
                         int(float(sample['end'])) + 1)
                     if sam_reg.overlaps(reg):
-                        with DataStore(sample['filename']) as store:
-                            yield store.load_sample(sample['sample_key'])
+                        samples.append(
+                            (sample['sample_key'], sample['filename']))
+        # yield samples reusing filehandle where possible
+        ds, ds_fname = None, None
+        for key, fname in samples:
+            if fname != ds_fname:
+                ds = DataStore(fname)
+                ds_fname = fname
+            yield ds.load_sample(key)

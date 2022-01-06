@@ -1,8 +1,7 @@
 """Creation of consensus sequences from repetitive reads."""
 from collections import namedtuple
-from concurrent.futures import as_completed, ThreadPoolExecutor
+from concurrent.futures import as_completed, ProcessPoolExecutor
 import os
-import re
 import subprocess
 import tempfile
 from timeit import default_timer as now
@@ -12,56 +11,12 @@ import mappy
 import numpy as np
 import parasail
 import pysam
+import spoa
 
+import medaka.align
 import medaka.common
+import medaka.medaka
 
-re_split_cigar = re.compile(r"(?P<len>\d+)(?P<op>\D+)")
-
-
-def first_cigar(cigar):
-    """Extract details of the first operation in a cigar string.
-
-    :param cigar: cigar string.
-
-    :returns: op. length, op. type
-
-    """
-    m = re.search(re_split_cigar, cigar)
-    return m.group('len'), m.group('op')
-
-
-def parasail_to_sam(result, seq):
-    """Extract reference start and sam compatible cigar string.
-
-    :param result: parasail alignment result.
-    :param seq: query sequence.
-
-    :returns: reference start coordinate, cigar string.
-
-    """
-    cigstr = result.cigar.decode.decode()
-
-    first = first_cigar(cigstr)
-    prefix = ''.join(first)
-    rstart = result.cigar.beg_ref
-    cliplen = result.cigar.beg_query
-    clip = '' if cliplen == 0 else '{}S'.format(cliplen)
-    if first[1] == 'I':
-        pre = '{}S'.format(int(first[0]) + cliplen)
-    elif first[1] == 'D':
-        pre = clip
-        rstart = int(first[0])
-    else:
-        pre = '{}{}'.format(clip, prefix)
-
-    mid = cigstr[len(prefix):]
-    end_clip = len(seq) - result.end_query - 1
-    suf = '{}S'.format(end_clip) if end_clip > 0 else ''
-    new_cigstr = ''.join((pre, mid, suf))
-    return rstart, new_cigstr
-
-
-spoa = 'spoa'
 Subread = namedtuple('Subread', 'name seq')
 Alignment = namedtuple('Alignment', 'rname qname flag rstart seq cigar')
 
@@ -167,44 +122,64 @@ class Read(object):
         return [x.seq for x in self.subreads]
 
     @property
+    def interleaved_subreads(self):
+        """Return a list of subreads with + and - reads interleaved.
+
+        :returns: orientations, subreads.
+
+        The ordering may not be strictly +-+-+-..., the subreads
+        are positioned such that + and - reads are both distributed
+        uniformally through the list (according to their overall
+        frequency).
+        """
+        self.initialize()
+        fwd, rev = list(), list()
+        for orient, subread in zip(self._orient, self.subreads):
+            if orient:
+                fwd.append([subread, True, 0])
+            else:
+                rev.append([subread, False, 0])
+        for reads in fwd, rev:
+            if len(reads) > 0:
+                rate = 1.0 / len(reads)
+                for i in range(len(reads)):
+                    reads[i][2] = rate * i
+        reads = sorted(fwd + rev, key=lambda x: x[2])
+        reads, orients, garbage = zip(*reads)
+        return orients, reads
+
+    @property
     def nseqs(self):
         """Return the number of subreads contained in the read."""
         return len(self.subreads)
 
-    def poa_consensus(self, additional_seq=None, method='racon'):
+    def poa_consensus(self, additional_seq=None, method='spoa'):
         """Create a consensus sequence for the read."""
         self.initialize()
-        with tempfile.NamedTemporaryFile(
-                'w', suffix='.fasta', delete=False) as fh:
-            if additional_seq is not None:
-                fh.write(">{}\n{}\n".format('additional', additional_seq))
-            for orient, subread in zip(self._orient, self.subreads):
-                if method == 'spoa':
-                    if orient:
-                        seq = subread.seq
-                    else:
-                        seq = medaka.common.reverse_complement(subread.seq)
-                else:
+        if method == 'spoa':
+            seqs = list()
+            for orient, subread in zip(*self.interleaved_subreads):
+                if orient:
                     seq = subread.seq
-                fh.write(">{}\n{}\n".format(subread.name, seq))
-            fh.flush()
-
-            if method == 'spoa':
-                consensus_seq = self._run_spoa(fh.name)
-            elif method == 'racon':
+                else:
+                    seq = medaka.common.reverse_complement(subread.seq)
+                seqs.append(seq)
+            consensus_seq, _ = spoa.poa(seqs, genmsa=False)
+        elif method == 'racon':
+            with tempfile.NamedTemporaryFile(
+                    'w', suffix='.fasta', delete=False) as fh:
+                if additional_seq is not None:
+                    fh.write(">{}\n{}\n".format('additional', additional_seq))
+                for orient, subread in zip(self._orient, self.subreads):
+                    fh.write(">{}\n{}\n".format(subread.name, subread.seq))
+                fh.flush()
                 consensus_seq = self._run_racon(fh.name)
-            else:
-                raise ValueError('Unrecognised method: {}.'.format(method))
+        else:
+            raise ValueError('Unrecognised method: {}.'.format(method))
         self.consensus = consensus_seq
         self._alignments_valid = False
         self.consensus_run = True
         return consensus_seq
-
-    def _run_spoa(self, fasta):
-        opts = []
-        out = subprocess.check_output([spoa, fasta] + opts)
-        spoa_seq = out.decode().split()[2]
-        return spoa_seq
 
     def _run_racon(self, fasta):
         tname = 'consensus_{}'.format(self.name)
@@ -240,7 +215,7 @@ class Read(object):
     def orient_subreads(self):
         """Find orientation of subreads with respect to consensus sequence.
 
-        :returns: `Alignment` s of subreads to consensus.
+        :returns: `medaka.align.Alignment` s of subreads to consensus.
 
         """
         # TODO: use a profile here
@@ -261,7 +236,7 @@ class Read(object):
                     result.cigar.beg_query >= result.end_query:
                 # unsure why this can happen
                 continue
-            rstart, cigar = parasail_to_sam(result, seq)
+            rstart, cigar = medaka.align.parasail_to_sam(result, seq)
             flag = 0 if is_fwd else 16
             aln = Alignment(
                 'consensus_{}'.format(self.name), sr.name,
@@ -291,7 +266,7 @@ class Read(object):
                     result.cigar.beg_query >= result.end_query:
                 # unsure why this can happen
                 continue
-            rstart, cigar = parasail_to_sam(result, seq)
+            rstart, cigar = medaka.align.parasail_to_sam(result, seq)
             flag = 0 if orient else 16
             aln = Alignment(template_name, sr.name, flag, rstart, seq, cigar)
             alignments.append(aln)
@@ -350,24 +325,19 @@ def write_bam(fname, alignments, header, bam=True):
     with pysam.AlignmentFile(fname, mode, header=header) as fh:
         for ref_id, subreads in enumerate(alignments):
             for aln in sorted(subreads, key=lambda x: x.rstart):
-                a = pysam.AlignedSegment()
-                a.reference_id = ref_id
-                a.query_name = aln.qname
-                a.query_sequence = aln.seq
-                a.reference_start = aln.rstart
-                a.cigarstring = aln.cigar
-                a.flag = aln.flag
-                a.mapping_quality = 60
+                a = medaka.align.initialise_alignment(aln.qname, ref_id,
+                                                      aln.rstart, aln.seq,
+                                                      aln.cigar, aln.flag)
                 fh.write(a)
     if mode == 'wb':
         pysam.index(fname)
 
 
-def _read_worker(read, align=True):
+def _read_worker(read, align=True, method='spoa'):
     read.initialize()
     if read.nseqs > 2:  # skip if there is only one subread
         for it in range(2):
-            read.poa_consensus(method='racon')
+            read.poa_consensus(method=method)
     aligns = None
     if align:
         aligns = read.mappy_to_template(
@@ -375,7 +345,7 @@ def _read_worker(read, align=True):
     return read.name, read.consensus, aligns
 
 
-def poa_workflow(reads, threads):
+def poa_workflow(reads, threads, method='spoa'):
     """Worker function for processing repetitive reads.
 
     :param reads: list of `Read` s.
@@ -385,11 +355,11 @@ def poa_workflow(reads, threads):
     # TODO: this is quite memory inefficient, but we can only build the header
     #       by seeing everything.
     logger = medaka.common.get_named_logger('POAManager')
-    pool = ThreadPoolExecutor(max_workers=threads)
+    pool = ProcessPoolExecutor(max_workers=threads)
     futures = []
     for read in reads:
         logger.debug("Adding {} to queue.".format(read.name))
-        futures.append(pool.submit(_read_worker, read))
+        futures.append(pool.submit(_read_worker, read, method=method))
 
     header = {
         'HD': {'VN': 1.0},
@@ -419,10 +389,24 @@ def poa_workflow(reads, threads):
 
 def main(args):
     """Entry point for repeat read consensus creation."""
-    # arg parser does not supply these
-    args.tag_name = None
-    args.tag_value = None
-    args.tag_keep_missing = False
+    parser = medaka.medaka.medaka_parser()
+    defaults = parser.parse_args([
+        "consensus", medaka.medaka.CheckBam.fake_sentinel,
+        "fake_out"])
+
+    class MyArgs:
+        """Wrap the given args with defaults for prediction function."""
+
+        myargs = args
+        mydefaults = defaults
+
+        def __getattr__(self, attr):
+            try:
+                return getattr(self.myargs, attr)
+            except AttributeError:
+                return getattr(self.mydefaults, attr)
+
+    args = MyArgs()
 
     logger = medaka.common.get_named_logger('Smolecule')
     medaka.common.mkdir_p(args.output, info='Results will be overwritten.')
@@ -446,9 +430,11 @@ def main(args):
         reads = Read.multi_from_fastx(
             args.fasta[0], depth_filter=args.depth, length_filter=args.length)
 
-    logger.info("Running pre-medaka POA consensus for all reads.")
+    logger.info(
+        "Running {} pre-medaka consensus for all reads.".format(args.method))
     t0 = now()
-    header, consensuses, alignments = poa_workflow(reads, args.threads)
+    header, consensuses, alignments = poa_workflow(
+        reads, args.threads, method=args.method)
     t1 = now()
 
     logger.info(
@@ -470,10 +456,11 @@ def main(args):
     t3 = now()
 
     logger.info("Running medaka stitch.")
+    args.draft = spoa_file
     args.inputs = [args.output]
     args.output = os.path.join(out_dir, 'consensus.fasta')
-    args.regions = None
-    args.jobs = args.threads
+    args.regions = None  # medaka consensus changes args.regions
+    args.fillgaps = False
     medaka.stitch.stitch(args)
     logger.info(
         "Single-molecule consensus sequences written to {}.".format(

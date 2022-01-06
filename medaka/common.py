@@ -9,6 +9,7 @@ import logging
 import os
 import re
 
+import intervaltree
 import numpy as np
 from pkg_resources import resource_filename
 import pysam
@@ -408,6 +409,118 @@ class Sample(_Sample):
                 return False
         return True
 
+    @staticmethod
+    def trim_samples(sample_gen):
+        """Generate trimmed samples.
+
+        Samples are trimmed to remove overlap between adjacent samples.
+
+        :param sample_gen: generator yielding `medaka.common.Sample` s
+
+        :yields: (`medaka.common.Sample` view, bool is_last_in_contig,
+            bool heuristic)
+        """
+        logger = get_named_logger('TrimOlap')
+
+        try:
+            s1 = next(sample_gen)
+        except StopIteration:
+            # there were no samples to process
+            return
+        # do not trim beginning of s1
+        start_1 = None
+        # initialise in case we have one sample
+        start_2 = None
+        for s2 in itertools.chain(sample_gen, (None,)):
+            heuristic = False
+
+            is_last_in_contig = False
+            # s1 is last chunk
+            if s2 is None:
+                # go to end of s1
+                end_1 = None
+                is_last_in_contig = True
+            else:
+                rel = Sample.relative_position(s1, s2)
+                # skip s2 if it is contained within s1
+                if rel is Relationship.s2_within_s1:
+                    logger.info('{} is contained within {}, skipping.'.format(
+                        s2.name, s1.name))
+                    continue
+                elif rel is Relationship.forward_overlap:
+                    end_1, start_2, _ = Sample.overlap_indices(
+                        s1, s2)
+                elif rel is Relationship.forward_gapped:
+                    is_last_in_contig = True
+                    end_1, start_2 = (None, None)
+                    msg = '{} and {} cannot be concatenated as there is ' + \
+                        'no overlap and they do not abut.'
+                    logger.info(msg.format(s1.name, s2.name))
+                else:
+                    try:
+                        end_1, start_2, heuristic = \
+                            Sample.overlap_indices(s1, s2)
+                        if heuristic:
+                            logger.debug(
+                                "Used heuristic to stitch {} and {}.".format(
+                                    s1.name, s2.name))
+                    except OverlapException as e:
+                        logger.info(
+                            "Unhandled overlap type whilst stitching chunks.")
+                        raise(e)
+
+            yield s1.slice(slice(start_1, end_1)), is_last_in_contig, heuristic
+            s1 = s2
+            start_1 = start_2
+
+    @staticmethod
+    def trim_samples_to_region(samples, start=None, end=None):
+        """Trim a stream of samples to overlap exactly co-ordinates.
+
+        :param start: start co-ordinate.
+        :param end: (exclusive) end co-ordinate.
+
+        .. note:: the input samples are expected to be derived from the
+            same reference sequence. The `start` and `end` parameters
+            are positions in this single sequence.
+        """
+        def _trim_starts(samples):
+            if start is None:
+                yield from samples
+            # trim all samples in a stream to start on or after start
+            # remove from the stream samples that end before start
+            for sample, last, heuristic in samples:
+                if sample.positions['major'][-1] < start:
+                    continue  # don't need sample that ends before target
+                if sample.positions['major'][0] < start:
+                    query = np.array(
+                        [(start, 0)], dtype=sample.positions.dtype)
+                    samp_start = np.searchsorted(sample.positions, query[0])
+                    sample = sample.slice(slice(samp_start, None))
+                if len(sample.positions) > 0:
+                    yield sample, last, heuristic
+
+        def _trim_ends(samples):
+            if end is None:
+                yield from samples
+            # trim all samples in a stream to end before end
+            # remove from the stream samples that end after end
+            for sample, last, heuristic in samples:
+                if sample.positions['major'][0] >= end:
+                    return  # don't need any samples that start after end
+                if sample.positions['major'][-1] >= end:
+                    samp_end = np.searchsorted(sample.positions['major'], end)
+                    sample = sample.slice(slice(None, samp_end))
+                if len(sample.positions) > 0:
+                    yield sample, last, heuristic
+
+        # this multistage filtering is a bit gratuitous but at least its
+        # transparent and clear: trim overlaps->trim_starts->trim_ends
+        # note: we cannot do overlapping last as that can run into
+        # "s1 is contained in s2", but s1 will already have been yielded
+        samples = _trim_ends(_trim_starts(Sample.trim_samples(samples)))
+        yield from samples
+
 
 # provide read only access to key region attrs
 _Region = collections.namedtuple('Region', 'ref_name start end')
@@ -489,6 +602,8 @@ class Region(_Region):
 
         """
         regions = list()
+        if size >= region.size:
+            return [region]
         for start in range(region.start, region.end, size - overlap):
             end = min(start + size, region.end)
             regions.append(Region(region.ref_name, start, end))
@@ -524,34 +639,34 @@ class Region(_Region):
             (b0 < a1 and b1 > a0))
 
 
-def get_regions(bam, region_strs=None):
-    """Create `Region` objects from a bam and region strings.
+def get_bam_regions(bam, regions=None):
+    """Get regions from a bam.
+
+    Region start and end will be set to an integer value.
 
     :param bam: `.bam` file.
-    :param region_strs: iterable of str in zero-based (samtools-like)
-        region format e.g. ref:start-end or filepath containing a
-        region string per line.
+    :param regions: iterable of `medaka.common.Region` objs
 
     :returns: list of `Region` objects.
     """
     with pysam.AlignmentFile(bam) as bam_fh:
         ref_lengths = dict(zip(bam_fh.references, bam_fh.lengths))
-    if region_strs is not None:
-        if os.path.isfile(region_strs[0]):
-            with open(region_strs[0]) as fh:
-                region_strs = [l.strip() for l in fh.readlines()]
-
-        regions = []
-        for r in (Region.from_string(x) for x in region_strs):
-            start = r.start if r.start is not None else 0
-            end = r.end if r.end is not None else ref_lengths[r.ref_name]
-            regions.append(Region(r.ref_name, start, end))
+    if regions is not None:
+        new_regions = []
+        for r in regions:
+            if r.ref_name not in ref_lengths:
+                msg = 'Contig {} is not one of the bam references.'
+                raise KeyError(msg.format(r.ref_name))
+            start = max(0, r.start) if r.start is not None else 0
+            rl = ref_lengths[r.ref_name]
+            end = min(r.end, rl) if r.end is not None else rl
+            new_regions.append(Region(r.ref_name, start, end))
     else:
-        regions = [
+        new_regions = [
             Region(ref_name, 0, end)
             for ref_name, end in ref_lengths.items()]
 
-    return regions
+    return new_regions
 
 
 def ref_name_from_region_str(region_str):
@@ -596,7 +711,7 @@ def mkdir_p(path, info=None):
         if exc.errno == errno.EEXIST and os.path.isdir(path):
             if info is not None:
                 info = " {}".format(info)
-            logging.warn("The path {} exists.{}".format(path, info))
+            logging.warning("The path {} exists.{}".format(path, info))
             pass
         else:
             raise
@@ -604,6 +719,8 @@ def mkdir_p(path, info=None):
 
 def grouper(gen, batch_size=4):
     """Group together elements of an iterable without padding remainder."""
+    if not isinstance(gen, collections.Iterator):
+        gen = iter(gen)
     while True:
         batch = []
         for i in range(batch_size):
@@ -612,7 +729,7 @@ def grouper(gen, batch_size=4):
             except StopIteration:
                 if len(batch) > 0:
                     yield batch
-                raise StopIteration
+                return
         yield batch
 
 
@@ -758,7 +875,6 @@ def yield_from_bed(bedfile):
 
     :param bedfile: str, filepath.
     :yields: (str chrom, int start, int stop).
-
     """
     with open(bedfile) as fh:
         for line in fh:
@@ -769,3 +885,55 @@ def yield_from_bed(bedfile):
             start = int(split_line[1])
             stop = int(split_line[2])
             yield chrom, start, stop
+
+
+def complement_intervaltrees(trees, contig_lengths):
+    """Complement intervals, returning intervals not present in the input trees.
+
+    :param trees: {str contig: `intervaltree.IntervalTree` objs}
+    :param contig_lengths: {str contig: int contig length}
+    :returns: {str contig: `intervaltree.IntervalTree` objs}
+    """
+    comp = collections.defaultdict(intervaltree.IntervalTree)
+    for contig, length in contig_lengths.items():
+        comp[contig].add(intervaltree.Interval(0, length))
+    for contig, tree in trees.items():
+        for interval in tree:
+            comp[contig].chop(interval.begin, interval.end)
+    return comp
+
+
+def write_intervaltrees_to_bed(trees, outfile):
+    """Write contig intervaltrees to bed file.
+
+    :param trees: {str contig: `intervaltree.IntervalTree` objs}
+    :param outfile: str, filepath.
+    """
+    with open(outfile, 'w') as fh:
+        for contig in sorted(trees):
+            tree = trees[contig]
+            for i in sorted(tree.all_intervals):
+                fh.write("{}\t{}\t{}\n".format(contig, i.begin, i.end))
+
+
+def common_fasta_contigs(fastas, contigs=None):
+    """Get common contig names from multiple fasta files.
+
+    :param fastas: iterable of str of fasta filepaths.
+    :param contigs: iterable of str, check all fastas contain these contigs
+        raising a KeyError if they are not all present.
+
+    :returns: tuple of str, contig names.
+    """
+    fasta_contigs = {f: pysam.FastaFile(f).references for f in fastas}
+    common = set(fasta_contigs[fastas[0]])
+    for f in fastas[1:]:
+        common = common.intersection(fasta_contigs[f])
+    if contigs is not None:
+        if not common.issuperset(contigs):
+            msg = 'Contigs {} are not present in all fastas.'
+            raise KeyError(msg.format(set(contigs) - common))
+        else:
+            common = contigs
+    # return contigs in same order as in first fasta
+    return tuple([c for c in fasta_contigs[fastas[0]] if c in common])

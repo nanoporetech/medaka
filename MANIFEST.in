@@ -5,7 +5,8 @@ include LICENSE.md
 include requirements.txt
 include build.py
 include Makefile
-graft submodules/samtools-1.3.1/htslib-1.3.1
+graft submodules/samtools-*/htslib-*
+prune submodules/samtools-*/htslib-*/test
 graft images
 prune build
 prune docs

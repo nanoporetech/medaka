@@ -4,15 +4,14 @@ import concurrent.futures
 import functools
 from glob import glob
 import os
-import re
 import sys
 
 import h5py
 import numpy as np
 from ont_fast5_api.fast5_interface import get_fast5_file
-import parasail
 import pysam
 
+import medaka.align
 import medaka.common
 import medaka.smolecule
 
@@ -102,68 +101,13 @@ class RLEConverter(object):
         return self.rle_conversion[coord]['start']
 
 
-def parasail_alignment(query, ref):
-    """Run a Smith-Waterman alignment between two sequences.
-
-    :param query: the query sequence.
-    :param ref: the reference sequence.
-
-    :returns: reference start co-ordinate, cigar string
-    """
-    result = parasail.sw_trace_striped_32(query, ref, 5, 3, parasail.dnafull)
-    rstart, cigar = medaka.smolecule.parasail_to_sam(result, query)
-    return rstart, cigar
-
-
-def add_extra_clipping(cigar, start_clipped, end_clipped):
-    """Add extra soft clipping to begining and end of cigar string.
-
-    :param cigar: input cigar string
-    :param start_clipped: soft clipping to be added at the start of the read
-    :param end_clipped: soft clipping to be added at the end of the read
-
-    :returns: modified cigar string
-    """
-    begin_cigar = re.compile(r"^(?P<len>\d+)(?P<op>\D+)")
-    end_cigar = re.compile(r"(?P<len>\d+)(?P<op>\D+)$")
-
-    # Add start and end clipping
-    if start_clipped:
-        m = re.search(begin_cigar, cigar)
-        if m.group('op') == 'S':
-            orig_clip = ''.join(m.groups())
-            corrected_length = int(m.group('len')) + start_clipped
-            head = '{}S'.format(corrected_length)
-            body = cigar[len(orig_clip):]
-        else:
-            head = '{}S'.format(start_clipped)
-            body = cigar
-    else:
-        head = ''
-        body = cigar
-
-    if end_clipped:
-        m = re.search(end_cigar, body)
-        if m.group('op') == 'S':
-            orig_clip = ''.join(m.groups())
-            corrected_length = int(m.group('len')) + end_clipped
-            tail = '{}S'.format(corrected_length)
-            body = body[:-len(orig_clip)]
-        else:
-            tail = str(end_clipped) + 'S'
-    else:
-        tail = ''
-
-    return ''.join((head, body, tail))
-
-
 def get_rl_params(read_name, read_fast5):
     """Get shape and scale parameters from fast5 for read."""
     data_path = (
         'read_{}/Analyses/Basecall_1D_000/'
         'BaseCalled_template/RunlengthBasecall')
 
-    with h5py.File(read_fast5) as h:
+    with h5py.File(read_fast5, 'r') as h:
         data = h[data_path.format(read_name)][()]
 
     call = ''.join(x.decode() for x in data['base'])
@@ -195,13 +139,13 @@ def _compress_alignment(alignment, ref_rle, fast5_dir=None, file_index=None):
     compact_ref = ref_rle.compact_basecall[r_compact_start:r_compact_end]
 
     # Calculate new alignment with compressed reads
-    rstart, cigar = parasail_alignment(compact_query, compact_ref)
+    rstart, cigar = medaka.align.parasail_alignment(compact_query, compact_ref)
 
     # Cigar is now with respect to the trimmed compact_query, we need to
     # return it to the full compact query
     extra_start_clip = q_compact_start
     extra_end_clip = len(query_rle.compact_basecall) - q_compact_end
-    corrected_cigar = add_extra_clipping(
+    corrected_cigar = medaka.align.add_extra_clipping(
         cigar, extra_start_clip, extra_end_clip)
     rstart += r_compact_start
 
@@ -284,7 +228,7 @@ def _compress_bam(bam_input, bam_output, ref_fname,
 
     :returns: None
     """
-    regions = medaka.common.get_regions(bam_input, regions)
+    regions = medaka.common.get_bam_regions(bam_input, regions)
     ref_fasta = pysam.FastaFile(ref_fname)
 
     # If fast_dir is passed, create an index

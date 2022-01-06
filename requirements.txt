@@ -1,13 +1,15 @@
 # medaka requirements. 
 # Add comments to keep track of why we are using particular versions
-biopython
 cffi
-h5py==2.7.1           # 2.8.0 and 2.9.0 seem to not like keras model writing
+edlib
+grpcio 
+h5py
 intervaltree
-tensorflow==1.14.0
-numpy==1.16.1         # tensorflow needs numpy>=1.13.3, travis needs this forced
+tensorflow~=2.5.2
+numpy
 mappy
-ont_fast5_api==3.0.0  # known good configuration
+ont_fast5_api
 parasail
-pysam==0.15.2         # latest with non-broken wheels (13Dec2019)
-whatshap==0.18        # added --ignore-read-groups to haplotag
+pysam>=0.16.0.1       # 0.16.0 is broken, various others too
+pyspoa>=0.0.3         # 0.0.2 has portable instruction set, and py38 wheels
+requests

@@ -95,6 +95,42 @@ class LabelSchemeTest(object):
             data = pickle.load(f)
 
 
+class VariantBoundaries(unittest.TestCase):
+
+    def test_001_boundaries(self):
+        find_variants = medaka.labels.HaploidLabelScheme._find_variants
+        cases = [
+            # no variants
+            ([0, 0, 0, 0], 'ATCG', 'ATCG', '----'),
+            # single insert
+            ([0, 1, 0, 0], 'A*CG', 'ATCG', '-+--'),
+            # multi insert
+            ([0, 1, 2, 0], 'A**G', 'ATCG', '-++-'),
+            # multiple insert, some ref bases
+            ([0, 1, 2, 3], 'A***', 'ATC*', '-+++'),
+            ([0, 1, 2, 3], 'A***', 'A*CG', '-+++'),
+            # multi insert at end, test boundary
+            ([0, 1, 2, 3], 'A***', 'ATC*', '-+++'),
+            ([0, 1, 2, 3], 'A***', 'A*CG', '-+++'),
+            # substitution
+            ([0, 0, 0, 0], 'ATCG', 'AACG', '-+--'),
+            ([0, 0, 0, 0], 'ATCG', 'ATCC', '---+'),
+            # complex
+            ([0, 1, 2, 3], 'A***', 'CTC*', '++++'),
+            ([0, 1, 2, 3], 'A***', 'C*CG', '++++'),
+            ([0, 1, 2, 3, 0], 'A***A', 'CTC*A', '++++-'),
+            ([0, 1, 2, 3, 0], 'A***A', 'C*CGG', '+++++'),
+            ([0, 1, 2, 3, 0, 1, 2], 'A***A**', 'CTC*A*A', '++++-++'),
+            ([0, 1, 2, 3, 0, 1, 2], 'A***A**', 'C*CGGA*', '+++++++'),
+        ]
+        for i, (minor, ref, pred, exp) in enumerate(cases):
+            aref = np.fromiter(ref, dtype='|U1')
+            apred = np.fromiter(pred, dtype='|U1')
+            output = find_variants(minor, aref, apred)
+            output = ''.join('+' if x else '-' for x in output)
+            self.assertEqual(exp, output, "case {}".format(i))
+
+
 class HaploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
 
     @classmethod
@@ -337,7 +373,7 @@ class HaploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
             self.assertEqual(v.alt, [alt], msg=msg)
             self.assertEqual(v.genotype_data['GT'], '1', msg=msg)
             self.assertAlmostEqual(float(v.qual), expected_qual, places=3, msg=msg)
-            self.assertAlmostEqual(float(v.genotype_data['GQ']), expected_qual, places=3, msg=msg)
+            self.assertEqual(int(v.genotype_data['GQ']), round(expected_qual), msg=msg)
 
 
     def test_decode_snps(self):
@@ -411,7 +447,7 @@ class HaploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
             self.assertEqual(v.alt, alt)
             self.assertEqual(v.genotype_data['GT'], gt)
             gq = qual_homo if len(set(v.gt)) == 1 else qual_hetero
-            self.assertAlmostEqual(float(v.genotype_data['GQ']), gq, places=3)
+            self.assertEqual(int(v.genotype_data['GQ']), round(gq))
 
     def test_padding_vector(self):
         self.assertEqual(self.ls.padding_vector, 0)

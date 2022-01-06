@@ -1,0 +1,153 @@
+#!/bin/bash
+set -eo pipefail
+
+function follow_link {
+  python -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' $1
+}
+
+
+OUTPUT="medaka"
+THREADS=1
+
+medaka_version=$(medaka --version)
+modeldata=()
+while read -r line; do
+    modeldata+=("$line")
+done < <(medaka tools list_models)
+# 0: Available models
+# 1: default consensus model
+# 2: default variant model
+MODEL=${modeldata[2]##* }
+MODELS=$(
+    echo ${modeldata[0]} | sed 's/Available://' | python -c \
+        "import sys; import itertools; mods=[f'{x[:-1]}' for x in sys.stdin.readline().split() if 'variant' in x]; print(' '.join(mods))"
+)
+
+BATCH_SIZE=100
+ANNOT_OPTS=""
+FORCE=false
+
+iflag=false
+rflag=false
+
+usage="
+${medaka_version}
+------------
+
+Haploid variant calling via neural networks.
+
+$(basename "$0") [-h] -i <fastx> -r <fasta>
+
+    -h  show this help text.
+    -i  fastx input basecalls (required).
+    -r  fasta reference sequence (required).
+    -o  output folder (default: medaka).
+    -m  medaka model, (default: ${MODEL}).
+        Choices: $MODELS.
+    -s  Perform read realignment when annotating variants.
+    -f  Force overwrite of outputs (default will reuse existing outputs).
+    -t  number of threads with which to create features (default: 1).
+    -b  batchsize, controls memory use (default: ${BATCH_SIZE})."
+
+
+while getopts ':hi:r:o:m:sft:b:' option; do
+  case "$option" in
+    h  ) echo "$usage" >&2; exit;;
+    i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
+    r  ) rflag=true; REFERENCE=$(follow_link $OPTARG);;
+    o  ) OUTPUT=$OPTARG;;
+    m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
+    s  ) ANNOT_OPTS="--dpsp";;
+    f  ) FORCE=true;;
+    t  ) THREADS=$OPTARG;;
+    b  ) BATCH_SIZE=$OPTARG;;
+    \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
+    :  ) echo "Option -$OPTARG requires an argument." >&2; exit 1;;
+  esac
+done
+shift $(($OPTIND - 1))
+
+if ! $iflag; then
+  echo "$usage" >&2;
+  echo "" >&2;
+  echo "-i must be specified." >&2;
+  exit 1;
+fi
+
+if ! $rflag; then
+  echo "$usage" >&2;
+  echo "" >&2;
+  echo "-r must be specified." >&2;
+  exit 1;
+fi
+
+rleflag=$(medaka tools is_rle_model --model $MODEL)
+[[ $rleflag == "True" ]] && rleflag=true || rleflag=false
+if $rleflag; then
+    echo "Given model is unsupported for variant calling: $MODEL"
+    exit 1
+fi
+
+if [[ "${MODEL}" != *"variant"* ]]; then
+  echo "WARNING: The model '${MODEL}' is not recommended for use with this program."
+  echo "         Please select a model named with 'variant' in its name. It is"
+  echo "         preferable to use a model with the 'variant' and 'prom' tags for "
+  echo "         MinION/GridION data over one with the 'min' tag but not 'variant'."
+fi
+
+echo "Checking program versions"
+echo "This is ${medaka_version}"
+medaka_version_report || exit 1
+
+if [[ ! -e "${OUTPUT}" ]]; then
+  mkdir -p "${OUTPUT}"
+elif ${FORCE}; then
+  echo "Warning: Output will be overwritten (-f flag)"
+else
+  echo "Warning: Output ${OUTPUT} already exists, may use old results."
+fi
+
+cd ${OUTPUT}
+
+
+CALLS2REF=calls_to_ref
+ALIGN_PARAMS=$(medaka tools get_alignment_params --model "${MODEL}")
+if [[ ! -e "${CALLS2REF}.bam" ]] || ${FORCE}; then
+    echo "Aligning basecalls to reference"
+    mini_align -i "${BASECALLS}" -r "${REFERENCE}" -p "${CALLS2REF}" -t "${THREADS}" -m -f ${ALIGN_PARAMS} \
+      || { echo "Failed to run alignment of reads to draft." ; exit 1; }
+    FORCE=true
+else
+    echo "Not aligning basecalls to reference, ${CALLS2REF}.bam exists."
+fi
+
+CONSENSUSPROBS=consensus_probs.hdf
+if [[ ! -e "${CONSENSUSPROBS}" ]] || ${FORCE}; then
+    echo "Running medaka consensus"
+    rm -rf "${CONSENSUSPROBS}"
+    medaka consensus "${CALLS2REF}.bam" "${CONSENSUSPROBS}" \
+        --model "${MODEL}" --batch_size "${BATCH_SIZE}" --threads "${THREADS}" \
+        || { echo "Failed to run medaka consensus."; exit 1; }
+    FORCE=true
+else
+    echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
+fi
+
+VARIANTS=medaka.vcf
+if [[ ! -e "${VARIANTS}" ]] || ${FORCE}; then
+    medaka variant "${REFERENCE}" "${CONSENSUSPROBS}" "${VARIANTS}" \
+        || { echo "Failed to create variants."; exit 1; }
+    FORCE=true
+else
+    echo "Not calling variants, ${OUTPUT}/${VARIANTS} exists."
+fi
+
+ANNOTATED=medaka.annotated.vcf
+if [[ ! -e "${ANNOTATED}" ]] || ${FORCE}; then
+    medaka tools annotate ${ANNOT_OPTS} "${VARIANTS}" "${REFERENCE}" "${CALLS2REF}.bam" "${ANNOTATED}" \
+        || { echo "Failed to annotate variants."; exit 1; }
+    echo "Variants written to ${OUTPUT}/${ANNOTATED}, have a nice day."
+    FORCE=true
+else
+    echo "Variants ${OUTPUT}/${ANNOTATED} exists, remove ${OUTPUT} and try again."
+fi

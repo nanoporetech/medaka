@@ -1,5 +1,4 @@
 """Testing for medaka.rle module."""
-import array
 from collections import namedtuple
 import os
 import tempfile
@@ -89,150 +88,6 @@ class RLEConversion(unittest.TestCase):
             rle_object.coord_compact_to_full(index)
             for index in compact_indices]
         self.assertSequenceEqual(expected, got)
-
-
-class ParasailAlignment(unittest.TestCase):
-    """Check medaka.rle.parasail_alignment function."""
-
-    ref = 'AGCATGTTAGATAAGATA'
-
-    def test_alignment_001(self):
-        """Test alignment of read starting mid-reference and clip at end.
-
-        AGCATGTTAGATAA**GATA
-        TTAGATAAAGGATActg
-        """
-        seq = 'TTAGATAAAGGATACTG'
-        rstart, cigar = medaka.rle.parasail_alignment(seq, self.ref)
-        expected = (6, '8=2I4=3S')
-        self.assertEqual(cigar, expected[1], 'cigars differ!')
-        self.assertEqual(rstart, expected[0], 'rstart wrong!')
-
-    def test_alignment_002(self):
-        """Test alignment of read starting mid-reference with clip at begining.
-
-        AGCATGTTAGATAA*GATA
-        aaaAGATAAGGATA
-        """
-        seq = 'AAAAGATAAGGATA'
-        rstart, cigar = medaka.rle.parasail_alignment(seq, self.ref)
-        expected = (8, '3S6=1I4=')
-        self.assertEqual(cigar, expected[1], 'cigars differ!')
-        self.assertEqual(rstart, expected[0], 'rstart wrong!')
-
-    def test_alignment_003(self):
-        """Test alignment with clipping in both ends.
-
-        AGCATGTTAGATAAGATA
-        ccCATGTTAGATAAGcc
-        """
-        seq = 'CCCATGTTAGATAAGCC'
-        rstart, cigar = medaka.rle.parasail_alignment(seq, self.ref)
-        expected = (2, '2S13=2S')
-        self.assertEqual(cigar, expected[1], 'cigars differ!')
-        self.assertEqual(rstart, expected[0], 'rstart wrong!')
-
-    def test_alignment_004(self):
-        """Test alignment of read starting before the reference.
-
-        AGCATGTTAGATAAGATA
-        ctgAGCATGT
-        """
-        seq = 'CTGAGCATGT'
-        rstart, cigar = medaka.rle.parasail_alignment(seq, self.ref)
-        expected = (0, '3S7=')
-        self.assertEqual(cigar, expected[1], 'cigars differ!')
-        self.assertEqual(rstart, expected[0], 'rstart wrong!')
-
-
-class Clipping(unittest.TestCase):
-    """Test soft clipping of parasail cigar strings."""
-
-    cigar1 = '4S2=1D40=1X29=2D12=1I10=3S'
-    cigar2 = '4S2=1D40=1X29=2D12=1I10='
-    cigar3 = '2=1D40=1X29=2D12=1I10=3S'
-    cigar4 = '2=1D40=1X29=2D12=1I10='
-    cigars = (cigar1, cigar2, cigar3, cigar4)
-
-    def test_no_added_clipping(self):
-        """Do not add anything, cigar should return untouched."""
-        for cigar in self.cigars:
-            got = medaka.rle.add_extra_clipping(cigar, 0, 0)
-            self.assertEqual(cigar, got)
-
-    def test_add_start(self):
-        """Add clipping only at the beginning of the cigar."""
-        start_clipped = 4
-        expected = (
-            '8S2=1D40=1X29=2D12=1I10=3S',
-            '8S2=1D40=1X29=2D12=1I10=',
-            '4S2=1D40=1X29=2D12=1I10=3S',
-            '4S2=1D40=1X29=2D12=1I10=')
-        got = tuple(
-            medaka.rle.add_extra_clipping(cigar, start_clipped, 0)
-            for cigar in self.cigars)
-        self.assertEqual(expected, got)
-
-    def test_add_end(self):
-        """Add clipping at the end of the cigar."""
-        end_clipped = 8
-        expected = (
-            '4S2=1D40=1X29=2D12=1I10=11S',
-            '4S2=1D40=1X29=2D12=1I10=8S',
-            '2=1D40=1X29=2D12=1I10=11S',
-            '2=1D40=1X29=2D12=1I10=8S')
-        got = tuple(
-            medaka.rle.add_extra_clipping(cigar, 0, end_clipped)
-            for cigar in self.cigars)
-        self.assertEqual(expected, got)
-
-    def test_add_both(self):
-        """Add clipping both ends of the cigar."""
-        start_clipped = 6
-        end_clipped = 9
-        expected = (
-            '10S2=1D40=1X29=2D12=1I10=12S',
-            '10S2=1D40=1X29=2D12=1I10=9S',
-            '6S2=1D40=1X29=2D12=1I10=12S',
-            '6S2=1D40=1X29=2D12=1I10=9S')
-        got = tuple(
-            medaka.rle.add_extra_clipping(cigar, start_clipped, end_clipped)
-            for cigar in self.cigars)
-        self.assertEqual(expected, got)
-
-
-class InitialiseAlignment(unittest.TestCase):
-    """Test `medaka.common.initialise_alignment`."""
-
-    input_kwargs = {
-        'query_name': 'test',
-        'reference_id': 0,
-        'reference_start': 2,
-        'query_sequence': 'GCCCTGTTGATCTT',
-        'cigarstring': "1S3=1D8=2S",
-        'flag': 0,
-        'mapping_quality': 60}
-    len_query = len(input_kwargs['query_sequence'])
-    input_kwargs['query_qualities'] = array.array('B', [20] * len_query)
-
-    def test_inputs(self):
-        """Test inputs are correctly passed to alignment."""
-        alignment = common.initialise_alignment(**self.input_kwargs)
-        for key, expected in self.input_kwargs.items():
-            got = getattr(alignment, key)
-            self.assertEqual(expected, got)
-
-    def test_derived(self):
-        """Test arguments derived from inputs."""
-        alignment = common.initialise_alignment(**self.input_kwargs)
-        expected_kwargs = {
-            'query_alignment_start': 1,
-            'query_alignment_end': 12,
-            'query_alignment_sequence': 'CCCTGTTGATC'}
-
-        for key, expected in expected_kwargs.items():
-            got = getattr(alignment, key)
-            self.assertEqual(got, expected)
 
 
 class CompressAlignment(unittest.TestCase):
@@ -364,7 +219,7 @@ class CompressBamTest(unittest.TestCase):
             ('read2', 0, 'TACTG', '5=', (1, 3, 1, 3, 1))}
 
         # None vs full region, no difference
-        for regions in (None, ['ref:0-10']):
+        for regions in (None, [medaka.common.Region('ref', 0, 10)]):
             args = args_class(
                 self.bam_input, self.bam_output, self.ref_fname,
                 2, regions, None)
@@ -401,7 +256,7 @@ class RLEParamsBam(unittest.TestCase):
         # Create a mock summary file with read_id and filename
         cls.summary_file = mock_summary_file(cls.fast5_fname)
 
-        regions = ['ref:0-10']
+        regions = [medaka.common.Region('ref', 0, 10)]
         args = args_class(
             cls.bam_input, cls.bam_output, cls.ref_fname,
             2, regions, (cls.fast5_dir, cls.summary_file))

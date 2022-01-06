@@ -1,26 +1,23 @@
-﻿
+
 ![Oxford Nanopore Technologies logo](https://github.com/nanoporetech/medaka/raw/master/images/ONT_logo_590x106.png)
 
 
 Medaka
 ======
 
-[![Build Status](https://travis-ci.org/nanoporetech/medaka.svg?branch=master)](https://travis-ci.org/nanoporetech/medaka)
-
 [![](https://img.shields.io/pypi/v/medaka.svg)](https://pypi.org/project/medaka/)
 [![](https://img.shields.io/pypi/wheel/medaka.svg)](https://pypi.org/project/medaka/)
-
 [![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)](https://anaconda.org/bioconda/medaka)
 [![](https://img.shields.io/conda/pn/bioconda/medaka.svg)](https://anaconda.org/bioconda/medaka)
 
 
-`medaka` is a tool to create a consensus sequence from nanopore sequencing data.
-This task is performed using neural networks applied from a pileup of individual
-sequencing reads against a draft assembly. It outperforms graph-based methods
-operating on basecalled data, and can be competitive with state-of-the-art
-signal-based methods, whilst being much faster.
+`medaka` is a tool to create consensus sequences and variant calls from
+nanopore sequencing data. This task is performed using neural networks applied
+a pileup of individual sequencing reads against a draft assembly. It provides
+state-of-the-art results outperforming sequence-graph based methods and
+signal-based methods, whilst also being faster.
 
-© 2018 Oxford Nanopore Technologies Ltd.
+© 2018- Oxford Nanopore Technologies Ltd.
 
 Features
 --------
@@ -28,18 +25,12 @@ Features
   * Requires only basecalled data. (`.fasta` or `.fastq`)
   * Improved accurary over graph-based methods (e.g. Racon).
   * 50X faster than Nanopolish (and can run on GPUs).
-  * Methylation aggregation from Guppy `.fast5` files.
-  * Benchmarks are provided [here](https://nanoporetech.github.io/medaka/benchmarks.html).
   * Includes extras for implementing and training bespoke correction
     networks.
   * Works on Linux and MacOS.
   * Open source (Mozilla Public License 2.0).
 
-Tools to enable the creation of draft assemblies can be found in a sister
-project [pomoxis](https://github.com/nanoporetech/pomoxis).
-
-Documentation can be found at https://nanoporetech.github.io/medaka/.
-
+For creating draft assemblies we recommend [Flye](https://github.com/fenderglass/Flye).
 
 Installation
 ------------
@@ -48,15 +39,18 @@ Medaka can be installed in one of several ways.
 
 **Installation with conda**
 
-Perhaps the simplest way to start using medaka on both Linux and MacOS is
+Perhaps the simplest way to start using medaka is
 through conda; medaka is available via the
 [bioconda](https://anaconda.org/bioconda/medaka) channel:
 
     conda create -n medaka -c conda-forge -c bioconda medaka
 
+Occasionally the conda releases lag behind the source code and
+[PyPI](https://pypi.org/project/medaka/) releases.
+
 **Installation with pip**
 
-For those who prefer python's native pacakage manager, medaka is also available
+For those who prefer Python's native pacakage manager, medaka is also available
 on pypi and can be installed using pip:
 
     pip install medaka
@@ -77,7 +71,7 @@ Using this method requires the user to provide several binaries:
  * [tabix](https://github.com/samtools/htslib), and
  * [bgzip](https://github.com/samtools/htslib)
 
-and place these within the `PATH`. `samtools/bgzip/tabix` version 1.9 and
+and place these within the `PATH`. `samtools/bgzip/tabix` version 1.11 and
 `minimap2` version 2.17 are recommended as these are those used in development
 of medaka.
 
@@ -110,12 +104,18 @@ not be provided by the user.
 
 **Using a GPU**
 
-All installation methods will allow medaka to be used with CPU resource only.
-To enable the use of GPU resource it is necessary to install the
-`tensorflow-gpu` package. Unfortunately depending on your python version it
-may be necessary to modify the requirements of the `medaka` package for it
-to run without complaining. Using the source code from github a working
-GPU-powered `medaka` can be configured with:
+Since version 1.1.0 `medaka` uses Tensorflow 2.2, prior versions used Tensorflow 1.4.
+For `medaka` 1.1.0 and higher installation from source or using `pip` can make
+immediate use of GPUs. However, note that the `tensorflow` package is compiled against
+specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the
+[tensorflow installation](https://www.tensorflow.org/install/source#gpu) pages
+for further information. cuDNN can be obtained from the
+[cuDNN Archive](https://developer.nvidia.com/rdp/cudnn-archive), whilst CUDA
+from the [CUDA Toolkit Archive](https://developer.nvidia.com/cuda-toolkit-archive).
+
+For `medaka` prior to version 1.1.0, to enable the use of GPU resource it is
+necessary to install the `tensorflow-gpu` package. Using the source code from github
+a working GPU-powered `medaka` can be configured with:
 
     # Note: certain files are stored in git-lfs, https://git-lfs.github.com/,
     #       which must therefore be installed first.
@@ -123,13 +123,8 @@ GPU-powered `medaka` can be configured with:
     cd medaka
     sed -i 's/tensorflow/tensorflow-gpu/' requirements.txt
     make install
-
-However, note that The `tensorflow-gpu` GPU package is compiled against
-specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the
-[tensorflow installation](https://www.tensorflow.org/install/gpu) pages
-for further information. cuDNN can be obtained from the
-[cuDNN Archive](https://developer.nvidia.com/rdp/cudnn-archive), whilst CUDA
-from the [CUDA Toolkit Archive](https://developer.nvidia.com/cuda-toolkit-archive).
+    
+*GPU Usage notes*
 
 Depending on your GPU, `medaka` may show out of memory errors when running.
 To avoid these the inference batch size can be reduced from the default
@@ -142,6 +137,22 @@ environment variable to have `medaka` run without failure:
     export TF_FORCE_GPU_ALLOW_GROWTH=true
 
 In this situation a further reduction in batch size may be required.
+
+
+**Using Docker**
+
+The source code repository contains a `Dockerfile` which can be used to create
+a GPU compatible Docker container image with the appropriate CUDA and cuDNN
+library versions for running medaka. The image is built on top of images
+[provided by NVIDIA](https://hub.docker.com/r/nvidia/cuda) designed to run with the [NVIDIA Container
+Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+With the toolkit setup on your host computer the following command can be used
+to run the latest version of medaka:
+
+    docker run --rm --gpus 0 ontresearch/medaka:latest medaka --help
+
+(The `--gpus` option can be amended as appropriate for your environment). Versioned
+tags are also available.
 
 
 Usage
@@ -168,13 +179,24 @@ example above) see the Model section following.
 When `medaka_consensus` has finished running, the consensus will be saved to
 `${OUTDIR}/consensus.fasta`.
 
+
+**Bacterial (ploidy-1) variant calling**
+
+Variant calling for monoploid samples is enabled through the `medaka_haploid_variant`
+workflow:
+
+    medaka_haploid_variant <reads.fastq> <ref.fasta>
+    
+which requires the reads as a `.fasta` or `.fastq` and a reference sequence as a
+`.fasta` file.
+
+
 Models
 ------
 
 For best results it is important to specify the correct model, `-m` in the
 above, according to the basecaller used. Allowed values can be found by
 running `medaka tools list\_models`.
-
 
 Medaka models are named to indicate i) the pore type, ii) the sequencing
 device (MinION or PromethION), iii) the basecaller variant, and iv) the
@@ -190,69 +212,62 @@ files). Where a version of Guppy has been used without an exactly corresponding
 medaka model, the medaka model with the highest version equal to or less than
 the guppy version should be selected.
 
-Methylation Calling
--------------------
 
-`medaka` includes a basic workflow for aggregating Guppy basecalling results
-for Dcm, Dam, and CpG methylation. The workflow is currently very preliminary
-and subject to change and improvement.
+Improving parallelism
+---------------------
 
-Aggregating the information from Guppy outputs is a two stage process, first
-the basecalling results are extracted `.fast5` files and placed in a `.bam`
-file:
+The `medaka_consensus` program is good for simple datasets but perhaps not
+optimal for running large datasets at scale. A higher level of parallelism
+can be achieved by running independently the component steps of
+`medaka_consensus`. The program performs three tasks:
 
-    FAST5PATH=guppy/workspace
-    REFERENCE=grch38.fasta
-    OUTBAM=meth.bam
-    medaka methylation guppy2sam ${FAST5PATH} ${REFERENCE} \
-        --workers 74 --recursive \
-        | samtools sort -@ 8 | samtools view -b -@ 8 > ${OUTBAM}
-    samtools sort ${OUTBAM}
+1. alignment of reads to input assembly (via `mini_align` which is a thin
+   veil over `minimap2`)
+2. running of consensus algorithm across assembly regions
+   (`medaka consensus`, note no underscore!)
+3. aggregation of the results of 2. to create consensus sequences
+   (`medaka stitch`)
 
-This program will extract both the basecall sequence and methylation scores,
-align the basecall to the reference, and store results in a standard format.
-In this preliminary workflow the methylation scores are stored in two SAM
-tags, 'MC' and 'MA', one each for 5mC and 6mA respectively. The tags are
-8bit integer array-values, one value per basecall position. This is a
-different form to that proposed in the current
-[hts-specs proposition](https://github.com/samtools/hts-specs/pull/418/files),
-but allows for more trivial parsing.
+The three steps are discrete, and can be split apart and run independently. In
+most cases, Step 2. is the bottleneck and can be trivially parallelized. The
+`medaka consensus` program can be supplied a `--regions`
+argument which will restrict its action to particular assembly sequences from
+the `.bam` file output in Step 1. Therefore individual jobs can be run for batches
+of assembly sequences simultaneously. In the final step, `medaka stitch`
+can take as input one or more of the `.hdf` files output by Step 2.
 
-The second step is to aggregate the reference-aligned information to produce
-a simple tabular summary of read methylation counts:
+So in summary something like this is possible:
 
-    BAM=meth.bam
-    REFERENCE=grch38.fasta
-    REGION=chr20:500000-1000000
-    OUTPUT=meth.tsv
-    medaka methylation call --meth cpg ${BAM} ${REFERENCE} ${REGION} ${OUTPUT}
+.. code-block:: bash
 
-Here the option `--meth cpg` indicates that loci containing the sequence
-motif `CG` should be examined for 5mC presence. Other choices are
-`dcm` for which the motifs `CCAGG` and `CCTGG` are examined for 5mC and `dam`
-(`GATC`) for 6mA.
+    # align reads to assembly
+    mini_align -i basecalls.fasta -r assembly.fasta -P -m \
+        -p calls_to_draft.bam -t <threads>
+    # run lots of jobs like this, change model as appropriate
+    mkdir results
+    medaka consensus calls_to_draft.bam results/contigs1-4.hdf \
+        --model r941_min_fast_g303 --batch 200 --threads 8 \
+        --region contig1 contig2 contig3 contig4
+    ...
+    # wait for jobs, then collate results
+    medaka stitch results/*.hdf polished.assembly.fasta
 
-The output file is a simple tab-delimited text file with columns:
-'ref.name', 'position', 'motif', 'fwd.meth.count', 'rev.meth.count',
-'fwd.canon.count', and 'rev.canon.count'. Here fwd./ref. indicate counts on the
-two DNA strands and meth./canon. indicate counts for methylated and
-canonical bases. Note that the position field records the position of the
-first base in the motif recorded.
+It is not recommended to specify a value of `--threads` greater than 2 for
+`medaka consensus` since the compute scaling efficiency is poor beyond this.
+Note also that `medaka consensus` may been seen to use resources equivalent to
+`<threads> + 4` as an additional 4 threads are used for reading and preparing
+input data.
 
-### Origin of the draft sequence
 
-Medaka has been trained to correct draft sequences processed through
-[racon](https://github.com/isovic/racon), specifically `racon` run four times
-iteratively with:
+Origin of the draft sequence
+----------------------------
 
-    racon -m 8 -x -6 -g -8 -w 500 ...
+Medaka has been trained to correct draft sequences output from the 
+[Flye](https://github.com/fenderglass/Flye) assembler.
 
 Processing a draft sequence from alternative sources (e.g. the output of
 [canu](https://github.com/marbl/canu) or
 [wtdbg2](https://github.com/ruanjue/wtdbg2)) may lead to different results.
-
-The [documentation](https://nanoporetech.github.io/medaka/draft_origin.html)
-provides a discussion and some guidance on how to obtain a draft sequence.
 
 
 Acknowledgements
@@ -272,7 +287,7 @@ Help
 
 **Licence and Copyright**
 
-© 2018 Oxford Nanopore Technologies Ltd.
+© 2018- Oxford Nanopore Technologies Ltd.
 
 `medaka` is distributed under the terms of the Mozilla Public License 2.0.
 

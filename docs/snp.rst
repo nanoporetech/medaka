@@ -1,5 +1,5 @@
-Variant calling
-===============
+Human Variant Calling Benchmarks
+================================
 
 Medaka implements a small variant calling pipeline to call single nucleotide
 polymorphisms (SNPs) together with insertions and deletions (Indels) from Nanopore
@@ -127,6 +127,31 @@ the HG002 (NA24385) sample at 60-fold coverage.
     |                  | Indel |    0.9508 |  0.9385 |    0.945 |
     +------------------+-------+-----------+---------+----------+
 
+  
+Guppy 3.6 SNP and Indel calling
+-------------------------------
+
+*Last updated June 2020*
+
+The benchmarks were performed as described above, but on chromosome 20 of
+the HG002 (NA24385) sample at 60-fold coverage.
+
+.. table::
+    R9.4.1 small variant calling at 60-fold coverage using `medaka variant` pipeline.
+    Comparison is made with the `GIAB <http://jimb.stanford.edu/giab-resources/>`_
+    high confidence callset using `hap.py <https://github.com/Illumina/hap.py>`_.
+
+    +-------------------------+-------+-----------+---------+----------+
+    | medaka / variant model  | Class | Precision | Recall  | F1 score |
+    +-------------------------+-------+-----------+---------+----------+
+    | v1.0.1 /                | SNP   |    0.9898 |  0.9931 |    0.992 |
+    + r941_prom_variant_g322  +-------+-----------+---------+----------+
+    |                         | Indel |    0.9199 |  0.8634 |    0.891 |
+    +-------------------------+-------+-----------+---------+----------+
+    | v1.0.2 /                | SNP   |    0.9917 |  0.9965 |    0.994 |
+    + r941_prom_variant_g360  +-------+-----------+---------+----------+
+    |                         | Indel |    0.9379 |  0.8982 |    0.918 |
+    +-------------------------+-------+-----------+---------+----------+
 
 
 Performing Variant Calling
@@ -144,7 +169,7 @@ The pipeline described above is implemented in the ``medaka_variant`` program:
 .. code-block:: bash
 
     source ${MEDAKA}
-    medaka_variant -f <REFERENCE.fasta> -b <reads.bam>
+    medaka_variant -f <REFERENCE.fasta> -i <reads.bam>
 
 This will run all steps of the process described above, finally outputting a
 phased ``.vcf`` variant file.

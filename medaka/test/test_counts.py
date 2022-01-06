@@ -1,4 +1,3 @@
-import array
 import copy
 import os
 import pickle
@@ -6,7 +5,6 @@ import tempfile
 import unittest
 
 import numpy as np
-import pysam
 
 from .mock_data import simple_data, create_simple_bam
 import libmedaka
@@ -166,6 +164,16 @@ class TrimReadsTest(unittest.TestCase):
         orig = [x[1:-1] for x in self.reads]
         self.assertEqual(reads, orig)
 
+    def test_005_chunked(self):
+        region = Region('ref', start=0, end=9)
+        n_chunks = len(list(medaka.features.get_trimmed_reads(region, self.bam, region_split=3, chunk_overlap=0)))
+        self.assertEqual(n_chunks, 3)
+
+    def test_005_unchunked(self):
+        region = Region('ref', start=0, end=9)
+        n_chunks = len(list(medaka.features.get_trimmed_reads(region, self.bam, region_split=1000, chunk_overlap=0)))
+        self.assertEqual(n_chunks, 1)
+
 
 class CountsSplittingTest(unittest.TestCase):
 
@@ -317,10 +325,22 @@ class PileupCounts(unittest.TestCase):
             counts, positions = medaka.features.pileup_counts(region, bam, read_group=rg)[0]
             self.assertTrue(np.array_equal(counts, self.expected_counts))
             self.assertTrue(np.array_equal(positions, self.expected_positions))
-        
+
         # use a missing one
         result = medaka.features.pileup_counts(region, bam, read_group='nonsense')
         self.assertTrue(len(result) == 0)
+
+
+    def test_060_counts_chunked(self):
+        """Test that we get the same counts and positions when region_split < region.size
+
+        i.e. the stitching back together of chunks processed in parallel works.
+        """
+        chunks = medaka.features.pileup_counts(self.region, self.bam, region_split=3)
+        self.assertEqual(len(chunks), 1)
+        counts, positions = chunks[0]
+        self.assertTrue(np.array_equal(counts, self.expected_counts))
+        self.assertTrue(np.array_equal(positions, self.expected_positions))
 
 
 class CountsQscoreStratification(unittest.TestCase):
@@ -526,3 +546,43 @@ class HardRLEFeatureEncoder(unittest.TestCase):
         encoder = medaka.features.HardRLEFeatureEncoder(
             num_qstrat=10, **kwargs)
         self.assertEqual(encoder.feature_vector_length, 200)
+
+
+class SymHardRLEFeatureEncoder(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        kwargs = {'normalise': None}
+        encoder = medaka.features.SymHardRLEFeatureEncoder(**kwargs)
+
+        # Create a bam file where we know the alignments
+        RLE_bam = tempfile.NamedTemporaryFile(suffix='.bam').name
+        create_simple_bam(RLE_bam, simple_data['calls'])
+        sample = encoder.bam_to_sample(RLE_bam, Region('ref', 0, 11))
+        cls.bam_fname = RLE_bam
+        cls.sample = sample[0]
+        cls.num_qstrat = encoder.num_qstrat
+
+    def test_001_check_counts(self):
+        """Check the counts themselves. See above `create_simple_bam` to understand
+        the values in the counts. For example, 1 basecalls believe the first
+        column of the alignment is `2A`, while two have `2a`. One has `0A` which
+        will become a `1A` when corrected. Three calls have no insertion, only
+        the third basecall has it, so SymHardRLEFeatureEncoder will count 3 indels
+        at that position, unlike other FeatureEncoders.
+
+        Thus:
+        [4, 8] (1d) will have one counts
+        [4, 9] (1D) will have two counts
+        """
+        values_for_positions = {
+            1.0: [
+                (0, 4), (0, 14), (3, 1), (3, 9), (3, 43), (3, 47),
+                (4, 0), (4, 8), (7, 7), (7, 17), (8, 6), (8, 16)],
+            2.0: [
+                (0, 10), (1, 1), (1, 5), (2, 30), (2, 34), (4,9),
+                (5, 2), (5, 6), (6, 0), (6, 4), (7, 13), (8, 2)]}
+        expected = np.zeros_like(self.sample.features)
+        for value, positions in values_for_positions.items():
+            for pos in positions:
+                expected[pos[0], pos[1]] = value
+        np.testing.assert_equal(self.sample.features, expected)

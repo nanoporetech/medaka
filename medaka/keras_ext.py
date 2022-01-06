@@ -1,10 +1,12 @@
 """Extensions to keras API for medaka."""
 import os
+import pickle
+import shutil
+import tarfile
 from timeit import default_timer as now
 
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
+from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.utils import Sequence
 
 import medaka.common
@@ -14,13 +16,12 @@ import medaka.datastore
 
 
 class ModelMetaCheckpoint(ModelCheckpoint):
-    """Custom ModelCheckpoint to add medaka-specific metadata."""
+    """Custom ModelCheckpoint to add medaka-specific metadata to hdf5 files."""
 
     def __init__(self, medaka_meta, *args, **kwargs):
         """Initialize checkpointing.
 
-        :param medaka_meta: dictionary of meta data to store in checkpoint
-            files.
+        :param medaka_meta: dict of meta data to store in checkpoint files.
         :param args: positional arguments for baseclass.
         :param kwargs: keyword arguments for baseclass.
 
@@ -32,57 +33,35 @@ class ModelMetaCheckpoint(ModelCheckpoint):
         if not set(medaka_meta.keys()).issubset(required_meta):
             raise KeyError(
                 '`medaka_meta may only contain: {}'.format(required_meta))
+        self.logger = medaka.common.get_named_logger("CheckPnt")
 
     def on_epoch_end(self, epoch, logs=None):
         """Perform actions at the end of an epoch."""
         super(ModelMetaCheckpoint, self).on_epoch_end(epoch, logs)
-        filepath = self.filepath.format(epoch=epoch + 1, **logs)
-        with medaka.datastore.DataStore(filepath, 'a') as ds:
+        self.epoch_fp = self.filepath.format(epoch=epoch, **logs)
+        if os.path.exists(self.epoch_fp):
+            self.pack_meta()
+
+    def pack_meta(self):
+        """Write meta to hdf."""
+        with medaka.datastore.DataStore(self.epoch_fp, 'a') as ds:
             for k, v in self.medaka_meta.items():
                 ds.set_meta(v, k)
 
 
-class TrainValTensorBoard(TensorBoard):
-    """Modification of tensorboard to plot test and validation together."""
+class ModelMetaCheckpointTF(ModelMetaCheckpoint):
+    """Custom ModelCheckpoint to save tf model files and metadata."""
 
-    def __init__(self, log_dir='./logs', **kwargs):
-        """Initialise log writing."""
-        # the strategy here is to log training and validation to different
-        # subdirectories and rename validation metrics to be the same as
-        # the training metrics (remove their 'val' prefix)
-        training_log_dir = os.path.join(log_dir, 'training')
-        super(TrainValTensorBoard, self).__init__(training_log_dir, **kwargs)
-        self.val_log_dir = os.path.join(log_dir, 'validation')
-
-    def set_model(self, model):
-        """Set writer for validation metrics."""
-        self.val_writer = tf.summary.FileWriter(self.val_log_dir)
-        super(TrainValTensorBoard, self).set_model(model)
-
-    def on_epoch_end(self, epoch, logs=None):
-        """Write logs on epoch end."""
-        # take validation logs, save separately renaming keys.
-        # epoch is added as this is what `on_epoch_end` does
-        logs = logs or {}
-        val_logs = {
-            k.replace('val_', 'epoch_'): v
-            for k, v in logs.items() if k.startswith('val_')}
-        for name, value in val_logs.items():
-            summary = tf.Summary()
-            summary_value = summary.value.add()
-            summary_value.simple_value = value.item()
-            summary_value.tag = name
-            self.val_writer.add_summary(summary, epoch)
-        self.val_writer.flush()
-
-        # take remaining logs and handle normally
-        logs = {k: v for k, v in logs.items() if not k.startswith('val_')}
-        super(TrainValTensorBoard, self).on_epoch_end(epoch, logs)
-
-    def on_train_end(self, logs=None):
-        """Close the validation writer on exit."""
-        super(TrainValTensorBoard, self).on_train_end(logs)
-        self.val_writer.close()
+    def pack_meta(self, clean=True):
+        """Write meta to pickled file in tf model directory and zip."""
+        with open(os.path.join(self.epoch_fp, 'meta.pkl'), 'wb') as handle:
+            pickle.dump(self.medaka_meta, handle)
+        with tarfile.open(self.epoch_fp + '.tar.gz', "w:gz") as tar:
+            tar.add(
+                self.epoch_fp,
+                arcname=medaka.datastore.ModelStoreTF.top_level_dir)
+        if clean:
+            shutil.rmtree(self.epoch_fp)
 
 
 class SequenceBatcher(Sequence):
