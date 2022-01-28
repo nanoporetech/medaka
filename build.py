@@ -37,7 +37,11 @@ ffibuilder.set_source("libmedaka",
     extra_objects=['libhts.a']
 )
 
-cdef = []
+cdef = [
+    "typedef struct { ...; } bam_fset;"
+    "bam_fset* create_bam_fset(char* fname);"
+    "void destroy_bam_fset(bam_fset* fset);"
+]
 for header in ('medaka_counts.h','fastrle.h', 'medaka_pytrimbam.h', 'medaka_rnn_variants.h'):
     with open(os.path.join(src_dir, header), 'r') as fh:
         # remove directives

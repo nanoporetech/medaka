@@ -285,7 +285,7 @@ float* _get_weibull_scores(const bam_pileup1_t *p, const size_t indel, const siz
  *
  */
 plp_data calculate_pileup(
-        const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[],
+        const char *region, const bam_fset* bam_set, size_t num_dtypes, char *dtypes[],
         size_t num_homop, const char tag_name[2], const int tag_value, const bool keep_missing,
         bool weibull_summation, const char *read_group) {
     if (num_dtypes == 1 && dtypes != NULL) {
@@ -311,15 +311,10 @@ plp_data calculate_pileup(
     }
 
     // open bam etc.
-    htsFile *fp = hts_open(bam_file, "rb");
-    hts_idx_t *idx = sam_index_load(fp, bam_file);
-    sam_hdr_t *hdr = sam_hdr_read(fp);
-    if (hdr == 0 || idx == 0 || fp == 0) {
-        hts_close(fp); hts_idx_destroy(idx); sam_hdr_destroy(hdr);
-        free(chr);
-        fprintf(stderr, "Failed to read .bam file '%s'.", bam_file);
-        exit(1);
-    }
+    // this is all now deferred to the caller
+    htsFile *fp = bam_set->fp;
+    hts_idx_t *idx = bam_set->idx; 
+    sam_hdr_t *hdr = bam_set->hdr;
 
     // setup bam interator
     mplp_data *data = xalloc(1, sizeof(mplp_data), "pileup init data");
@@ -459,10 +454,6 @@ plp_data calculate_pileup(
     free(plp);
     free(chr);
 
-    hts_close(fp);
-    hts_idx_destroy(idx);
-    sam_hdr_destroy(hdr);
-
     return pileup;
 }
 
@@ -489,12 +480,15 @@ int main(int argc, char *argv[]) {
     bool weibull_summation = false;
     const char* read_group = NULL;
 
+    bam_fset* bam_set = create_bam_fset(bam_file);
+
     plp_data pileup = calculate_pileup(
-        reg, bam_file, num_dtypes, dtypes,
+        reg, bam_set, num_dtypes, dtypes,
         num_homop, tag_name, tag_value, keep_missing,
         weibull_summation, read_group);
     print_pileup_data(pileup, num_dtypes, dtypes, num_homop);
     fprintf(stdout, "pileup is length %zu, with buffer of %zu columns\n", pileup->n_cols, pileup->buffer_cols);
     destroy_plp_data(pileup);
-    exit(0); 
+    destroy_bam_fset(bam_set);
+    exit(0);
 }

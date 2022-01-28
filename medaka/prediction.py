@@ -159,10 +159,12 @@ def predict(args):
             len(regions)))
         model = model_store.load_model(time_steps=args.chunk_len)
 
+        bam_pool = medaka.features.BAMHandler(args.bam)
+
         # the returned regions are those where the pileup width is smaller than
         # chunk_len
         remainder_regions = run_prediction(
-            args.output, args.bam, regions, model, feature_encoder,
+            args.output, bam_pool, regions, model, feature_encoder,
             args.chunk_len, args.chunk_ovlp,
             batch_size=args.batch_size, save_features=args.save_features,
             bam_workers=args.bam_workers)
@@ -183,7 +185,7 @@ def predict(args):
             model.run_eagerly = True
             remainers = [r[0] for r in remainder_regions]
             new_remainders = run_prediction(
-                args.output, args.bam, remainers, model,
+                args.output, bam_pool, remainers, model,
                 feature_encoder,
                 args.chunk_len, args.chunk_ovlp,  # these won't be used
                 batch_size=1,  # everything is a different size, cant batch
@@ -207,8 +209,8 @@ class DataLoader(object):
     """Loading of data for inference."""
 
     def __init__(
-            self, bam, regions, batch_size, batch_cache_size=4,
-            bam_workers=4, **kwargs):
+            self, bam, regions, batch_size, batch_cache_size=8,
+            bam_workers=2, **kwargs):
         """Initialise data loading.
 
         Once constructed, iterating over this object will yield

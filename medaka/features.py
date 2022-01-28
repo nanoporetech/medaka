@@ -2,10 +2,12 @@
 import abc
 from collections import defaultdict
 import concurrent.futures
+from contextlib import contextmanager
 import functools
 import inspect
 import itertools
 import os
+import queue
 import time
 from timeit import default_timer as now
 
@@ -15,6 +17,51 @@ import libmedaka
 import medaka.common
 import medaka.datastore
 import medaka.labels
+
+
+class BAMHandler(object):
+    """Opening of BAM file handles and indices."""
+
+    def __init__(self, bam, size=16):
+        """Initialise a pool of HTSlib filehandles."""
+        # note: the default size here is set to match the default
+        #       `bam_workers` of prediction.DataLoader and `workers`
+        #       of features.pileup_counts, such that this class
+        #       should never block computations
+        self.bam = bam
+        self._pool = queue.Queue(size)
+        self.logger = medaka.common.get_named_logger('BAMFile')
+        self.logger.info("Creating pool of {} BAM file sets.".format(size))
+
+        lib, ffi = libmedaka.lib, libmedaka.ffi
+        for _ in range(size):
+            fset = ffi.gc(
+                lib.create_bam_fset(self.bam.encode()),
+                self._destroy_fset)
+            self._pool.put(fset)
+
+    @contextmanager
+    def borrow(self):
+        """Borrow a BAM file handle and index set."""
+        fset = self._pool.get()
+        try:
+            self.logger.debug("Lending fileset.")
+            yield fset
+        finally:
+            self._pool.put(fset)
+            self.logger.debug("Returned fileset to pool.")
+
+    def encode(self):
+        """Return bare path encoded to bytes.
+
+        For legacy compatibility only.
+        """
+        self.logger.warn("BAM file used bare.")
+        return self.bam.encode()
+
+    def _destroy_fset(self, fset):
+        self.logger.debug("Closing BAM file set.")
+        libmedaka.lib.destroy_bam_fset(fset)
 
 
 def _plp_data_to_numpy(plp_data, n_rows):
@@ -169,11 +216,15 @@ def pileup_counts(
     def _process_region(reg):
         # htslib start is 1-based, medaka.common.Region object is 0-based
         region_str = '{}:{}-{}'.format(reg.ref_name, reg.start + 1, reg.end)
-
-        counts = lib.calculate_pileup(
-            region_str.encode(), bam.encode(), num_dtypes, dtypes, num_qstrat,
-            tag_name, tag_value, keep_missing, weibull_summation, read_group
-        )
+        if isinstance(bam, BAMHandler):
+            bam_handle = bam
+        else:
+            bam_handle = BAMHandler(bam)
+        with bam_handle.borrow() as fh:
+            counts = lib.calculate_pileup(
+                region_str.encode(), fh, num_dtypes, dtypes,
+                num_qstrat, tag_name, tag_value, keep_missing,
+                weibull_summation, read_group)
         np_counts, positions = _plp_data_to_numpy(
             counts, featlen * num_dtypes * num_qstrat)
         lib.destroy_plp_data(counts)
