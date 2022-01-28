@@ -1,0 +1,7 @@
+.git
+bincache
+dist
+htmlcov
+medaka.egg-info
+pypi_build
+venv
