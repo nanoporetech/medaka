@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## Unreleased
+### Fixed
+- Fixed inclusion of inserted bases in pileup counts when a read has a deletion and insertion at the same position.
+
 ## [v1.5.0]
 ### Changed
 - Updated tensorflow requirement to ~=2.5.2.
