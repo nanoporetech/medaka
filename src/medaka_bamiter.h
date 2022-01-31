@@ -16,6 +16,21 @@ typedef struct {
     const char *read_group;
 } mplp_data;
 
+
+typedef struct {
+    htsFile *fp;
+    hts_idx_t *idx;
+    sam_hdr_t *hdr;
+} bam_fset;
+
+
+// Initialise BAM file, index and header structures
+bam_fset* create_bam_fset(const char* fname);
+
+// Destory BAM file, index and header structures
+void destroy_bam_fset(bam_fset* fset);
+
+
 // iterator for reading bam
 int read_bam(void *data, bam1_t *b);
 

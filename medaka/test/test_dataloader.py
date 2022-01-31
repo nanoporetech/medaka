@@ -8,7 +8,7 @@ import pysam
 
 from medaka.align import initialise_alignment
 from medaka.common import get_bam_regions, Region
-from medaka.features import CountsFeatureEncoder
+from medaka.features import BAMHandler, CountsFeatureEncoder
 from medaka.prediction import DataLoader
 
 
@@ -29,8 +29,9 @@ class TestDataLoader(unittest.TestCase):
     def _run_one(self, batch_size, chunk_len, chunk_overlap, exp_batches, exp_samples, exp_remains=0, regions=None):
         if regions is None:
             regions = get_bam_regions(self.bam)
+        bam = BAMHandler(self.bam, size=1)
         loader = DataLoader(
-            self.bam, regions, batch_size,
+            bam, regions, batch_size,
             batch_cache_size=4, bam_workers=4,
             feature_encoder=CountsFeatureEncoder(),
             chunk_len=chunk_len, chunk_overlap=chunk_overlap,

@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "medaka_bamiter.h"
+#include "medaka_common.h"
 
 // iterator for reading bam
 int read_bam(void *data, bam1_t *b) {
@@ -44,4 +45,28 @@ int read_bam(void *data, bam1_t *b) {
         break;
     }
     return ret;
+}
+
+
+// Initialise BAM file, index and header structures
+bam_fset* create_bam_fset(const char* fname) {
+    bam_fset* fset = xalloc(1, sizeof(bam_fset), "bam fileset");
+    fset->fp = hts_open(fname, "rb");
+    fset->idx = sam_index_load(fset->fp, fname);
+    fset->hdr = sam_hdr_read(fset->fp);
+    if (fset->hdr == 0 || fset->idx == 0 || fset->fp == 0) {
+        destroy_bam_fset(fset);
+        fprintf(stderr, "Failed to read .bam file '%s'.", fname);
+        exit(1);
+    }
+    return fset;
+}
+
+
+// Destory BAM file, index and header structures
+void destroy_bam_fset(bam_fset* fset) {
+    hts_close(fset->fp);
+    hts_idx_destroy(fset->idx);
+    sam_hdr_destroy(fset->hdr);
+    free(fset);
 }

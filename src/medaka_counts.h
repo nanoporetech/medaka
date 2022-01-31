@@ -146,7 +146,7 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_
  *
  */
 plp_data calculate_pileup(
-        const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[],
+        const char *region, const bam_fset* bam_set, size_t num_dtypes, char *dtypes[],
         size_t num_homop, const char tag_name[2], const int tag_value, const _Bool keep_missing,
         bool weibull_summation, const char *read_group);
 
