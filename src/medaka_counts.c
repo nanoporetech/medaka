@@ -397,47 +397,49 @@ plp_data calculate_pileup(
                 }
             }
 
-            int base_i;
+            int base_i, min_minor = 0;
+            int max_minor = p->indel > 0 ? p->indel : 0;
             if (p->is_del) {
                 // deletions are kept in the first layer of qscore stratification, if any
                 int qstrat = 0;
                 base_i = bam_is_rev(p->b) ? rev_del : fwd_del;
                 //base = plp_bases[base_i];
                 pileup->matrix[major_col + featlen * dtype * num_homop + featlen * qstrat + base_i] += 1;
-            } else { // handle pos and any following ins
-                int max_j = p->indel > 0 ? p->indel : 0;
-                for (int j = 0; j <= max_j; ++j){
-                    int base_j = bam1_seqi(bam1_seq(p->b), p->qpos + j);
-                    //base = seq_nt16_str[base_j];
-                    if bam_is_rev(p->b) {
-                        base_j += 16;
-                    }
+                min_minor = 1; // in case there is also an indel, skip the major position
+            }
+            // loop over any query bases at or inserted after pos
+            int query_pos_offset = 0;
+            for (int minor = min_minor; minor <= max_minor; ++minor, ++query_pos_offset){
+                int base_j = bam1_seqi(bam1_seq(p->b), p->qpos + query_pos_offset);
+                //base = seq_nt16_str[base_j];
+                if bam_is_rev(p->b) {
+                    base_j += 16;
+                }
 
-                    base_i = num2countbase[base_j];
-                    if (base_i != -1) {  // not an ambiguity code
-                        size_t partial_index = 
-                            major_col + dtype_featlen * j  // skip to column
-                            + featlen * dtype * num_homop  // skip to datatype
-                            //+ featlen * qstrat           // skip to qstrat/homop
-                            + base_i;                      // the base
+                base_i = num2countbase[base_j];
+                if (base_i != -1) {  // not an ambiguity code
+                    size_t partial_index =
+                        major_col + dtype_featlen * minor              // skip to column
+                        + featlen * dtype * num_homop                  // skip to datatype
+                        //+ featlen * qstrat                           // skip to qstrat/homop
+                        + base_i;                                      // the base
 
-                        if (weibull_summation) {
-                            float* fraction_counts = _get_weibull_scores(p, j, num_homop, no_rle_tags);
-                            for (size_t qstrat = 0; qstrat < num_homop; ++qstrat) {
-                                static const int scale = 10000;
-                                pileup->matrix[partial_index + featlen * qstrat] += 
-                                    scale * fraction_counts[qstrat];
-                            }
-                            free(fraction_counts);
-                        } else {
-                            int qstrat = 0;
-                            if (num_homop > 1) {
-                                // want something in [0, num_homop-1]
-                                qstrat = min(bam_get_qual(p->b)[p->qpos + j], num_homop);
-                                qstrat = max(0, qstrat - 1);
-                            }
-                            pileup->matrix[partial_index + featlen * qstrat] += 1;
+                    if (weibull_summation) {
+                        float* fraction_counts = _get_weibull_scores(p, query_pos_offset, num_homop, no_rle_tags);
+                        for (size_t qstrat = 0; qstrat < num_homop; ++qstrat) {
+                            static const int scale = 10000;
+                            pileup->matrix[partial_index + featlen * qstrat] +=
+                                scale * fraction_counts[qstrat];
                         }
+                        free(fraction_counts);
+                    } else {
+                        int qstrat = 0;
+                        if (num_homop > 1) {
+                            // want something in [0, num_homop-1]
+                            qstrat = min(bam_get_qual(p->b)[p->qpos + query_pos_offset], num_homop);
+                            qstrat = max(0, qstrat - 1);
+                        }
+                        pileup->matrix[partial_index + featlen * qstrat] += 1;
                     }
                 }
             }
