@@ -234,9 +234,11 @@ class DataLoader(object):
 
         # Memory use is dominated by number of workers as each will
         # produce many batches in one shot. We make workers
-        # block when many samples have been calculated.
+        # block when many samples (or batches) have been calculated.
+        # This setup will lead to at most 2 * batch_cache_size being
+        # held in the system, plus anyhing computed but not transferred
+        # into the self._samples
         sample_cache_size = batch_cache_size * batch_size
-        batch_cache_size = 0  # batch things ASAP
         self._samples = queue.Queue(maxsize=sample_cache_size)
         self._batches = queue.Queue(maxsize=batch_cache_size)
         # fill input queue before workers start
