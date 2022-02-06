@@ -5,6 +5,7 @@ import warnings
 
 import pytest
 
+from medaka import parasail
 import medaka.align
 from medaka import smolecule
 
@@ -29,6 +30,7 @@ class TestRead(unittest.TestCase):
         for i, (nsr, read) in enumerate(zip(n_subreads, reads)):
             self.assertEqual(read.nseqs, nsr, 'Read {} has correct number of subreads.'.format(i))
 
+    @unittest.skipIf(parasail.dnafull is None, "Using fake parasail.")
     def test_10_initialize(self):
         read = smolecule.Read.from_fastx(test_fasta)
         self.assertIsInstance(read, smolecule.Read)
@@ -38,7 +40,8 @@ class TestRead(unittest.TestCase):
         self.assertTrue(read._alignments_valid, '.alignments_valid is True after .initialize().')
         self.assertFalse(read._orient is None, '.orients is not None after .initialize().')
 
-    def test_012_interleave(self):
+    @unittest.skipIf(parasail.dnafull is None, "Using fake parasail.")
+    def test_12_interleave(self):
         read = smolecule.Read.from_fastx(test_fasta)
         orient, subreads = read.interleaved_subreads
         exp_orient = (True, False, True, False, True, False, True, False, True)
@@ -49,6 +52,7 @@ class TestRead(unittest.TestCase):
         new_order = [r.name for r in read.subreads]
         self.assertNotEqual(orig_order, new_order, "Reads are reordered.")
 
+    @unittest.skipIf(parasail.dnafull is None, "Using fake parasail.")
     @pytest.mark.skipif("CITEST" in os.environ, reason="CI instruction-set issue")
     def test_20_basic_consensus(self):
         read = smolecule.Read.from_fastx(test_fasta)
@@ -57,14 +61,7 @@ class TestRead(unittest.TestCase):
         self.assertEqual(cons, read.consensus, 'Returned sequence is self.consensus.')
         self.assertFalse(read._alignments_valid, '.alignments_valid is False after .poa_consensus.()')
 
-    @pytest.mark.skipif("CITEST" in os.environ, reason="CI instruction-set issue")
-    def test_25_basic_consensus_racon(self):
-        read = smolecule.Read.from_fastx(test_fasta)
-        cons = read.poa_consensus(method='racon')
-        self.assertTrue(read._initialized, 'Read is initialized after poa.')
-        self.assertEqual(cons, read.consensus, 'Returned sequence is self.consensus.')
-        self.assertFalse(read._alignments_valid, '.alignments_valid is False after .poa_consensus.()')
-
+    @unittest.skipIf(parasail.dnafull is None, "Using fake parasail.")
     def test_30_parasail_align(self):
         revcom = medaka.common.reverse_complement
         seq_mult = 100

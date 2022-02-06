@@ -9,9 +9,9 @@ import intervaltree
 import itertools
 import numpy as np
 np.random.seed(7)
-import parasail
 import pysam
 
+from medaka import parasail
 from medaka.common import yield_from_bed
 from medaka.vcf import (VCFWriter, VCFReader, Variant, Haploid2DiploidConverter,
                         split_variants, classify_variant, _merge_variants,
@@ -693,6 +693,7 @@ def strip(r):
 
 class TestAlignReadToHaps(unittest.TestCase):
 
+    @unittest.skipIf(parasail.dnafull is None, "Using fake parasail.")
     def test_align_read_to_haps(self):
         g_open = 5
         g_ext = 3
@@ -720,6 +721,7 @@ class TestAlignReadToHaps(unittest.TestCase):
 
 class TestAlignReadsToHaps(unittest.TestCase):
 
+    @unittest.skipIf(parasail.dnafull is None, "Using fake parasail.")
     def test_align_reads_to_haps(self):
         haps = [
             'ATGCTTTTT*GCTAC',  # ref
@@ -782,6 +784,7 @@ class TestAnnotateVCFs(unittest.TestCase):
         cls.bam = os.path.join(root_dir, 'data/test_annotate.bam')
         cls.rg = 'nCoV-2019_2'
 
+    @unittest.skipIf(parasail.dnafull is None, "Using fake parasail.")
     def test_vcf_annotate(self):
         variants_annotated = [
                 Variant('MN908947.3', 29748, 'ACGATCGAGTG', alt=['A'],

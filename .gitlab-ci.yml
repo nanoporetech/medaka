@@ -41,13 +41,7 @@ variables:
 .pytest: &pytest
     <<: *preparetest
     script:
-        - make -j 4 binaries
         - make test
-
-test-3.6.12:
-    variables:
-        PYENV_VERSION: 3.6.12
-    <<: *pytest
 
 test-3.7.9:
     variables:
@@ -68,7 +62,7 @@ test-3.9.9:
 
 test-mem-check:
     variables:
-        PYENV_VERSION: 3.6.12
+        PYENV_VERSION: 3.8.7
     <<: *preparetest
     script:
         - make mem_check
@@ -112,58 +106,52 @@ build:sdist:
 .switch-to-cpu: &switch-to-cpu
     before_script:
         - export PACKAGE_NAME=medaka-cpu
-        - sed -i 's/tensorflow/tensorflow-cpu/' requirements.txt
+        - export MEDAKA_CPU=1
 
 ### Tensorflow (gpu) builds
 
-build:many-linux-6:
-    <<: *many-linux-def
-    script:
-        - ./build-wheels.sh . 6
-
-build:many-linux-7:
+gpu:many-linux-7:
     <<: *many-linux-def
     script:
         - ./build-wheels.sh . 7
 
-build:many-linux-8:
+gpu:many-linux-8:
     <<: *many-linux-def
     script:
         - ./build-wheels.sh . 8
 
-build:many-linux-9:
+gpu:many-linux-9:
     <<: *many-linux-def
     script:
         - ./build-wheels.sh . 9
 
+gpu:many-linux-8:branch:
+    extends: gpu:many-linux-8
+    only:
+        - branches
+
 ### Tensorflow-cpu wheels
 
-build-cpu:many-linux-6:
-    <<: *many-linux-def
-    <<: *switch-to-cpu
-    script:
-        - ./build-wheels.sh . 6
-
-build-cpu:many-linux-7:
+cpu:many-linux-7:
     <<: *many-linux-def
     <<: *switch-to-cpu
     script:
         - ./build-wheels.sh . 7
 
-build-cpu:many-linux-8:
+cpu:many-linux-8:
     <<: *many-linux-def
     <<: *switch-to-cpu
     script:
         - ./build-wheels.sh . 8
 
-build-cpu:many-linux-9:
+cpu:many-linux-9:
     <<: *many-linux-def
     <<: *switch-to-cpu
     script:
         - ./build-wheels.sh . 9
 
 ###
-# ARM builds, need more work
+# ARM builds
 #
 
 .arm-many-linux: &arm-many-linux-def
@@ -182,25 +170,32 @@ build-cpu:many-linux-9:
           && chmod +x install.sh && ./install.sh
           && cd ..
         - GIT_SSL_NO_VERIFY=1 git lfs pull
-        - file medaka/data/*.hdf5
-        # strip some less useful dependencies
-        - sed -i "s/numpy==1.16.1/numpy==1.19.2/" requirements.txt
-        - sed -i "/parasail/d" requirements.txt
-        - sed -i "/pyspoa/d" requirements.txt
-        - sed -i "/whatshap/d" requirements.txt
-        # replace architecture of python extension (what about libhts.a?)
-        - sed -i "s/-msse3/-march=armv8-a+simd/" build.py
     artifacts:
         paths:
           - wheelhouse/*.whl
     only:
         - tags
 
-#build:arm-many-linux-6:
-#    *arm-many-linux-def
-#    script:
-#        - ./build-wheels.sh . 6
 
+arm-many-linux-7:
+    <<: *arm-many-linux-def
+    script:
+        - ./build-wheels.sh . 7
+
+arm-many-linux-8:
+    <<: *arm-many-linux-def
+    script:
+        - ./build-wheels.sh . 8
+
+arm-many-linux-9:
+    <<: *arm-many-linux-def
+    script:
+        - ./build-wheels.sh . 9
+
+arm-many-linux:branch:
+    extends: arm-many-linux-8
+    only:
+        - branches
 
 ###
 # Deploy stages

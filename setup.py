@@ -3,10 +3,10 @@ import re
 import sys
 from glob import glob
 import importlib.util
+import platform
 import shutil
 from setuptools import setup, find_packages, Extension
 from setuptools import Distribution, Command
-from setuptools.command.install import install
 from setuptools.command.build_ext import build_ext
 import subprocess
 
@@ -35,6 +35,7 @@ if mo:
 else:
     raise RuntimeError('Unable to find version string in "{}/__init__.py".'.format(__pkg_name__))
 
+# load the options module so we can decide which models to use in package
 _options_path = os.path.join(__pkg_name__, 'options.py')
 spec = importlib.util.spec_from_file_location("medaka.options", _options_path)
 _options = importlib.util.module_from_spec(spec)
@@ -60,6 +61,15 @@ def check_model_lfs():
         sys.exit(1)
 
 # create requirements from requirements.txt
+skip_deps = {}
+rename_deps = {}
+if platform.machine() in {"aarch64", "arm64"}:
+    skip_deps = {'parasail', 'pyspoa'}
+    if platform.system() == "Darwin":
+        rename_deps['tensorflow'] = 'tensorflow-macos'
+else:
+    if os.environ.get('MEDAKA_CPU') is not None:
+        rename_deps['tensorflow'] = 'tensorflow-cpu'
 dir_path = os.path.dirname(__file__)
 install_requires = []
 with open(os.path.join(dir_path, 'requirements.txt')) as fh:
@@ -68,27 +78,15 @@ with open(os.path.join(dir_path, 'requirements.txt')) as fh:
         for r in fh.read().splitlines() if not r.strip().startswith('#')
     )
     for req in reqs:
-        if req.startswith('git+https'):
-            req = req.split('/')[-1].split('@')[0]
-        install_requires.append(req)
+        # possibly rename, then decide if we want it. Doesn't handle changing version
+        base = re.split("[<>~=]", req)[0]
+        if base in rename_deps:
+            req = req.replace(base, rename_deps[base])
+        if base not in skip_deps:
+            install_requires.append(req)
 
-# locate and any third party binaries
-data_files = []
-if os.environ.get("MEDAKA_BINARIES") is not None:
-    with open(os.path.join(dir_path, 'Makefile')) as fh:
-        for line in fh.readlines():
-            tokens = line.split('=')
-            if tokens[0] == 'BINARIES':
-                exes = tokens[1].split()
-                break
-    #place binaries as package data, below we'll copy them to standard path in dist
-    data_files.append(
-        ('exes', [
-            'bincache/{}'.format(x, x) for x in exes
-        ])
-    )
 
-# to avoid pypi pacakges getting too big we only bundle some models
+# to avoid pypi packages getting too big we only bundle some models
 if os.environ.get('MEDAKA_DIST') is not None:
     bundled_models = _options.current_models
 else:
@@ -104,28 +102,6 @@ class HTSBuild(build_ext):
 
         self.execute(compile_hts, [], 'Compiling htslib using Makefile')
         build_ext.run(self)
-
-# Nasty hack to get binaries into bin path
-class GetPaths(install):
-    def run(self):
-        self.distribution.install_scripts = self.install_scripts
-        self.distribution.install_libbase = self.install_libbase
-
-def get_setuptools_script_dir():
-    # Run the above class just to get paths
-    dist = Distribution({'cmdclass': {'install': GetPaths}})
-    dist.dry_run = True
-    dist.parse_config_files()
-    command = dist.get_command_obj('install')
-    command.ensure_finalized()
-    command.run()
-
-    print(dist.install_libbase)
-    src_dir = glob(os.path.join(dist.install_libbase, 'medaka-*', 'exes'))[0]
-    for exe in (os.path.join(src_dir, x) for x in os.listdir(src_dir)):
-        print("Copying", os.path.basename(exe), '->', dist.install_scripts)
-        shutil.copy(exe, dist.install_scripts)
-    return dist.install_libbase, dist.install_scripts
 
 
 if __name__ == '__main__':
@@ -148,13 +124,12 @@ if __name__ == '__main__':
         python_requires='>3.5.*,<3.10',
         packages=find_packages(exclude=['*.test', '*.test.*', 'test.*', 'test']),
         package_data={
-            __pkg_name__:[os.path.join('data', '{}_model.tar.gz'.format(f))
-                          for f in bundled_models],
+            __pkg_name__:[
+                os.path.join('data', '{}_model.tar.gz'.format(f))
+                for f in bundled_models],
         },
         cffi_modules=["build.py:ffibuilder"],
         install_requires=install_requires,
-        #place binaries as package data, below we'll copy them to standard path in dist
-        data_files=data_files,
         entry_points = {
             'console_scripts': [
                 '{0} = {0}.{0}:main'.format(__pkg_name__),
@@ -163,13 +138,12 @@ if __name__ == '__main__':
                 '{0}_version_report = {0}:report_binaries'.format(__pkg_name__, )
             ]
         },
-        scripts=['scripts/medaka_consensus', 'scripts/medaka_haploid_variant', 'scripts/mini_align', 'scripts/hdf2tf.py'],
+        scripts=[
+            'scripts/medaka_consensus',
+            'scripts/medaka_haploid_variant',
+            'scripts/mini_align', 'scripts/hdf2tf.py'],
         zip_safe=False,
         cmdclass={
             'build_ext': HTSBuild
         },
     )
-
-    if os.environ.get('MEDAKA_BINARIES') is not None:
-        print("\nCopying utility binaries to your path.")
-        get_setuptools_script_dir()

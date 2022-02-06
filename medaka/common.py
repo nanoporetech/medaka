@@ -719,7 +719,7 @@ def mkdir_p(path, info=None):
 
 def grouper(gen, batch_size=4):
     """Group together elements of an iterable without padding remainder."""
-    if not isinstance(gen, collections.Iterator):
+    if not isinstance(gen, collections.abc.Iterator):
         gen = iter(gen)
     while True:
         batch = []

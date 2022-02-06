@@ -71,11 +71,14 @@ Using this method requires the user to provide several binaries:
  * [tabix](https://github.com/samtools/htslib), and
  * [bgzip](https://github.com/samtools/htslib)
 
-and place these within the `PATH`. `samtools/bgzip/tabix` version 1.11 and
+and place these within the `PATH`. `samtools/bgzip/tabix` version 1.14 and
 `minimap2` version 2.17 are recommended as these are those used in development
 of medaka.
 
 **Installation from source**
+
+> This method is useful for macOS M1 devices as it will assist in building
+> dependencies which will fail with the other methods above.
 
 Medaka can be installed from its source quite easily on most systems.
 

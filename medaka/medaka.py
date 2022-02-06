@@ -447,7 +447,7 @@ def medaka_parser():
     smparser.set_defaults(func=medaka.smolecule.main)
     smparser.add_argument('output', help='Output directory.')
     smparser.add_argument('fasta', nargs='+', help='Single-molecule reads, one file per read.')
-    smparser.add_argument('--method', choices=['racon', 'spoa'], default='spoa', help='Pre-medaka consensus generation method.')
+    smparser.add_argument('--method', choices=['spoa'], default='spoa', help='Pre-medaka consensus generation method.')
     smparser.add_argument('--depth', type=int, default=3, help='Minimum subread count.')
     smparser.add_argument('--length', type=int, default=400, help='Minimum median subread length.')
     smparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')

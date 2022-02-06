@@ -1,13 +1,30 @@
 # Builds a cache of binaries which can just be copied for CI
-BINARIES=samtools minimap2 tabix bgzip racon bcftools
+BINARIES=samtools minimap2 tabix bgzip bcftools
 BINCACHEDIR=bincache
 $(BINCACHEDIR):
 	mkdir -p $(BINCACHEDIR)
 OS := $(shell uname)
+ARCH := $(shell arch)
+
 ifeq ($(OS), Darwin)
 SEDI=sed -i '.bak'
+LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib"
 else
 SEDI=sed -i
+endif
+
+ifeq ($(ARCH), $(filter $(ARCH), aarch64 arm64))
+TUNE=
+MM2ARGS=arm_neon=1 aarch64=1
+ifeq ($(OS), Darwin) # macos arm
+export HDF5_DIR=/opt/homebrew/Cellar/hdf5/1.12.1
+.package-reqs: pyprep-m1
+endif
+
+else # x64
+TUNE=-mtune=haswell
+MM2ARGS2=
+LDFLAGS=
 endif
 
 PYTHON ?= python3
@@ -16,8 +33,6 @@ DOCKERTAG ?= "medaka/medaka:latest"
 COVFAIL = 80
 
 VERSION := $(shell grep "__version__" medaka/__init__.py | awk '{gsub("\"","",$$3); print $$3}')
-
-binaries: $(addprefix $(BINCACHEDIR)/, $(BINARIES))
 
 SAMVER=$(shell sed -n 's/samver = "\(.*\)"/\1/p' build.py)
 submodules/samtools-$(SAMVER)/Makefile:
@@ -29,13 +44,13 @@ submodules/samtools-$(SAMVER)/Makefile:
 
 libhts.a: submodules/samtools-$(SAMVER)/Makefile
 	# this is required only to add in -fpic so we can build python module
-	@echo Compiling $(@F)
-	cd submodules/samtools-${SAMVER}/htslib-${SAMVER}/ && CFLAGS="-fpic -std=c99 -mtune=haswell -O3" ./configure && make
+	@echo "\x1b[1;33mMaking $(@F)\x1b[0m"
+	cd submodules/samtools-${SAMVER}/htslib-${SAMVER}/ && CFLAGS="-fpic -std=c99 $(TUNE) -O3" ./configure && make
 	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$@ $@
 
 
 $(BINCACHEDIR)/samtools: | libhts.a $(BINCACHEDIR)
-	@echo Making $(@F)
+	@echo "\x1b[1;33mMaking $(@F)\x1b[0m"
 	# copy our hack up version of tview
 	${SEDI} 's/tv->is_dot = 1;/tv->is_dot = 0;/' submodules/samtools-${SAMVER}/bam_tview.c
 	cd submodules/samtools-${SAMVER} && make -j 4
@@ -58,17 +73,17 @@ clean_htslib:
 
 MINIMAPVER=2.17
 $(BINCACHEDIR)/minimap2: | $(BINCACHEDIR)
-	@echo Compiling $(@F)
+	@echo "\x1b[1;33mMaking $(@F)\x1b[0m"
 	cd submodules; \
 		curl -L -o minimap2-${MINIMAPVER}.tar.bz2 https://github.com/lh3/minimap2/releases/download/v${MINIMAPVER}/minimap2-${MINIMAPVER}.tar.bz2; \
 		tar -xjf minimap2-${MINIMAPVER}.tar.bz2; \
 	    rm -rf minimap2-${MINIMAPVER}.tar.bz2
-	cd submodules/minimap2-${MINIMAPVER} && make
+	cd submodules/minimap2-${MINIMAPVER} && make ${MM2ARGS}
 	cp submodules/minimap2-${MINIMAPVER}/minimap2 $@
 
 
 $(BINCACHEDIR)/bcftools: | $(BINCACHEDIR)
-	@echo Making $(@F)
+	@echo "\x1b[1;33mMaking $(@F)\x1b[0m"
 	if [ ! -d submodules/bcftools-v${SAMVER} ]; then \
 		cd submodules; \
 		curl -L -o bcftools-v${SAMVER}.tar.bz2 https://github.com/samtools/bcftools/releases/download/${SAMVER}/bcftools-${SAMVER}.tar.bz2; \
@@ -77,24 +92,6 @@ $(BINCACHEDIR)/bcftools: | $(BINCACHEDIR)
 		make; \
 	fi
 	cp submodules/bcftools-${SAMVER}/bcftools $@
-
-
-RACONVER=1.4.13
-$(BINCACHEDIR)/racon: | $(BINCACHEDIR)
-	@echo Making $(@F)
-	@echo GCC is $(GCC)
-	if [ ! -e submodules/racon-v${RACONVER}.tar.gz ]; then \
-	  cd submodules; \
-	  curl -L -o racon-v${RACONVER}.tar.gz https://github.com/lbcb-sci/racon/releases/download/${RACONVER}/racon-v${RACONVER}.tar.gz; \
-	  tar -xzf racon-v${RACONVER}.tar.gz; \
-	fi
-	cd submodules/racon-v${RACONVER}; \
-		rm -rf build; \
-		mkdir build; \
-		cd build; \
-		cmake -DCMAKE_BUILD_TYPE=Release ..; \
-		make;
-	cp submodules/racon-v${RACONVER}/build/bin/racon $@
 
 
 $(BINCACHEDIR)/vcf2fasta: | $(BINCACHEDIR)
@@ -107,39 +104,53 @@ $(BINCACHEDIR)/vcf2fasta: | $(BINCACHEDIR)
 
 
 scripts/mini_align:
-	@echo Making $(@F)
+	@echo "\x1b[1;33mMaking $(@F)\x1b[0m"
 	curl https://raw.githubusercontent.com/nanoporetech/pomoxis/master/scripts/mini_align -o $@
 	chmod +x $@
+
 
 venv: ${VENV}/bin/activate
 IN_VENV=. ./${VENV}/bin/activate
 
 $(VENV)/bin/activate:
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV) --prompt "medaka"
-	${IN_VENV} && pip install pip --upgrade
-	# setuptools 53.0.0 trips up on whatshap deps
-	${IN_VENV} && pip install setuptools==52.0.0
+	${IN_VENV} && pip install pip wheel --upgrade
+
+$(VENV)/bin/%: $(BINCACHEDIR)/%
+	cp $< $@
 
 
 .PHONY: check_lfs
 check_lfs: venv
 	${IN_VENV} && python -c "from setup import check_model_lfs; check_model_lfs()"
 
+.PHONY: pyprep
+pyprep-m1: venv
+	@echo "\x1b[1;33mInstalling prerequisites with homebrew\x1b[0m"
+	brew install pkg-config hdf5@1.12 openssl@3
+	@echo "\x1b[1;33mCompiling and installing mappy from custom repository\x1b[0m"
+	${IN_VENV} && pip install git+https://github.com/cjw85/minimap2.git@9e035b3
+
+
+.PHONY: .package-reqs
+.package-reqs: venv check_lfs scripts/mini_align libhts.a | $(addprefix $(VENV)/bin/, $(BINARIES))
+
 
 .PHONY: install
-install: venv check_lfs scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
-	${IN_VENV} && pip install -r requirements.txt
-	${IN_VENV} && MEDAKA_BINARIES=1 python setup.py install
+install: .package-reqs
+	@echo "\x1b[1;33mInstalling medaka\x1b[0m"
+	${IN_VENV} && LDFLAGS=$(LDFLAGS) pip install .
 
 
 .PHONY: develop
-develop: install
-	# this is because the copying of binaries only works for an install, not a develop
-	${IN_VENV} && pip uninstall -y medaka && python setup.py develop
+develop: .package-reqs 
+	@echo "\x1b[1;33mInstalling medaka in development mode\x1b[0m"
+	${IN_VENV} && LDFLAGS=$(LDFLAGS) pip install -e .
 
 
 .PHONY: test
 test: install
+	@echo "\x1b[1;33mRunning tests on Python package\x1b[0m"
 	${IN_VENV} && pip install pytest pytest-cov flake8 flake8-rst-docstrings flake8-docstrings flake8-import-order
 	# TODO: add these exclusions back in after outstanding PRs
 	${IN_VENV} && flake8 medaka --import-order-style google --application-import-names medaka,libmedaka --exclude \
@@ -152,16 +163,17 @@ test: install
 
 # mainly here for the Dockerfile
 .PHONY: install_root
-install_root: check_lfs scripts/mini_align libhts.a | $(addprefix $(BINCACHEDIR)/, $(BINARIES))
+install_root: check_lfs scripts/mini_align libhts.a | $(addprefix $(VENV)/bin/, $(BINARIES)) 
 	pip3 install pip --upgrade
-	pip3 install setuptools==52.0.0
 	pip3 install -r requirements.txt
-	MEDAKA_BINARIES=1 python3 setup.py install
+	pip3 install .
+	# copy binaries to PATH
+	cp $| $$(dirname $$(which pip3))
 
 
 .PHONY: docker
 docker: clean
-	@echo Building docker tag: '$(DOCKERTAG)'
+	@echo "\x1b[1;33mBuilding docker tag: '$(DOCKERTAG)'\x1b[0m"
 	docker build -t $(DOCKERTAG) .
 
 

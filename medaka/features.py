@@ -45,11 +45,9 @@ class BAMHandler(object):
         """Borrow a BAM file handle and index set."""
         fset = self._pool.get()
         try:
-            self.logger.debug("Lending fileset.")
             yield fset
         finally:
             self._pool.put(fset)
-            self.logger.debug("Returned fileset to pool.")
 
     def encode(self):
         """Return bare path encoded to bytes.

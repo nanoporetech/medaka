@@ -1,5 +1,6 @@
 import itertools
 import os
+import platform
 
 from cffi import FFI
 
@@ -10,6 +11,15 @@ htslib_dir=os.path.join('submodules', 'samtools-{}'.format(samver), 'htslib-{}'.
 libraries=['m', 'z', 'lzma', 'bz2', 'pthread', 'curl', 'crypto']
 library_dirs=[htslib_dir]
 src_dir='src'
+
+extra_compile_args = ['-std=c99', '-O3']
+if platform.machine() in {"aarch64", "arm64"}:
+    if platform.system() == "Darwin":
+        pass
+    else:
+        extra_compile_args.append("-march=armv8-a+simd")
+else:
+    extra_compile_args.append("-mtune=haswell")
 
 ffibuilder = FFI()
 ffibuilder.set_source("libmedaka",
@@ -33,7 +43,7 @@ ffibuilder.set_source("libmedaka",
             'medaka_bamiter.c', 'medaka_common.c', 'medaka_counts.c',
             'fastrle.c', 'medaka_trimbam.c', 'medaka_pytrimbam.c',
             'medaka_rnn_variants.c')],
-    extra_compile_args=['-std=c99', '-mtune=haswell', '-O3'],
+    extra_compile_args=extra_compile_args,
     extra_objects=['libhts.a']
 )
 

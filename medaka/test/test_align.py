@@ -2,9 +2,11 @@ import array
 import tempfile
 import unittest
 
+from medaka import parasail
 import medaka.align
 
 
+@unittest.skipIf(parasail.dnafull is None, "Using fake parasail.")
 class ParasailAlignment(unittest.TestCase):
     """Check medaka.align.parasail_alignment function."""
 
