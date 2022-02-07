@@ -5,7 +5,7 @@ edlib
 grpcio 
 h5py
 intervaltree
-tensorflow~=2.5.2
+tensorflow~=2.7.0
 numpy
 mappy
 ont_fast5_api

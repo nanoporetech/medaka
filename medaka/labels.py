@@ -853,7 +853,7 @@ class HaploidLabelScheme(BaseLabelScheme):
         p_reference = ffi.cast("wchar_t *", reference.ctypes.data)
         prediction = np.ascontiguousarray(prediction, dtype='|U1')
         p_prediction = ffi.cast("wchar_t *", prediction.ctypes.data)
-        out = np.zeros(length, dtype=np.bool)
+        out = np.zeros(length, dtype=bool)
         p_out = ffi.cast("bool *", out.ctypes.data)
         libmedaka.lib.variant_columns(
             p_minor, p_reference, p_prediction, p_out, length)

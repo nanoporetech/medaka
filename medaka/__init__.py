@@ -6,6 +6,18 @@ import subprocess
 
 __version__ = "1.5.0"
 
+try:
+    import parasail
+except ImportError:
+    print("Cannot import parasail, some features may not be available.")
+    class parasail: pass # noqa
+    setattr(parasail, 'dnafull', None)
+try:
+    import spoa
+except ImportError:
+    print("Cannot import spoa, some features may not be available.")
+    spoa = None
+
 
 def check_minimap2_version():
     """Get minimap2 version."""

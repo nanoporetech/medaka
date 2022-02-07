@@ -2,17 +2,14 @@
 from collections import namedtuple
 from concurrent.futures import as_completed, ProcessPoolExecutor
 import os
-import subprocess
-import tempfile
 from timeit import default_timer as now
 import warnings
 
 import mappy
 import numpy as np
-import parasail
 import pysam
-import spoa
 
+from medaka import parasail, spoa
 import medaka.align
 import medaka.common
 import medaka.medaka
@@ -165,52 +162,12 @@ class Read(object):
                     seq = medaka.common.reverse_complement(subread.seq)
                 seqs.append(seq)
             consensus_seq, _ = spoa.poa(seqs, genmsa=False)
-        elif method == 'racon':
-            with tempfile.NamedTemporaryFile(
-                    'w', suffix='.fasta', delete=False) as fh:
-                if additional_seq is not None:
-                    fh.write(">{}\n{}\n".format('additional', additional_seq))
-                for orient, subread in zip(self._orient, self.subreads):
-                    fh.write(">{}\n{}\n".format(subread.name, subread.seq))
-                fh.flush()
-                consensus_seq = self._run_racon(fh.name)
         else:
             raise ValueError('Unrecognised method: {}.'.format(method))
         self.consensus = consensus_seq
         self._alignments_valid = False
         self.consensus_run = True
         return consensus_seq
-
-    def _run_racon(self, fasta):
-        tname = 'consensus_{}'.format(self.name)
-
-        header = {
-            'HD': {'VN': 1.0},
-            'SQ': [{
-                'LN': len(self.consensus),
-                'SN': tname,
-            }]
-        }
-        with tempfile.TemporaryDirectory() as tmpdir:
-            ref_fasta = os.path.join(tmpdir, 'racon_ref.fasta')
-            with open(ref_fasta, 'w') as fh:
-                fh.write(">{}\n{}\n".format(tname, self.consensus))
-
-            overlaps = os.path.join(tmpdir, 'racon_in.sam')
-            write_bam(overlaps, [self._alignments], header, bam=False)
-
-            opts = ['-m', '8', '-x', '-6', '-g', '-8']
-            try:
-                out = subprocess.check_output(
-                    ['racon', fasta, overlaps, ref_fasta] + opts,
-                    stderr=subprocess.PIPE
-                )
-            except subprocess.CalledProcessError as e:
-                print("\n".join(["RACON FAILED", e.cmd, e.stdout, e.stderr]))
-                racon_seq = self.consensus
-            else:
-                racon_seq = out.decode().splitlines()[1]
-        return racon_seq
 
     def orient_subreads(self):
         """Find orientation of subreads with respect to consensus sequence.

@@ -7,6 +7,7 @@ import unittest
 import numpy as np
 import pysam
 
+from medaka import parasail
 from medaka import common
 from .mock_data import create_simple_bam, mock_summary_file, \
     mock_fast5_file, simple_data
@@ -40,6 +41,7 @@ class RLE(unittest.TestCase):
 class RLEConversion(unittest.TestCase):
     """Test medaka.rle.RLEConverter class."""
 
+    @unittest.skipIf(parasail.dnafull is None, "Using fake parasail.")
     def test_compression(self):
         """Check recovery of original basecall from RLE version."""
         basecalls = ['CCCTAGGTTA', 'AA', 'AT', 'A']
@@ -103,6 +105,7 @@ class CompressAlignment(unittest.TestCase):
         'mapping_quality': 60}
     ref = 'TACCCATGTTGATCG'
 
+    @unittest.skipIf(parasail.dnafull is None, "Using fake parasail.")
     def test_compression(self):
         """Compress alignment.
 
@@ -213,6 +216,7 @@ class CompressBamTest(unittest.TestCase):
         os.remove(tmp_file)
         pysam.index(cls.bam_input)
 
+    @unittest.skipIf(parasail.dnafull is None, "Using fake parasail.")
     def test_output_rle_bam(self):
         expected = {
             ('read1', 1, 'ACTG',  '4=', (2, 1, 3, 1)),
@@ -233,6 +237,7 @@ class CompressBamTest(unittest.TestCase):
             self.assertEqual(got, expected)
 
 
+@unittest.skipIf(parasail.dnafull is None, "Using fake parasail.")
 class RLEParamsBam(unittest.TestCase):
 
     @classmethod
