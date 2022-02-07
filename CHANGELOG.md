@@ -5,9 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## Unreleased
+## [v1.6.0.rc1]
+### Changed
+- Updated to tensorflow~=2.7.0.
 ### Fixed
-- Fixed inclusion of inserted bases in pileup counts when a read has a deletion and insertion at the same position.
+- Inclusion of inserted bases immediately after deletion in pileup counts.
+### Added
+- Makefile can now build environment for macOS M1.
+- Publish ARMv8 wheels compatible with NVIDIA's [Jetpack 4.6.1 binary](https://developer.download.nvidia.com/compute/redist/jp/v461/tensorflow).
 
 ## [v1.5.0]
 ### Changed
