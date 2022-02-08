@@ -575,7 +575,7 @@ plp_data calculate_clair3_pileup(
                 //  - actually deleted bases get recorded in next block
                 size_t d = (size_t) -1 * p->indel;
                 if (d >= del_buf_size) {
-                    size_t new_size = 2 * del_buf_size;
+                    size_t new_size = max(d, 2 * del_buf_size);
                     dels_f = xrealloc(dels_f, new_size*sizeof(size_t), "dels_f");
                     memset(dels_f, 0, del_buf_size * sizeof(size_t));
                     dels_r = xrealloc(dels_r, new_size*sizeof(size_t), "dels_r");
