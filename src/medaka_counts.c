@@ -571,10 +571,8 @@ plp_data calculate_clair3_pileup(
 
             if (p->indel < 0) {
                 // there's a deletion starting on next genomic position,
-                // we find the most common allele
-                // The most common gets a +1 to D1S, others get
-                // a count in DS on this pileup column
-                //  - actually deleted bases get recorded below
+                // record the length here and finalise after the read loop
+                //  - actually deleted bases get recorded in next block
                 size_t d = (size_t) -1 * p->indel;
                 if (d >= del_buf_size) {
                     size_t new_size = 2 * del_buf_size;
