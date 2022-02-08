@@ -564,6 +564,10 @@ plp_data calculate_clair3_pileup(
         // we still need this as positions might not be contiguous
         pileup->major[major_col] = pos;
 
+        // counters for insertion strings
+        khash_t(KH_COUNTER) *ins_counts_f = kh_init(KH_COUNTER);
+        khash_t(KH_COUNTER) *ins_counts_r = kh_init(KH_COUNTER);
+
         // loop through all reads at this position
         for (int i = 0; i < n_plp; ++i) {
             const bam_pileup1_t *p = plp[0] + i;
@@ -598,8 +602,21 @@ plp_data calculate_clair3_pileup(
             pileup->matrix[major_col + base_i] += 1;
 
             // handle insertion
-            // TODO: - get allele
-            //       - hash and count
+            //  - build insert string then hash, include ref base
+            //    because that could be deleted
+            //  TODO: is it correct, or should we stop on trailing deletion?
+            if (p->indel > 0) {
+                char* indel = xalloc(p->indel, sizeof(char), "indel");
+                for (size_t i=0; i<p->indel; ++i){
+                    char[i] = seq_nt16_str[bam1_seqi(bam1_seq(p->b), p->qpos + i)];
+                }
+                if (bam_is_rev(p->b)) {
+                    kh_counter_increment(ins_counts_r, indel);
+                } else {
+                    kh_counter_increment(ins_counts_f, indel);
+                }
+                free(indel);
+            }
         }
 
         // finalise deletions: DS (all) and D1S (best)
@@ -626,11 +643,22 @@ plp_data calculate_clair3_pileup(
         pileup->matrix[major_col + c3_fwd_del_best] = best_count;
 
         // finalise IS and I1S
-        // TODO: - find most common
-        //       - find sum
-        //       update IS and I1S
+        //
+        // forward
+        kh_counter_stats_t stats = kh_counter_stats(ins_counts_f);
+        pileup->matrix[major_col + c3_fwd_ins_all] = stats.sum;
+        pileup->matrix[major_col + c3_fwd_ins_best] = stats.max;
+        // reverse
+        stats = kh_counter_stats(ins_counts_r);
+        pileup->matrix[major_col + c3_rev_ins_all] = stats.sum;
+        pileup->matrix[major_col + c3_rev_ins_best] = stats.max;
+        // TODO: eventually we need to return all these
+        //       - is that sensible, could be a lot
+        kh_counter_destroy(ins_counts_f);
+        kh_counter_destroy(ins_counts_r);
 
-        major_col += featlenclair3;;
+        // move to next position
+        major_col += featlenclair3;
     }
     pileup->n_cols = n_cols;
 
