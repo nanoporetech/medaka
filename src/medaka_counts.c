@@ -588,7 +588,7 @@ plp_data calculate_clair3_pileup(
             // handle ref_base/sub/del
             if (p->is_del) {
                 // we've been deleted, +1 to DR
-                base_i = bam_is_rev(p->b) ? rev_del : fwd_del;
+                base_i = bam_is_rev(p->b) ? c3_rev_del : c3_fwd_del;
             } else {
                 // just a base
                 int base_j = bam1_seqi(bam1_seq(p->b), p->qpos);
