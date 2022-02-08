@@ -193,7 +193,7 @@ mem_check: pileup
 pileup: libhts.a
 	gcc -pthread  -g -Wall -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -std=c99 -msse3 -O3 \
 		-Isrc -Isubmodules/samtools-${SAMVER}/htslib-${SAMVER} \
-		src/medaka_common.c src/medaka_counts.c src/medaka_bamiter.c libhts.a \
+		src/medaka_common.c src/medaka_counts.c src/medaka_bamiter.c src/medaka_khcounter.c libhts.a \
 		-lm -lz -llzma -lbz2 -lpthread -lcurl -lcrypto \
 		-o $(@) -std=c99 -msse3 -O3
 

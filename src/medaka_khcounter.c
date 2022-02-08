@@ -1,7 +1,8 @@
 // Wrap khash to make it more consise to use
 
+#define _GNU_SOURCE
 #include <stdio.h>
-#include "khash.h"
+#include <string.h>
 #include "medaka_khcounter.h"
 #include "medaka_common.h"
 
@@ -12,14 +13,12 @@
  * kh_counter_increment(h, "two");
  * kh_counter_increment(h, "two");
  * kh_counter_add(h, "three", 2);
- * kh_counter_increment(h, "three", 1);
+ * kh_counter_increment(h, "three");
  * kh_counter_print(h);
  * kh_counter_destroy(h);
  *
  */
 
-const int KH_COUNTER = 99;
-KHASH_MAP_INIT_STR(KH_COUNTER, size_t)
 
 size_t kh_counter_val(khash_t(KH_COUNTER) *hash, char *key) {
     khiter_t k = kh_get(KH_COUNTER, hash, key);
@@ -45,14 +44,13 @@ size_t kh_counter_add(khash_t(KH_COUNTER) *hash, char *key, size_t val) {
 }
 
 size_t kh_counter_increment(khash_t(KH_COUNTER) *hash, char *key) {
-    kh_counter_add(hash, key, 1);
+    return kh_counter_add(hash, key, 1);
 }
 
 kh_counter_stats_t kh_counter_stats(khash_t(KH_COUNTER) *hash) {
     kh_counter_stats_t stats = { .sum=0, .max=0 };
     for (khiter_t k = kh_begin(hash); k != kh_end(hash); ++k) {
         if (kh_exist(hash, k)) {
-            const char *key = kh_key(hash, k);
             size_t val = kh_value(hash, k);
             stats.sum += val;
             stats.max = max(stats.max, val);
@@ -83,14 +81,14 @@ void kh_counter_print(khash_t(KH_COUNTER) *hash) {
 }
 
 
-// Demonstrates usage
-int main(int argc, char *argv[]) {
-    khash_t(KH_COUNTER) *h = kh_init(KH_COUNTER);
-    kh_counter_increment(h, "one");
-    kh_counter_increment(h, "two");
-    kh_counter_increment(h, "two");
-    kh_counter_add(h, "three", 2);
-    kh_counter_increment(h, "three");
-    kh_counter_print(h);
-    kh_counter_destroy(h);
-}
+//int (int argc, char *argv[]) {
+//  khash_t(KH_COUNTER) *h = kh_init(KH_COUNTER);
+//  kh_counter_increment(h, "one");
+//  kh_counter_increment(h, "two");
+//  kh_counter_increment(h, "two");
+//  kh_counter_add(h, "three", 2);
+//  kh_counter_increment(h, "three");
+//  kh_counter_print(h);
+//  kh_counter_destroy(h);
+//  printf("-------\n\n");
+//}

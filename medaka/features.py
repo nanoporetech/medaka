@@ -238,6 +238,63 @@ def pileup_counts(
     return chunk_results
 
 
+def pileup_counts_clair3(
+        region, bam, dtype_prefixes=None, region_split=100000, workers=8,
+        tag_name=None, tag_value=None, keep_missing=False, num_qstrat=1,
+        weibull_summation=False, read_group=None):
+    """Create pileup counts feature array for region.
+
+    :param region: `medaka.common.Region` object
+    :param bam: .bam file with alignments.
+    :param dtype_prefixes: prefixes for query names which to separate counts.
+        If `None` (or of length 1), counts are not split.
+    :param region_split: largest region to process in single thread.
+        Regions are processed in parallel and stitched before being returned.
+    :param workers: worker threads for calculating pileup.
+    :param tag_name: two letter tag name by which to filter reads.
+    :param tag_value: integer value of tag for reads to keep.
+    :param keep_missing: whether to keep reads when tag is missing.
+    :param num_qstrat: number of layers for qscore stratification.
+    :param weibull_summation: use a Weibull partial-counts approach,
+        requires 'WL' and 'WK' float-array tags.
+
+    :returns: iterator of tuples
+        (pileup counts array, reference positions, insertion positions)
+        Multiple chunks are returned if there are discontinuities in
+        positions caused e.g. by gaps in coverage.
+    """
+    lib = libmedaka.lib
+    featlen = lib.featlen
+    (num_dtypes, dtypes, _dtypes, tag_name, tag_value,
+        keep_missing, read_group) = _tidy_libfunc_args(
+            dtype_prefixes, tag_name, tag_value, keep_missing, read_group)
+
+    def _process_region(reg):
+        # htslib start is 1-based, medaka.common.Region object is 0-based
+        region_str = '{}:{}-{}'.format(reg.ref_name, reg.start + 1, reg.end)
+        if isinstance(bam, BAMHandler):
+            bam_handle = bam
+        else:
+            bam_handle = BAMHandler(bam)
+        with bam_handle.borrow() as fh:
+            counts = lib.calculate_clair3_pileup(
+                region_str.encode(), fh, read_group)
+        np_counts, positions = _plp_data_to_numpy(
+            counts, featlenclair3)
+        lib.destroy_plp_data(counts)
+        return np_counts, positions
+
+    # split large regions for performance
+    regions = region.split(region_split, fixed_size=False)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) \
+            as executor:
+        results = executor.map(_process_region, regions)
+        chunk_results = __enforce_pileup_chunk_contiguity(results)
+
+    return chunk_results
+
+
+
 def get_trimmed_reads(
         region, bam, dtype_prefixes=None, region_split=750, chunk_overlap=150,
         workers=8, tag_name=None, tag_value=None, keep_missing=False,

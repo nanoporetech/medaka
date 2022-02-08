@@ -185,4 +185,8 @@ plp_data calculate_pileup(
         bool weibull_summation, const char *read_group);
 
 
+// clair3-style pileup feature vector
+plp_data calculate_clair3_pileup(
+        const char *region, const bam_fset* bam_set, const char *read_group);
+
 #endif

@@ -14,6 +14,7 @@
 #include "medaka_bamiter.h"
 #include "medaka_common.h"
 #include "medaka_counts.h"
+#include "medaka_khcounter.h"
 
 #define bam1_seq(b) ((b)->data + (b)->core.n_cigar*4 + (b)->core.l_qname)
 #define bam1_seqi(s, i) (bam_seqi((s), (i)))
@@ -501,8 +502,6 @@ plp_data calculate_pileup(
 
 plp_data calculate_clair3_pileup(
         const char *region, const bam_fset* bam_set, const char *read_group) {
-    const size_t dtype_featlen = featlen * num_dtypes * num_homop;
-
     // extract `chr`:`start`-`end` from `region`
     //   (start is one-based and end-inclusive),
     //   hts_parse_reg below sets return value to point
@@ -530,8 +529,9 @@ plp_data calculate_clair3_pileup(
     //       e.g. mapQ filters, primary/secondary/supplementary, ...
     mplp_data *data = xalloc(1, sizeof(mplp_data), "pileup init data");
     data->fp = fp; data->hdr = hdr; data->iter = bam_itr_querys(idx, hdr, region);
-    data->min_mapQ = 1; memcpy(data->tag_name, tag_name, 2); data->tag_value = tag_value;
-    data->keep_missing = keep_missing; data->read_group = read_group;
+    data->min_mapQ = 1;
+    //memcpy(data->tag_name, tag_name, 2); data->tag_value = tag_value;
+    //data->keep_missing = keep_missing; data->read_group = read_group;
 
     bam_mplp_t mplp = bam_mplp_init(1, read_bam, (void **)& data);
     const bam_pileup1_t **plp = xalloc(1, sizeof(bam_pileup1_t *), "pileup");
@@ -540,7 +540,7 @@ plp_data calculate_clair3_pileup(
     // allocate output, clar3 doesn't have insertion columns, so buffer remains fixed
     int n_cols = 0;
     size_t buffer_cols = end - start;
-    plp_data pileup = create_plp_data(n_cols, buffer_cols, num_dtypes, num_homop, 0);
+    plp_data pileup = create_plp_data(n_cols, buffer_cols, 1, 1, 0);
 
     // get counts
     size_t major_col = 0;  // index into `pileup` corresponding to pos
@@ -558,8 +558,8 @@ plp_data calculate_clair3_pileup(
         if (pos >= end) break;
         n_cols++;
 
-        memset(dels_f, 0, (del_buf_size) * sizeof(size_t));
-        memset(dels_r, 0, (del_buf_size) * sizeof(size_t));
+        memset(dels_f, 0, del_buf_size * sizeof(size_t));
+        memset(dels_r, 0, del_buf_size * sizeof(size_t));
 
         // we still need this as positions might not be contiguous
         pileup->major[major_col] = pos;
@@ -586,10 +586,15 @@ plp_data calculate_clair3_pileup(
                     memset(dels_r, 0, del_buf_size * sizeof(size_t));
                     del_buf_size = new_size;
                 } 
-                bam_is_rev(p->b) ? dels_r[d - 1] += 1 : dels_f[d - 1] += 1;
+                if (bam_is_rev(p->b)) {
+                    dels_r[d - 1] += 1;
+                } else {
+                    dels_f[d - 1] += 1;
+                }
             }
 
             // handle ref_base/sub/del
+            int base_i;
             if (p->is_del) {
                 // we've been deleted, +1 to DR
                 base_i = bam_is_rev(p->b) ? c3_rev_del : c3_fwd_del;
@@ -606,10 +611,11 @@ plp_data calculate_clair3_pileup(
             //    because that could be deleted
             //  TODO: is it correct, or should we stop on trailing deletion?
             if (p->indel > 0) {
-                char* indel = xalloc(p->indel, sizeof(char), "indel");
-                for (size_t i=0; i<p->indel; ++i){
-                    char[i] = seq_nt16_str[bam1_seqi(bam1_seq(p->b), p->qpos + i)];
+                char* indel = (char*) xalloc(p->indel + 1, sizeof(char), "indel");
+                for (size_t i = 0; i < p->indel; ++i) {
+                    indel[i] = seq_nt16_str[bam1_seqi(bam1_seq(p->b), p->qpos + i)];
                 }
+                indel[p->indel] = '\0';
                 if (bam_is_rev(p->b)) {
                     kh_counter_increment(ins_counts_r, indel);
                 } else {
@@ -624,7 +630,7 @@ plp_data calculate_clair3_pileup(
         // forward
         size_t best_count = 0;
         size_t all_count = 0;
-        for (size_t i=0; i<del_buf_size; ++i) {
+        for (size_t i = 0; i < del_buf_size; ++i) {
             size_t d = dels_f[i];
             all_count += d;
             best_count = max(best_count, d);
@@ -634,8 +640,8 @@ plp_data calculate_clair3_pileup(
         // reverse
         best_count = 0;
         all_count = 0;
-        for (size_t i=0; i<del_buf_size; ++i) {
-            size_t d = dels_f[i];
+        for (size_t i = 0; i < del_buf_size; ++i) {
+            size_t d = dels_r[i];
             all_count += d;
             best_count = max(best_count, d);
         }
@@ -696,11 +702,13 @@ int main(int argc, char *argv[]) {
 
     bam_fset* bam_set = create_bam_fset(bam_file);
 
-    plp_data pileup = calculate_pileup(
-        reg, bam_set, num_dtypes, dtypes,
-        num_homop, tag_name, tag_value, keep_missing,
-        weibull_summation, read_group);
-    print_pileup_data(pileup, num_dtypes, dtypes, num_homop);
+    //plp_data pileup = calculate_pileup(
+    //    reg, bam_set, num_dtypes, dtypes,
+    //    num_homop, tag_name, tag_value, keep_missing,
+    //    weibull_summation, read_group);
+    //print_pileup_data(pileup, num_dtypes, dtypes, num_homop);
+    plp_data pileup = calculate_clair3_pileup(
+        reg, bam_set, read_group);
     fprintf(stdout, "pileup is length %zu, with buffer of %zu columns\n", pileup->n_cols, pileup->buffer_cols);
     destroy_plp_data(pileup);
     destroy_bam_fset(bam_set);
