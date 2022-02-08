@@ -208,7 +208,7 @@ trim_reads: libhts.a
 
 .PHONY: wheels
 wheels:
-	docker run -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/build-wheels.sh /io 5 6
+	docker run -v `pwd`:/io quay.io/pypa/manylinux2010_x86_64 /io/build-wheels.sh /io 7 8 9
 
 .PHONY: build_env
 build_env: pypi_build/bin/activate
