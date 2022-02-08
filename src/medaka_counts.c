@@ -460,6 +460,192 @@ plp_data calculate_pileup(
 }
 
 
+
+/** Generates clair3-style pileup feature data in a region of a bam.
+ *
+ *  @param region 1-based region string.
+ *  @param bam_file input aligment file.
+ *  @param tag_value by which to filter data.
+ *  @param keep_missing alignments which do not have tag.
+ *  @param weibull_summation use predefined bam tags to perform homopolymer partial counts.
+ *  @returns a pileup data pointer.
+ *
+ *  The return value can be freed with destroy_plp_data.
+ *
+ *  If num_dtypes is 1, dtypes should be NULL; all reads in the bam will be
+ *  treated equally. If num_dtypes is not 1, dtypes should be an array of
+ *  strings, these strings being prefixes of query names of reads within the
+ *  bam file. Any read not matching the prefixes will cause exit(1).
+ *
+ *  If tag_name is not NULL alignments are filtered by the (integer) tag value.
+ *  When tag_name is given the behaviour for alignments without the tag is
+ *  determined by keep_missing.
+ *
+ */
+
+/**
+ * The pileup input is 594 integers – 33 genome positions wide with 18 features at each position –
+ * 
+ * A+, C+, G+, T+, I_S+, I^1 S+, D_S+, D^1_S+, D_R+, A-, C-, G-, T-, I_S-, I^1_S-, D_S-, D^1_S-, and D_R-
+ *
+ * A, C, G, T, I, D, +, - means the count of read support of the four nucleotides: insertion,
+ * deletion, positive strand, and negative strand. Superscript “1” means only the indel with the
+ * highest read support is counted (i.e., all indels are counted if without “1“). Subscript “S”/“R” means
+ * the starting/non-starting position of an indel. For example, a 3bp deletion with the most reads support
+ * will have the first deleted base counted in either D1_S+ or D1_S-, and the second and third deleted bases
+ * counted in either D_R+ or D_R-. The design was determined experimentally, but the rationale is that for
+ * 1bp indels that are easy to call, look into the differences between the “S” counts, but reduce the
+ * quality if the “R” counts and discrepancy between positions increase.
+ *
+ */
+
+plp_data calculate_clair3_pileup(
+        const char *region, const bam_fset* bam_set, const char *read_group) {
+    const size_t dtype_featlen = featlen * num_dtypes * num_homop;
+
+    // extract `chr`:`start`-`end` from `region`
+    //   (start is one-based and end-inclusive),
+    //   hts_parse_reg below sets return value to point
+    //   at ":", copy the input then set ":" to null terminator
+    //   to get `chr`.
+    int start, end;
+    char *chr = xalloc(strlen(region) + 1, sizeof(char), "chr");
+    strcpy(chr, region);
+    char *reg_chr = (char *) hts_parse_reg(chr, &start, &end);
+    // start and end now zero-based end exclusive
+    if (reg_chr) {
+        *reg_chr = '\0';
+    } else {
+        fprintf(stderr, "Failed to parse region: '%s'.\n", region);
+    }
+
+    // open bam etc.
+    // this is all now deferred to the caller
+    htsFile *fp = bam_set->fp;
+    hts_idx_t *idx = bam_set->idx; 
+    sam_hdr_t *hdr = bam_set->hdr;
+
+    // setup bam interator
+    // TODO: the code in bam iterator might not be correct for clair3
+    //       e.g. mapQ filters, primary/secondary/supplementary, ...
+    mplp_data *data = xalloc(1, sizeof(mplp_data), "pileup init data");
+    data->fp = fp; data->hdr = hdr; data->iter = bam_itr_querys(idx, hdr, region);
+    data->min_mapQ = 1; memcpy(data->tag_name, tag_name, 2); data->tag_value = tag_value;
+    data->keep_missing = keep_missing; data->read_group = read_group;
+
+    bam_mplp_t mplp = bam_mplp_init(1, read_bam, (void **)& data);
+    const bam_pileup1_t **plp = xalloc(1, sizeof(bam_pileup1_t *), "pileup");
+    int ret, pos, tid, n_plp;
+
+    // allocate output, clar3 doesn't have insertion columns, so buffer remains fixed
+    int n_cols = 0;
+    size_t buffer_cols = end - start;
+    plp_data pileup = create_plp_data(n_cols, buffer_cols, num_dtypes, num_homop, 0);
+
+    // get counts
+    size_t major_col = 0;  // index into `pileup` corresponding to pos
+    n_cols = 0;            // number of processed columns (including insertions, which clair3 doesn't have ;))
+
+    // for recording deletion lengths
+    size_t del_buf_size = 32;
+    size_t* dels_f = xalloc(del_buf_size, sizeof(size_t), "dels_f");
+    size_t* dels_r = xalloc(del_buf_size, sizeof(size_t), "dels_r");
+
+    while ((ret=bam_mplp_auto(mplp, &tid, &pos, &n_plp, plp) > 0)) {
+        const char *c_name = data->hdr->target_name[tid];
+        if (strcmp(c_name, chr) != 0) continue;
+        if (pos < start) continue;
+        if (pos >= end) break;
+        n_cols++;
+
+        memset(dels_f, 0, (del_buf_size) * sizeof(size_t));
+        memset(dels_r, 0, (del_buf_size) * sizeof(size_t));
+
+        // we still need this as positions might not be contiguous
+        pileup->major[major_col] = pos;
+
+        // loop through all reads at this position
+        for (int i = 0; i < n_plp; ++i) {
+            const bam_pileup1_t *p = plp[0] + i;
+            if (p->is_refskip) continue;
+
+            if (p->indel < 0) {
+                // there's a deletion starting on next genomic position,
+                // we find the most common allele
+                // The most common gets a +1 to D1S, others get
+                // a count in DS on this pileup column
+                //  - actually deleted bases get recorded below
+                size_t d = (size_t) -1 * p->indel;
+                if (d >= del_buf_size) {
+                    size_t new_size = 2 * del_buf_size;
+                    dels_f = xrealloc(dels_f, new_size*sizeof(size_t), "dels_f");
+                    memset(dels_f, 0, del_buf_size * sizeof(size_t));
+                    dels_r = xrealloc(dels_r, new_size*sizeof(size_t), "dels_r");
+                    memset(dels_r, 0, del_buf_size * sizeof(size_t));
+                    del_buf_size = new_size;
+                } 
+                bam_is_rev(p->b) ? dels_r[d - 1] += 1 : dels_f[d - 1] += 1;
+            }
+
+            // handle ref_base/sub/del
+            if (p->is_del) {
+                // we've been deleted, +1 to DR
+                base_i = bam_is_rev(p->b) ? rev_del : fwd_del;
+            } else {
+                // just a base
+                int base_j = bam1_seqi(bam1_seq(p->b), p->qpos);
+                if bam_is_rev(p->b) { base_j += 16; }
+                base_i = num2countbaseclair3[base_j];
+            }
+            pileup->matrix[major_col + base_i] += 1;
+
+            // handle insertion
+            // TODO: - get allele
+            //       - hash and count
+        }
+
+        // finalise deletions: DS (all) and D1S (best)
+        //
+        // forward
+        size_t best_count = 0;
+        size_t all_count = 0;
+        for (size_t i=0; i<del_buf_size; ++i) {
+            size_t d = dels_f[i];
+            all_count += d;
+            best_count = max(best_count, d);
+        }
+        pileup->matrix[major_col + c3_fwd_del_all] = all_count;
+        pileup->matrix[major_col + c3_fwd_del_best] = best_count;
+        // reverse
+        best_count = 0;
+        all_count = 0;
+        for (size_t i=0; i<del_buf_size; ++i) {
+            size_t d = dels_f[i];
+            all_count += d;
+            best_count = max(best_count, d);
+        }
+        pileup->matrix[major_col + c3_fwd_del_all] = all_count;
+        pileup->matrix[major_col + c3_fwd_del_best] = best_count;
+
+        // finalise IS and I1S
+        // TODO: - find most common
+        //       - find sum
+        //       update IS and I1S
+
+        major_col += featlenclair3;;
+    }
+    pileup->n_cols = n_cols;
+
+    bam_itr_destroy(data->iter);
+    bam_mplp_destroy(mplp);
+    free(data);
+    free(plp);
+    free(chr);
+
+    return pileup;
+}
+
+
 // Demonstrates usage
 int main(int argc, char *argv[]) {
     if(argc < 3) {

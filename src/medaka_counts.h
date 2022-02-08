@@ -66,11 +66,45 @@ static const size_t rev_del = 8;  // position of d
 static const char datatype_tag[] = "DT";
 
 // convert 16bit IUPAC (+16 for strand) to plp_bases index
+// {
+//  ,  A,  C,   ,  G,   ,   ,   , 
+// T,   ,   ,   ,   ,   ,   ,   ,
+//  ,  a,  c,   ,  g,   ,   ,   ,
+// t,  ,    ,   ,   ,   ,   ,   ,
+// }
 static const int num2countbase[32] = {
- -1,  4,  5, -1,  6, -1, -1, -1,
-  7, -1, -1, -1, -1, -1, -1, -1,
+  -1,  4,  5, -1,  6, -1, -1, -1,
+   7, -1, -1, -1, -1, -1, -1, -1,
+  -1,  0,  1, -1,  2, -1, -1, -1,
+   3, -1, -1, -1, -1, -1, -1, -1,
+};
+
+
+// convert 16bit IUPAC (+16 for strand) to plp_bases clair3 index
+//  first i: all insertions
+// second i: most common insertion
+//  first d: all first base deletion  (actually a reference base)
+// second d: most common deletion     (actually a reference base)
+//  third d: non-first base deletion  (the deleted bases)
+static const char plp_bases_clair3[] = "ACGTIIDDDacgtiiddd";
+static const size_t featlenclair3 = 18;   // len of the above
+static const size_t c3_fwd_ins_all = 4;     
+static const size_t c3_fwd_ins_best = 5;
+static const size_t c3_fwd_del_all = 6;   // (preceding ref position)
+static const size_t c3_fwd_del_best = 7;  // (preceding ref position)
+static const size_t c3_fwd_del = 8;       // (actually deleted base)
+static const size_t c3_fwd_ins_all = 15;     
+static const size_t c3_fwd_ins_best = 14;
+static const size_t c3_rev_del_all = 15;  // (preceding ref position)
+static const size_t c3_rev_del_best = 16; // (preceding ref position)
+static const size_t c3_rev_del = 17;      // (actually deleted base)
+
+
+static const int num2countbaseclair3[32] = {
  -1,  0,  1, -1,  2, -1, -1, -1,
   3, -1, -1, -1, -1, -1, -1, -1,
+ -1,  9, 10, -1, 11, -1, -1, -1,
+ 12, -1, -1, -1, -1, -1, -1, -1,
 };
 
 
