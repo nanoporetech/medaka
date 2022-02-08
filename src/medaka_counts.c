@@ -639,8 +639,8 @@ plp_data calculate_clair3_pileup(
             all_count += d;
             best_count = max(best_count, d);
         }
-        pileup->matrix[major_col + c3_fwd_del_all] = all_count;
-        pileup->matrix[major_col + c3_fwd_del_best] = best_count;
+        pileup->matrix[major_col + c3_rev_del_all] = all_count;
+        pileup->matrix[major_col + c3_rev_del_best] = best_count;
 
         // finalise IS and I1S
         //
