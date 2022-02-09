@@ -294,7 +294,6 @@ def pileup_counts_clair3(
     return chunk_results
 
 
-
 def get_trimmed_reads(
         region, bam, dtype_prefixes=None, region_split=750, chunk_overlap=150,
         workers=8, tag_name=None, tag_value=None, keep_missing=False,
