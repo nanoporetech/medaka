@@ -264,7 +264,7 @@ def pileup_counts_clair3(
         positions caused e.g. by gaps in coverage.
     """
     lib = libmedaka.lib
-    featlen = lib.featlen
+    featlenclair3 = lib.featlenclair3
     (num_dtypes, dtypes, _dtypes, tag_name, tag_value,
         keep_missing, read_group) = _tidy_libfunc_args(
             dtype_prefixes, tag_name, tag_value, keep_missing, read_group)

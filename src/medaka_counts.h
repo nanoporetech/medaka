@@ -121,7 +121,7 @@ static const int num2countbaseclair3[32] = {
  *  The return value can be freed with destroy_plp_data.
  *
  */
-plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_homop, size_t fixed_size);
+plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t feature_length, size_t num_dtypes, size_t num_homop, size_t fixed_size);
 
 
 /** Enlarge the internal buffers of a pileup data structure.
@@ -130,7 +130,7 @@ plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, s
  *  @param buffer_cols number of pileup columns for which to allocate memory
  *
  */
-void enlarge_plp_data(plp_data pileup, size_t buffer_cols);
+void enlarge_plp_data(plp_data pileup, size_t buffer_cols, size_t feature_length);
 
 
 /** Destroys a pileup data structure.

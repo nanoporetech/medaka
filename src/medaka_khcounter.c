@@ -31,11 +31,11 @@ size_t kh_counter_add(khash_t(KH_COUNTER) *hash, char *key, size_t val) {
     int ret;
     khiter_t k = kh_put(KH_COUNTER, hash, key, &ret);
     if (ret == 1) { // new key
-        kh_key(hash, k) = strdup(key);
+        kh_key(hash, k) = strdup("A");
         kh_value(hash, k) = val;
     } else if (ret == 0) {  // exists
         // get value and add
-        size_t cur = kh_counter_val(hash, key);
+        size_t cur = kh_val(hash, k);
         kh_value(hash, k) = cur + val;
     } else {
         // shouldnt get here - previously deleted key
@@ -51,7 +51,7 @@ kh_counter_stats_t kh_counter_stats(khash_t(KH_COUNTER) *hash) {
     kh_counter_stats_t stats = { .sum=0, .max=0 };
     for (khiter_t k = kh_begin(hash); k != kh_end(hash); ++k) {
         if (kh_exist(hash, k)) {
-            size_t val = kh_value(hash, k);
+            size_t val = kh_val(hash, k);
             stats.sum += val;
             stats.max = max(stats.max, val);
         }
@@ -72,7 +72,7 @@ void kh_counter_print(khash_t(KH_COUNTER) *hash) {
     for (khiter_t k = kh_begin(hash); k != kh_end(hash); ++k) {
         if (kh_exist(hash, k)) {
             const char *key = kh_key(hash, k);
-            size_t val = kh_value(hash, k);
+            size_t val = kh_val(hash, k);
             printf("%s -> %lu\n", key, val);
         }
     }

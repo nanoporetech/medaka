@@ -117,6 +117,7 @@ string_set read_key_value(char * fname) {
  *
  *  @param n_cols number of pileup columns.
  *  @param buffer_cols number of pileup columns.
+ *  @param feature_length length of feature vector.
  *  @param num_dtypes number of datatypes in pileup.
  *  @param num_homop maximum homopolymer length to consider.
  *  @param fixed_size if not zero data matrix is allocated as fixed_size * n_cols, ignoring other arguments
@@ -126,7 +127,7 @@ string_set read_key_value(char * fname) {
  *  The return value can be freed with destroy_plp_data.
  *
  */
-plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_homop, size_t fixed_size) {
+plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t feature_length, size_t num_dtypes, size_t num_homop, size_t fixed_size) {
     assert(buffer_cols >= n_cols);
     plp_data data = xalloc(1, sizeof(_plp_data), "plp_data");
     data->buffer_cols = buffer_cols;
@@ -137,7 +138,7 @@ plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, s
         assert(buffer_cols == n_cols);
         data->matrix = xalloc(fixed_size * n_cols, sizeof(size_t), "matrix");
     } else {
-        data->matrix = xalloc(featlen * num_dtypes * buffer_cols * num_homop, sizeof(size_t), "matrix");
+        data->matrix = xalloc(feature_length * num_dtypes * buffer_cols * num_homop, sizeof(size_t), "matrix");
     }
     data->major = xalloc(buffer_cols, sizeof(size_t), "major");
     data->minor = xalloc(buffer_cols, sizeof(size_t), "minor");
@@ -151,10 +152,10 @@ plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, s
  *  @param buffer_cols number of pileup columns for which to allocate memory
  *
  */
-void enlarge_plp_data(plp_data pileup, size_t buffer_cols) {
+void enlarge_plp_data(plp_data pileup, size_t buffer_cols, size_t feature_length) {
     assert(buffer_cols > pileup->buffer_cols);
-    size_t old_size = featlen * pileup->num_dtypes * pileup->num_homop * pileup->buffer_cols;
-    size_t new_size = featlen * pileup->num_dtypes * pileup->num_homop * buffer_cols;
+    size_t old_size = feature_length * pileup->num_dtypes * pileup->num_homop * pileup->buffer_cols;
+    size_t new_size = feature_length * pileup->num_dtypes * pileup->num_homop * buffer_cols;
 
     pileup->matrix = xrealloc(pileup->matrix, new_size * sizeof(size_t), "matrix");
     pileup->major = xrealloc(pileup->major, buffer_cols * sizeof(size_t), "major");
@@ -330,7 +331,7 @@ plp_data calculate_pileup(
     // allocate output assuming one insertion per ref position
     int n_cols = 0;
     size_t buffer_cols = 2 * (end - start);
-    plp_data pileup = create_plp_data(n_cols, buffer_cols, num_dtypes, num_homop, 0);
+    plp_data pileup = create_plp_data(n_cols, buffer_cols, featlen, num_dtypes, num_homop, 0);
 
     // get counts
     size_t major_col = 0;  // index into `pileup` corresponding to pos
@@ -356,7 +357,7 @@ plp_data calculate_pileup(
             float cols_per_pos = (float) (n_cols + max_ins) / (pos - start);
             // max_ins can dominate so add at least that
             buffer_cols = max_ins + max(2 * pileup->buffer_cols, (int) cols_per_pos * (end - start));
-            enlarge_plp_data(pileup, buffer_cols);
+            enlarge_plp_data(pileup, buffer_cols, featlen);
         }
 
         // set major/minor position indexes, minors hold ins
@@ -537,10 +538,10 @@ plp_data calculate_clair3_pileup(
     const bam_pileup1_t **plp = xalloc(1, sizeof(bam_pileup1_t *), "pileup");
     int ret, pos, tid, n_plp;
 
-    // allocate output, clar3 doesn't have insertion columns, so buffer remains fixed
+    // allocate output, clair3 doesn't have insertion columns, so buffer remains fixed
     int n_cols = 0;
     size_t buffer_cols = end - start;
-    plp_data pileup = create_plp_data(n_cols, buffer_cols, 1, 1, 0);
+    plp_data pileup = create_plp_data(n_cols, buffer_cols, featlenclair3, 1, 1, 0);
 
     // get counts
     size_t major_col = 0;  // index into `pileup` corresponding to pos
@@ -562,7 +563,8 @@ plp_data calculate_clair3_pileup(
         memset(dels_r, 0, del_buf_size * sizeof(size_t));
 
         // we still need this as positions might not be contiguous
-        pileup->major[major_col] = pos;
+        pileup->major[major_col / featlenclair3] = pos;
+        pileup->minor[major_col / featlenclair3] = 0;
 
         // counters for insertion strings
         khash_t(KH_COUNTER) *ins_counts_f = kh_init(KH_COUNTER);
@@ -648,19 +650,20 @@ plp_data calculate_clair3_pileup(
         pileup->matrix[major_col + c3_rev_del_all] = all_count;
         pileup->matrix[major_col + c3_rev_del_best] = best_count;
 
+        
         // finalise IS and I1S
+        // TODO: eventually we need to return all these
+        //       - is that sensible, could be a lot
         //
         // forward
         kh_counter_stats_t stats = kh_counter_stats(ins_counts_f);
         pileup->matrix[major_col + c3_fwd_ins_all] = stats.sum;
         pileup->matrix[major_col + c3_fwd_ins_best] = stats.max;
+        kh_counter_destroy(ins_counts_f);
         // reverse
         stats = kh_counter_stats(ins_counts_r);
         pileup->matrix[major_col + c3_rev_ins_all] = stats.sum;
         pileup->matrix[major_col + c3_rev_ins_best] = stats.max;
-        // TODO: eventually we need to return all these
-        //       - is that sensible, could be a lot
-        kh_counter_destroy(ins_counts_f);
         kh_counter_destroy(ins_counts_r);
 
         // move to next position
