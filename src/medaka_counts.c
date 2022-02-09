@@ -609,15 +609,18 @@ plp_data calculate_clair3_pileup(
             pileup->matrix[major_col + base_i] += 1;
 
             // handle insertion
-            //  - build insert string then hash, include ref base
-            //    because that could be deleted
-            //  TODO: is it correct, or should we stop on trailing deletion?
+            //  - build insert string then hash
             if (p->indel > 0) {
+                // clair3 puts the reference base in the allele (a la VCF), we don't know
+                // that so just take the inserted bases. Take care to handle case of
+                // reference base being deleted when building insertion string
+                size_t first = p->is_del ? 0 : 1;
                 char* indel = (char*) xalloc(p->indel + 1, sizeof(char), "indel");
-                for (size_t i = 0; i < p->indel; ++i) {
-                    indel[i] = seq_nt16_str[bam1_seqi(bam1_seq(p->b), p->qpos + i)];
+                for (size_t i = 0, j = first; j < p->indel + first; ++i, ++j) {
+                    indel[i] = seq_nt16_str[bam1_seqi(bam1_seq(p->b), p->qpos + j)];
                 }
-                indel[p->indel] = '\0';
+                indel[p->indel] = '\0'; // actually should be 0 already
+                //fprintf(stderr, "pos: %i\tp->indel: %i\tp->is_del: %i\tindel: '%s'\n", pos, p->indel, p->is_del, indel);
                 if (bam_is_rev(p->b)) {
                     kh_counter_increment(ins_counts_r, indel);
                 } else {
