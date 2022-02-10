@@ -194,6 +194,16 @@ which requires the reads as a `.fasta` or `.fastq` and a reference sequence as a
 `.fasta` file.
 
 
+**Diploid variant calling**
+
+The diploid variant calling workflow `medaka_variant` that was historically implemented
+within the medaka package has been surpassed in accuracy and compute performance by
+other methods, it has therefore been deprecated. Our current recommendation for
+performing this task is to use [Clair3](https://github.com/HKU-BAL/Clair3) either directly
+or through the Oxford Nanopore Technologies provided Nextflow implementation available
+through [EPI2ME Labs](https://labs.epi2me.io/wfindex#variant-calling).
+
+
 Models
 ------
 
