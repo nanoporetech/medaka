@@ -129,7 +129,7 @@ pyprep-m1: venv
 	@echo "\x1b[1;33mInstalling prerequisites with homebrew\x1b[0m"
 	brew install pkg-config hdf5@1.12 openssl@3
 	@echo "\x1b[1;33mCompiling and installing mappy from custom repository\x1b[0m"
-	${IN_VENV} && pip install git+https://github.com/cjw85/minimap2.git@9e035b3
+	${IN_VENV} && pip install git+https://github.com/cjw85/minimap2.git@f5cefd81
 
 
 .PHONY: .package-reqs

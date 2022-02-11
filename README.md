@@ -275,12 +275,19 @@ input data.
 Origin of the draft sequence
 ----------------------------
 
-Medaka has been trained to correct draft sequences output from the 
+Medaka has been trained to correct draft sequences output from the
 [Flye](https://github.com/fenderglass/Flye) assembler.
 
 Processing a draft sequence from alternative sources (e.g. the output of
 [canu](https://github.com/marbl/canu) or
 [wtdbg2](https://github.com/ruanjue/wtdbg2)) may lead to different results.
+
+> Historical correction
+> models in medaka were trained to correct draft sequences output from the canu
+> assembler with [racon](https://github.com/lbcb-sci/racon) applied either once,
+> or four times iteratively. For contemporary models this is not the case and
+> medaka should be used directly on the output of Flye.
+
 
 
 Acknowledgements
