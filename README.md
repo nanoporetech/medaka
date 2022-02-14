@@ -23,7 +23,7 @@ Features
 --------
 
   * Requires only basecalled data. (`.fasta` or `.fastq`)
-  * Improved accurary over graph-based methods (e.g. Racon).
+  * Improved accuracy over graph-based methods (e.g. Racon).
   * 50X faster than Nanopolish (and can run on GPUs).
   * Includes extras for implementing and training bespoke correction
     networks.
