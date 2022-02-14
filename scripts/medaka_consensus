@@ -29,6 +29,7 @@ NOFILLGAPS=false
 
 iflag=false
 dflag=false
+xflag=false
 
 usage="
 ${medaka_version}
@@ -48,11 +49,12 @@ $(basename "$0") [-h] -i <fastx> -d <fasta>
         Choices: ${MODELS}
         Alternatively a .tar.gz/.hdf file from 'medaka train'.
     -f  Force overwrite of outputs (default will reuse existing outputs).
+    -x  Force recreation of alignment index.
     -t  number of threads with which to create features (default: 1).
     -b  batchsize, controls memory use (default: ${BATCH_SIZE})."
 
 
-while getopts ':hi::d:o:gm:ft:b:' option; do
+while getopts ':hi::d:o:gm:fxt:b:' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
@@ -61,6 +63,7 @@ while getopts ':hi::d:o:gm:ft:b:' option; do
     g  ) NOFILLGAPS=true;;
     m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
     f  ) FORCE=true;;
+    x  ) xflag=true;;
     t  ) THREADS=$OPTARG;;
     b  ) BATCH_SIZE=$OPTARG;;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
@@ -119,9 +122,12 @@ fi
 
 CALLS2DRAFT="calls_to_draft"
 ALIGN_PARAMS=$(medaka tools get_alignment_params --model $MODEL)
+if $xflag; then
+    ALIGN_PARAMS="-f ${ALIGN_PARAMS}"
+fi
 if [[ ! -e "${CALLS2DRAFT}.bam" ]] || ${FORCE}; then
     echo "Aligning basecalls to draft"
-    mini_align -i "${BASECALLS}" -r "${DRAFT}" -p "${CALLS2DRAFT}" -t "${THREADS}" -m -f ${ALIGN_PARAMS} \
+    mini_align -i "${BASECALLS}" -r "${DRAFT}" -p "${CALLS2DRAFT}" -t "${THREADS}" -m ${ALIGN_PARAMS} \
       || { echo "Failed to run alignment of reads to draft."; exit 1; } 
     FORCE=true
 else

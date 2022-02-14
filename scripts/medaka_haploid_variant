@@ -29,6 +29,7 @@ FORCE=false
 
 iflag=false
 rflag=false
+xflag=false
 
 usage="
 ${medaka_version}
@@ -46,11 +47,12 @@ $(basename "$0") [-h] -i <fastx> -r <fasta>
         Choices: $MODELS.
     -s  Perform read realignment when annotating variants.
     -f  Force overwrite of outputs (default will reuse existing outputs).
+    -x  Force recreation of alignment index.
     -t  number of threads with which to create features (default: 1).
     -b  batchsize, controls memory use (default: ${BATCH_SIZE})."
 
 
-while getopts ':hi:r:o:m:sft:b:' option; do
+while getopts ':hi:r:o:m:sfxt:b:' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
@@ -59,6 +61,7 @@ while getopts ':hi:r:o:m:sft:b:' option; do
     m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
     s  ) ANNOT_OPTS="--dpsp";;
     f  ) FORCE=true;;
+    x  ) xflag=true;;
     t  ) THREADS=$OPTARG;;
     b  ) BATCH_SIZE=$OPTARG;;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
@@ -112,9 +115,12 @@ cd ${OUTPUT}
 
 CALLS2REF=calls_to_ref
 ALIGN_PARAMS=$(medaka tools get_alignment_params --model "${MODEL}")
+if $xflag; then
+    ALIGN_PARAMS="-f ${ALIGN_PARAMS}"
+fi
 if [[ ! -e "${CALLS2REF}.bam" ]] || ${FORCE}; then
     echo "Aligning basecalls to reference"
-    mini_align -i "${BASECALLS}" -r "${REFERENCE}" -p "${CALLS2REF}" -t "${THREADS}" -m -f ${ALIGN_PARAMS} \
+    mini_align -i "${BASECALLS}" -r "${REFERENCE}" -p "${CALLS2REF}" -t "${THREADS}" -m ${ALIGN_PARAMS} \
       || { echo "Failed to run alignment of reads to draft." ; exit 1; }
     FORCE=true
 else

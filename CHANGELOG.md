@@ -5,9 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [v1.6.0.rc1]
+## [unreleased]
 ### Changed
 - Updated to tensorflow~=2.7.0.
+- Do not always force recreation of minimap2 index in helper scripts.
 ### Fixed
 - Inclusion of inserted bases immediately after deletion in pileup counts.
 ### Added
