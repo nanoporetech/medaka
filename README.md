@@ -188,7 +188,7 @@ When `medaka_consensus` has finished running, the consensus will be saved to
 Variant calling for monoploid samples is enabled through the `medaka_haploid_variant`
 workflow:
 
-    medaka_haploid_variant <reads.fastq> <ref.fasta>
+    medaka_haploid_variant -i <reads.fastq> -r <ref.fasta>
     
 which requires the reads as a `.fasta` or `.fastq` and a reference sequence as a
 `.fasta` file.
