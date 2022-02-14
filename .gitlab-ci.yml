@@ -73,7 +73,7 @@ test-docker:
     script:
         - apk --no-cache add make
         - DOCKERTAG=$DOCKERTAG make docker
-        - docker run --rm -v $PWD:/data $DOCKERTAG medaka_consensus -i /data/medaka/test/data/test_reads.fasta.gz -d /data/medaka/test/data/draft_ref.fasta -o /data/dockertest
+        - docker run --rm -v $PWD:/data $DOCKERTAG medaka_consensus -x -i /data/medaka/test/data/test_reads.fasta.gz -d /data/medaka/test/data/draft_ref.fasta -o /data/dockertest
 
 ###
 # Source distribution
