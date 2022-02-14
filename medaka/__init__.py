@@ -3,19 +3,22 @@ from distutils.version import LooseVersion
 import functools
 import os
 import subprocess
+import sys
 
 __version__ = "1.6.0-rc1"
 
 try:
     import parasail
 except ImportError:
-    print("Cannot import parasail, some features may not be available.")
+    sys.stderr.write(
+        "Cannot import parasail, some features may not be available.\n")
     class parasail: pass # noqa
     setattr(parasail, 'dnafull', None)
 try:
     import spoa
 except ImportError:
-    print("Cannot import spoa, some features may not be available.")
+    sys.stderr.write(
+        "Cannot import spoa, some features may not be available.\n")
     spoa = None
 
 
