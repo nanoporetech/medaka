@@ -35,8 +35,8 @@ usage="
 ${medaka_version}
 ------------
 
-Assembly polishing via neural networks. The input assembly should be
-preprocessed with racon.
+Assembly polishing via neural networks. Medaka is optimized
+to work with the Flye assembler.
 
 $(basename "$0") [-h] -i <fastx> -d <fasta>
 
