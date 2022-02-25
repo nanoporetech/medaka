@@ -542,7 +542,7 @@ plp_data calculate_clair3_pileup(
     //       e.g. mapQ filters, primary/secondary/supplementary, ...
     mplp_data *data = xalloc(1, sizeof(mplp_data), "pileup init data");
     data->fp = fp; data->hdr = hdr; data->iter = bam_itr_querys(idx, hdr, region);
-    data->min_mapQ = 1;
+    data->min_mapQ = 5;
     //memcpy(data->tag_name, tag_name, 2); data->tag_value = tag_value;
     //data->keep_missing = keep_missing; data->read_group = read_group;
 
