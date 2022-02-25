@@ -560,7 +560,7 @@ plp_data calculate_clair3_pileup(
     n_cols = 0;            // number of processed columns (including insertions, which clair3 doesn't have ;))
 
     // for recording deletion lengths
-    size_t del_buf_size = 32;
+    size_t del_buf_size = 50;
     size_t* dels_f = xalloc(del_buf_size, sizeof(size_t), "dels_f");
     size_t* dels_r = xalloc(del_buf_size, sizeof(size_t), "dels_r");
 
@@ -598,13 +598,14 @@ plp_data calculate_clair3_pileup(
                 //  - actually deleted bases get recorded in next block
                 size_t d = (size_t) -1 * p->indel;
                 if (d >= del_buf_size) {
-                    size_t new_size = max(d, 2 * del_buf_size);
-                    dels_f = xrealloc(dels_f, new_size*sizeof(size_t), "dels_f");
-                    memset(dels_f, 0, del_buf_size * sizeof(size_t));
-                    dels_r = xrealloc(dels_r, new_size*sizeof(size_t), "dels_r");
-                    memset(dels_r, 0, del_buf_size * sizeof(size_t));
-                    del_buf_size = new_size;
-                } 
+                    d = del_buf_size;
+//                    size_t new_size = max(d, 2 * del_buf_size);
+//                    dels_f = xrealloc(dels_f, new_size*sizeof(size_t), "dels_f");
+//                    memset(dels_f, 0, del_buf_size * sizeof(size_t));
+//                    dels_r = xrealloc(dels_r, new_size*sizeof(size_t), "dels_r");
+//                    memset(dels_r, 0, del_buf_size * sizeof(size_t));
+//                    del_buf_size = new_size;
+                }
                 if (bam_is_rev(p->b)) {
                     dels_r[d - 1] += 1;
                 } else {
