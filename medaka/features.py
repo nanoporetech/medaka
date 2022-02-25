@@ -62,7 +62,7 @@ class BAMHandler(object):
         libmedaka.lib.destroy_bam_fset(fset)
 
 
-def _plp_data_to_numpy(plp_data, n_rows):
+def _plp_data_to_numpy(plp_data, n_rows, dtype=np.uintp):
     """Create numpy representation of feature data.
 
     Copy the feature matrix and alignment column names from a
@@ -76,10 +76,10 @@ def _plp_data_to_numpy(plp_data, n_rows):
 
     """
     ffi = libmedaka.ffi
-    size_sizet = np.dtype(np.uintp).itemsize
+    size_sizet = np.dtype(dtype).itemsize
     np_counts = np.frombuffer(ffi.buffer(
         plp_data.matrix, size_sizet * plp_data.n_cols * n_rows),
-        dtype=np.uintp
+        dtype=dtype
     ).reshape(plp_data.n_cols, n_rows).copy()
 
     positions = np.empty(plp_data.n_cols, dtype=[
@@ -87,11 +87,11 @@ def _plp_data_to_numpy(plp_data, n_rows):
     np.copyto(
         positions['major'], np.frombuffer(
             ffi.buffer(plp_data.major, size_sizet * plp_data.n_cols),
-            dtype=np.uintp))
+            dtype=dtype))
     np.copyto(
         positions['minor'],
         np.frombuffer(ffi.buffer(
-            plp_data.minor, size_sizet * plp_data.n_cols), dtype=np.uintp))
+            plp_data.minor, size_sizet * plp_data.n_cols), dtype=dtype))
     return np_counts, positions
 
 
@@ -280,7 +280,7 @@ def pileup_counts_clair3(
             counts = lib.calculate_clair3_pileup(
                 region_str.encode(), fh, fasta_file)
         np_counts, positions = _plp_data_to_numpy(
-            counts, featlenclair3)
+            counts, featlenclair3, dtype=np.int)
         lib.destroy_plp_data(counts)
         return np_counts, positions
 

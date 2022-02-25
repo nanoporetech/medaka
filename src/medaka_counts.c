@@ -148,7 +148,7 @@ plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t feature_lengt
     data->n_cols = n_cols;
     if (fixed_size != 0) {
         assert(buffer_cols == n_cols);
-        data->matrix = xalloc(fixed_size * n_cols, sizeof(size_t), "matrix");
+        data->matrix = xalloc(fixed_size * n_cols, sizeof(int), "matrix");
     } else {
         data->matrix = xalloc(feature_length * num_dtypes * buffer_cols * num_homop, sizeof(size_t), "matrix");
     }
