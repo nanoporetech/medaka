@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "htslib/sam.h"
+#include "htslib/faidx.h"
 
 #include "khash.h"
 #include "kvec.h"
@@ -37,6 +38,17 @@ void swap_strings(char** a, char** b) {
     *b = temp;
 }
 
+size_t base2_index(char c) {
+    if (c == 'A') return 0;
+    else if (c == 'C') return 1;
+    else if (c == 'G') return 2;
+    else if (c == 'T') return 3;
+    else if (c == 'a') return 9;
+    else if (c == 'c') return 10;
+    else if (c == 'g') return 11;
+    else if (c == 't') return 12;
+    else return 0;
+}
 
 /** Format an array values as a comma seperate string
  *
@@ -502,7 +514,7 @@ plp_data calculate_pileup(
  */
 
 plp_data calculate_clair3_pileup(
-        const char *region, const bam_fset* bam_set, const char *read_group) {
+        const char *region, const bam_fset* bam_set, const char * fasta_path) {
     // extract `chr`:`start`-`end` from `region`
     //   (start is one-based and end-inclusive),
     //   hts_parse_reg below sets return value to point
@@ -551,6 +563,11 @@ plp_data calculate_clair3_pileup(
     size_t del_buf_size = 32;
     size_t* dels_f = xalloc(del_buf_size, sizeof(size_t), "dels_f");
     size_t* dels_r = xalloc(del_buf_size, sizeof(size_t), "dels_r");
+
+    faidx_t* fai = fai_load(fasta_path);
+    int len = 0;
+    char *ref_seq = NULL;
+    ref_seq = faidx_fetch_seq(fai, chr, start, end, &len);
 
     while ((ret=bam_mplp_auto(mplp, &tid, &pos, &n_plp, plp) > 0)) {
         const char *c_name = data->hdr->target_name[tid];
@@ -669,6 +686,19 @@ plp_data calculate_clair3_pileup(
         pileup->matrix[major_col + c3_rev_ins_best] = stats.max;
         kh_counter_destroy(ins_counts_r);
 
+        //https://github.com/HKU-BAL/Clair3/blob/main/preprocess/CreateTensorPileup.py#L163
+        int offset = pos - start;
+        char ref_base = ref_seq[offset];
+        int ref_offset_forward = base2_index(ref_base);
+        int ref_offset_reverse = ref_offset_forward + reverse_pos_start;
+        size_t forward_sum = 0;
+        size_t reverse_sum = 0;
+        for (size_t i = 0; i < 4; i++) {
+            forward_sum += pileup->matrix[major_col + i];
+            reverse_sum += pileup->matrix[major_col + i + reverse_pos_start];
+        }
+        pileup->matrix[major_col + ref_offset_forward] = -1 * forward_sum;
+        pileup->matrix[major_col + ref_offset_reverse] = -1 * reverse_sum;
         // move to next position
         major_col += featlenclair3;
     }
@@ -676,6 +706,7 @@ plp_data calculate_clair3_pileup(
 
     bam_itr_destroy(data->iter);
     bam_mplp_destroy(mplp);
+    fai_destroy(fai);
     free(data);
     free(plp);
     free(chr);

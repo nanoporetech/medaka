@@ -241,7 +241,7 @@ def pileup_counts(
 def pileup_counts_clair3(
         region, bam, dtype_prefixes=None, region_split=100000, workers=8,
         tag_name=None, tag_value=None, keep_missing=False, num_qstrat=1,
-        weibull_summation=False, read_group=None):
+        weibull_summation=False, read_group=None, fasta_file=None):
     """Create pileup counts feature array for region.
 
     :param region: `medaka.common.Region` object
@@ -278,7 +278,7 @@ def pileup_counts_clair3(
             bam_handle = BAMHandler(bam)
         with bam_handle.borrow() as fh:
             counts = lib.calculate_clair3_pileup(
-                region_str.encode(), fh, read_group)
+                region_str.encode(), fh, fasta_file)
         np_counts, positions = _plp_data_to_numpy(
             counts, featlenclair3)
         lib.destroy_plp_data(counts)

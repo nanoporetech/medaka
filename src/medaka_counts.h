@@ -61,6 +61,7 @@ static const char plp_bases[] = "acgtACGTdD";
 static const size_t featlen = 10; // len of the above
 static const size_t fwd_del = 9; // position of D
 static const size_t rev_del = 8;  // position of d
+static const size_t reverse_pos_start = 9;  // position of reverse position start
 
 // bam tag used for datatypes
 static const char datatype_tag[] = "DT";
@@ -187,6 +188,6 @@ plp_data calculate_pileup(
 
 // clair3-style pileup feature vector
 plp_data calculate_clair3_pileup(
-        const char *region, const bam_fset* bam_set, const char *read_group);
+        const char *region, const bam_fset* bam_set, const char *fasta);
 
 #endif
