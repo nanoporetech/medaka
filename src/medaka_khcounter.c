@@ -31,7 +31,7 @@ size_t kh_counter_add(khash_t(KH_COUNTER) *hash, char *key, size_t val) {
     int ret;
     khiter_t k = kh_put(KH_COUNTER, hash, key, &ret);
     if (ret == 1) { // new key
-        kh_key(hash, k) = strdup("A");
+        kh_key(hash, k) = strdup(key);
         kh_value(hash, k) = val;
     } else if (ret == 0) {  // exists
         // get value and add
