@@ -155,8 +155,10 @@ def _tidy_libfunc_args(
         dtype_prefixes, tag_name, tag_value, keep_missing, read_group):
     ffi = libmedaka.ffi
 
-    if dtype_prefixes is None or isinstance(dtype_prefixes, str) \
-            or len(dtype_prefixes) == 1:
+    if (
+            dtype_prefixes is None
+            or isinstance(dtype_prefixes, str)
+            or len(dtype_prefixes) == 1):
         num_dtypes, dtypes, _dtypes = 1, ffi.NULL, [ffi.NULL]
     else:
         num_dtypes = len(dtype_prefixes)
@@ -176,8 +178,9 @@ def _tidy_libfunc_args(
     else:
         read_group = ffi.new("char[]", read_group.encode())
 
-    return (num_dtypes, dtypes, _dtypes, tag_name, tag_value,
-            keep_missing, read_group)
+    return (
+        num_dtypes, dtypes, _dtypes, tag_name, tag_value,
+        keep_missing, read_group)
 
 
 def pileup_counts(
@@ -207,7 +210,8 @@ def pileup_counts(
     """
     lib = libmedaka.lib
     featlen = lib.featlen
-    (num_dtypes, dtypes, _dtypes, tag_name, tag_value,
+    (
+        num_dtypes, dtypes, _dtypes, tag_name, tag_value,
         keep_missing, read_group) = _tidy_libfunc_args(
             dtype_prefixes, tag_name, tag_value, keep_missing, read_group)
 
@@ -230,8 +234,8 @@ def pileup_counts(
 
     # split large regions for performance
     regions = region.split(region_split, fixed_size=False)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) \
-            as executor:
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
+    with ex as executor:
         results = executor.map(_process_region, regions)
         chunk_results = __enforce_pileup_chunk_contiguity(results)
 
@@ -264,7 +268,8 @@ def get_trimmed_reads(
     :returns: iterator of lists of trimmed reads.
     """
     ffi, lib = libmedaka.ffi, libmedaka.lib
-    (num_dtypes, dtypes, _dtypes, tag_name, tag_value,
+    (
+        num_dtypes, dtypes, _dtypes, tag_name, tag_value,
         keep_missing, read_group) = _tidy_libfunc_args(
             dtype_prefixes, tag_name, tag_value, keep_missing, read_group)
 
@@ -284,9 +289,9 @@ def get_trimmed_reads(
 
     # split large regions for performance
     regions = region.split(region_split, chunk_overlap)
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
     if len(regions) > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) \
-                as executor:
+        with ex as executor:
             results = executor.map(_process_region, regions)
     else:
         results = iter([_process_region(region), ])
@@ -590,8 +595,9 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
                 # from the labels position array)
                 shape = list(truth_labels.shape)
                 shape[0] = len(sample.positions)
-                padded_labels = np.full(shape, label_scheme.padding_vector,
-                                        dtype=truth_labels.dtype)
+                padded_labels = np.full(
+                    shape, label_scheme.padding_vector,
+                    dtype=truth_labels.dtype)
                 truth_inds = np.where(np.in1d(truth_pos, sample.positions))
                 sample_inds = np.where(np.in1d(sample.positions, truth_pos))
                 assert len(truth_inds[0]) == len(sample_inds[0])
@@ -708,10 +714,11 @@ class SoftRLEFeatureEncoder(HardRLEFeatureEncoder):
 class SampleGenerator(object):
     """Orchestration of neural network inputs with chunking."""
 
-    def __init__(self, bam, region, feature_encoder, truth_bam=None,
-                 label_scheme=None, truth_haplotag=None, chunk_len=1000,
-                 chunk_overlap=200, enable_chunking=True,
-                 min_truth_length=1000):
+    def __init__(
+            self, bam, region, feature_encoder, truth_bam=None,
+            label_scheme=None, truth_haplotag=None, chunk_len=1000,
+            chunk_overlap=200, enable_chunking=True,
+            min_truth_length=1000):
         """Generate chunked inference (or training) samples.
 
         :param bam: `.bam` containing alignments from which to generate
@@ -855,8 +862,8 @@ def create_samples(args):
             args.feature_encoder_args['num_qstrat'] = max_run
         elif max_run != num_qstrat:
             raise ValueError(
-                 'num_qstrat in feature_encoder_args must agree '
-                 'with max_run in feature_encoder_args')
+                'num_qstrat in feature_encoder_args must agree '
+                'with max_run in feature_encoder_args')
 
         # Create and serialise to file model ancilliaries
         feature_encoder = feature_encoders[args.feature_encoder](

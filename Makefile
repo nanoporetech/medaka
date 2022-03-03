@@ -151,7 +151,7 @@ develop: .package-reqs
 .PHONY: test
 test: install
 	@echo "\x1b[1;33mRunning tests on Python package\x1b[0m"
-	${IN_VENV} && pip install pytest pytest-cov flake8 flake8-rst-docstrings flake8-docstrings flake8-import-order
+	${IN_VENV} && pip install pytest pytest-cov flake8 flake8-rst-docstrings flake8-docstrings flake8-import-order flake8-forbid-visual-indent
 	# TODO: add these exclusions back in after outstanding PRs
 	${IN_VENV} && flake8 medaka --import-order-style google --application-import-names medaka,libmedaka --exclude \
 		medaka/test/,medaka/medaka.py \

@@ -212,8 +212,9 @@ def _compress_alignment(alignment, ref_rle, fast5_dir=None, file_index=None):
     return a
 
 
-def _compress_bam(bam_input, bam_output, ref_fname,
-                  fast5_dir=None, summary=None, regions=None, threads=1):
+def _compress_bam(
+        bam_input, bam_output, ref_fname,
+        fast5_dir=None, summary=None, regions=None, threads=1):
     """Compress a bam into run length encoding (RLE).
 
     :param bam_input: str, name of the bam file to be compressed
