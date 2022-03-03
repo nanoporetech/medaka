@@ -69,8 +69,8 @@ def join_samples(sample_gen, ref_seq, label_scheme):
 
         is_diff = call_with_gaps != ref_seq_with_gaps
         # don't count a minor position called as gap as a match
-        both_gap = np.logical_and(call_with_gaps == '*',
-                                  ref_seq_with_gaps == '*')
+        both_gap = np.logical_and(
+            call_with_gaps == '*', ref_seq_with_gaps == '*')
         is_var = np.logical_or(is_diff, both_gap)
 
         # if the entire slice of Sample is a variant, add it to queue
@@ -336,8 +336,8 @@ def edlib_chunked_align_fastas(query_fasta, ref_fasta, contigs=None, **kwargs):
     :param kwargs: `medaka.align.chunked_edlib_align` keyword arguments.
     :yields: `pysam.AlignedSegment` objs.
     """
-    contigs = medaka.common.common_fasta_contigs([ref_fasta, query_fasta],
-                                                 contigs)
+    contigs = medaka.common.common_fasta_contigs(
+        [ref_fasta, query_fasta], contigs)
     if len(contigs) == 0:
         raise KeyError('Reference and query contig names should match')
 
@@ -359,8 +359,8 @@ def vcf_from_fasta(args):
         contig_lengths = dict(zip(fasta.references, fasta.lengths))
         total_bp = sum(fasta.lengths)
         ref_contigs = fasta.references
-        h = pysam.AlignmentHeader().from_references(fasta.references,
-                                                    fasta.lengths)
+        h = pysam.AlignmentHeader().from_references(
+            fasta.references, fasta.lengths)
 
     if args.bam is not None:
         alns = pysam.AlignmentFile(args.bam)
@@ -371,10 +371,10 @@ def vcf_from_fasta(args):
             contigs = [r.ref_name for r in args.regions]
         else:
             contigs = None
-        alns = edlib_chunked_align_fastas(args.consensus, args.ref_fasta,
-                                          contigs, chunk_size=args.chunk_size,
-                                          pad=args.pad, mode=args.mode,
-                                          header=h)
+        alns = edlib_chunked_align_fastas(
+            args.consensus, args.ref_fasta, contigs,
+            chunk_size=args.chunk_size, pad=args.pad, mode=args.mode,
+            header=h)
     vcf_fp = args.out_prefix + '.vcf'
     trees = collections.defaultdict(intervaltree.IntervalTree)
     t_log = now()
@@ -382,8 +382,9 @@ def vcf_from_fasta(args):
     msg = 'Processed {:.2%} of reference.'
     bp_done = collections.Counter()
 
-    header_contigs = ['{},length={}'.format(c, contig_lengths[c])
-                      for c in ref_contigs]
+    header_contigs = [
+        '{},length={}'.format(c, contig_lengths[c])
+        for c in ref_contigs]
     meta_info = [medaka.vcf.MetaInfo(
         'FORMAT', 'GT', 1, 'String', 'Medaka genotype.')]
     with medaka.vcf.VCFWriter(
@@ -429,11 +430,13 @@ def vcf_from_fasta(args):
     # loop over contigs for which we have alignments checking for gaps
     for contig in trees:
         if len(gap_trees[contig]):
-            logger.info(('WARNING: There are alignment gaps for ref contig' +
-                         ' {}, see bed files for details.').format(contig))
+            logger.info((
+                'WARNING: There are alignment gaps for ref contig'
+                ' {}, see bed files for details.').format(contig))
     if len(ref_contigs) != len(trees):
-        logger.info('WARNING: Some contigs have no alignments, see bed files' +
-                    ' for details.')
+        logger.info(
+            'WARNING: Some contigs have no alignments, see bed files'
+            ' for details.')
     # bp_done calculated above does not take account of overlapping alignments
     # hence recalculate here based on merged alignment intervals.
     aligned_bp = sum((i.length() for tree in trees.values() for i in tree))

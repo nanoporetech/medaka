@@ -69,9 +69,9 @@ class Read(object):
         return read
 
     @classmethod
-    def multi_from_fastx(cls, fastx,
-                         take_all=False, read_id=None, depth_filter=1,
-                         length_filter=0):
+    def multi_from_fastx(
+            cls, fastx,
+            take_all=False, read_id=None, depth_filter=1, length_filter=0):
         """Create multiple `Read` s from a fasta/q file.
 
         It is assumed that subreads are grouped by read and named with
@@ -282,9 +282,9 @@ def write_bam(fname, alignments, header, bam=True):
     with pysam.AlignmentFile(fname, mode, header=header) as fh:
         for ref_id, subreads in enumerate(alignments):
             for aln in sorted(subreads, key=lambda x: x.rstart):
-                a = medaka.align.initialise_alignment(aln.qname, ref_id,
-                                                      aln.rstart, aln.seq,
-                                                      aln.cigar, aln.flag)
+                a = medaka.align.initialise_alignment(
+                    aln.qname, ref_id, aln.rstart, aln.seq,
+                    aln.cigar, aln.flag)
                 fh.write(a)
     if mode == 'wb':
         pysam.index(fname)

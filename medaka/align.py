@@ -190,8 +190,9 @@ def initialise_alignment(
     return a
 
 
-def chunked_edlib_align(qseq, rseq, contig_name, chunk_size=100000,
-                        pad=10000, mode='NW', header=None):
+def chunked_edlib_align(
+        qseq, rseq, contig_name, chunk_size=100000,
+        pad=10000, mode='NW', header=None):
     """Align query to reference in chunks using edlib.
 
     .. note::
@@ -270,12 +271,13 @@ def chunked_edlib_align(qseq, rseq, contig_name, chunk_size=100000,
                 result = edlib.align(qseq, rseq, task='path', mode='NW')
                 rstart_aln, cigar = result['locations'][0][0], result['cigar']
             else:
-                result = edlib.align(qseq[qstart:qend], rseq[rstart:rend],
-                                     task='path', mode=mode_first)
+                result = edlib.align(
+                    qseq[qstart:qend], rseq[rstart:rend],
+                    task='path', mode=mode_first)
                 rstart_aln, cigar = result['locations'][0][0], result['cigar']
                 if mode == 'HWT':  # trim start of alignment
-                    cigar, trim_qstart, r_offset = trim_cigar(cigar,
-                                                              start=True)
+                    cigar, trim_qstart, r_offset = trim_cigar(
+                        cigar, start=True)
                     qstart += trim_qstart
                     rstart_aln += r_offset
                 # don't trim end if this is the last chunk unless mode is match
@@ -286,8 +288,9 @@ def chunked_edlib_align(qseq, rseq, contig_name, chunk_size=100000,
             rstart = aln_last.reference_end - 1  # overlap by 1 match
             rend = len(rseq)
             # For last alignment, allow gaps only at end of qseq
-            result = edlib.align(qseq[qstart:qend], rseq[rstart:rend],
-                                 task='path', mode=mode_last)
+            result = edlib.align(
+                qseq[qstart:qend], rseq[rstart:rend],
+                task='path', mode=mode_last)
             rstart_aln, cigar = result['locations'][0][0], result['cigar']
             check_cigar_starts_with_match(cigar)
             # don't trim end of alignment for last chunk unless mode is match
@@ -298,8 +301,9 @@ def chunked_edlib_align(qseq, rseq, contig_name, chunk_size=100000,
             rstart = aln_last.reference_end - 1  # overlap by 1 match
             rend = min(len(rseq), rstart + chunk_size)
             # For subsequent alignments, allow gaps only at end of qseq
-            result = edlib.align(qseq[qstart:qend], rseq[rstart:rend],
-                                 task='path', mode='SHW')
+            result = edlib.align(
+                qseq[qstart:qend], rseq[rstart:rend],
+                task='path', mode='SHW')
             rstart_aln, cigar = result['locations'][0][0], result['cigar']
             check_cigar_starts_with_match(cigar)
 
@@ -311,9 +315,10 @@ def chunked_edlib_align(qseq, rseq, contig_name, chunk_size=100000,
         # are skipped when decoding variants. Note that the edit distnce of
         # the trimmed alignment could be less than this value.
         nm = result['editDistance']
-        aln = initialise_alignment(qname, ref_id, rstart + rstart_aln,
-                                   qseq[qstart: qend], cigar, flag,
-                                   header=header, tags=dict(NM=nm))
+        aln = initialise_alignment(
+            qname, ref_id, rstart + rstart_aln,
+            qseq[qstart: qend], cigar, flag,
+            header=header, tags=dict(NM=nm))
 
         yield aln
 

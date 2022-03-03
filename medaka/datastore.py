@@ -328,9 +328,8 @@ class DataStore(object):
     def _write_dataset(self, location, data):
         """Write data, compressing numpy arrays."""
         if isinstance(data, np.ndarray):
-            self.fh.create_dataset(location, data=data,
-                                   compression='gzip',
-                                   compression_opts=1)
+            self.fh.create_dataset(
+                location, data=data, compression='gzip', compression_opts=1)
         else:
             self.fh[location] = data
 
@@ -355,8 +354,8 @@ class DataStore(object):
         self.logger.debug("Writing sample registry.")
         if self._sample_registry_path_ in self.fh:
             del self.fh[self._sample_registry_path_]
-        self._write_pickled(self.sample_registry,
-                            self._sample_registry_path_)
+        self._write_pickled(
+            self.sample_registry, self._sample_registry_path_)
 
 
 class DataIndex(object):

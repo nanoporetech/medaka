@@ -108,8 +108,9 @@ def open_model(fname):
             "Model {} does not have .hdf5 or .gz extension.".format(fname))
 
 
-def build_model(feature_len, num_classes, gru_size=128,
-                classify_activation='softmax', time_steps=None):
+def build_model(
+        feature_len, num_classes, gru_size=128,
+        classify_activation='softmax', time_steps=None):
     """Build a bidirectional GRU model with CuDNNGRU support.
 
     CuDNNGRU implementation is claimed to give speed-up on GPU of 7x.
@@ -154,8 +155,9 @@ def build_model(feature_len, num_classes, gru_size=128,
     return model
 
 
-def build_majority(feature_len, num_classes, gru_size=128,
-                   classify_activation='softmax', time_steps=None):
+def build_majority(
+        feature_len, num_classes, gru_size=128,
+        classify_activation='softmax', time_steps=None):
     """Build a mock model that simply sums counts.
 
     :param feature_len: int, number of features for each pileup column.

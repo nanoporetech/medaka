@@ -117,9 +117,10 @@ class MetaInfo(object):
                 'Group {} is not one of {}'.format(
                     group, self.__valid_groups__))
 
-        if not isinstance(number, int) \
-                and not (isinstance(number, str) and number.isdigit()) \
-                and number not in self.__valid_non_int_nums__:
+        if (
+                not isinstance(number, int)
+                and not (isinstance(number, str) and number.isdigit())
+                and number not in self.__valid_non_int_nums__):
             raise ValueError(
                 'Number {} is not an int, digit str or one of {}'.format(
                     number, self.__valid_non_int_nums__))
@@ -272,8 +273,9 @@ class Variant(object):
         :param line: string representing variant.
 
         """
-        chrom, pos, ident, ref, alt, qual, filt, info, \
-            genotype_keys, genotype_values, *others = line.split('\t')
+        (
+            chrom, pos, ident, ref, alt, qual, filt, info,
+            genotype_keys, genotype_values, *others) = line.split('\t')
         pos = int(pos)
         pos -= 1  # VCF is 1-based, python 0-based
         gt = cls._sort_genotype_data(
@@ -440,14 +442,14 @@ class VCFWriter(object):
 
     version_options = {'4.3', '4.1'}
 
-    def __init__(self, filename, mode='w',
-                 header=(
-                     'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL',
-                     'FILTER', 'INFO', 'FORMAT', 'SAMPLE'),
-                 contigs=None,
-                 meta_info=None,
-                 version='4.1'
-                 ):
+    def __init__(
+            self, filename, mode='w',
+            header=(
+                'CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL',
+                'FILTER', 'INFO', 'FORMAT', 'SAMPLE'),
+            contigs=None,
+            meta_info=None,
+            version='4.1'):
         """Initialize a VCF writer.
 
         Some tools cannot read VCFv4.3, preferring VCFv4.1 - so this class
@@ -651,10 +653,11 @@ class VCFReader(object):
         if not self.cache:
             # if not using a cache, just keep re-reading the file
             for variant in self._parse():
-                if not all([
-                        ref_name is None or variant.chrom == ref_name,
-                        start is None or variant.pos > start,
-                        end is None or variant.pos + len(variant.ref) < end]):
+                check = not all([
+                    ref_name is None or variant.chrom == ref_name,
+                    start is None or variant.pos > start,
+                    end is None or variant.pos + len(variant.ref) < end])
+                if check:
                     continue
                 yield variant
         else:
@@ -666,10 +669,10 @@ class VCFReader(object):
                     self._tree[ref_name], start, end, strict))
             else:
                 results = itertools.chain(*(
-                     sorted(_tree_search(
-                         self._tree[chrom], start, end, strict=True))
-                     for chrom in self.chroms
-                ))
+                    sorted(
+                        _tree_search(
+                            self._tree[chrom], start, end, strict=True))
+                    for chrom in self.chroms))
             for interval in results:
                 yield interval.data
 
@@ -748,8 +751,9 @@ def _merge_variants(
         # overall qual.
         # Use mean otherwise we might need very different thresholds for
         # short vs long variants and homozygous vs heterozygous variants.
-        info['q{}'.format(hap)] = sum((float(v.qual) if v.qual != '.' else 0.0
-                                       for v in hap_vars)) / len(hap_vars)
+        info['q{}'.format(hap)] = sum((
+            float(v.qual) if v.qual != '.' else 0.0
+            for v in hap_vars)) / len(hap_vars)
         info['pos{}'.format(hap)] = ','.join(str(v.pos + 1) for v in hap_vars)
         if detailed_info:
             # + 1 as VCF is 1-based, v.pos is 0 based
@@ -809,9 +813,10 @@ def split_mnp(v):
                 alt = ref_and_new_alts[1:]
                 genotype_data['GT'] = gt_sep.join(map(str, gt))
 
-            variants.append(Variant(v.chrom, pos, ref, alt, ident=v.ident,
-                                    qual=v.qual, filt=v.filt, info=v.info,
-                                    genotype_data=genotype_data))
+            variants.append(Variant(
+                v.chrom, pos, ref, alt, ident=v.ident,
+                qual=v.qual, filt=v.filt, info=v.info,
+                genotype_data=genotype_data))
     else:
         variants.append(v)
 
@@ -922,9 +927,10 @@ class Haploid2DiploidConverter(object):
 
 def haploid2diploid(args):
     """Entry point for merging two haploid vcfs into a diploid vcf."""
-    convertor = Haploid2DiploidConverter(args.vcf1, args.vcf2, args.ref_fasta,
-                                         only_overlapping=not args.adjacent,
-                                         discard_phase=args.discard_phase)
+    convertor = Haploid2DiploidConverter(
+        args.vcf1, args.vcf2, args.ref_fasta,
+        only_overlapping=not args.adjacent,
+        discard_phase=args.discard_phase)
 
     with pysam.FastaFile(args.ref_fasta) as fa:
         lengths = dict(zip(fa.references, fa.lengths))
@@ -1203,7 +1209,7 @@ def annotate_vcf_n_reads(args):
             medaka.common.Region(chrom, chr_start, chr_end + 1))
 
     feature_encoder = medaka.features.CountsFeatureEncoder(
-       read_group=args.RG, normalise='fwd_rev')
+        read_group=args.RG, normalise='fwd_rev')
     feature_indices = feature_encoder.feature_indices.items()
     featlen = libmedaka.lib.featlen
 
@@ -1342,8 +1348,8 @@ def get_trimmed_reads(bam, region, partial, read_group):
     return reads
 
 
-def align_reads_to_haps(reads, haps, g_open=5, g_ext=3,
-                        matrix=parasail.dnafull):
+def align_reads_to_haps(
+        reads, haps, g_open=5, g_ext=3, matrix=parasail.dnafull):
     """Get trimmed reads without reference.
 
     :param reads: [(bool is_rev, str trimmed read sequence)]

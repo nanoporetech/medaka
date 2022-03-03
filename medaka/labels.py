@@ -32,8 +32,9 @@ class TruthAlignment(object):
         self.logger = medaka.common.get_named_logger('TruthAlign')
 
     def _get_overlap_with(self, other):
-        first, second = sorted((self, other),
-                               key=attrgetter('aln.reference_start'))
+        first, second = sorted(
+            (self, other),
+            key=attrgetter('aln.reference_start'))
         overlap = first.aln.reference_end > second.aln.reference_start
         if overlap:
             # return positions of start and end of overlapping region
@@ -42,8 +43,9 @@ class TruthAlignment(object):
             return None
 
     @staticmethod
-    def _filter_alignments(alignments, region, min_length=1000,
-                           length_ratio=2.0, overlap_fraction=0.5):
+    def _filter_alignments(
+            alignments, region, min_length=1000,
+            length_ratio=2.0, overlap_fraction=0.5):
         """Filter alignments to yield only segments suitable for training.
 
         :param alignments: iterable of `TruthAlignment` objects.
@@ -68,26 +70,29 @@ class TruthAlignment(object):
             symbols = set(list('ACGT'))
             ref = al.aln.get_reference_sequence().upper()
             query = al.aln.query_sequence.upper()
-            result = all([set(ref).issubset(symbols),
-                          set(query).issubset(symbols)])
+            result = all(
+                [set(ref).issubset(symbols), set(query).issubset(symbols)])
             return result
 
-        filtered_alignments = [al for al in filtered_alignments
-                               if only_valid_symbols(al)]
+        filtered_alignments = [
+            al for al in filtered_alignments
+            if only_valid_symbols(al)]
 
         for al_i, al_j in itertools.combinations(filtered_alignments, 2):
-            first, second = sorted((al_i, al_j),
-                                   key=attrgetter('aln.reference_start'))
+            first, second = sorted(
+                (al_i, al_j),
+                key=attrgetter('aln.reference_start'))
             overlap = first._get_overlap_with(second)
             if overlap is None:
                 continue
             ovlp_start, ovlp_end = overlap
-            shorter, longer = sorted((al_i, al_j),
-                                     key=attrgetter('aln.reference_length'))
-            length_ratio_ij = (longer.aln.reference_length /
-                               shorter.aln.reference_length)
-            overlap_fraction_ij = ((ovlp_end - ovlp_start) /
-                                   shorter.aln.reference_length)
+            shorter, longer = sorted(
+                (al_i, al_j),
+                key=attrgetter('aln.reference_length'))
+            length_ratio_ij = (
+                longer.aln.reference_length / shorter.aln.reference_length)
+            overlap_fraction_ij = (
+                (ovlp_end - ovlp_start) / shorter.aln.reference_length)
             # 4 cases
             # we don't trust one more than the other
             if length_ratio_ij < length_ratio:
@@ -116,9 +121,9 @@ class TruthAlignment(object):
                 if region.end is not None:
                     al.end = min(region.end, al.end)
         # do filtering
-        filtered_alignments = [al for al in filtered_alignments
-                               if (al.is_kept and
-                                   al.end - al.start >= min_length)]
+        filtered_alignments = [
+            al for al in filtered_alignments
+            if (al.is_kept and al.end - al.start >= min_length)]
         filtered_alignments.sort(key=attrgetter('start'))
         return filtered_alignments
 
@@ -209,8 +214,8 @@ class TruthAlignment(object):
                 # skip this group
                 if len(group) != len(haplotypes):
                     msg = 'Skipping {}:{}-{}; missing alignment for haplotype'
-                    logger.info(msg.format(a.aln.reference_name,
-                                           a.start, a.end))
+                    logger.info(
+                        msg.format(a.aln.reference_name, a.start, a.end))
                     continue
                 else:
                     # trim all alignments to common start/end
@@ -458,11 +463,10 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
             h.keys() for h in pos_maps)))
 
         # n_element tuples of symbols from haplotypes
-        labels = [tuple(h[pos] for h in pos_maps)
-                  for pos in positions]
-        positions = np.array(positions,
-                             dtype=[('major', int), ('minor', int)])
-
+        labels = [
+            tuple(h[pos] for h in pos_maps) for pos in positions]
+        positions = np.array(
+            positions, dtype=[('major', int), ('minor', int)])
         return (positions, labels)
 
     @abc.abstractmethod
@@ -586,9 +590,9 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
                 reference_symbol = self.ref_seq[pos['major'][i]]
                 # insertions are ignored
                 # ref_symbol must be in standard set
-                if not all((pos['major'][i] in loci,
-                            pos['minor'][i] == 0,
-                            reference_symbol in self.symbols)):
+                if not all((
+                        pos['major'][i] in loci, pos['minor'][i] == 0,
+                        reference_symbol in self.symbols)):
                     continue
                 indices.append(i)
                 ref_symbols.append(reference_symbol)
@@ -603,8 +607,9 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
             ref_symbols = list()
             for i in range(len(probs)):
                 reference_symbol = self.ref_seq[pos['major'][i]]
-                if not all((pos['minor'][i] == 0,
-                            reference_symbol in self.symbols)):
+                if not all((
+                        pos['minor'][i] == 0,
+                        reference_symbol in self.symbols)):
                     continue
                 indices.append(i)
                 ref_symbols.append(reference_symbol)
@@ -659,20 +664,26 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
     def snp_metainfo(self):
         """Return meta data for use in `.vcf` header."""
         MI = medaka.vcf.MetaInfo
-        m = [MI('FORMAT', 'GT', 1, 'String', 'Medaka genotype'),
-             MI('FORMAT', 'GQ', 1, 'Integer', 'Medaka genotype quality score')]
+        m = [
+            MI('FORMAT', 'GT', 1, 'String', 'Medaka genotype'),
+            MI('FORMAT', 'GQ', 1, 'Integer', 'Medaka genotype quality score')]
         if self.verbose:
-            m.extend([MI('INFO', 'ref_prob', 1, 'Float',
-                         'Medaka probability for reference allele'),
-                      MI('INFO', 'primary_prob', 1, 'Float',
-                         'Medaka probability of primary call'),
-                      MI('INFO', 'primary_call', 1, 'String',
-                         'Medaka primary call'),
-                      MI('INFO', 'secondary_prob', 1, 'Float',
-                         'Medaka probability of secondary call'),
-                      MI('INFO', 'secondary_call', 1, 'String',
-                         'Medaka secondary call'), ])
-
+            m.extend([
+                MI(
+                    'INFO', 'ref_prob', 1, 'Float',
+                    'Medaka probability for reference allele'),
+                MI(
+                    'INFO', 'primary_prob', 1, 'Float',
+                    'Medaka probability of primary call'),
+                MI(
+                    'INFO', 'primary_call', 1, 'String',
+                    'Medaka primary call'),
+                MI(
+                    'INFO', 'secondary_prob', 1, 'Float',
+                    'Medaka probability of secondary call'),
+                MI(
+                    'INFO', 'secondary_call', 1, 'String',
+                    'Medaka secondary call'), ])
         return m
 
 
@@ -786,7 +797,8 @@ class HaploidLabelScheme(BaseLabelScheme):
                 secondary_prob >= self.secondary_threshold
 
             # homozygous snp
-            if all((not primary_is_reference,
+            if all((
+                    not primary_is_reference,
                     not primary_is_deletion,
                     not secondary_exceeds_threshold)):
 
@@ -798,15 +810,17 @@ class HaploidLabelScheme(BaseLabelScheme):
                     qual=self._pfmt(qual), genotype_data=genotype))
 
             # heterozygous, no deletions
-            elif all((not primary_is_deletion,
-                      not secondary_is_deletion,
-                      secondary_exceeds_threshold)):
+            elif all((
+                    not primary_is_deletion,
+                    not secondary_is_deletion,
+                    secondary_exceeds_threshold)):
 
                 err = 1 - (primary_prob + secondary_prob)
                 qual = self._phred(err)
                 # filtering by list comp maintains order
-                alt = [c for c in [primary_call, secondary_call]
-                       if not c == ref_symbol]
+                alt = [
+                    c for c in [primary_call, secondary_call]
+                    if not c == ref_symbol]
                 gt = '0/1' if len(alt) == 1 else '1/2'
                 genotype = {'GT': gt, 'GQ': self._pfmt(qual, 0)}
 
@@ -815,11 +829,11 @@ class HaploidLabelScheme(BaseLabelScheme):
                     info=info, qual=self._pfmt(qual), genotype_data=genotype))
 
             # heterozygous, secondary deletion
-            elif all((not primary_is_reference,
-                      not primary_is_deletion,
-                      secondary_is_deletion,
-                      secondary_exceeds_threshold)):
-
+            elif all((
+                    not primary_is_reference,
+                    not primary_is_deletion,
+                    secondary_is_deletion,
+                    secondary_exceeds_threshold)):
                 alt = primary_call
                 qual = self._phred(1 - primary_prob)
                 genotype = {'GT': '1/1', 'GQ': self._pfmt(qual, 0)}
@@ -991,25 +1005,36 @@ class HaploidLabelScheme(BaseLabelScheme):
         """Return meta data for use in `.vcf` header."""
         MI = medaka.vcf.MetaInfo
 
-        m = [MI('FORMAT', 'GT', 1, 'String',
+        m = [
+            MI(
+                'FORMAT', 'GT', 1, 'String',
                 'Medaka genotype.'),
-             MI('FORMAT', 'GQ', 1, 'Integer',
+            MI(
+                'FORMAT', 'GQ', 1, 'Integer',
                 'Medaka genotype quality score'), ]
         if self.verbose:
-            m.extend([MI('INFO', 'ref_seq', 1, 'String',
-                      'Medaka reference sequence'),
-                      MI('INFO', 'pred_seq', 1, 'String',
-                      'Medaka predicted sequence'),
-                      MI('INFO', 'ref_qs', '.', 'Float',
-                      'Medaka quality score for reference'),
-                      MI('INFO', 'pred_qs', '.', 'Float',
-                      'Medaka quality score for prediction'),
-                      MI('INFO', 'ref_q', 1, 'Float',
-                      'Medaka per position quality score for reference'),
-                      MI('INFO', 'pred_q', 1, 'Float',
-                      'Medaka per position quality score for prediction'),
-                      MI('INFO', 'n_cols', 1, 'Integer',
-                      'Number of medaka pileup columns in variant call')])
+            m.extend([
+                MI(
+                    'INFO', 'ref_seq', 1, 'String',
+                    'Medaka reference sequence'),
+                MI(
+                    'INFO', 'pred_seq', 1, 'String',
+                    'Medaka predicted sequence'),
+                MI(
+                    'INFO', 'ref_qs', '.', 'Float',
+                    'Medaka quality score for reference'),
+                MI(
+                    'INFO', 'pred_qs', '.', 'Float',
+                    'Medaka quality score for prediction'),
+                MI(
+                    'INFO', 'ref_q', 1, 'Float',
+                    'Medaka per position quality score for reference'),
+                MI(
+                    'INFO', 'pred_q', 1, 'Float',
+                    'Medaka per position quality score for prediction'),
+                MI(
+                    'INFO', 'n_cols', 1, 'Integer',
+                    'Number of medaka pileup columns in variant call')])
         return m
 
     def decode_consensus(self, sample, with_gaps=False, dtype=None):
@@ -1180,8 +1205,9 @@ class DiploidLabelScheme(BaseLabelScheme):
     def snp_metainfo(self):
         """Return meta data for use in `.vcf` header."""
         MI = medaka.vcf.MetaInfo
-        m = [MI('FORMAT', 'GT', 1, 'String', 'Medaka genotype'),
-             MI('FORMAT', 'GQ', 1, 'Float', 'Medaka genotype quality score')]
+        m = [
+            MI('FORMAT', 'GT', 1, 'String', 'Medaka genotype'),
+            MI('FORMAT', 'GQ', 1, 'Float', 'Medaka genotype quality score')]
         if self.verbose:
             m.extend([
                 MI('INFO', 'ref_prob', 1, 'Float',

@@ -26,15 +26,16 @@ def racon(reads_fx, scaf_fasta, paf_out, fasta_out, threads=4):
             p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
             _ = p2.communicate()[0]
 
-    aln_cmd = ['minimap2', '-x', 'map-ont', '-t', threads, scaf_fasta,
-               reads_fx]
+    aln_cmd = [
+        'minimap2', '-x', 'map-ont', '-t', threads, scaf_fasta, reads_fx]
     t0 = now()
     logger.info('Aligning reads.')
     logger.info(' '.join(aln_cmd))
     run(aln_cmd, paf_out)
 
-    racon_cmd = ['racon', '--include-unpolished', '--no-trimming', '-q', '-1',
-                 '-t', threads, reads_fx, paf_out, scaf_fasta]
+    racon_cmd = [
+        'racon', '--include-unpolished', '--no-trimming', '-q', '-1',
+        '-t', threads, reads_fx, paf_out, scaf_fasta]
 
     t1 = now()
     logger.info('Creating normalised draft by running racon.')
@@ -46,8 +47,8 @@ def racon(reads_fx, scaf_fasta, paf_out, fasta_out, threads=4):
     logger.info('Racon consensus written to {}'.format(fasta_out))
 
 
-def minimap2(query, ref, out_bam, preset='map-ont', extra_args=None,
-             threads=4):
+def minimap2(
+        query, ref, out_bam, preset='map-ont', extra_args=None, threads=4):
     """Align query to reference with minimap2 and sort and index bam.
 
     :param query: str, query filepath.
@@ -63,10 +64,12 @@ def minimap2(query, ref, out_bam, preset='map-ont', extra_args=None,
 
     logger = medaka.common.get_named_logger('RunAlign')
     logger.info('Aligning {} to {}'.format(query, ref))
-    aln_cmd = ['minimap2', ref, query, '-x', preset, '-t', threads, '-a',
-               '--secondary=no', '--MD', '-L'] + extra_args
-    sort_cmd = ['samtools', 'sort', '--output-fmt', 'BAM', '-o', out_bam,
-                '-@', threads]
+    aln_cmd = [
+        'minimap2', ref, query, '-x', preset, '-t', threads, '-a',
+        '--secondary=no', '--MD', '-L'] + extra_args
+    sort_cmd = [
+        'samtools', 'sort', '--output-fmt', 'BAM',
+        '-o', out_bam, '-@', threads]
     logger.info(' '.join(aln_cmd + ['|'] + sort_cmd))
     p1 = subprocess.Popen(aln_cmd, stdout=subprocess.PIPE)
     p2 = subprocess.Popen(sort_cmd, stdin=p1.stdout, stdout=subprocess.PIPE)
