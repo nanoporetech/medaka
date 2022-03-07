@@ -51,7 +51,6 @@ def haploid_sample_from_labels(ls=None,
     if sec is None:
         pri_prob = pri_prob + sec_prob
 
-
     for i, l in enumerate(pri):
         probs[i, ls._encoding[(l,)]] = pri_prob
         if sec is not None:
@@ -70,7 +69,7 @@ def haploid_sample_from_labels(ls=None,
     s = common.Sample(
         ref_name='contig1', features=None,
         labels=None, ref_seq=None,
-        positions=pos, label_probs=probs)
+        positions=pos, label_probs=probs, depth=None)
     return s, ref
 
 
@@ -483,7 +482,7 @@ def diploid_sample_from_labels(ls=None,
 
     s = common.Sample(ref_name='contig1', features=None,
                              labels=None, ref_seq=None,
-                             positions=pos, label_probs=probs)
+                             positions=pos, label_probs=probs, depth=None)
     return s, ref
 
 
@@ -666,7 +665,7 @@ class RLELabelSchemeTest(unittest.TestCase):
         label_probs[3, 3] = 0.95   # (A, 3)
         label_probs[4, 8] = 0.9    # (G, 2)
         label_probs[5, 5] = 0.9    # (C, 2)
-        mock = common.Sample(None, None, None, None, None, label_probs)
+        mock = common.Sample(None, None, None, None, None, label_probs, None)
         expected = 'TCCAAAGGCC'
         got = self.ls.decode_consensus(mock)
         self.assertEqual(expected, got)

@@ -16,31 +16,6 @@ import medaka.common
 import medaka.smolecule
 
 
-def rle(iterable):
-    """Calculate a run length encoding (rle), of an input iterable.
-
-    :param iterable: input iterable.
-
-    :returns: structured array with fields `start`, `length`, and `value`.
-    """
-    if not isinstance(iterable, np.ndarray):
-        array = np.fromiter(iterable, dtype='U1', count=len(iterable))
-    else:
-        array = iterable
-
-    if len(array.shape) != 1:
-        raise TypeError("Input array must be one dimensional.")
-    dtype = [('length', int), ('start', int), ('value', array.dtype)]
-
-    n = len(array)
-    starts = np.r_[0, np.flatnonzero(array[1:] != array[:-1]) + 1]
-    rle = np.empty(len(starts), dtype=dtype)
-    rle['start'] = starts
-    rle['length'] = np.diff(np.r_[starts, n])
-    rle['value'] = array[starts]
-    return rle
-
-
 class RLEConverter(object):
     """Class to convert a basecall to RLE, with coordinate conversions."""
 
@@ -50,7 +25,7 @@ class RLEConverter(object):
         :param basecall: string to be converted to RLE.
         """
         self.basecall = basecall
-        self.rle_conversion = rle(basecall)
+        self.rle_conversion = medaka.common.rle(basecall)
         self.compact_basecall = ''.join(self.rle_conversion['value'])
         self.homop_length = self.rle_conversion['length']
         self.inverse = np.repeat(

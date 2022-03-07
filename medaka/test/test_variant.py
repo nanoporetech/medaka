@@ -177,7 +177,8 @@ class TestSamplesToBed(unittest.TestCase):
             for contig, start, end in samples:
 
                 pos = np.array([(start, 0), (end, 0)], dtype=dtype)
-                s = medaka.common.Sample(contig, None, None, None, pos, None)
+                s = medaka.common.Sample(contig, None, None, None, pos, None,
+                                         None)
                 ds.write_sample(s)
 
         args = collections.namedtuple('args', 'inputs output')

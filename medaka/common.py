@@ -44,7 +44,8 @@ class Relationship(enum.Enum):
 # provide read only access to key sample attrs
 _Sample = collections.namedtuple(
     'Sample',
-    ['ref_name', 'features', 'labels', 'ref_seq', 'positions', 'label_probs'])
+    ['ref_name', 'features', 'labels', 'ref_seq', 'positions', 'label_probs',
+     'depth'])
 
 
 class Sample(_Sample):
@@ -66,6 +67,21 @@ class Sample(_Sample):
     def _get_pos(self, index):
         p = self.positions
         return p['major'][index], p['minor'][index]
+
+    def depth_filter(self, min_depth=5):
+        """Remove regions with depth < min_depth, chunking sample as needed."""
+        is_enough_depth = self.depth >= min_depth
+        chunks = rle(is_enough_depth)
+        # discard runs with low depth.
+        # we don't need to worry about creating chunk boundaries between minor
+        # columns of the same major, as depth at minor positions is derived
+        # from depth at last major pos.
+        chunks = chunks[chunks['value']]
+        for chunk in chunks:
+            start = chunk['start']
+            end = start + chunk['length']
+            c = self.slice(slice(start, end))
+            yield c
 
     @property
     def first_pos(self):
@@ -380,9 +396,9 @@ class Sample(_Sample):
         ...     [(0, 0), (1, 0), (1, 1), (2, 0)],
         ...     dtype=[('major', int), ('minor', int)])
         >>> feat = np.arange(len(pos))
-        >>> s = Sample('contig1', feat , None, None, pos, None)
+        >>> s = Sample('contig1', feat , None, None, pos, None, None)
         >>> s.slice(2)  #doctest: +ELLIPSIS
-        Sample(...features=2, ..., positions=(1, 1), label_probs=None)
+        Sample(...features=2, ..., positions=(1, 1), label_probs=None,...)
         >>> s.slice(slice(1,3)) #doctest: +ELLIPSIS
         Sample(..., features=array([1, 2]),...)
         """
@@ -410,7 +426,7 @@ class Sample(_Sample):
         return True
 
     @staticmethod
-    def trim_samples(sample_gen):
+    def trim_samples(sample_gen, logger_name='TrimOlap', quiet=False):
         """Generate trimmed samples.
 
         Samples are trimmed to remove overlap between adjacent samples.
@@ -420,7 +436,8 @@ class Sample(_Sample):
         :yields: (`medaka.common.Sample` view, bool is_last_in_contig,
             bool heuristic)
         """
-        logger = get_named_logger('TrimOlap')
+        logger = get_named_logger(logger_name)
+        log_func = logger.debug if quiet else logger.info
 
         try:
             s1 = next(sample_gen)
@@ -444,7 +461,7 @@ class Sample(_Sample):
                 rel = Sample.relative_position(s1, s2)
                 # skip s2 if it is contained within s1
                 if rel is Relationship.s2_within_s1:
-                    logger.info('{} is contained within {}, skipping.'.format(
+                    log_func('{} is contained within {}, skipping.'.format(
                         s2.name, s1.name))
                     continue
                 elif rel is Relationship.forward_overlap:
@@ -455,7 +472,7 @@ class Sample(_Sample):
                     end_1, start_2 = (None, None)
                     msg = '{} and {} cannot be concatenated as there is ' + \
                         'no overlap and they do not abut.'
-                    logger.info(msg.format(s1.name, s2.name))
+                    log_func(msg.format(s1.name, s2.name))
                 else:
                     try:
                         end_1, start_2, heuristic = \
@@ -465,7 +482,7 @@ class Sample(_Sample):
                                 "Used heuristic to stitch {} and {}.".format(
                                     s1.name, s2.name))
                     except OverlapException as e:
-                        logger.info(
+                        log_func(
                             "Unhandled overlap type whilst stitching chunks.")
                         raise(e)
 
@@ -475,10 +492,14 @@ class Sample(_Sample):
 
     @staticmethod
     def trim_samples_to_region(samples, start=None, end=None):
-        """Trim a stream of samples to overlap exactly co-ordinates.
+        """Trim a stream of samples from to overlap exactly co-ordinates.
 
+        :param samples: stream of (`medaka.common.Sample`,
+            bool is_last_in_contig, bool heuristic)
         :param start: start co-ordinate.
         :param end: (exclusive) end co-ordinate.
+        :yields: stream of (`medaka.common.Sample`, bool is_last_in_contig,
+            bool heuristic)
 
         .. note:: the input samples are expected to be derived from the
             same reference sequence. The `start` and `end` parameters
@@ -520,6 +541,39 @@ class Sample(_Sample):
         # "s1 is contained in s2", but s1 will already have been yielded
         samples = _trim_ends(_trim_starts(Sample.trim_samples(samples)))
         yield from samples
+
+    @staticmethod
+    def filter_samples(samples, min_depth=10):
+        """Generate filtered samples.
+
+        Sections of sample not passing filters are trimmed out.
+
+        :param samples: stream of (`medaka.common.Sample`,
+            bool is_last_in_contig, bool heuristc)
+        :param min_depth: Sample columns below this depth will be filtered out.
+        :yields: (`medaka.common.Sample` view, bool is_last_in_contig,
+            bool heuristic)
+        """
+        # Overlaps should be trimmed before filtering to maintain trimming to
+        # half the overlap between chunks and avoid having to reorder stream
+        # in situations where overlap regions contain gaps in sufficient depth
+        # (marked as x below).
+        #           S1'                  S2'      S3'
+        # S1 -----------------------x----------x------
+        # S2                    ----x----------x------------------------------
+        #                        S4'     S5'      S6'
+        # By trimming before filtering, we avoid this:
+        #           S1'               S2'
+        # S1 -----------------------x-----
+        # S2                              -----x------------------------------
+        #                                  S3'      S4'
+        def filtered_stream(samples):
+            for s, *_ in samples:
+                yield from s.depth_filter(min_depth)
+        # Run trim_sample again to avoid reproducing logic in trim_sample that
+        # we also need here
+        yield from Sample.trim_samples(
+            filtered_stream(samples), logger_name='DepthFilt')
 
 
 # provide read only access to key region attrs
@@ -937,3 +991,28 @@ def common_fasta_contigs(fastas, contigs=None):
             common = contigs
     # return contigs in same order as in first fasta
     return tuple([c for c in fasta_contigs[fastas[0]] if c in common])
+
+
+def rle(iterable):
+    """Calculate a run length encoding (rle), of an input iterable.
+
+    :param iterable: input iterable.
+
+    :returns: structured array with fields `start`, `length`, and `value`.
+    """
+    if not isinstance(iterable, np.ndarray):
+        array = np.fromiter(iterable, dtype='U1', count=len(iterable))
+    else:
+        array = iterable
+
+    if len(array.shape) != 1:
+        raise TypeError("Input array must be one dimensional.")
+    dtype = [('length', int), ('start', int), ('value', array.dtype)]
+
+    n = len(array)
+    starts = np.r_[0, np.flatnonzero(array[1:] != array[:-1]) + 1]
+    rle = np.empty(len(starts), dtype=dtype)
+    rle['start'] = starts
+    rle['length'] = np.diff(np.r_[starts, n])
+    rle['value'] = array[starts]
+    return rle
