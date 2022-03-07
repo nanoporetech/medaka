@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Updated to tensorflow~=2.7.0.
 - Do not always force recreation of minimap2 index in helper scripts.
+- PyPI wheel releases now built with libdeflate for faster BAM reading.
 ### Fixed
 - Inclusion of inserted bases immediately after deletion in pileup counts.
 ### Added

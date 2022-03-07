@@ -4,12 +4,20 @@ import platform
 
 from cffi import FFI
 
+dir_path = os.path.dirname(os.path.realpath(__file__))
+
 #samver is pulled from this file in the Makefile
 samver = "1.14"
-htslib_dir=os.path.join('submodules', 'samtools-{}'.format(samver), 'htslib-{}'.format(samver))
+htslib_dir = os.path.join(dir_path, 'submodules', 'samtools-{}'.format(samver), 'htslib-{}'.format(samver))
+deflatever = "1.10"
+deflate_dir = os.path.join(dir_path, 'submodules', 'libdeflate-{}'.format(deflatever))
 
 libraries=['m', 'z', 'lzma', 'bz2', 'pthread', 'curl', 'crypto']
 library_dirs=[htslib_dir]
+if os.getenv('WITHDEFLATE') == "1":
+    print("Using deflate")
+    libraries.append('deflate')
+    library_dirs.append(deflate_dir)
 src_dir='src'
 
 extra_compile_args = ['-std=c99', '-O3']
