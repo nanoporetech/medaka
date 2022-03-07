@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Makefile can now build environment for macOS M1.
 - Publish ARMv8 wheels compatible with NVIDIA's [Jetpack 4.6.1 binary](https://developer.download.nvidia.com/compute/redist/jp/v461/tensorflow).
+- `--qualities` option for `smolecule` and `stitch` to output consensus fastq.
 
 ## [v1.5.0]
 ### Changed

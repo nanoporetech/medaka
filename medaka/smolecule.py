@@ -415,7 +415,10 @@ def main(args):
     logger.info("Running medaka stitch.")
     args.draft = spoa_file
     args.inputs = [args.output]
-    args.output = os.path.join(out_dir, 'consensus.fasta')
+    out_ext = 'fasta'
+    if args.qualities:
+        out_ext = 'fastq'
+    args.output = os.path.join(out_dir, 'consensus.{}'.format(out_ext))
     args.regions = None  # medaka consensus changes args.regions
     args.fillgaps = False
     medaka.stitch.stitch(args)

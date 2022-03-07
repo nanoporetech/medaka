@@ -16,21 +16,26 @@ class TestStitch(unittest.TestCase):
     def test_010_fill_gaps(self):
         bases = 'ATGCN'
         def rand_seq(n):
-            return  ''.join(np.random.choice(list(bases), n, replace=True))
+            return ''.join(np.random.choice(list(bases), n, replace=True))
+        def rand_qual(n):
+            return ''.join(chr(i + 33) for i in np.random.choice(range(70), n, replace=True))
         cases = [
             (
                 'no_gaps',  # no gap-filling required
                 rand_seq(50),
+                rand_qual(50),
                 ((0, 50),),
                 ()),
             (
                 'inside_gaps',
                 rand_seq(25),
+                rand_qual(25),
                 ((0, 5), (6, 7), (10, 12), (16, 25)),
                 ((5, 6), (7, 10), (12, 16))),
             (
                 'outside_gaps',  # name
                 rand_seq(20),  # draft seq
+                rand_qual(20),
                 ((3, 7), (11, 15)),  # polished contig boundaries (end exclusive)
                 ((0, 3), (7, 11), (15, 20))),  # implied gaps
         ]
@@ -38,10 +43,12 @@ class TestStitch(unittest.TestCase):
         _, draft = tempfile.mkstemp()
         contigs = []
         with open(draft, 'w') as fh:
-            for ref_name, full_seq, bounds, gaps, in cases:
-                fh.write('>{}\n{}\n'.format(ref_name, full_seq))
+            for ref_name, full_seq, full_quals, bounds, gaps, in cases:
+                medaka.stitch.write_fastx_segment(fh,
+                        (ref_name, full_seq, full_quals),
+                        qualities=False)
                 contigs.extend([
-                    ((ref_name, start,  end - 1), [full_seq[start:end]])
+                    ((ref_name, start,  end - 1), [full_seq[start:end]], [full_quals[start:end]])
                     for i, (start, end) in enumerate(bounds)])
 
         results, gap_trees = medaka.stitch.fill_gaps(contigs, draft)
@@ -56,21 +63,28 @@ class TestStitch(unittest.TestCase):
             sorted_gaps = tuple([(i.begin, i.end) for i in sorted(
                 gap_trees[case[0]], key=operator.attrgetter('begin'))])
             self.assertEqual(case[-1], sorted_gaps, msg=msg)
+            # check quality string
+            expected = case[2]
+            for gap in case[4]:
+                expected = expected[:gap[0]] + ('!' * (gap[1] - gap[0])) + expected[gap[1]:]
+            self.assertEqual(
+                expected, ''.join(result[2]), msg="Qualities for case '{}'.".format(case[0]))
         os.remove(draft)
 
     def test_020_fill_neighbours(self):
         seq = 'ATCG'
+        qual = '!*A4'
         contigs = iter([
-            (('chr1', 0, 1000), [seq] * 2),
-            (('chr1', 1001, 2000), [seq] * 2),  # join with above
-            (('chr2', 0, 1000), [seq] * 2),
-            (('chr2', 2000, 3000), [seq] * 2),  # not joined
-            (('chr3', 3001, 1000), [seq] * 2)])  # not joined
+            (('chr1', 0, 1000), [seq] * 2, [qual] * 2),
+            (('chr1', 1001, 2000), [seq] * 2, [qual] * 2),  # join with above
+            (('chr2', 0, 1000), [seq] * 2, [qual] * 2),
+            (('chr2', 2000, 3000), [seq] * 2, [qual] * 2),  # not joined
+            (('chr3', 3001, 1000), [seq] * 2, [qual] * 2)])  # not joined
         expected = [
-            (('chr1', 0, 2000), [seq] * 4),
-            (('chr2', 0, 1000), [seq] * 2),
-            (('chr2', 2000, 3000), [seq] * 2),  # not joined
-            (('chr3', 3001, 1000), [seq] * 2)]  # not joined
+            (('chr1', 0, 2000), [seq] * 4, [qual] * 4),
+            (('chr2', 0, 1000), [seq] * 2, [qual] * 2),
+            (('chr2', 2000, 3000), [seq] * 2, [qual] * 2),  # not joined
+            (('chr3', 3001, 1000), [seq] * 2, [qual] * 2)]  # not joined
         contigs = list(medaka.stitch.collapse_neighbours(contigs))
         self.assertEqual(contigs, expected, 'Fill neighbours')
 
@@ -106,7 +120,7 @@ class RegressionStitch(unittest.TestCase):
 
     @patch('pysam.FastaFile', MyFastaFile)
     def _run_one(self, expected, fillgaps=False, regions=None):
-        args = Args(draft="", threads=1, regions=regions, fillgaps=fillgaps)
+        args = Args(draft="", threads=1, regions=regions, fillgaps=fillgaps, qualities=False)
 
         outputs = list()
         for fid, (region, exp), in enumerate(zip(MyFastaFile().references, expected), 1):
@@ -116,7 +130,7 @@ class RegressionStitch(unittest.TestCase):
                 try:
                     medaka.stitch.stitch(args)
                 except Exception as e:
-                    self.fail("Stitching raise and Exception:\n {}".format(e))
+                    self.fail("Stitching raised an Exception:\n {}".format(e))
                 outputs.append(temp)
         return outputs
 

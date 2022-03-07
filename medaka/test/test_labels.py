@@ -242,6 +242,21 @@ class HaploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
         expected = 'ACCTGG'
         self.assertEqual(self.ls.decode_consensus(s), expected)
 
+    def test_decode_consensus_qualities(self):
+
+        s = unittest.mock.Mock()
+        s.label_probs = np.array([[0.,  0.991, 0.009, 0.,   0.  ],  # _phred(1-0.99) comes out <20 due to fp inaccuracy
+                                  [0.1, 0.,    0.9,   0.,   0.  ],
+                                  [0.9, 0.,    0.02,  0.04, 0.04],
+                                  [0,   0,     0,     0,    1   ],
+                                  [0,   0.1,   0.1,   0.6,  0.2 ],
+                                  [0,   0.01 , 0.1,   0.88, 0.01]])
+        expected_seq = 'ACTGG'
+        expected_qual = '5+g$*'
+        seq, qual = self.ls.decode_consensus(s, with_qualities=True)
+        self.assertEqual(seq, expected_seq)
+        self.assertEqual(qual, expected_qual)
+
     def test_decode_variants(self):
 
         # test homozygous snp, mnp, sni, mni, snd, mnd and
