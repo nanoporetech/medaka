@@ -1037,19 +1037,24 @@ class HaploidLabelScheme(BaseLabelScheme):
                     'Number of medaka pileup columns in variant call')])
         return m
 
-    def decode_consensus(self, sample, with_gaps=False, dtype=None):
+    def decode_consensus(
+            self, sample, with_gaps=False, dtype=None, with_qualities=False):
         """Convert network output to consensus sequence by argmax decoding.
 
         :param sample: medaka.common.Sample
         :param with_gaps: include gap ("*") characters in output.
 
-        :returns: str, consensus sequence
+        :returns: str, consensus sequence, optionally: qualities
         """
         # most probable class
         mp = np.argmax(sample.label_probs, -1)
+        if with_qualities:
+            probs = np.take_along_axis(
+                sample.label_probs, np.expand_dims(mp, -1), -1).squeeze(-1)
         if not with_gaps:
             gap = self.symbols.index('*')
-            mp = mp[mp != gap]
+            mask = mp != gap
+            mp = mp[mask]
         if dtype is None:
             # special case for singleton label
             decode = np.array([ord(x) for x in self.symbols], dtype='u1')
@@ -1058,6 +1063,12 @@ class HaploidLabelScheme(BaseLabelScheme):
         else:
             decode = np.fromiter(self.symbols, dtype=dtype)
             seq = decode[mp]
+        if with_qualities:
+            if not with_gaps:
+                probs = probs[mask]
+            qual_string = (
+                self._phred(1 - probs).astype('u1') + 33).tobytes().decode()
+            return seq, qual_string
         return seq
 
 

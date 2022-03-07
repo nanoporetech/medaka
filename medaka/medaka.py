@@ -463,6 +463,8 @@ def medaka_parser():
             help='Verify integrity of output file after inference.')
     smparser.add_argument('--save_features', action='store_true', default=False,
             help='Save features with consensus probabilities.')
+    smparser.add_argument('--qualities', action='store_true', default=False,
+            help='Output consensus with per-base quality scores (fastq).')
 
     # Consensus from features input
     cfparser = subparsers.add_parser('consensus_from_features',
@@ -500,6 +502,9 @@ def medaka_parser():
     sparser.add_argument('--no-fillgaps',
         help="Don't fill gaps in consensus sequence with draft sequence.",
         default=True, action='store_false', dest='fillgaps')
+    sparser.add_argument('--qualities',
+        help="Output with per-base quality scores (fastq).",
+        action='store_true')
 
     var_parser = subparsers.add_parser('variant',
         help='Decode probabilities to VCF.',
