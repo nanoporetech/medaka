@@ -34,6 +34,37 @@ COVFAIL = 80
 
 VERSION := $(shell grep "__version__" medaka/__init__.py | awk '{gsub("\"","",$$3); print $$3}')
 
+CFLAGS ?= -fpic -O3 -std=c99
+LIBS ?= -lm -lz -llzma -lbz2 -lpthread -lcurl -lcrypto
+STATIC_HTSLIB ?= htslib/libhts.a
+HTS_CONF_ARGS ?=
+HTS_CONF_ENV ?= CFLAGS="$(CFLAGS) $(TUNE)"
+
+# set WITHDFLATE=1 to build with deflate. Enabling this will
+# require setting LD_LIBRARY_PATH=submodules/libdeflate-<ver>/
+# at runtime. This doesn't apply to wheel which will bundle
+# the library (as curl, crypto, lzma, etc)
+WITHDEFLATE ?= 
+DEFLATEVER=$(shell sed -n 's/deflatever = "\(.*\)"/\1/p' build.py)
+DEFLATE = $(PWD)/submodules/libdeflate-${DEFLATEVER}
+DEFLATEREQ =
+ifeq ($(WITHDEFLATE), 1)
+CFLAGS += -I$(DEFLATE) -L$(DEFLATE)
+LIBS += -ldeflate
+HTS_CONF_ARGS += --with-libdeflate
+HTS_CONF_ENV += LDFLAGS="-L$(DEFLATE)"
+DEFLATEREQ = submodules/libdeflate-${DEFLATEVER}/libdeflate.so.0
+endif
+
+submodules/libdeflate-$(DEFLATEVER)/libdeflate.so.0:
+	@echo "\x1b[1;33mMaking $(@F)\x1b[0m"
+	cd submodules \
+		&& curl -L -o libdeflate-v${DEFLATEVER}.tar.gz https://github.com/ebiggers/libdeflate/archive/refs/tags/v${DEFLATEVER}.tar.gz \
+		&& tar -xzf libdeflate-v${DEFLATEVER}.tar.gz \
+		&& cd libdeflate-${DEFLATEVER} \
+		&& make
+
+
 SAMVER=$(shell sed -n 's/samver = "\(.*\)"/\1/p' build.py)
 submodules/samtools-$(SAMVER)/Makefile:
 	cd submodules; \
@@ -42,10 +73,12 @@ submodules/samtools-$(SAMVER)/Makefile:
 		rm samtools-${SAMVER}.tar.bz2
 
 
-libhts.a: submodules/samtools-$(SAMVER)/Makefile
+libhts.a: submodules/samtools-$(SAMVER)/Makefile $(DEFLATEREQ)
 	# this is required only to add in -fpic so we can build python module
 	@echo "\x1b[1;33mMaking $(@F)\x1b[0m"
-	cd submodules/samtools-${SAMVER}/htslib-${SAMVER}/ && CFLAGS="-fpic -std=c99 $(TUNE) -O3" ./configure && make
+	cd submodules/samtools-${SAMVER}/htslib-${SAMVER}/ \
+		&& $(HTS_CONF_ENV) ./configure $(HTS_CONF_ARGS) \
+		&& make -j 4
 	cp submodules/samtools-${SAMVER}/htslib-${SAMVER}/$@ $@
 
 
@@ -98,7 +131,7 @@ $(BINCACHEDIR)/vcf2fasta: | $(BINCACHEDIR)
 	cd src/vcf2fasta && g++ -std=c++11 \
 		-I./../../submodules/samtools-${SAMVER}/htslib-${SAMVER}/ vcf2fasta.cpp \
 		./../../submodules/samtools-${SAMVER}/htslib-${SAMVER}/libhts.a \
-		-lz -llzma -lbz2 -lpthread \
+		$(CFLAGS) $(LDFLAGS) $(LIBS) \
 		-o $(@F)
 	cp src/vcf2fasta/$(@F) $@
 
@@ -145,7 +178,7 @@ install: .package-reqs
 .PHONY: develop
 develop: .package-reqs 
 	@echo "\x1b[1;33mInstalling medaka in development mode\x1b[0m"
-	${IN_VENV} && LDFLAGS=$(LDFLAGS) pip install -e .
+	${IN_VENV} && WITHDEFLATE=$(WITHDEFLATE) LDFLAGS=$(LDFLAGS) pip install -e .
 
 
 .PHONY: test
@@ -194,7 +227,7 @@ pileup: libhts.a
 	gcc -pthread  -g -Wall -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -std=c99 -msse3 -O3 \
 		-Isrc -Isubmodules/samtools-${SAMVER}/htslib-${SAMVER} \
 		src/medaka_common.c src/medaka_counts.c src/medaka_bamiter.c libhts.a \
-		-lm -lz -llzma -lbz2 -lpthread -lcurl -lcrypto \
+		$(CFLAGS) $(LDFLAGS) $(LIBS) \
 		-o $(@) -std=c99 -msse3 -O3
 
 
@@ -202,7 +235,7 @@ trim_reads: libhts.a
 	gcc -pthread -pg -g -Wall -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -std=c99 -msse3 -O3 \
 		-Isrc -Isubmodules/samtools-${SAMVER}/htslib-${SAMVER} \
 		src/medaka_common.c src/medaka_trimbam.c src/medaka_bamiter.c libhts.a \
-		-lz -llzma -lbz2 -lpthread -lcurl -lcrypto \
+		$(CFLAGS) $(LDFLAGS) $(LIBS) \
 		-o $(@) -std=c99 -msse3 -O3
 
 
