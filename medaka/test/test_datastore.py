@@ -14,10 +14,11 @@ class TestStore(unittest.TestCase):
         pos = np.array([(0, 0), (0, 1), (1, 0), (2, 0), (2, 1), (2, 2), (3, 0), (4, 0), (4, 1), (4, 2), (4, 3)],
                         dtype=[('major', int), ('minor', int)])
         data_dim = 10
+        depth = np.array(len(pos) * [10], dtype=int)
         data = np.zeros(shape=(len(pos), data_dim))
         cls.sample = Sample(
             ref_name='contig1', features=data, ref_seq=None,
-            labels=data, positions=pos, label_probs=data)
+            labels=data, positions=pos, label_probs=data, depth=depth)
         cls.file = tempfile.NamedTemporaryFile()
         with datastore.DataStore(cls.file.name, 'w') as store:
             store.write_sample(cls.sample)
@@ -33,6 +34,7 @@ class TestStore(unittest.TestCase):
             self.assertEqual(sample.name, self.sample.name, "Loaded sample has correct name.")
             self.assertIsInstance(sample.features, np.ndarray, "Sample features is a numpy array.")
             self.assertSequenceEqual(sample.features.shape, self.sample.features.shape, "Sample features were loaded.")
+            self.assertSequenceEqual(list(sample.depth), list(self.sample.depth), "Sample depth was loaded.")
 
 
     def test_001_round_trip_through_index(self):
@@ -42,6 +44,7 @@ class TestStore(unittest.TestCase):
         self.assertEqual(samples[0].name, self.sample.name, "Loaded sample has correct name")
         self.assertIsInstance(samples[0].features, np.ndarray, "Sample features is a numpy array.")
         self.assertSequenceEqual(samples[0].features.shape, self.sample.features.shape, "Sample features were loaded.")
+        self.assertSequenceEqual(list(samples[0].depth), list(self.sample.depth), "Sample depth was loaded.")
 
 
     def test_002_test_filtered_yield(self):

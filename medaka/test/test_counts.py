@@ -99,7 +99,8 @@ class CountsTest(unittest.TestCase):
             positions=np.array([
                 (0, 0), (1, 0), (2, 0), (3, 0), (3, 1), (4, 0), (5, 0), (6, 0), (7, 0)],
                 dtype=[('major', '<i8'), ('minor', '<i8')]),
-            label_probs=None
+            label_probs=None,
+            depth=np.array(9 * [10]),
         )
 
         np.testing.assert_equal(result.labels, expected.labels)

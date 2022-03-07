@@ -183,6 +183,14 @@ def _model_arg():
     return parser
 
 
+def _min_depth_arg():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
+    parser.add_argument('--min_depth', type=int, default=0,
+        help="Sites with depth lower than min_depth will not be polished.")
+    return parser
+
+
 def _rg_arg():
 
     parser = argparse.ArgumentParser(
@@ -442,7 +450,7 @@ def medaka_parser():
     # Consensus from single-molecules with subreads
     smparser = subparsers.add_parser('smolecule',
         help='Create consensus sequences from single-molecule reads.',
-        parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500), _model_arg()],
+        parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500), _model_arg(), _min_depth_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     smparser.set_defaults(func=medaka.smolecule.main)
     smparser.add_argument('output', help='Output directory.')
@@ -477,7 +485,7 @@ def medaka_parser():
     # Post-processing of consensus outputs
     sparser = subparsers.add_parser('stitch',
         help='Stitch together output from medaka consensus into final output.',
-        parents=[_log_level(), _region_ref_names()],
+        parents=[_log_level(), _region_ref_names(), _min_depth_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     sparser.set_defaults(func=medaka.stitch.stitch)
     sparser.add_argument('inputs',
@@ -680,7 +688,7 @@ def medaka_parser():
 
 def main():
     # Some users report setting this helps them resolve issues on their
-    # filesystems. 
+    # filesystems.
     os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
     parser = medaka_parser()
     args = parser.parse_args()

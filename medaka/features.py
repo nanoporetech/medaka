@@ -545,7 +545,7 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         sample = medaka.common.Sample(
             ref_name=region.ref_name, features=feature_array,
             labels=None, ref_seq=None,
-            positions=positions, label_probs=None
+            positions=positions, label_probs=None, depth=depth,
         )
         self.logger.info('Processed {} (median depth {})'.format(
             sample.name, np.median(depth)))

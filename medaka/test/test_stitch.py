@@ -8,8 +8,8 @@ import tempfile
 import numpy as np
 import pysam
 
-from medaka.common import Region
 import medaka.stitch
+
 
 class TestStitch(unittest.TestCase):
 
@@ -113,6 +113,7 @@ class RegressionStitch(unittest.TestCase):
             with tempfile.NamedTemporaryFile(delete=False) as temp:
                 args.output = temp.name
                 args.inputs = os.path.join(os.path.dirname(__file__), "data", "test_stitch_{}.hdf".format(fid))
+                args.min_depth = 0
                 try:
                     medaka.stitch.stitch(args)
                 except Exception as e:

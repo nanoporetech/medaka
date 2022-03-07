@@ -26,7 +26,7 @@ def write_fasta(filename, contigs):
             fasta.write('>{}\n{}\n'.format(name, seq))
 
 
-def stitch_from_probs(h5_fp, region):
+def stitch_from_probs(h5_fp, region, min_depth):
     """Join overlapping label probabilities from HDF5 files.
 
      Network outputs from multiple samples stored within a file are spliced
@@ -49,6 +49,9 @@ def stitch_from_probs(h5_fp, region):
     samples = index.yield_from_feature_files(regions=[region])
     data_gen = medaka.common.Sample.trim_samples_to_region(
         samples, start=region.start, end=region.end)
+    if min_depth:
+        data_gen = medaka.common.Sample.filter_samples(
+            data_gen, min_depth=min_depth)
     cur_ref_name = None
     heuristic_use = 0
     seq_parts = list()
@@ -149,7 +152,7 @@ def collapse_neighbours(contigs):
 def stitch(args):
     """Entry point for stitching program."""
     logger = medaka.common.get_named_logger("Stitcher")
-    index_log = medaka.common.get_named_logger('DataIndex')
+    index_log = medaka.common.get_named_logger("DataIndex")
     index_log.setLevel(logging.WARNING)
     index = medaka.datastore.DataIndex(args.inputs)
     draft = pysam.FastaFile(args.draft)
@@ -185,7 +188,9 @@ def stitch(args):
     with open(args.output, 'w') as fasta:
         Executor = concurrent.futures.ProcessPoolExecutor
         with Executor(max_workers=args.threads) as executor:
-            worker = functools.partial(stitch_from_probs, args.inputs)
+            worker = functools.partial(
+                stitch_from_probs, args.inputs,
+                min_depth=args.min_depth)
             # we rely on map being ordered
             pieces = itertools.chain.from_iterable(
                 executor.map(worker, regions))
@@ -231,5 +236,5 @@ def stitch(args):
                 gap_trees[reg] = tree
 
     if args.fillgaps:
-        bed_out = args.output + '.gaps_in_draft_coords.bed'
+        bed_out = args.output + ".gaps_in_draft_coords.bed"
         medaka.common.write_intervaltrees_to_bed(gap_trees, bed_out)

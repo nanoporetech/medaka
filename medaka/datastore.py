@@ -297,6 +297,9 @@ class DataStore(object):
                     self.write_futures.append(
                         self.write_executor.submit(
                             self._write_dataset, location, data))
+            self.logger.debug(
+                'Adding {} to sample registry'.format(
+                    sample.name))
             self._sample_registry.add(sample.name)
         else:
             self.logger.debug(
@@ -346,8 +349,15 @@ class DataStore(object):
             try:
                 self._sample_registry = pickle.loads(
                     self.fh[self._sample_registry_path_][()])
+                self.logger.debug("Loaded sample register.")
             except KeyError:
-                self._sample_registry = set()
+                if self._sample_path_ in self.fh:
+                    sample_registry = set(self.fh[self._sample_path_].keys())
+                    if sample_registry:
+                        self._sample_registry = sample_registry
+                        self.logger.debug("Created missing sample register.")
+                else:
+                    self._sample_registry = set()
 
     def _write_sample_registry(self):
         """Write sample registry."""

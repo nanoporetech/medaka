@@ -15,7 +15,7 @@ import medaka.rle
 
 
 class RLE(unittest.TestCase):
-    """Test medaka.rle.rle function."""
+    """Test medaka.common.rle function."""
 
     def test_rle(self):
         """Test conversion of a basecall to RLE."""
@@ -26,7 +26,7 @@ class RLE(unittest.TestCase):
             [(1, 0, 'A'), (1, 1, 'T')],
             [(1, 0, 'A'), ]]
         for call, exp in zip(basecalls, expected):
-            got = medaka.rle.rle(call).tolist()
+            got = medaka.common.rle(call).tolist()
             self.assertTrue(exp, got)
 
     def test_input_must_be_1D(self):
@@ -35,7 +35,7 @@ class RLE(unittest.TestCase):
             ['A', 'C', 'A'],
             ['C', 'T', 'G']], dtype='U1')
         with self.assertRaises(TypeError):
-            medaka.rle.rle(invalid)
+            medaka.common.rle(invalid)
 
 
 class RLEConversion(unittest.TestCase):

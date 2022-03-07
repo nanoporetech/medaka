@@ -104,8 +104,9 @@ class TestSample(unittest.TestCase):
         data_dim = 10
         for pos in pos1, pos2, pos3:
             data = np.random.random_sample(size=data_dim*len(pos)).reshape((len(pos), data_dim))
+            depth = np.array(len(pos) * [10], dtype=int)
             cls.samples.append(
-                Sample(ref_name='contig1', features=data, ref_seq=None, labels=data, positions=pos, label_probs=data)
+                Sample(ref_name='contig1', features=data, ref_seq=None, labels=data, positions=pos, label_probs=data, depth=depth)
             )
 
     def test_eq(self):
@@ -135,7 +136,7 @@ class TestSample(unittest.TestCase):
 
     def test_is_empty(self):
         self.assertFalse(self.samples[0].is_empty)
-        empty_sample = Sample('contig', None, None, None, self.samples[0][0:0], None)
+        empty_sample = Sample('contig', None, None, None, self.samples[0][0:0], None, None)
         self.assertTrue(empty_sample.is_empty)
 
     def test_name(self):
@@ -273,8 +274,8 @@ class TestSample(unittest.TestCase):
             ], dtype=dtype),
         ]
 
-        sample = [Sample(ref_name='contig1', features=None, ref_seq=None, labels=None, positions=p, label_probs=None)
-            for p in pos]
+        sample = [Sample(ref_name='contig1', features=None, ref_seq=None, labels=None,
+                  positions=p, label_probs=None, depth=None) for p in pos]
 
         expected = [
             (12, 6),  # (7, 0) is junction
@@ -309,6 +310,23 @@ class TestSample(unittest.TestCase):
         with self.assertRaises(KeyError):
             s.amend(fake_attr=None)
 
+    def test_depth_filter(self):
+        sample = self.samples[0]
+        cases = [
+            # all high depth, don't do any filtering
+            (11 * [10], [slice(None, None)]),
+            # single chunk, but trim off first two and last one columns
+            ([2, 3, 10, 10, 12, 13, 10, 10, 10, 10, 9], [slice(2, 10)]),
+            # split into multiple chunks
+            ([2, 3, 10, 10, 4, 13, 10, 8, 10, 9, 1], [slice(2, 4), slice(5,7), slice(8,9)])
+        ]
+        for i, (depth, expt_slices) in enumerate(cases):
+            sample = sample.amend(depth=np.array(depth))
+            samples_filt = list(sample.depth_filter(min_depth=10))
+            self.assertEqual(len(samples_filt), len(expt_slices))
+            for j, (got, sl) in enumerate(zip(samples_filt, expt_slices)):
+                expt = sample.slice(sl)
+                self.assertEqual(got, expt, msg="Failed for case {} slice {}".format(i, j))
 
 class TestTrimSamples(unittest.TestCase):
 
@@ -334,7 +352,7 @@ class TestTrimSamples(unittest.TestCase):
             cls.samples.append(
                 medaka.common.Sample(ref_name='contig1', features=data,
                                      ref_seq=None, labels=data, positions=pos,
-                                     label_probs=data))
+                                     label_probs=data, depth=None))
 
         slices = [slice(0, 9),
                   slice(1, 6),
