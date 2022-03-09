@@ -107,6 +107,10 @@ build:sdist:
     before_script:
         - export PACKAGE_NAME=medaka-cpu
         - export MEDAKA_CPU=1
+        # this is still required, because otherwise test in build-wheel
+        # will first install tensorflow, then try to install tensorflow-cpu
+        # and complain
+        - sed -i 's/tensorflow/tensorflow-cpu/' requirements.txt
 
 ### Tensorflow (gpu) builds
 
