@@ -43,7 +43,7 @@ done
 
 # Bundle external shared libraries into the wheels
 export LD_LIBRARY_PATH=$PWD/libdeflate
-for whl in "wheelhouse/${PACKAGE_NAME}"*.whl; do
+for whl in "wheelhouse/${PACKAGE_FILE_NAME}"*.whl; do
     LD_LIBRARY_PATH=${LIBDEFLATE} auditwheel repair "${whl}" -w ./wheelhouse/
 done
 unset LD_LIBRARY_PATH
