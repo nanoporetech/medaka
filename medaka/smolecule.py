@@ -366,6 +366,10 @@ def main(args):
     args = MyArgs()
 
     logger = medaka.common.get_named_logger('Smolecule')
+    if args.chunk_ovlp >= args.chunk_len:
+        raise ValueError(
+            'chunk_ovlp {} must be smaller than chunk_len {}'.format(
+                args.chunk_ovlp, args.chunk_len))
     medaka.common.mkdir_p(args.output, info='Results will be overwritten.')
 
     def _multi_file_reader():
