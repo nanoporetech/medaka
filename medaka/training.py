@@ -110,7 +110,7 @@ def run_training(
         'feature_encoder': batcher.feature_encoder}
 
     if isinstance(
-            batcher.label_scheme, medaka.labels.DiploidZygosityLabelScheme):
+            batcher.label_scheme, medaka.labels.DiploidLabelScheme):
         metrics = ['binary_accuracy']
         call_back_metrics = metrics
         loss = 'binary_crossentropy'
