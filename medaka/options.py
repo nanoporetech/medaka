@@ -30,6 +30,7 @@ current_models = [
 ]
 archived_models = [
     # r9 consensus
+    'r941_sup_plant_g610',
     'r941_min_fast_g507', 'r941_prom_fast_g507',
     'r941_min_fast_g303', 'r941_min_high_g303', 'r941_min_high_g330',
     'r941_prom_fast_g303', 'r941_prom_high_g303', 'r941_prom_high_g330',
@@ -49,7 +50,8 @@ archived_models = [
     'r941_prom_snp_g322', 'r941_prom_variant_g322',
     'r941_prom_snp_g360', 'r941_prom_variant_g360',
     'r103_prom_snp_g3210', 'r103_prom_variant_g3210',
-    # snp and variant - crf guppy507
+    # snp and variant - crf guppy507+
+    'r941_sup_plant_variant_g610',
     'r941_min_fast_snp_g507', 'r941_min_fast_variant_g507',
     'r941_min_hac_snp_g507',
     'r941_min_sup_snp_g507', 'r941_min_sup_variant_g507',
