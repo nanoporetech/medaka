@@ -18,6 +18,9 @@ model_url_template = \
     'https://github.com/nanoporetech/{pkg}/raw/master/{pkg}/{subdir}/{fname}'
 
 current_models = [
+    # r1041 variant calling
+    'r1041_e82_400bps_hac_variant_g615', 'r1041_e82_400bps_sup_variant_g615',
+    'r1041_e82_400bps_fast_variant_g615',
     # r9 consensus
     'r941_min_hac_g507', 'r941_min_sup_g507',
     'r941_prom_hac_g507', 'r941_prom_sup_g507',
