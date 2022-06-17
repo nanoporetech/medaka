@@ -24,8 +24,9 @@ current_models = [
     # r9 consensus
     'r941_min_hac_g507', 'r941_min_sup_g507',
     'r941_prom_hac_g507', 'r941_prom_sup_g507',
-    # r104 e81 consensus
-    'r104_e81_hac_g5015', 'r104_e81_sup_g610',
+    # r1041 e82 (kit14) consensus
+    'r1041_e82_400bps_fast_g615', 'r1041_e82_400bps_hac_g615',
+    'r1041_e82_400bps_sup_g615',
     # r9 variant calling
     'r941_min_hac_variant_g507',
     'r941_prom_hac_variant_g507',
@@ -44,7 +45,8 @@ archived_models = [
     'r103_min_high_g345', 'r103_min_high_g360', 'r103_prom_high_g360',
     'r103_fast_g507', 'r103_hac_g507', 'r103_sup_g507',
     # r104 e81 consensus
-    'r104_e81_fast_g5015', 'r104_e81_sup_g5015',
+    'r104_e81_fast_g5015', 'r104_e81_sup_g5015', 'r104_e81_hac_g5015',
+    'r104_e81_sup_g610',
     # r104 e81 variant calling
     'r104_e81_fast_variant_g5015', 'r104_e81_hac_variant_g5015',
     'r104_e81_sup_variant_g610',
