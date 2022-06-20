@@ -4,12 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [v1.6.1]
 ### Added
-- New models for r10.4.1-e8.2 400bps condition 
+- New models for R10.4.1 E8.2 400bps based sequencing chemistries.
 
 ### Fixed
-- DiploidZygosityLabelScheme renaming
+- DiploidZygosityLabelScheme renaming.
 
 ## [v1.6.0]
 ### Changed
