@@ -111,7 +111,7 @@ class TestStitch(unittest.TestCase):
                 gap_len = gap_end - gap_start
                 self.assertEqual("N" * gap_len,
                                  stitched_seq[gap_start:gap_end])
-                self.assertEqual("".join(['!'] * gap_len),
+                self.assertEqual("!" * gap_len,
                                  stitched_qual[gap_start:gap_end])
         os.remove(draft)
 
