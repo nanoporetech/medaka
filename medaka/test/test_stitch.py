@@ -109,7 +109,7 @@ class TestStitch(unittest.TestCase):
             # gaps should have sequences as Ns and qualities as !s
             for (gap_start, gap_end) in case[4]:
                 gap_len = gap_end - gap_start
-                self.assertEqual("".join(['N'] * gap_len),
+                self.assertEqual("N" * gap_len,
                                  stitched_seq[gap_start:gap_end])
                 self.assertEqual("".join(['!'] * gap_len),
                                  stitched_qual[gap_start:gap_end])
