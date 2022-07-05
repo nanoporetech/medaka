@@ -502,6 +502,10 @@ def medaka_parser():
     sparser.add_argument('--no-fillgaps',
         help="Don't fill gaps in consensus sequence with draft sequence.",
         default=True, action='store_false', dest='fillgaps')
+    sparser.add_argument(
+        '--fill_char',
+        help="Use a designated character to fill gaps.",
+        default=None, type=str)
     sparser.add_argument('--qualities',
         help="Output with per-base quality scores (fastq).",
         action='store_true')

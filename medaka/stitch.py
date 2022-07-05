@@ -89,17 +89,21 @@ def stitch_from_probs(h5_fp, region, min_depth):
     return contigs
 
 
-def fill_gaps(contigs, draft):
-    """Fill gaps between polished contigs with draft sequence.
+def fill_gaps(contigs, draft, fill_char=None):
+    """Fill gaps between contigs with draft sequence or designated char.
 
     :param contigs: iterable of ((ref_name, start, stop), sequence parts,
         qualities)
     :param draft: `pysam.FastaFile` or filepath of draft sequence.
+    :param fill_char: character to fill gaps (default: None, fills gaps
+        with content from the draft sequence)
 
     :returns: iterable of (name, info, seq)
     """
     if isinstance(draft, str):
         draft = pysam.FastaFile(draft)
+    # interpret an empty string for fill_char as "fill-with-draft"
+    fill_char = None if fill_char in (None, "") else str(fill_char)[0]
 
     contig_trees = collections.defaultdict(intervaltree.IntervalTree)
     ordered_contigs = collections.OrderedDict()
@@ -128,7 +132,10 @@ def fill_gaps(contigs, draft):
         for i in sorted(
                 contig_trees[ref_name], key=operator.attrgetter('begin')):
             if i.data is None:  # this is a gap
-                seq = [draft_seq[i.begin: i.end]]
+                if fill_char is None:
+                    seq = [draft_seq[i.begin: i.end]]
+                else:
+                    seq = [fill_char * (i.end - i.begin)]
                 qual = ['!' * (i.end - i.begin)]  # set Q=0 for padding bases
             else:
                 seq = i.data[0]
@@ -218,7 +225,7 @@ def stitch(args):
             contigs = collapse_neighbours(pieces)
             if args.fillgaps:
                 # TODO: ideally fill_gaps would be a generator
-                contigs, gt = fill_gaps(contigs, args.draft)
+                contigs, gt = fill_gaps(contigs, args.draft, args.fill_char)
                 gap_trees.update(gt)
                 for (ref_name, start, stop), seq_parts, qualities in contigs:
                     write_fastx_segment(

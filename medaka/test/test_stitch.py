@@ -11,45 +11,53 @@ import pysam
 import medaka.stitch
 
 
+def _rand_seq(bases, n):
+    return ''.join(np.random.choice(list(bases), n, replace=True))
+
+
+def _rand_qual(n):
+    return ''.join(chr(i + 33) for i in np.random.choice(range(70), n, replace=True))
+
+
+def _make_contigs(cases, draft):
+    contigs = []
+    with open(draft, 'w') as fh:
+        for ref_name, full_seq, full_quals, bounds, gaps, in cases:
+            medaka.stitch.write_fastx_segment(fh,
+                                              (ref_name, full_seq, full_quals),
+                                              qualities=False)
+            contigs.extend([
+                ((ref_name, start,  end - 1), [full_seq[start:end]], [full_quals[start:end]])
+                for i, (start, end) in enumerate(bounds)])
+    return contigs
+
+
 class TestStitch(unittest.TestCase):
 
-    def test_010_fill_gaps(self):
-        bases = 'ATGCN'
-        def rand_seq(n):
-            return ''.join(np.random.choice(list(bases), n, replace=True))
-        def rand_qual(n):
-            return ''.join(chr(i + 33) for i in np.random.choice(range(70), n, replace=True))
+    def test_010_fill_gaps_with_draft(self):
         cases = [
             (
                 'no_gaps',  # no gap-filling required
-                rand_seq(50),
-                rand_qual(50),
+                _rand_seq('ATGCN', 50),
+                _rand_qual(50),
                 ((0, 50),),
                 ()),
             (
                 'inside_gaps',
-                rand_seq(25),
-                rand_qual(25),
+                _rand_seq('ATGCN', 25),
+                _rand_qual(25),
                 ((0, 5), (6, 7), (10, 12), (16, 25)),
                 ((5, 6), (7, 10), (12, 16))),
             (
                 'outside_gaps',  # name
-                rand_seq(20),  # draft seq
-                rand_qual(20),
+                _rand_seq('ATGCN', 20),  # draft seq
+                _rand_qual(20),
                 ((3, 7), (11, 15)),  # polished contig boundaries (end exclusive)
                 ((0, 3), (7, 11), (15, 20))),  # implied gaps
         ]
 
         _, draft = tempfile.mkstemp()
-        contigs = []
-        with open(draft, 'w') as fh:
-            for ref_name, full_seq, full_quals, bounds, gaps, in cases:
-                medaka.stitch.write_fastx_segment(fh,
-                        (ref_name, full_seq, full_quals),
-                        qualities=False)
-                contigs.extend([
-                    ((ref_name, start,  end - 1), [full_seq[start:end]], [full_quals[start:end]])
-                    for i, (start, end) in enumerate(bounds)])
+        contigs = _make_contigs(cases, draft)
 
         results, gap_trees = medaka.stitch.fill_gaps(contigs, draft)
 
@@ -69,6 +77,42 @@ class TestStitch(unittest.TestCase):
                 expected = expected[:gap[0]] + ('!' * (gap[1] - gap[0])) + expected[gap[1]:]
             self.assertEqual(
                 expected, ''.join(result[2]), msg="Qualities for case '{}'.".format(case[0]))
+        os.remove(draft)
+
+    def test_011_fill_gaps_with_char(self):
+        cases = [
+            (
+                'inside_gaps',
+                _rand_seq('ATGC', 20),
+                _rand_qual(20),
+                ((0, 5), (6, 7), (12, 20)),   # contig boundaries
+                ((5, 6), (7, 12))),           # implied gaps
+            (
+                'outside_gaps',  # name
+                _rand_seq('ATGC', 20),
+                _rand_qual(20),
+                ((3, 7), (11, 15)),            # contig boundaries
+                ((0, 3), (7, 11), (15, 20))),  # implied gaps
+        ]
+
+        _, draft = tempfile.mkstemp()
+        contigs = _make_contigs(cases, draft)
+
+        results, gap_trees = medaka.stitch.fill_gaps(contigs, draft, 'N')
+
+        self.assertEqual(len(results), len(cases))
+        for i, (case, result) in enumerate(zip(cases, results)):
+            # draft sequences have ACGT bases without N chars
+            self.assertFalse("N" in case[1])
+            stitched_seq = "".join(result[1])
+            stitched_qual = "".join(result[2])
+            # gaps should have sequences as Ns and qualities as !s
+            for (gap_start, gap_end) in case[4]:
+                gap_len = gap_end - gap_start
+                self.assertEqual("".join(['N'] * gap_len),
+                                 stitched_seq[gap_start:gap_end])
+                self.assertEqual("".join(['!'] * gap_len),
+                                 stitched_qual[gap_start:gap_end])
         os.remove(draft)
 
     def test_020_fill_neighbours(self):
@@ -94,6 +138,7 @@ class Args:
         for k, v in kwargs.items():
             setattr(self, k, v)
 
+
 class MyFastaFile:
 
     def __init__(*args, **kwargs):
@@ -115,12 +160,12 @@ class MyFastaFile:
         return "".join(random.choices('ACGT', k=end - start))
 
 
-
 class RegressionStitch(unittest.TestCase):
 
     @patch('pysam.FastaFile', MyFastaFile)
     def _run_one(self, expected, fillgaps=False, regions=None):
-        args = Args(draft="", threads=1, regions=regions, fillgaps=fillgaps, qualities=False)
+        args = Args(draft="", threads=1, regions=regions, qualities=False,
+                    fillgaps=fillgaps, fill_char=None)
 
         outputs = list()
         for fid, (region, exp), in enumerate(zip(MyFastaFile().references, expected), 1):
@@ -135,12 +180,10 @@ class RegressionStitch(unittest.TestCase):
                 outputs.append(temp)
         return outputs
 
-
     def _check(self, files, expected):
         for file, exp in zip(files, expected):
             with pysam.FastaFile(file.name) as fh:
                 self.assertEqual(exp, fh.references)
-
 
     def test_001_cases(self):
         # each file should have just one entry
@@ -149,7 +192,6 @@ class RegressionStitch(unittest.TestCase):
             ['scaffold_117_0']]
         files = self._run_one(expected, regions=None, fillgaps=False)
         self._check(files, expected)
-
 
     def test_002_copy_missing(self):
         # each file should have both entries, note how the missing

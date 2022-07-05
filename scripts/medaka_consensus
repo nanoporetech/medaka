@@ -26,6 +26,7 @@ MODELS=$(
 BATCH_SIZE=100
 FORCE=false
 NOFILLGAPS=false
+GAPFILLCHAR=""
 
 iflag=false
 dflag=false
@@ -45,6 +46,7 @@ $(basename "$0") [-h] -i <fastx> -d <fasta>
     -d  fasta input assembly (required).
     -o  output folder (default: medaka).
     -g  don't fill gaps in consensus with draft sequence.
+    -r  use gap-filling character instead of draft sequence (default: None)
     -m  medaka model, (default: ${MODEL}).
         Choices: ${MODELS}
         Alternatively a .tar.gz/.hdf file from 'medaka train'.
@@ -54,13 +56,14 @@ $(basename "$0") [-h] -i <fastx> -d <fasta>
     -b  batchsize, controls memory use (default: ${BATCH_SIZE})."
 
 
-while getopts ':hi::d:o:gm:fxt:b:' option; do
+while getopts ':hi::d:o:gr:m:fxt:b:' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
     d  ) dflag=true; DRAFT=$(follow_link $OPTARG);;
     o  ) OUTPUT=$OPTARG;;
     g  ) NOFILLGAPS=true;;
+    r  ) GAPFILLCHAR=$OPTARG;;
     m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
     f  ) FORCE=true;;
     x  ) xflag=true;;
@@ -151,6 +154,9 @@ if [[ ! -e "${CONSENSUS}" ]] || ${FORCE}; then
     STITCH_OPTS=""
     if $rflag || ${NOFILLGAPS}; then
         STITCH_OPTS="--no-fillgaps"
+    fi
+    if [ -n "${GAPFILLCHAR}" ]; then
+        STITCH_OPTS="${STITCH_OPTS} --fill_char ${GAPFILLCHAR}"
     fi
     medaka stitch "${CONSENSUSPROBS}" "${DRAFT}" "${CONSENSUS}" \
         --threads "${THREADS}" ${STITCH_OPTS} \
