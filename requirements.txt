@@ -1,6 +1,6 @@
 # medaka requirements. 
 # Add comments to keep track of why we are using particular versions
-cffi
+cffi==1.15.0
 edlib
 grpcio 
 h5py
