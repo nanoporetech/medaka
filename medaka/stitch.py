@@ -11,7 +11,6 @@ import pysam
 
 import medaka.common
 import medaka.datastore
-import medaka.labels
 
 
 def write_fastx_segment(fh, contig, qualities=True):
@@ -215,7 +214,9 @@ def stitch(args):
     gap_trees = {}
     with open(args.output, 'w') as fastx:
         Executor = concurrent.futures.ProcessPoolExecutor
-        with Executor(max_workers=args.threads) as executor:
+        with Executor(
+                max_workers=args.threads,
+                initializer=medaka.common.cuda_visible_devices) as executor:
             worker = functools.partial(
                 stitch_from_probs, args.inputs,
                 min_depth=args.min_depth)

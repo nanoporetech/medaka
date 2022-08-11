@@ -240,7 +240,7 @@ class Variant(object):
         """Return the genotype (or None) for each sample."""
         try:
             gt = self.genotype_data['GT']
-        except(KeyError):
+        except KeyError:
             return None
         else:
             gt = gt.replace('|', '/').split('/')
@@ -251,7 +251,7 @@ class Variant(object):
         """Specify whether variant is phased."""
         try:
             gt = self.genotype_data['GT']
-        except(KeyError):
+        except KeyError:
             return None
         else:
             phased = True if '|' in gt else False

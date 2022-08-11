@@ -484,7 +484,7 @@ class Sample(_Sample):
                     except OverlapException as e:
                         log_func(
                             "Unhandled overlap type whilst stitching chunks.")
-                        raise(e)
+                        raise e
 
             yield s1.slice(slice(start_1, end_1)), is_last_in_contig, heuristic
             s1 = s2
@@ -942,7 +942,7 @@ def yield_from_bed(bedfile):
 
 
 def complement_intervaltrees(trees, contig_lengths):
-    """Complement intervals, returning intervals not present in the input trees.
+    """Complement intervals, return intervals not present in the input trees.
 
     :param trees: {str contig: `intervaltree.IntervalTree` objs}
     :param contig_lengths: {str contig: int contig length}
@@ -1016,3 +1016,15 @@ def rle(iterable):
     rle['length'] = np.diff(np.r_[starts, n])
     rle['value'] = array[starts]
     return rle
+
+
+def cuda_visible_devices(devices=""):
+    """Set CUDA devices.
+
+    :param: comma separated string of device IDs.
+
+    The default use case is to be able to hide all
+    devices. It can be used with PoolExecutors to
+    disable child access to CUDA devices.
+    """
+    os.environ["CUDA_VISIBLE_DEVICES"] = devices
