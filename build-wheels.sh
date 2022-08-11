@@ -24,6 +24,7 @@ make scripts/mini_align clean libhts.a
 mkdir -p wheelhouse
 # this only exists after building libhts
 LIBDEFLATE=$(ls -d ${PWD}/submodules/libdeflate-*/)
+echo "LIBDEFLATE = '${LIBDEFLATE}'"
 
 echo "PYTHON VERSIONS AVAILABLE"
 ls /opt/python/
@@ -36,8 +37,8 @@ for minor in $@; do
         PYBIN="/opt/python/cp3${minor}-cp3${minor}m/bin"
     fi
     # auditwheel/issues/102
-    "${PYBIN}"/pip install --upgrade cffi setuptools pip wheel==0.31.1
-    "${PYBIN}"/pip wheel --no-dependencies . -w ./wheelhouse/
+    "${PYBIN}"/pip install --upgrade setuptools pip wheel==0.31.1 cffi==1.15.0
+    "${PYBIN}"/pip wheel --prefer-binary --no-dependencies . -w ./wheelhouse/
 done
 
 
@@ -57,7 +58,7 @@ if [[ "${DO_COUNT_TEST}" == "1" ]]; then
         else
             PYBIN="/opt/python/cp3${minor}-cp3${minor}m/bin"
         fi
-        "${PYBIN}"/pip install -r requirements.txt 
+        "${PYBIN}"/pip install --prefer-binary -r requirements.txt
         "${PYBIN}"/pip install "${PACKAGE_NAME}" --no-index -f ./wheelhouse
         "${PYBIN}"/medaka_counts --print medaka/test/data/test_reads.bam utg000001l:10000-10010
     done

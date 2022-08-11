@@ -1,6 +1,6 @@
 # medaka requirements. 
 # Add comments to keep track of why we are using particular versions
-cffi==1.15.0
+cffi==1.15.0  # no wheel for 1.15.1, note also in pyproject.toml and build-wheels.sh
 edlib
 grpcio 
 h5py

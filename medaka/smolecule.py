@@ -1,6 +1,7 @@
 """Creation of consensus sequences from repetitive reads."""
 from collections import namedtuple
-from concurrent.futures import as_completed, ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
+import functools
 import os
 from timeit import default_timer as now
 import warnings
@@ -302,6 +303,16 @@ def _read_worker(read, align=True, method='spoa'):
     return read.name, read.consensus, aligns
 
 
+def ignore_exception(func, *args, **kwargs):
+    """Call a function ignoring any exceptions."""
+    logger = medaka.common.get_named_logger('Smolecule')
+    try:
+        return func(*args, **kwargs)
+    except Exception as e:
+        logger.warning(e)
+    return None
+
+
 def poa_workflow(reads, threads, method='spoa'):
     """Worker function for processing repetitive reads.
 
@@ -312,36 +323,47 @@ def poa_workflow(reads, threads, method='spoa'):
     # TODO: this is quite memory inefficient, but we can only build the header
     #       by seeing everything.
     logger = medaka.common.get_named_logger('POAManager')
-    pool = ProcessPoolExecutor(max_workers=threads)
-    futures = []
-    for read in reads:
-        logger.debug("Adding {} to queue.".format(read.name))
-        futures.append(pool.submit(_read_worker, read, method=method))
-
-    header = {
-        'HD': {'VN': 1.0},
-        'SQ': [],
-    }
+    header = {'HD': {'VN': 1.0}, 'SQ': []}
     consensuses = []
     alignments = []
 
-    for fut in as_completed(futures):
-        try:
-            res = fut.result()
-        except Exception as e:
-            logger.warning(e)
-            pass
-        else:
+    worker = functools.partial(ignore_exception, _read_worker, method=method)
+    with ProcessPoolExecutor(max_workers=threads) as executor:
+        for res in executor.map(worker, reads):
+            if res is None:
+                continue
             rname, consensus, aligns = res
             logger.debug('Finished {}.'.format(rname))
             if consensus is not None:
                 header['SQ'].append({
                     'LN': len(consensus),
-                    'SN': rname,
-                })
+                    'SN': rname})
                 consensuses.append([rname, consensus])
                 alignments.append(aligns)
+        logger.info(
+            "Created {} consensus with {} alignments.".format(
+                len(consensuses), len(alignments)))
     return header, consensuses, alignments
+
+
+class MyArgs:
+    """Wrap the given args with defaults for prediction function."""
+
+    # these need to be class attrs
+    args = None
+    defaults = None
+
+    def __init__(self, args, defaults):
+        """Initialize the class."""
+        self.args = args
+        self.defaults = defaults
+
+    def __getattr__(self, attr):
+        """Get the standard argument, or default if not present."""
+        try:
+            return getattr(self.args, attr)
+        except AttributeError:
+            return getattr(self.defaults, attr)
 
 
 def main(args):
@@ -351,19 +373,7 @@ def main(args):
         "consensus", medaka.medaka.CheckBam.fake_sentinel,
         "fake_out"])
 
-    class MyArgs:
-        """Wrap the given args with defaults for prediction function."""
-
-        myargs = args
-        mydefaults = defaults
-
-        def __getattr__(self, attr):
-            try:
-                return getattr(self.myargs, attr)
-            except AttributeError:
-                return getattr(self.mydefaults, attr)
-
-    args = MyArgs()
+    args = MyArgs(args, defaults)
 
     logger = medaka.common.get_named_logger('Smolecule')
     if args.chunk_ovlp >= args.chunk_len:
@@ -413,7 +423,11 @@ def main(args):
     args.bam = bam_file
     out_dir = args.output
     args.output = os.path.join(out_dir, 'consensus.hdf')
-    medaka.prediction.predict(args)
+    # we run this in a subprocess so GPU resources are all cleaned
+    # up when things are finished
+    with ProcessPoolExecutor() as executor:
+        fut = executor.submit(medaka.prediction.predict, args)
+        _ = fut.result()
     t3 = now()
 
     logger.info("Running medaka stitch.")

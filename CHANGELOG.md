@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (e.g. 'N') instead of content from a reference sequence.
 - option `-r` in `medaka_consensus` to set the designated fill character.
 - option `--fill_char` in `medaka stitch` to set the designated fill character.
+### Fixed
+- CUDA initialization errors during `medaka smolecule`s stitch phase.
 
 ## [v1.6.1]
 ### Added
