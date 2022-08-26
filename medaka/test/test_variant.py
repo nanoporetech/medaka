@@ -72,6 +72,32 @@ class TestJoinSamples(unittest.TestCase):
                                ref_seq.replace('*', ''),
                                self.ls])
 
+    def test_gh384_prevent_invalid_slice(self):
+        # Craft a sample slice that contains only an insertion (and is
+        # not the last in contig) to test whether an empty slice is
+        # created inside join_samples
+        ref   = 'C*******ATGCGTCGATGCATCG'
+        call  = 'CCCCCCCCATGCGTCGATGCATCG'
+
+        sample, ref_seq = haploid_sample_from_labels(self.ls, ref, call)
+        samples = [
+            sample.slice(slice(0, 8)), # slice will contain 0.0 - 0.8
+            sample.slice(slice(8, None))]
+        is_last_in_contig = [False, True]
+        heuristics = len(is_last_in_contig) * [False]
+
+        joined = medaka.variant.join_samples(
+            zip(samples, is_last_in_contig, heuristics),
+            ref_seq.replace('*', ''), self.ls)
+
+        for joined_sample in joined:
+            try:
+                joined_sample.positions["major"][0]
+                joined_sample.positions["minor"][0]
+            except IndexError:
+                self.fail("IndexError raised accessing empty joined_sample!")
+
+
     def test_spanning(self):
         # if variants in a sample span sample boundaries confirm we rechunk
         # samples to make sure entire variants are in a single sample
