@@ -98,11 +98,21 @@ def join_samples(sample_gen, ref_seq, label_scheme):
         last_non_var_start = np.searchsorted(
             s.positions['major'],
             last_non_var_pos, side='left')
-        to_yield = s.slice(slice(None, last_non_var_start))
-        to_queue = s.slice(slice(last_non_var_start, None))
 
-        yield medaka.common.Sample.from_samples(queue + [to_yield])
-        queue = [to_queue]
+        left_slice = s.slice(slice(None, last_non_var_start))
+        right_slice = s.slice(slice(last_non_var_start, None))
+
+        to_yield = queue
+        if last_non_var_start > 0:
+            # left_slice only appended if it contains at least one position
+            to_yield += [left_slice]
+
+        if to_yield:
+            # Cowardly refuse to call from_samples on empty list
+            yield medaka.common.Sample.from_samples(to_yield)
+
+        queue = [right_slice]
+
     if len(queue) > 0:
         raise ValueError(
             'Reached end of generator at {} without '
