@@ -25,8 +25,8 @@ current_models = [
     'r941_min_hac_g507', 'r941_min_sup_g507',
     'r941_prom_hac_g507', 'r941_prom_sup_g507',
     # r1041 e82 (kit14) consensus - dorado v0.1 release
-    'r1041_e82_400bps_hac_d010', 'r1041_e82_400bps_sup_d010',
-    'r1041_e82_260bps_hac_d010', 'r1041_e82_260bps_sup_d010',
+    'r1041_e82_400bps_hac_v4.0.0', 'r1041_e82_400bps_sup_v4.0.0',
+    'r1041_e82_260bps_hac_v4.0.0', 'r1041_e82_260bps_sup_v4.0.0',
     # r9 variant calling
     'r941_min_hac_variant_g507',
     'r941_prom_hac_variant_g507',
