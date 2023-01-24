@@ -290,7 +290,7 @@ class DataStore(object):
                     data = getattr(sample, field)
                     # handle numpy array of unicode chars
                     if isinstance(data, np.ndarray) and \
-                            isinstance(data[0], np.unicode):
+                            isinstance(data[0], np.compat.unicode):
                         data = np.char.encode(data)
                     location = '{}/{}/{}'.format(
                         self._sample_path_, sample.name, field)
