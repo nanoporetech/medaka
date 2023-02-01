@@ -121,7 +121,7 @@ if __name__ == '__main__':
         description=__description__,
         long_description=__long_description__,
         long_description_content_type=__long_description_content_type__,
-        python_requires='>3.5.*,<3.10',
+        python_requires='>=3.6.0,<3.10',
         packages=find_packages(exclude=['*.test', '*.test.*', 'test.*', 'test']),
         package_data={
             __pkg_name__:[
