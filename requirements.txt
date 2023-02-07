@@ -6,7 +6,7 @@ grpcio
 h5py
 intervaltree
 tensorflow~=2.7.0
-numpy
+numpy==1.23.5 # fixes error numpy has no attribute unicode
 mappy
 ont_fast5_api
 parasail
