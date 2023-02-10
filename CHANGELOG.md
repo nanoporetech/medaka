@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [unreleased]
+### Fixed
+- Deprecated numpy.unicode use.
+### Changed
+- Set minimum python version to 3.7.
+- Put lower bound on numpy requirement.
+
 ## [v1.7.2]
 ### Added
 - New models for R10.4.1 E8.2 260bps based sequencing chemistries.

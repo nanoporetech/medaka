@@ -6,7 +6,7 @@ grpcio
 h5py
 intervaltree
 tensorflow~=2.7.0
-numpy
+numpy>=1.21.6
 mappy
 ont_fast5_api
 parasail
