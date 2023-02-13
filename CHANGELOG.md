@@ -5,11 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [unreleased]
+### Added
+- Wheel builds for newer Python versions.
 ### Fixed
 - Deprecated numpy.unicode use.
 ### Changed
-- Set minimum python version to 3.7.
+- Set minimum Python version to 3.7.
 - Put lower bound on numpy requirement.
+### Removed
+- Dropped support for Python 3.6. Security support for Python 3.6 was ended on 23 Dec 2021;
+  as such we have removed support for Python 3.6 and suggest users update their Python version.
 
 ## [v1.7.2]
 ### Added

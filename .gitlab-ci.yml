@@ -1,4 +1,4 @@
-image: $IMAGE
+image: ${UBUNTU_IMAGE}:20.04
 
 stages:
     - test
@@ -26,7 +26,7 @@ variables:
           gcc make cmake curl wget git
           zlib1g-dev libbz2-dev liblzma-dev libncurses5-dev libcurl4-gnutls-dev
           libssl-dev libffi-dev valgrind
-          libreadline7 libreadline-dev sqlite3 libsqlite3-dev
+          libreadline8 libreadline-dev sqlite3 libsqlite3-dev
         - *install-pyenv
 
 
@@ -43,20 +43,28 @@ variables:
     script:
         - make test
 
-test-3.7.9:
+# Latest versions as of 2023/02/10
+
+test-3.7.16:
     variables:
-        PYENV_VERSION: 3.7.9
+        PYENV_VERSION: 3.7.16
     <<: *pytest
 
-test-3.8.7:
+test-3.8.16:
     variables:
-        PYENV_VERSION: 3.8.7
+        PYENV_VERSION: 3.8.16
     <<: *pytest
 
 
-test-3.9.9:
+test-3.9.16:
     variables:
-        PYENV_VERSION: 3.9.9
+        PYENV_VERSION: 3.9.16
+    <<: *pytest
+
+
+test-3.10.10:
+    variables:
+        PYENV_VERSION: 3.10.10
     <<: *pytest
 
 
@@ -66,6 +74,7 @@ test-mem-check:
     <<: *preparetest
     script:
         - make mem_check
+
 
 test-docker:
     image: ${DOCKERDEV_IMAGE} 
@@ -80,7 +89,7 @@ test-docker:
 #
 
 build:sdist:
-    stage: build
+    stage: test
     <<: *minimal-python
     script:
         - make sdist
@@ -93,78 +102,60 @@ build:sdist:
 #
 
 .many-linux: &many-linux-def
-  image: quay.io/pypa/manylinux2010_x86_64
-  stage: build
-  variables:
-      DO_COUNT_TEST: 1
-  artifacts:
-      paths:
-          - wheelhouse/*.whl
-  only:
-      - tags
-
-.switch-to-cpu: &switch-to-cpu
-    before_script:
-        - export PACKAGE_NAME=medaka-cpu
-        - export MEDAKA_CPU=1
+    stage: build
+    variables:
+        DO_COUNT_TEST: 1
+    script:
+        - echo "Building a Python ${PYWHEEL} wheel on manylinux_${FLAVOUR} for ${COMPUTE}"
         # this is still required, because otherwise test in build-wheel
         # will first install tensorflow, then try to install tensorflow-cpu
         # and complain
-        - sed -i 's/tensorflow/tensorflow-cpu/' requirements.txt
-
-### Tensorflow (gpu) builds
-
-gpu:many-linux-7:
-    <<: *many-linux-def
-    script:
-        - ./build-wheels.sh . 7
-
-gpu:many-linux-8:
-    <<: *many-linux-def
-    script:
-        - ./build-wheels.sh . 8
-
-gpu:many-linux-9:
-    <<: *many-linux-def
-    script:
-        - ./build-wheels.sh . 9
-
-gpu:many-linux-8:branch:
-    extends: gpu:many-linux-8
+        - if [[ "${COMPUTE}" == "cpu" ]]; then export PACKAGE_NAME=medaka-cpu; export MEDAKA_CPU=1; sed -i "s/tensorflow/tensorflow-cpu/" requirements.txt; fi
+        - ./build-wheels.sh . ${PYWHEEL}
+    artifacts:
+        paths:
+            - wheelhouse-final/*.whl
     only:
-        - branches
+        - tags
 
-### Tensorflow-cpu wheels
 
-cpu:many-linux-7:
-    <<: *many-linux-def
-    <<: *switch-to-cpu
-    script:
-        - ./build-wheels.sh . 7
+make-wheels-2010:
+    extends: .many-linux
+    image: "quay.io/pypa/manylinux2010_x86_64"
+    parallel:
+        matrix:
+            - PYWHEEL: [7, 8]
+              COMPUTE: ["gpu", "cpu"]
+              FLAVOUR: ["2010"]
 
-cpu:many-linux-8:
-    <<: *many-linux-def
-    <<: *switch-to-cpu
-    script:
-        - ./build-wheels.sh . 8
 
-cpu:many-linux-9:
-    <<: *many-linux-def
-    <<: *switch-to-cpu
-    script:
-        - ./build-wheels.sh . 9
+make-wheels-2014:
+    extends: .many-linux
+    image: "quay.io/pypa/manylinux2014_x86_64"
+    parallel:
+        matrix:
+            - PYWHEEL: [7, 8, 9]
+              COMPUTE: ["gpu", "cpu"]
+              FLAVOUR: ["2014"]
 
-###
-# ARM builds
-#
 
-.arm-many-linux: &arm-many-linux-def
-    image: quay.io/pypa/manylinux2014_aarch64
-    stage: build
+make-wheels-2_24:
+    extends: .many-linux
+    image: "quay.io/pypa/manylinux_2_24_x86_64"
+    parallel:
+        matrix:
+            - PYWHEEL: [8, 9, 10]
+              COMPUTE: ["gpu", "cpu"]
+              FLAVOUR: ["2_24"]
+
+
+make-wheels-arm:
+    extends: .many-linux
     tags:
         - arm64
     variables:
         DO_COUNT_TEST: 0
+    image: quay.io/pypa/manylinux2014_aarch64
     before_script:
         # ARM CI image doesn't have git lfs, so need to jump some hoops
         - yum install -y wget
@@ -174,32 +165,12 @@ cpu:many-linux-9:
           && chmod +x install.sh && ./install.sh
           && cd ..
         - GIT_SSL_NO_VERIFY=1 git lfs pull
-    artifacts:
-        paths:
-          - wheelhouse/*.whl
-    only:
-        - tags
+    parallel:
+        matrix:
+            - PYWHEEL: [7, 8, 9, 10]
+              COMPUTE: ["gpu"]
+              FLAVOUR: ["2014"]
 
-
-arm-many-linux-7:
-    <<: *arm-many-linux-def
-    script:
-        - ./build-wheels.sh . 7
-
-arm-many-linux-8:
-    <<: *arm-many-linux-def
-    script:
-        - ./build-wheels.sh . 8
-
-arm-many-linux-9:
-    <<: *arm-many-linux-def
-    script:
-        - ./build-wheels.sh . 9
-
-arm-many-linux:branch:
-    extends: arm-many-linux-8
-    only:
-        - branches
 
 ###
 # Deploy stages
@@ -212,7 +183,7 @@ deploy:pypi:
     script:
         - make pypi_build/bin/activate
         - source pypi_build/bin/activate
-        - twine upload dist/*.tar.gz wheelhouse/*.whl
+        - twine upload dist/*.tar.gz wheelhouse-final/*.whl
     only:
         - tags
 

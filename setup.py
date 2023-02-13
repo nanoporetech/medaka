@@ -108,10 +108,10 @@ if __name__ == '__main__':
     check_model_lfs()
 
     pymajor, pyminor = sys.version_info[0:2]
-    if (pymajor < 3) or (pyminor not in {6, 7, 8, 9}):
+    if (pymajor < 3) or (pyminor not in {7, 8, 9, 10}):
         raise RuntimeError(
             '`medaka` is unsupported on your version of python, '
-            'please use python 3.6-3.9 (inclusive)')
+            'please use python 3.7-3.10 (inclusive)')
 
     setup(
         name=__dist_name__,
@@ -121,7 +121,7 @@ if __name__ == '__main__':
         description=__description__,
         long_description=__long_description__,
         long_description_content_type=__long_description_content_type__,
-        python_requires='>=3.7,<3.10',
+        python_requires='>=3.7,<3.11',
         packages=find_packages(exclude=['*.test', '*.test.*', 'test.*', 'test']),
         package_data={
             __pkg_name__:[
