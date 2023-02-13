@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 
-__version__ = "1.7.2"
+__version__ = "1.7.3"
 
 try:
     import parasail

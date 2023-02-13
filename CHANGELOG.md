@@ -4,13 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [unreleased]
+## [v1.7.3]
 ### Added
+- Consensus polishing models for Version 4 basecallers.
 - Wheel builds for newer Python versions.
 ### Fixed
 - Deprecated numpy.unicode use.
 ### Changed
 - Set minimum Python version to 3.7.
+- Updated tensorflow requirement to 2.8.
 - Put lower bound on numpy requirement.
 ### Removed
 - Dropped support for Python 3.6. Security support for Python 3.6 was ended on 23 Dec 2021;
