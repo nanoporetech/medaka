@@ -17,7 +17,14 @@ fi
 PACKAGE_FILE_NAME=${PACKAGE_NAME//-/_}
 sed -i "s/__dist_name__ = 'medaka'/__dist_name__ = '${PACKAGE_NAME}'/" setup.py
 
-yum install -y zlib-devel bzip2 bzip2-devel xz-devel curl-devel openssl-devel ncurses-devel
+
+# some many linux containers are centos-based, others are debian!
+if [ -f /etc/centos-release ]; then
+    yum install -y zlib-devel bzip2 bzip2-devel xz-devel curl-devel openssl-devel ncurses-devel
+else
+    apt update
+    apt install -y zlib1g-dev libbz2-dev liblzma-dev libncurses5-dev libcurl4-gnutls-dev libssl-dev libffi-dev
+fi
 
 rm -rf libhts.a bincache/*
 make scripts/mini_align clean libhts.a
@@ -31,7 +38,7 @@ ls /opt/python/
 
 # Compile wheels
 for minor in $@; do
-    if [[ "${minor}" == "8" ]]  || [[ "${minor}" == "9" ]]; then
+    if [[ "${minor}" == "8" ]]  || [[ "${minor}" == "9" ]] || [[ "${minor}" == "10" ]]; then
         PYBIN="/opt/python/cp3${minor}-cp3${minor}/bin"
     else
         PYBIN="/opt/python/cp3${minor}-cp3${minor}m/bin"
@@ -53,7 +60,7 @@ unset LD_LIBRARY_PATH
 ## Install packages
 if [[ "${DO_COUNT_TEST}" == "1" ]]; then
     for minor in $@; do
-        if [[ "${minor}" == "8" || "${minor}" == "9" ]]; then
+        if [[ "${minor}" == "8" || "${minor}" == "9" ]] || [[ "${minor}" == "10" ]]; then
             PYBIN="/opt/python/cp3${minor}-cp3${minor}/bin"
         else
             PYBIN="/opt/python/cp3${minor}-cp3${minor}m/bin"
@@ -64,4 +71,5 @@ if [[ "${DO_COUNT_TEST}" == "1" ]]; then
     done
 fi
 
-cd wheelhouse && ls | grep -v "${PACKAGE_FILE_NAME}.*manylinux" | xargs rm
+mkdir wheelhouse-final
+cp wheelhouse/${PACKAGE_FILE_NAME}*manylinux* wheelhouse-final
