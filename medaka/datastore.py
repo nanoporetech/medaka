@@ -116,7 +116,28 @@ class ModelStoreTF(BaseModelStore):
             self._exitstack = contextlib.ExitStack()
             self._exitstack.enter_context(self.tmpdir)
             with tarfile.open(self.filepath) as tar:
-                tar.extractall(path=self.tmpdir.name)
+                # CVE-2007-4559. We only really extract our own files, but
+                # someone could unwittingly run a model from the interwebs
+                # and blame us when things go wrong.
+
+                def _is_within_directory(directory, target):
+                    abs_directory = os.path.abspath(directory)
+                    abs_target = os.path.abspath(target)
+                    prefix = os.path.commonprefix([abs_directory, abs_target])
+                    return prefix == abs_directory
+
+                def _safe_extract(
+                        tar, path=".", members=None, *, numeric_owner=False):
+                    for member in tar.getmembers():
+                        member_path = os.path.join(path, member.name)
+                        if not _is_within_directory(path, member_path):
+                            raise Exception(
+                                "Attempted Path Traversal in Tar File")
+                    tar.extractall(path, members, numeric_owner=numeric_owner)
+
+                # Do the extraction
+                _safe_extract(tar, path=self.tmpdir.name)
+
             meta_file = os.path.join(
                 self.tmpdir.name, self.top_level_dir, 'meta.pkl')
             with open(meta_file, 'rb') as fh:
