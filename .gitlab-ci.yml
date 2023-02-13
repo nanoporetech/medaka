@@ -100,8 +100,7 @@ build:sdist:
 ###
 # Many linux builds
 #
-
-.many-linux: &many-linux-def
+.many-linux:
     stage: build
     variables:
         DO_COUNT_TEST: 1
