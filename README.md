@@ -62,6 +62,7 @@ We recommend using medaka within a virtual environment, viz.:
 
     virtualenv medaka --python=python3 --prompt "(medaka) "
     . medaka/bin/activate
+    pip install --upgrade pip
     pip install medaka
 
 Using this method requires the user to provide several binaries:
