@@ -381,9 +381,10 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
         :returns: float, phred quality score
         """
-        # add smallest positive usable number to err to avoid
+        # clip to the cap value (we tried float.tiny but that still
+        # gave issues)
         # RuntimeWarning: divide by zero encountered in log10
-        err += np.finfo(float).tiny
+        err = np.clip(err, 10 ** (-cap / 10.0), 1)
         q = -10 * np.log10(err)
         return np.minimum(q, cap)
 
