@@ -24,7 +24,7 @@ class TestModelFiles(unittest.TestCase):
     def test_001_default_models(self):
         for name in medaka.options.default_models.values():
             if name not in medaka.options.current_models:
-                self.fail('Default Model {} not in current_models'.format(model_file))
+                self.fail(f'Default Model {name} not in current_models')
 
     def test_010_failed_download(self):
         name = 'garbage'
