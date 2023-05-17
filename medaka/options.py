@@ -18,19 +18,12 @@ model_url_template = \
     'https://github.com/nanoporetech/{pkg}/raw/master/{pkg}/{subdir}/{fname}'
 
 current_models = [
+    # r1041 e82 (kit14) consensus
+    'r1041_e82_400bps_hac_v4.2.0',
+    'r1041_e82_400bps_sup_v4.2.0',
     # r1041 variant calling
-    'r1041_e82_400bps_hac_variant_g632', 'r1041_e82_400bps_sup_variant_g615',
-    'r1041_e82_260bps_hac_variant_g632', 'r1041_e82_260bps_sup_variant_g632',
-    # r9 consensus
-    'r941_min_hac_g507', 'r941_min_sup_g507',
-    'r941_prom_hac_g507', 'r941_prom_sup_g507',
-    # r1041 e82 (kit14) consensus - dorado v0.1 release
-    'r1041_e82_400bps_hac_v4.0.0', 'r1041_e82_400bps_sup_v4.0.0',
-    'r1041_e82_260bps_hac_v4.0.0', 'r1041_e82_260bps_sup_v4.0.0',
-    # r9 variant calling
-    'r941_min_hac_variant_g507',
-    'r941_prom_hac_variant_g507',
-
+    'r1041_e82_400bps_hac_variant_v4.2.0',
+    'r1041_e82_400bps_sup_variant_v4.2.0',
 ]
 archived_models = [
     # r9 consensus
@@ -55,9 +48,23 @@ archived_models = [
     'r1041_e82_400bps_fast_g632', 'r1041_e82_260bps_fast_g632',
     'r1041_e82_400bps_hac_g632', 'r1041_e82_400bps_sup_g615',
     'r1041_e82_260bps_hac_g632', 'r1041_e82_260bps_sup_g632',
+    'r1041_e82_400bps_hac_v4.0.0', 'r1041_e82_400bps_sup_v4.0.0',
+    'r1041_e82_260bps_hac_v4.0.0', 'r1041_e82_260bps_sup_v4.0.0',
+    'r1041_e82_260bps_hac_v4.1.0', 'r1041_e82_260bps_sup_v4.1.0',
+    'r1041_e82_400bps_hac_v4.1.0', 'r1041_e82_400bps_sup_v4.1.0',
     # r1041 e82 variant calling
-    'r1041_e82_400bps_hac_variant_g615',  'r1041_e82_400bps_fast_variant_g615',
-    'r1041_e82_400bps_fast_variant_g632', 'r1041_e82_260bps_fast_variant_g632',
+    'r1041_e82_400bps_hac_variant_g615',
+    'r1041_e82_400bps_fast_variant_g615',
+    'r1041_e82_400bps_fast_variant_g632',
+    'r1041_e82_260bps_fast_variant_g632',
+    'r1041_e82_400bps_hac_variant_g632',
+    'r1041_e82_400bps_sup_variant_g615',
+    'r1041_e82_260bps_hac_variant_g632',
+    'r1041_e82_260bps_sup_variant_g632',
+    'r1041_e82_260bps_hac_variant_v4.1.0',
+    'r1041_e82_260bps_sup_variant_v4.1.0',
+    'r1041_e82_400bps_hac_variant_v4.1.0',
+    'r1041_e82_400bps_sup_variant_v4.1.0',
     # snp and variant - flipflop
     'r941_prom_snp_g303', 'r941_prom_variant_g303',
     'r941_prom_snp_g322', 'r941_prom_variant_g322',
@@ -76,6 +83,12 @@ archived_models = [
     'r103_sup_snp_g507', 'r103_sup_variant_g507',
     # rle consensus
     'r941_min_high_g340_rle',
+    # r9 consensus
+    'r941_min_hac_g507', 'r941_min_sup_g507',
+    'r941_prom_hac_g507', 'r941_prom_sup_g507',
+    # r9 variant calling
+    'r941_min_hac_variant_g507',
+    'r941_prom_hac_variant_g507',
     # r941 e81 consensus
     'r941_e81_fast_g514', 'r941_e81_hac_g514', 'r941_e81_sup_g514',
     # r941 e81 variant calling
@@ -84,8 +97,9 @@ archived_models = [
 ]
 allowed_models = sorted(current_models + archived_models)
 default_models = {
-    'consensus': 'r941_min_hac_g507',
-    'variant': 'r941_min_hac_variant_g507'}
+    'consensus': 'r1041_e82_400bps_sup_v4.2.0',
+    'variant': 'r1041_e82_400bps_sup_variant_v4.2.0'
+}
 
 alignment_params = {
     'rle': "-M 5 -S 4 -O 2 -E 3",

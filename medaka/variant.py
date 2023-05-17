@@ -427,7 +427,7 @@ def vcf_from_fasta(args):
 
     if out_bam is not None:
         out_bam.close()
-        pysam.index(out_bam.filename)
+        pysam.index(out_bam.filename.decode("utf-8"))
 
     bed_fp = args.out_prefix + '_coverage.bed'
     gap_bed_fp = args.out_prefix + '_coverage_gaps.bed'
