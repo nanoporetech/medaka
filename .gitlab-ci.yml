@@ -208,8 +208,8 @@ push-github:
         # Push master and tag to github
         - git checkout ${CI_COMMIT_TAG}
         - git branch -D master || echo "No master branch to delete"
+        - git fetch github
         - git checkout -b master
-        - git fetch
         - git push -f github master
         - git push github ${CI_COMMIT_TAG}
         # Make a github release page
