@@ -27,6 +27,7 @@ BATCH_SIZE=100
 FORCE=false
 NOFILLGAPS=false
 GAPFILLCHAR=""
+QUALITIES=false
 
 iflag=false
 dflag=false
@@ -53,10 +54,11 @@ $(basename "$0") [-h] -i <fastx> -d <fasta>
     -f  Force overwrite of outputs (default will reuse existing outputs).
     -x  Force recreation of alignment index.
     -t  number of threads with which to create features (default: 1).
-    -b  batchsize, controls memory use (default: ${BATCH_SIZE})."
+    -b  batchsize, controls memory use (default: ${BATCH_SIZE}).
+    -q  Output consensus with per-base quality scores (fastq)."
 
 
-while getopts ':hi::d:o:gr:m:fxt:b:' option; do
+while getopts ':hi::d:o:gr:m:fxt:b:q' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
@@ -69,6 +71,7 @@ while getopts ':hi::d:o:gr:m:fxt:b:' option; do
     x  ) xflag=true;;
     t  ) THREADS=$OPTARG;;
     b  ) BATCH_SIZE=$OPTARG;;
+    q  ) QUALITIES=true;;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
     :  ) echo "Option -$OPTARG requires an argument." >&2; exit 1;;
   esac
@@ -152,14 +155,18 @@ fi
 CONSENSUS="consensus.fasta"
 if [[ ! -e "${CONSENSUS}" ]] || ${FORCE}; then
     STITCH_OPTS=""
+    QUALITIES_OPT=""
     if $rflag || ${NOFILLGAPS}; then
         STITCH_OPTS="--no-fillgaps"
     fi
     if [ -n "${GAPFILLCHAR}" ]; then
         STITCH_OPTS="${STITCH_OPTS} --fill_char ${GAPFILLCHAR}"
     fi
+    if "${QUALITIES}"; then
+        QUALITIES_OPT="--qualities"
+    fi
     medaka stitch "${CONSENSUSPROBS}" "${DRAFT}" "${CONSENSUS}" \
-        --threads "${THREADS}" ${STITCH_OPTS} \
+        --threads "${THREADS}" ${STITCH_OPTS} ${QUALITIES_OPT} \
         || { echo "Failed to stitch consensus chunks."; exit 1; }
     echo "Polished assembly written to ${OUTPUT}/${CONSENSUS}, have a nice day."
     FORCE=true
