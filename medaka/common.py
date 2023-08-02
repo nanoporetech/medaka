@@ -416,7 +416,7 @@ class Sample(_Sample):
         for field in self._fields:
             s = getattr(self, field)
             o = getattr(other, field)
-            if type(s) != type(o):
+            if type(s) is not type(o):
                 return False
             elif isinstance(s, np.ndarray):
                 if (s.shape != o.shape or np.any(s != o)):

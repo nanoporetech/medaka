@@ -30,27 +30,22 @@ def write_fastx_segment(fh, contig, qualities=True):
         fh.write('+\n{}\n'.format(''.join(contig[2])))
 
 
-def stitch_from_probs(h5_fp, region, min_depth):
-    """Join overlapping label probabilities from HDF5 files.
+def _stitch_samples(samples, label_scheme, region, min_depth):
+    """Join overlapping label probabilities from stream of samples.
 
-     Network outputs from multiple samples stored within a file are spliced
-     together into a logically contiguous array and decoded to generate
-     contiguous sequence(s).
+     Network outputs from multiple samples are spliced together into a
+     logically contiguous array and decoded to generate contiguous sequence(s).
 
-    :param h5_fp: iterable of HDF5 filepaths.
-    :param region: `medaka.common.Region` instance
+    :param samples: stream of medaka.common.Sample instances.
+    :param label_scheme: a `LabelScheme` describing network outputs.
+    :param region: `medaka.common.Region` instance.
+    :param min_depth: int, minimum depth at each position for medaka consensus
+        sequence sequence to be decoded. Gaps in coverage will result in breaks
+        in contiguity.
 
     :returns: list of (region string, sequence, qualities).
     """
     logger = medaka.common.get_named_logger('Stitch')
-    logger.debug("Stitching region: {}".format(str(region)))
-    index = medaka.datastore.DataIndex(h5_fp)
-    label_scheme = index.metadata['label_scheme']
-    logger.debug("Label decoding is:\n{}".format(
-        '\n'.join('{}: {}'.format(k, v)
-                  for k, v in label_scheme._decoding.items())))
-
-    samples = index.yield_from_feature_files(regions=[region])
     data_gen = medaka.common.Sample.trim_samples_to_region(
         samples, start=region.start, end=region.end)
     if min_depth:
@@ -86,6 +81,29 @@ def stitch_from_probs(h5_fp, region, min_depth):
     logger.debug("Used heuristic {} times for {}.".format(
         heuristic_use, region))
     return contigs
+
+
+def stitch_from_probs(h5_fp, region, min_depth):
+    """Join overlapping label probabilities from HDF5 files.
+
+    :param h5_fp: iterable of HDF5 filepaths.
+    :param region: `medaka.common.Region` instance.
+    :param min_depth: int, minimum depth at each position for medaka consensus
+        sequence sequence to be decoded. Gaps in coverage will result in breaks
+        in contiguity.
+
+    :returns: list of (region string, sequence, qualities).
+    """
+    logger = medaka.common.get_named_logger('Stitch')
+    logger.debug("Stitching region: {}".format(str(region)))
+    index = medaka.datastore.DataIndex(h5_fp)
+    label_scheme = index.metadata['label_scheme']
+    logger.debug("Label decoding is:\n{}".format(
+        '\n'.join('{}: {}'.format(k, v)
+                  for k, v in label_scheme._decoding.items())))
+
+    samples = index.yield_from_feature_files(regions=[region])
+    return _stitch_samples(samples, label_scheme, region, min_depth)
 
 
 def fill_gaps(contigs, draft, fill_char=None):
@@ -211,8 +229,7 @@ def stitch(args):
         r.split(MAX_REGION_SIZE, overlap=0, fixed_size=False)
         for r in regions_to_process))
 
-    gap_trees = {}
-    with open(args.output, 'w') as fastx:
+    def stitch_regions_parallel(regions):
         Executor = concurrent.futures.ProcessPoolExecutor
         with Executor(
                 max_workers=args.threads,
@@ -223,31 +240,50 @@ def stitch(args):
             # we rely on map being ordered
             pieces = itertools.chain.from_iterable(
                 executor.map(worker, regions))
-            contigs = collapse_neighbours(pieces)
-            if args.fillgaps:
-                # TODO: ideally fill_gaps would be a generator
-                contigs, gt = fill_gaps(contigs, args.draft, args.fill_char)
-                gap_trees.update(gt)
-                for (ref_name, start, stop), seq_parts, qualities in contigs:
-                    write_fastx_segment(
-                        fastx,
-                        (ref_name, seq_parts, qualities),
-                        qualities=args.qualities)
-            else:
-                ref_name = None
-                counter = 0
-                for (rname, start, stop), seq_parts, qualities in contigs:
-                    if ref_name == rname:
-                        counter += 1
-                    else:
-                        counter = 0
-                    write_fastx_segment(
-                        fastx,
-                        ("{}_{} {}-{}".format(
-                            rname, counter, start, stop + 1),
-                         seq_parts, qualities),
-                        qualities=args.qualities)
-                    ref_name = rname
+            yield from pieces
+
+    def stitch_regions_serial(regions):
+        label_scheme = index.metadata['label_scheme']
+        for region in regions:
+            logger.info(f"Stitching {region}")
+            samples = index.yield_from_feature_files(regions=[region])
+            yield from _stitch_samples(
+                samples, label_scheme, region, args.min_depth
+            )
+
+    if args.threads == 1:
+        # this will be much quicker for many short regions in a single h5 file
+        pieces = stitch_regions_serial(regions)
+    else:
+        pieces = stitch_regions_parallel(regions)
+
+    gap_trees = {}
+    with open(args.output, 'w') as fastx:
+        contigs = collapse_neighbours(pieces)
+        if args.fillgaps:
+            # TODO: ideally fill_gaps would be a generator
+            contigs, gt = fill_gaps(contigs, args.draft, args.fill_char)
+            gap_trees.update(gt)
+            for (ref_name, start, stop), seq_parts, qualities in contigs:
+                write_fastx_segment(
+                    fastx,
+                    (ref_name, seq_parts, qualities),
+                    qualities=args.qualities)
+        else:
+            ref_name = None
+            counter = 0
+            for (rname, start, stop), seq_parts, qualities in contigs:
+                if ref_name == rname:
+                    counter += 1
+                else:
+                    counter = 0
+                write_fastx_segment(
+                    fastx,
+                    ("{}_{} {}-{}".format(
+                        rname, counter, start, stop + 1),
+                        seq_parts, qualities),
+                    qualities=args.qualities)
+                ref_name = rname
         # the data index doesn't contain entries for contigs that
         # were entirely skipped (and we explicitely removed these
         # from consideration above). If desired, go back and copy

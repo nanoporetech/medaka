@@ -22,12 +22,11 @@ Alignment = namedtuple('Alignment', 'rname qname flag rstart seq cigar')
 class Read(object):
     """Functionality to extract information from a read with subreads."""
 
-    def __init__(self, name, subreads, initialize=False):
+    def __init__(self, name, subreads):
         """Initialize repeat read analysis.
 
         :param name: read name.
         :param subreads: list of subreads.
-        :param initialize: initialize subread alignments.
 
         """
         self.name = name
@@ -45,6 +44,31 @@ class Read(object):
         self._initialized = False
         # has a consensus been run
         self.consensus_run = False
+        # enable use of alternative aligners by changing name.
+        # parasail align functions not pickleable so cause issues with
+        # multiprocessing if set as a direct attribute.
+        # instead, create the aligner on demand.
+        self.parasail_aligner_name = 'sw_trace_striped_16'
+
+    @property
+    def parasail_aligner_name(self):
+        """Return parasail alignment function name (str)."""
+        return self._parasail_aligner_name
+
+    @parasail_aligner_name.setter
+    def parasail_aligner_name(self, value):
+        if hasattr(parasail, value) and callable(getattr(parasail, value)):
+            self._parasail_aligner_name = value
+        else:
+            raise ValueError(f'{value} is not a valid parasail function.')
+
+    @property
+    def parasail_aligner(self):
+        """Return functools.partial-wrapped parasail alignment function."""
+        return functools.partial(
+            getattr(parasail, self.parasail_aligner_name),
+            open=8, extend=4, matrix=parasail.dnafull
+        )
 
     def initialize(self):
         """Calculate initial alignments of subreads to scaffold read."""
@@ -151,18 +175,23 @@ class Read(object):
         """Return the number of subreads contained in the read."""
         return len(self.subreads)
 
-    def poa_consensus(self, additional_seq=None, method='spoa'):
+    def poa_consensus(self, method='spoa'):
         """Create a consensus sequence for the read."""
         self.initialize()
+        seqs = list()
+        for orient, subread in zip(*self.interleaved_subreads):
+            if orient:
+                seq = subread.seq
+            else:
+                seq = medaka.common.reverse_complement(subread.seq)
+            seqs.append(seq)
         if method == 'spoa':
-            seqs = list()
-            for orient, subread in zip(*self.interleaved_subreads):
-                if orient:
-                    seq = subread.seq
-                else:
-                    seq = medaka.common.reverse_complement(subread.seq)
-                seqs.append(seq)
             consensus_seq, _ = spoa.poa(seqs, genmsa=False)
+        elif method == 'abpoa':
+            import pyabpoa as pa
+            abpoa_aligner = pa.msa_aligner(aln_mode='g')
+            result = abpoa_aligner.msa(seqs, out_cons=True, out_msa=False)
+            consensus_seq = result.cons_seq[0]
         else:
             raise ValueError('Unrecognised method: {}.'.format(method))
         self.consensus = consensus_seq
@@ -182,10 +211,8 @@ class Read(object):
         alignments = []
         for sr in self.subreads:
             rc_seq = medaka.common.reverse_complement(sr.seq)
-            result_fwd = parasail.sw_trace_striped_16(
-                sr.seq, self.consensus, 8, 4, parasail.dnafull)
-            result_rev = parasail.sw_trace_striped_16(
-                rc_seq, self.consensus, 8, 4, parasail.dnafull)
+            result_fwd = self.parasail_aligner(sr.seq, self.consensus)
+            result_rev = self.parasail_aligner(rc_seq, self.consensus)
             is_fwd = result_fwd.score > result_rev.score
             self._orient.append(is_fwd)
             result = result_fwd if is_fwd else result_rev
@@ -218,8 +245,8 @@ class Read(object):
                 seq = sr.seq
             else:
                 seq = medaka.common.reverse_complement(sr.seq)
-            result = parasail.sw_trace_striped_16(
-                seq, template, 8, 4, parasail.dnafull)
+            result = self.parasail_aligner(seq, template)
+
             if result.cigar.beg_ref >= result.end_ref or \
                     result.cigar.beg_query >= result.end_query:
                 # unsure why this can happen
@@ -280,11 +307,14 @@ def write_bam(fname, alignments, header, bam=True):
 
     """
     mode = 'wb' if bam else 'w'
+    if isinstance(header, dict):
+        header = pysam.AlignmentHeader.from_dict(header)
     with pysam.AlignmentFile(fname, mode, header=header) as fh:
-        for ref_id, subreads in enumerate(alignments):
+        for subreads in alignments:
             for aln in sorted(subreads, key=lambda x: x.rstart):
                 a = medaka.align.initialise_alignment(
-                    aln.qname, ref_id, aln.rstart, aln.seq,
+                    aln.qname, header.get_tid(aln.rname),
+                    aln.rstart, aln.seq,
                     aln.cigar, aln.flag)
                 fh.write(a)
     if mode == 'wb':

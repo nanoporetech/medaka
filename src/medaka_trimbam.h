@@ -63,6 +63,5 @@ void add_read(trimmed_reads reads, char * read, bool is_rev);
 trimmed_reads retrieve_trimmed_reads(
     const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[],
     const char tag_name[2], const int tag_value, const bool keep_missing, 
-    const bool partial, const char *read_group);
-
+    const bool partial, const char *read_group, const int min_mapq);
 #endif

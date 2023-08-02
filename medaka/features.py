@@ -245,7 +245,7 @@ def pileup_counts(
 def get_trimmed_reads(
         region, bam, dtype_prefixes=None, region_split=750, chunk_overlap=150,
         workers=8, tag_name=None, tag_value=None, keep_missing=False,
-        partial=True, num_qstrat=1, read_group=None):
+        partial=True, num_qstrat=1, read_group=None, min_mapq=1):
     """Fetch reads trimmed to a region.
 
     Overlapping chunks of the input region will be produced, with each chunk
@@ -264,6 +264,8 @@ def get_trimmed_reads(
     :param keep_missing: whether to keep reads when tag is missing.
     :param partial: whether to keep reads which don't fully span the region.
     :param num_qstrat: number of layers for qscore stratification.
+    :param read_group: str, bam read group for reads to keep.
+    :param min_mapq: minimum mapping quality for reads to keep.
 
     :returns: iterator of lists of trimmed reads.
     """
@@ -278,7 +280,7 @@ def get_trimmed_reads(
         region_str = '{}:{}-{}'.format(reg.ref_name, reg.start + 1, reg.end)
         stuff = lib.PY_retrieve_trimmed_reads(
             region_str.encode(), bam.encode(), num_dtypes, dtypes,
-            tag_name, tag_value, keep_missing, partial, read_group,
+            tag_name, tag_value, keep_missing, partial, read_group, min_mapq,
         )
         # last string is reference
         seqs = [(False, ffi.string(stuff.seqs[stuff.n_seqs - 1]).decode())]

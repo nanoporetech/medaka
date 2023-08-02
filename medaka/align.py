@@ -84,10 +84,16 @@ def parasail_to_sam(result, seq):
         rstart = int(first[0])
     else:
         pre = '{}{}'.format(clip, prefix)
-
-    mid = cigstr[len(prefix):]
-    end_clip = len(seq) - result.end_query - 1
+    # if last cigar op is I, result.end_query will not consider the insertion
+    # as aligned hence recalculate end_query here.
+    end_query = result.end_query + 1  # end_query is inclusive
+    last = next(cigar_ops_from_end(cigstr))
+    if last[1] == 'I':
+        end_query -= int(last[0])
+        cigstr = cigstr[:-len(''.join(last))]
+    end_clip = len(seq) - end_query
     suf = '{}S'.format(end_clip) if end_clip > 0 else ''
+    mid = cigstr[len(prefix):]
     new_cigstr = ''.join((pre, mid, suf))
     return rstart, new_cigstr
 

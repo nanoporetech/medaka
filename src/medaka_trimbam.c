@@ -148,9 +148,12 @@ char * trim_read(bam1_t *record, int rstart, int rend, bool partial, int *qstart
 
     bool found_start = false;
     bool found_end = false;
+    int cigar_len = 0;
+    int cigar_op = 0;
+
     for (int ci = 0; ci < c->n_cigar; ++ci) {
-        int cigar_len = cigar[ci] >> 4;
-        int cigar_op = cigar[ci] & 0xf;
+        cigar_len = cigar[ci] >> 4;
+        cigar_op = cigar[ci] & 0xf;
 
         // Set the amount that the ref/read positions should be incremented
         // based on the cigar operation
@@ -211,10 +214,14 @@ char * trim_read(bam1_t *record, int rstart, int rend, bool partial, int *qstart
             ref_pos += ref_inc;
         }
     }
-    // TODO: should this be corrected for soft-clipping?
     if (*qend == -1 && partial) {
         *qend = read_pos;
+        // correct for soft-clipping
+        if (cigar_op == BAM_CSOFT_CLIP) {
+            *qend -= cigar_len;
+        }
     }
+
 
     // correct
     size_t st = record->core.pos > rstart ? 0 : rstart - record->core.pos;
@@ -255,7 +262,7 @@ char * trim_read(bam1_t *record, int rstart, int rend, bool partial, int *qstart
 trimmed_reads retrieve_trimmed_reads(
     const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[],
     const char tag_name[2], const int tag_value, const bool keep_missing, 
-    const bool partial, const char *read_group){
+    const bool partial, const char *read_group, const int min_mapq){
 
     if (num_dtypes == 1 && dtypes != NULL) {
         fprintf(stderr, "Recieved invalid num_dtypes and dtypes args.\n");
@@ -293,7 +300,7 @@ trimmed_reads retrieve_trimmed_reads(
     // setup bam interator
     mplp_data *data = xalloc(1, sizeof(mplp_data), "pileup init data");
     data->fp = fp; data->hdr = hdr; data->iter = bam_itr_querys(idx, hdr, region);
-    data->min_mapQ = 1; memcpy(data->tag_name, tag_name, 2); data->tag_value = tag_value;
+    data->min_mapQ = min_mapq; memcpy(data->tag_name, tag_name, 2); data->tag_value = tag_value;
     data->keep_missing = keep_missing; data->read_group = read_group;
 
     // get trimmed reads
@@ -366,10 +373,11 @@ int _main(int argc, char *argv[]) {
     bool keep_missing = false;
     bool partial = true;
     const char* read_group = NULL;
+    const int min_mapq = 1;
 
     trimmed_reads reads = retrieve_trimmed_reads(
         reg, bam_file, num_dtypes, dtypes,
-        tag_name, tag_value, keep_missing, partial, read_group);
+        tag_name, tag_value, keep_missing, partial, read_group, min_mapq);
     for (size_t i=0; i<reads->sequences.n; ++i){
         fprintf(stderr, "%i  %s\n", reads->is_reverse.a[i], reads->sequences.a[i]);
     }
