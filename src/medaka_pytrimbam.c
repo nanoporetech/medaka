@@ -11,11 +11,11 @@
 seq_set PY_retrieve_trimmed_reads(
     const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[],
     const char tag_name[2], const int tag_value, const bool keep_missing, 
-    const bool partial, const char *read_group) {
+    const bool partial, const char *read_group, const int min_mapq) {
 
     trimmed_reads t_reads = retrieve_trimmed_reads(
         region, bam_file, num_dtypes, dtypes,
-        tag_name, tag_value, keep_missing, partial, read_group);
+        tag_name, tag_value, keep_missing, partial, read_group, min_mapq);
  
     seq_set reads = xalloc(1, sizeof(*reads), "seq_set");
     reads->n_seqs = t_reads->sequences.n;

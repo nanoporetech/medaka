@@ -407,6 +407,10 @@ class DataIndex(object):
         self._index = None
         self._extract_sample_registries()
         self.metadata = self._load_metadata()
+        # in cases where where we have a single file containing samples over
+        # many contigs we might as well open the file once rather than once
+        # per contig.
+        self._ds = DataStore(filenames[0])
 
     def _extract_sample_registries(self):
         """."""
@@ -503,7 +507,7 @@ class DataIndex(object):
 
         return ref_names_ordered
 
-    def yield_from_feature_files(self, regions=None, samples=None, workers=8):
+    def yield_from_feature_files(self, regions=None, samples=None):
         """Yield `medaka.common.Sample` objects from one or more feature files.
 
         :regions: list of `medaka.common.Region` s for which to yield samples.
@@ -533,9 +537,7 @@ class DataIndex(object):
                         samples.append(
                             (sample['sample_key'], sample['filename']))
         # yield samples reusing filehandle where possible
-        ds, ds_fname = None, None
         for key, fname in samples:
-            if fname != ds_fname:
-                ds = DataStore(fname)
-                ds_fname = fname
-            yield ds.load_sample(key)
+            if fname != self._ds.filename:
+                self._ds = DataStore(fname)
+            yield self._ds.load_sample(key)

@@ -278,18 +278,29 @@ def samples_to_bed(args):
 AlignPos = collections.namedtuple('AlignPos',  ('rpos', 'rbase', 'qbase'))
 
 
-def yield_variants_from_aln(aln, ref_seq):
+def yield_variants_from_aln(aln, ref_seq, region=None):
     """Yield variants in an alignment.
 
     :param aln: `pysam.AlignedSegment` obj.
     :param ref_seq: str, refernece sequence.
+    :param region: `medaka.common.Region` to limit decoding of variants to.
     :yields: `medaka.vcf.Variant` objs.
     """
-    if aln.is_unmapped or aln.is_secondary or dict(aln.tags)['NM'] == 0:
+    tags = dict(aln.tags)
+    no_variants = 'NM' in tags and tags['NM'] == 0
+    if aln.is_unmapped or aln.is_secondary or no_variants:
         return ()
     last_match = None
     seq = aln.query_sequence
+
     rstart, rend = aln.reference_start, aln.reference_end
+    if region is not None:
+        if region.ref_name != aln.reference_name:
+            raise ValueError(
+                f'region ref name {region.ref_name} does not '
+                f'match aln ref name {aln.reference_name}'
+            )
+        rstart, rend = max(rstart, region.start), min(rend, region.end)
     qstart, qend = aln.query_alignment_start, aln.query_alignment_end
     gt = {'GT': '1'}
     chrm = aln.reference_name

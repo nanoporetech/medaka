@@ -121,6 +121,25 @@ def predict(args):
     logger.info('Processing region(s): {}'.format(
         ' '.join(str(r) for r in bam_regions)))
 
+    # split out regions which are smaller than the chunk
+    # size for processing later.
+    regions, remainder_regions = [], []
+    for region in bam_regions:
+        if region.size < args.chunk_len:
+            remainder_regions.append(region)
+        else:
+            # Split overly long regions to maximum size so as to not create
+            #   massive feature matrices
+            if region.size > args.bam_chunk:
+                # chunk_ovlp is mostly used in overlapping pileups (which
+                # generally end up being expanded compared to the draft
+                # coordinate system)
+                regions.extend(region.split(
+                    args.bam_chunk, overlap=args.chunk_ovlp,
+                    fixed_size=False))
+            else:
+                regions.append(region)
+
     logger.info("Using model: {}.".format(args.model))
     with medaka.models.open_model(args.model) as model_store:
         feature_encoder = model_store.get_meta('feature_encoder')
@@ -140,34 +159,24 @@ def predict(args):
                 "`--disable_cudnn. If OOM (out of memory) errors are found "
                 "please reduce batch size.")
 
-        # Split overly long regions to maximum size so as to not create
-        #   massive feature matrices
-        regions = []
-        for region in bam_regions:
-            if region.size > args.bam_chunk:
-                # chunk_ovlp is mostly used in overlapping pileups (which
-                # generally end up being expanded compared to the draft
-                # coordinate system)
-                regs = region.split(
-                    args.bam_chunk, overlap=args.chunk_ovlp,
-                    fixed_size=False)
-            else:
-                regs = [region]
-            regions.extend(regs)
-
-        logger.info("Processing {} long region(s) with batching.".format(
-            len(regions)))
-        model = model_store.load_model(time_steps=args.chunk_len)
-
         bam_pool = medaka.features.BAMHandler(args.bam)
 
-        # the returned regions are those where the pileup width is smaller than
-        # chunk_len
-        remainder_regions = run_prediction(
-            args.output, bam_pool, regions, model, feature_encoder,
-            args.chunk_len, args.chunk_ovlp,
-            batch_size=args.batch_size, save_features=args.save_features,
-            bam_workers=args.bam_workers)
+        if len(regions) > 0:
+
+            logger.info("Processing {} long region(s) with batching.".format(
+                len(regions)))
+            model = model_store.load_model(time_steps=args.chunk_len)
+
+            # the returned regions are those where the pileup width is smaller
+            # than chunk_len (which could happen due to gaps in coverage)
+            remainder_regions_depth = run_prediction(
+                args.output, bam_pool, regions, model, feature_encoder,
+                args.chunk_len, args.chunk_ovlp,
+                batch_size=args.batch_size, save_features=args.save_features,
+                bam_workers=args.bam_workers)
+
+            # run_prediction returns [(region, pileup width)]
+            remainder_regions.extend([r[0] for r in remainder_regions_depth])
 
         # short/remainder regions: just do things without chunking. We can do
         # this here because we now have the size of all pileups (and know they
@@ -183,9 +192,8 @@ def predict(args):
             # creating a thread that does not die for every retrace
             model = model_store.load_model(time_steps=None)
             model.run_eagerly = True
-            remainers = [r[0] for r in remainder_regions]
             new_remainders = run_prediction(
-                args.output, bam_pool, remainers, model,
+                args.output, bam_pool, remainder_regions, model,
                 feature_encoder,
                 args.chunk_len, args.chunk_ovlp,  # these won't be used
                 batch_size=1,  # everything is a different size, cant batch

@@ -20,7 +20,7 @@ typedef _seq_set *seq_set;
 seq_set PY_retrieve_trimmed_reads(
     const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[],
     const char tag_name[2], const int tag_value, const bool keep_missing, 
-    const bool partial, const char *read_group);
+    const bool partial, const char *read_group, const int min_mapq);
 
 
 /** Cleans up the result of PY_retrieve_trimmed_reads
