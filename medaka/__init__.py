@@ -20,6 +20,12 @@ except ImportError:
     sys.stderr.write(
         "Cannot import spoa, some features may not be available.\n")
     spoa = None
+try:
+    import pyabpoa as abpoa
+except ImportError:
+    sys.stderr.write(
+        "Cannot import pyabpoa, some features may not be available.\n")
+    abpoa = None
 
 
 def check_minimap2_version():
