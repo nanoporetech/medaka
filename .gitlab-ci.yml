@@ -114,21 +114,11 @@ build:sdist:
     artifacts:
         paths:
             - wheelhouse-final/*.whl
-    only:
-        - tags
+    #only:
+        #- tags
 
 
-make-wheels-2010:
-    extends: .many-linux
-    image: "quay.io/pypa/manylinux2010_x86_64"
-    parallel:
-        matrix:
-            - PYWHEEL: [7, 8]
-              COMPUTE: ["gpu", "cpu"]
-              FLAVOUR: ["2010"]
-
-
-make-wheels-2014:
+wheels-2014:
     extends: .many-linux
     image: "quay.io/pypa/manylinux2014_x86_64"
     parallel:
@@ -138,7 +128,7 @@ make-wheels-2014:
               FLAVOUR: ["2014"]
 
 
-make-wheels-2_28:
+wheels-2_28:
     extends: .many-linux
     image: "quay.io/pypa/manylinux_2_28_x86_64"
     parallel:
@@ -148,12 +138,10 @@ make-wheels-2_28:
               FLAVOUR: ["2_24"]
 
 
-make-wheels-arm:
+wheels-arm-2014:
     extends: .many-linux
     tags:
         - arm64
-    variables:
-        DO_COUNT_TEST: 0
     image: quay.io/pypa/manylinux2014_aarch64
     before_script:
         # ARM CI image doesn't have git lfs, so need to jump some hoops
@@ -166,7 +154,7 @@ make-wheels-arm:
         - GIT_SSL_NO_VERIFY=1 git lfs pull
     parallel:
         matrix:
-            - PYWHEEL: [7, 8, 9, 10]
+            - PYWHEEL: [8, 9, 10]
               COMPUTE: ["gpu"]
               FLAVOUR: ["2014"]
 

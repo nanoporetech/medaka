@@ -37,21 +37,10 @@ Installation
 
 Medaka can be installed in one of several ways.
 
-**Installation with conda**
-
-Perhaps the simplest way to start using medaka is
-through conda; medaka is available via the
-[bioconda](https://anaconda.org/bioconda/medaka) channel:
-
-    conda create -n medaka -c conda-forge -c bioconda medaka
-
-Occasionally the conda releases lag behind the source code and
-[PyPI](https://pypi.org/project/medaka/) releases.
-
 **Installation with pip**
 
-For those who prefer Python's native pacakage manager, medaka is also available
-on pypi and can be installed using pip:
+Official binary releases of medaka are available on
+[PyPI](https://pypi.org/project/medaka/) and can be installed using pip:
 
     pip install medaka
 
@@ -74,7 +63,20 @@ Using this method requires the user to provide several binaries:
 
 and place these within the `PATH`. `samtools/bgzip/tabix` version 1.14 and
 `minimap2` version 2.17 are recommended as these are those used in development
-of medaka.
+of medaka. (Newer versions are almost certainly fine).
+
+**Installation with conda**
+
+> The bioconda medaka packages are no longer supported by Oxford Nanopore Technologies.
+
+For those who prefer the conda package manager, medaka is available via the
+[bioconda](https://anaconda.org/bioconda/medaka) channel:
+
+    conda create -n medaka -c conda-forge -c bioconda medaka
+
+The bioconda releases lag behind the source code and [PyPI](https://pypi.org/project/medaka/)
+releases.
+
 
 **Installation from source**
 
