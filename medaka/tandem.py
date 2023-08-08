@@ -712,6 +712,13 @@ def main(args):
     logger = medaka.common.get_named_logger("TR")
     out_dir = args.output  # args.output will be later changed
     logger.info(f"Running medaka tr with options: {' '.join(sys.argv)}")
+    if args.phasing in {'abpoa', 'hybrid'} and abpoa is None:
+        # need to install pyabpoa which is not a formal requirement due to
+        # https://github.com/yangao07/abPOA/issues/41#issuecomment-1400837516
+        raise RuntimeError(
+            'abpoa is not installed. Please install by running:\n'
+            'pip install cython && pip install pyabpoa')
+
     medaka.common.mkdir_p(out_dir, info='Results will be overwritten.')
 
     ref_fasta = pysam.FastaFile(args.ref_fasta)
