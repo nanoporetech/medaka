@@ -470,7 +470,7 @@ def medaka_parser():
     # Targeted Tandem Repeat calling
     # TODO reorganise arguments common to predict, smolecule and tr into groups
     # that can be more easily shared
-    trparser = subparsers.add_parser('tr',
+    trparser = subparsers.add_parser('tandem',
         help='Targeted tandem repeat variant calling.',
         parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500), _model_arg(), _min_depth_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
