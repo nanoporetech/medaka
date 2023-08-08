@@ -1,91 +1,102 @@
+"""Variant calling in tandem repeats."""
 import collections
 import concurrent.futures
+from copy import copy, deepcopy
 import dataclasses
 import functools
-import itertools
 import os
 import re
 import sys
-
-from copy import copy, deepcopy
 from timeit import default_timer as now
+
 
 import edlib
 import numpy as np
 import pysam
 
+from medaka import abpoa, parasail
 import medaka.align
 import medaka.common
 import medaka.features
-import medaka.vcf
-import medaka.smolecule
 import medaka.rle
-
-from medaka import abpoa, parasail
+import medaka.smolecule
+import medaka.vcf
 
 
 class InsufficientCoverage(Exception):
+    """Exception for tracking cases of insufficient read coverage."""
+
     pass
 
-@dataclasses.dataclass
-class RecordName:
-    """Simple class for encoding/decoding sequence metadata to/from strings.
-    """
-    query_name: str
-    ref_name: str
-    ref_start: int
-    ref_end: int
-    hap: int
-    strand: str = 'fwd'
-    pad_start: int = 0
-    pad_end: int = 0
+
+class RecordName(object):
+    """Simple class for encoding/decoding sequence metadata to/from strings."""
+
+    def __init__(
+        self, query_name, ref_name, ref_start, ref_end, hap=0,
+        strand='fwd', ref_start_padded=None, ref_end_padded=None,
+    ):
+        """Initialize repeat read analysis.
+
+        :param query_name: str
+        :param ref_name: str
+        :param ref_start: int
+        :param ref_end: int
+        :param hap: int
+        :param strand: str, {fwd, rev}
+        :param ref_start_pad: padded reference start, int
+        :param ref_end_pad: padded reference end, int.
+        """
+        self.query_name = query_name
+        self.ref_name = ref_name
+        self.ref_start = ref_start
+        self.ref_end = ref_end
+        self.hap = hap
+        self.strand = strand
+        self.ref_start_padded = (
+            ref_start if ref_start_padded is None else ref_start_padded)
+        self.ref_end_padded = (
+            ref_end if ref_end_padded is None else ref_end_padded)
 
     def __str__(self):
-        return (f"{self.query_name}_{self.ref_name}_{self.ref_start}_"
-                f"{self.ref_end}_pad_{self.pad_start}_{self.pad_end}_"
-                f"{self.strand}_hap{self.hap}")
+        """Encode as a string."""
+        return (
+            f"{self.query_name}_{self.ref_name}_{self.ref_start}_"
+            f"{self.ref_end}_pad_{self.ref_start_padded}_"
+            f"{self.ref_end_padded}_{self.strand}_hap{self.hap}"
+        )
 
     @classmethod
     def from_str(cls, name):
-        pattern = r"(?P<query_name>.+)_(?P<ref_name>.+)_(?P<ref_start>\d+)_(?P<ref_end>\d+)_pad_(?P<pad_start>\d+)_(?P<pad_end>\d+)_(?P<strand>fwd|rev)_hap(?P<hap>\d+)"
+        """Decode from string."""
+        pattern = (
+            r"(?P<query_name>.+)_(?P<ref_name>.+)_(?P<ref_start>\d+)_"
+            r"(?P<ref_end>\d+)_pad_(?P<ref_start_padded>\d+)_"
+            r"(?P<ref_end_padded>\d+)_(?P<strand>fwd|rev)_hap(?P<hap>\d+)"
+        )
         m = re.match(pattern, name)
         if m is None:
             raise ValueError(f"Could not parse {name} using {pattern}")
         d = m.groupdict()
-        for field in 'ref_start', 'ref_end', 'hap', 'pad_start', 'pad_end':
+        for field in (
+            'ref_start', 'ref_end', 'hap', 'ref_start_padded', 'ref_end_padded'
+        ):
             d[field] = int(d[field])
         return cls(**d)
 
     def sorter(self):
+        """Get sorting keys."""
         return self.ref_name, self.ref_start
 
-    def pad(self, pad, contig_length):
-        ref_start_padded = max(self.ref_start - pad, 0)
-        ref_end_padded = min(self.ref_end + pad, contig_length)
-        self.pad_start = self.ref_start - ref_start_padded
-        self.pad_end = ref_end_padded - self.ref_end
-        self.ref_start = ref_start_padded
-        self.ref_end = ref_end_padded
-
-    def unpad(self):
-        self.ref_start += self.pad_start
-        self.ref_end -= self.pad_end
-        self.pad_start = 0
-        self.pad_end = 0
-
     def to_padded_region(self):
-        return medaka.common.Region(self.ref_name,
-                                   self.ref_start,
-                                   self.ref_end)
+        """Convert to padded `medaka.common.Region`."""
+        return medaka.common.Region(
+            self.ref_name, self.ref_start_padded, self.ref_end_padded)
 
     def to_unpadded_region(self):
-        return medaka.common.Region(self.ref_name,
-                                   self.ref_start + self.pad_start,
-                                   self.ref_end - self.pad_end)
-
-def rle_seq(seq):
-    return ''.join(medaka.common.rle(seq)['value'])
-
+        """Convert to unpadded `medaka.common.Region`."""
+        return medaka.common.Region(
+            self.ref_name, self.ref_start, self.ref_end)
 
 #########################
 # read-fetching functions
@@ -123,19 +134,16 @@ def get_trimmed_reads(bam, region, partial, read_filters):
 
 
 def get_subreads(bam_fp, rec, hap_tag_vals=(0, 1, 2), min_mapq=5):
-    """
+    """Get reads separated by haplotype.
+
     :param bam_fp: str, path to bam file.
     :param rec: RecordName, record
     :param hap_tag_vals: HP tags to fetch reads.
 
+    :returns: list of `medaka.smolecule.Subread` instances.
     """
-
-    name = str(rec)
     reg_padded = rec.to_padded_region()
-
     read_filters = dict(min_mapq=5)
-    partial = False
-
     subreads = []
 
     # TODO rewrite C-code to fetch reads with multiple tags and return tag vals
@@ -143,33 +151,35 @@ def get_subreads(bam_fp, rec, hap_tag_vals=(0, 1, 2), min_mapq=5):
     for h in hap_tag_vals:
         # 0 for untagged - no reads will have this tag so keep missing
         # will retrieve untagged
-        read_filters = dict(tag_name='HP', tag_value=h, keep_missing=h==0,
-                            min_mapq=min_mapq)
+        read_filters = dict(
+            tag_name='HP', tag_value=h, keep_missing=h == 0, min_mapq=min_mapq)
 
-        _, reads = get_trimmed_reads(bam_fp, reg_padded, partial=False,
-                                     read_filters=read_filters)
+        _, reads = get_trimmed_reads(
+            bam_fp, reg_padded, partial=False, read_filters=read_filters)
 
         try:
             is_revs, seqs = zip(*reads)
-        except:
+        except ValueError:
             continue
 
         # orientations from get_trimmed_reads are is_rev,
         # medaka.smolecule.Read expects them to be is_fwd
         is_fwds = [not is_rev for is_rev in is_revs]
 
-        rn_kwargs = {k: v for k,v in rec.__dict__.items()
-                     if k not in {'query_name', 'strand', 'hap'}}
+        rn_kwargs = {
+            k: v for k, v in rec.__dict__.items()
+            if k not in {'query_name', 'strand', 'hap'}
+        }
 
         subreads.extend([
             medaka.smolecule.Subread(
-                    str(RecordName(query_name=f"read_{i:03d}",
-                                   strand='fwd' if is_fwd else 'rev',
-                                   hap=h, **rn_kwargs)),
-                    seq if is_fwd else medaka.common.reverse_complement(seq))
-                    for i, (seq, is_fwd) in enumerate(zip(seqs, is_fwds), 1)]
+                str(RecordName(
+                    query_name=f"read_{i:03d}",
+                    strand='fwd' if is_fwd else 'rev',
+                    hap=h, **rn_kwargs)),
+                seq if is_fwd else medaka.common.reverse_complement(seq))
+            for i, (seq, is_fwd) in enumerate(zip(seqs, is_fwds), 1)]
         )
-
     return subreads
 
 
@@ -179,8 +189,16 @@ def get_subreads(bam_fp, rec, hap_tag_vals=(0, 1, 2), min_mapq=5):
 
 
 def align_chunk_to_ref(chunk, ref_fasta, aln_header=None):
+    """Align consensus chunk to reference using global alignment.
 
-    logger=medaka.common.get_named_logger("TR_ALIGN")
+    :param chunk: `pysam.FastxRecord` or similar with name and sequence attrs.
+        name should be the string representation of a `RecordName`.
+    :param ref_fasta: `pysam.FastaFile`.
+    :param aln_header: `pysam.AlignmentHeader`.
+
+    :returns: `pysam.AlignedSegment` instance.
+    """
+    logger = medaka.common.get_named_logger("TR_ALIGN")
     if aln_header is None:
         aln_header = pysam.AlignmentHeader.from_references(
             ref_fasta.references, ref_fasta.lengths)
@@ -188,9 +206,8 @@ def align_chunk_to_ref(chunk, ref_fasta, aln_header=None):
     rn = RecordName.from_str(chunk.name)
 
     ref_region = rn.to_padded_region()
-    ref_seq = ref_fasta.fetch(ref_region.ref_name,
-                              ref_region.start,
-                              ref_region.end)
+    ref_seq = ref_fasta.fetch(
+        ref_region.ref_name, ref_region.start, ref_region.end)
     if rn.strand == 'fwd':
         query_seq = chunk.sequence
         flag = 0
@@ -208,8 +225,9 @@ def align_chunk_to_ref(chunk, ref_fasta, aln_header=None):
     # rstart may not be zero if alignent starts with a SNP / indel.
     # TODO - do we want to automatically increase padding and rerun?
     if rstart > 0:
-        logger.warning(
-            f"rstart not 0 when using global alignment for {chunk.name}")
+        logger.warn(
+            f"rstart not 0 when using global alignment for {chunk.name}. "
+            "Consider rerunning this region with more padding.")
 
     aln = medaka.align.initialise_alignment(
         query_name=chunk.name,
@@ -221,17 +239,26 @@ def align_chunk_to_ref(chunk, ref_fasta, aln_header=None):
         header=aln_header,
         tags=dict(HP=rn.hap),
     )
-
     return aln
 
 
-def align_consensus_to_ref(consensus_fx, bam_fp, ref_fasta):
-    aln_header = pysam.AlignmentHeader.from_references(ref_fasta.references,
-                                                       ref_fasta.lengths)
-    alns = [align_chunk_to_ref(polished_chunk, ref_fasta)
-            for polished_chunk in pysam.FastxFile(consensus_fx)]
+def align_consensus_fx_to_ref(consensus_fx, bam_fp, ref_fasta):
+    """Align consensus fastx to ref producing bam.
+
+    :param consensus_fx: filepath to consensus fastx file, str.
+    :param bam_fp: output filepath of bam.
+    :param ref_fasta: `pysam.FastaFile`.
+    """
+    aln_header = pysam.AlignmentHeader.from_references(
+        ref_fasta.references, ref_fasta.lengths)
+    alns = [
+        align_chunk_to_ref(polished_chunk, ref_fasta)
+        for polished_chunk in pysam.FastxFile(consensus_fx)
+    ]
     with pysam.AlignmentFile(bam_fp, 'wb', header=aln_header) as bam_fh:
-        for aln in sorted(alns, key=lambda x: x.reference_start):
+        for aln in sorted(
+            alns, key=lambda x: (x.reference_id, x.reference_start)
+        ):
             bam_fh.write(aln)
     pysam.index(bam_fp)
 
@@ -242,39 +269,36 @@ def align_consensus_to_ref(consensus_fx, bam_fp, ref_fasta):
 
 
 def abpoa_consensus(aligner, subreads, max_n_cons=2):
-
+    """Run abpoa consensus."""
     records = [RecordName.from_str(s.name) for s in subreads]
     seqs = [
         s.seq if r.strand == 'fwd' else medaka.common.reverse_complement(s.seq)
         for s, r in zip(subreads, records)]
 
-    result = aligner.msa(seqs, out_cons=True, out_msa=False,
-                         max_n_cons=max_n_cons, min_freq=0.3)
+    result = aligner.msa(
+        seqs, out_cons=True, out_msa=False, max_n_cons=max_n_cons,
+        min_freq=0.3)
     return result
 
 
-def get_abpoa_clusters(bam_fp, record, min_depth, min_mapq,
-                       put_bam_hp_in_name=True):
-    subreads = get_subreads(bam_fp, record, min_mapq=min_mapq)
-    if len(subreads) < min_depth:
-        raise InsufficientCoverage(f"{record}: Retrieved too few reads"
-                                   f"({len(subreads)} < {min_depth})")
-
+def get_abpoa_clusters(subreads, record, put_bam_hp_in_name=True):
+    """Cluster / phase reads using abpoa, checking for order dependence."""
+    def rle_seq(seq):
+        return ''.join(medaka.common.rle(seq)['value'])
     # run-length compress sequences
     subreads_rle = []
     for s in subreads:
         rn = RecordName.from_str(s.name)
-        #rn.query_name += '_rle'
         subreads_rle.append(medaka.smolecule.Subread(str(rn), rle_seq(s.seq)))
     # sort reads by length, see https://github.com/yangao07/abPOA/issues/48
-    subreads_rle_asc = sorted(subreads_rle, key=lambda s:len(s.seq))
-    subreads_rle_dsc = sorted(subreads_rle, key=lambda s:-len(s.seq))
+    subreads_rle_asc = sorted(subreads_rle, key=lambda s: len(s.seq))
+    subreads_rle_dsc = sorted(subreads_rle, key=lambda s: -len(s.seq))
     aligner = abpoa.msa_aligner(aln_mode='g')
     result_rle_asc = abpoa_consensus(aligner, subreads_rle_asc, max_n_cons=2)
     result_rle_dsc = abpoa_consensus(aligner, subreads_rle_dsc, max_n_cons=2)
 
-    d = check_cluster_read_partitioning(result_rle_asc, result_rle_dsc,
-                                        subreads_rle_asc, subreads_rle_dsc)
+    d = check_cluster_read_partitioning(
+        result_rle_asc, result_rle_dsc, subreads_rle_asc, subreads_rle_dsc)
 
     subreads = {s.name: s for s in subreads}  # orig non-rle compressed reads
     clustered_subreads = {}
@@ -297,10 +321,16 @@ def get_abpoa_clusters(bam_fp, record, min_depth, min_mapq,
     return d, clustered_subreads
 
 
-def process_record_abpoa(bam_fp, rec, ref_fasta, min_depth):
-    d, clustered_reads = get_abpoa_clusters(bam_fp, rec, min_depth)
+def process_record_abpoa(bam_fp, rec, ref_fasta, min_depth, min_mapq):
+    """Process a record using abpoa for phasing."""
+    subreads = get_subreads(bam_fp, rec, min_mapq=min_mapq)
+    if len(subreads) < min_depth:
+        raise InsufficientCoverage(
+            f"{rec}: Retrieved too few reads ({len(subreads)} < {min_depth})")
+
+    d, clustered_reads = get_abpoa_clusters(subreads, rec)
     cons = []
-    for h in [1] if d['is_homozygous'] else [1,2]:
+    for h in [1] if d['is_homozygous'] else [1, 2]:
         cons_rec = copy(rec)
         cons_rec.hap = h
         cons_rec.query_name += '_HOM' if d['is_homozygous'] else '_HET'
@@ -315,6 +345,7 @@ def process_record_abpoa(bam_fp, rec, ref_fasta, min_depth):
 
 
 def process_record_prephased(bam_fp, rec, ref_fasta, min_depth, min_mapq):
+    """Process a record using prephased reads (using HP tags in bam)."""
     subreads = get_subreads(bam_fp, rec, min_mapq=min_mapq)
     if len(subreads) < 2 * min_depth:  # min_depth per haplotype
         raise InsufficientCoverage(
@@ -325,7 +356,7 @@ def process_record_prephased(bam_fp, rec, ref_fasta, min_depth, min_mapq):
         rn = RecordName.from_str(s.name)
         subreads_by_hap[rn.hap].append(s)
     cons = []
-    for h in [1,2]:
+    for h in [1, 2]:
         cons_rec = copy(rec)
         cons_rec.hap = h
         cons.append(
@@ -335,20 +366,41 @@ def process_record_prephased(bam_fp, rec, ref_fasta, min_depth, min_mapq):
                                         min_depth=min_depth))
     d = dict()
     for h in range(3):
-        d.update(summarize_reads([s.name for s in subreads_by_hap[h]],
-                                 prefix=f'hap{h}_', bhp_counts=False))
+        d.update(summarize_reads(
+            [s.name for s in subreads_by_hap[h]],
+            prefix=f'hap{h}_', bhp_counts=False))
     d['phasing_method'] = 'prephased'
     return d, cons, subreads_by_hap[0]
 
 
+def process_record_haploid(bam_fp, rec, ref_fasta, min_depth, min_mapq):
+    """Process haploid regions e.g. sex chromosomes."""
+    subreads = get_subreads(bam_fp, rec, min_mapq=min_mapq)
+    if len(subreads) < min_depth:
+        raise InsufficientCoverage(
+            f"{rec}: Retrieved too few reads ({len(subreads)} < {min_depth})")
+    cons_rec = copy(rec)
+    h = 1
+    cons_rec.hap = h
+    cons_rec.query_name += '_HOM'
+    c = consensus_pileup_from_reads(
+        cons_rec, subreads, ref_fasta, min_depth=min_depth)
+    d = summarize_reads(
+        [s.name for s in subreads], prefix='', bhp_counts=False)
+    d['phasing_method'] = 'haploid'
+    ambig_reads = []
+    return d, [c], ambig_reads
+
+
 def process_record_hybrid(*args):
+    """Try to using existing phasing, fall back to abpoa."""
     try:
         m, haps, ambig_reads = process_record_prephased(*args)
         for hap in haps:  # hap is ConsensusResult
             if isinstance(hap.exception, InsufficientCoverage):
                 # insufficient depth on a single haplotype
                 return process_record_abpoa(*args)
-    except InsufficientCoverage as e:
+    except InsufficientCoverage:
         # less than 2 * min_depth in total
         # still try to phase with abpoa as if abpoa decides region is haploid,
         # can get away with min_depth not 2 * min_depth
@@ -358,11 +410,8 @@ def process_record_hybrid(*args):
     return m, haps, ambig_reads
 
 
-def edit_dist(seq1, seq2):
-    return edlib.align(seq1, seq2, mode='NW')['editDistance']
-
-
 def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
+    """Assess dependence of read ordering on phasing and generate metrics."""
     # TODO check if clu_read_ids of each cluster are superset of subreads
     # have seen abpoa error messages suggesting some reads are not assigned a
     # cluster - these should be included in counts of ambigous reads but are
@@ -372,12 +421,18 @@ def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
     assert set(s.name for s in subreads_a) == set(s.name for s in subreads_b)
     assert all([r.n_cons <= 2 for r in (res_a, res_b)])
     # check consensus seq edit distances to see if cluster ordering has flipped
-    cluster_edits = np.zeros(shape=(2,2), dtype=int)
+    cluster_edits = np.zeros(shape=(2, 2), dtype=int)
     cluster_ovlps = [[set(), set()], [set(), set()]]
-    for a, (a_inds, a_cons) in enumerate(zip(res_a.clu_read_ids,
-                                             res_a.cons_seq)):
-        for b, (b_inds, b_cons) in enumerate(zip(res_b.clu_read_ids,
-                                                 res_b.cons_seq)):
+
+    def edit_dist(seq1, seq2):
+        return edlib.align(seq1, seq2, mode='NW')['editDistance']
+
+    for a, (a_inds, a_cons) in enumerate(
+        zip(res_a.clu_read_ids, res_a.cons_seq)
+    ):
+        for b, (b_inds, b_cons) in enumerate(
+            zip(res_b.clu_read_ids, res_b.cons_seq)
+        ):
             a_reads = [subreads_a[i].name for i in a_inds]
             b_reads = [subreads_b[i].name for i in b_inds]
             cluster_ovlps[a][b].update(set(a_reads).intersection(b_reads))
@@ -411,20 +466,21 @@ def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
     # if we have two clusters, but all reads in second cluster are ambigous and
     # hence removed  such that second cluster has no reads, make this haploid
     empty_second_cluster = False
-    if max(res_a.n_cons, res_b.n_cons) > 1 and min(
-        len(cluster1_reads), len(cluster2_reads)) == 0:
+    if (
+        max(res_a.n_cons, res_b.n_cons) > 1 and
+        min(len(cluster1_reads), len(cluster2_reads)) == 0
+    ):
         is_homozygous = True
         empty_second_cluster = True
         cluster1_reads = cluster1_reads | cluster2_reads | ambig_reads
         cluster2_reads = set()
         ambig_reads = set()
 
-    flipped_phase_to_match_bhp = False
     n_same_tags, n_switched = None, None
     if not is_homozygous:
         # if we have SNP-based bam HP phasing, use to phase clusters.
-        cluster_bhp_ovlps = np.zeros(shape=(2,2), dtype=int)
-        subreads_by_bhp = {1: set(), 2:set()}
+        cluster_bhp_ovlps = np.zeros(shape=(2, 2), dtype=int)
+        subreads_by_bhp = {1: set(), 2: set()}
         for name in (cluster1_reads | cluster2_reads):
             rn = RecordName.from_str(name)
             if rn.hap in subreads_by_bhp:  # don't want to keep hap0
@@ -440,7 +496,6 @@ def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
         if n_switched > n_same_tags:  # switch cluster1/2 to match HP tags
             cluster1_reads, cluster2_reads = cluster2_reads, cluster1_reads
             n_same_tags, n_switched = n_switched, n_same_tags
-            flipped_phase_to_match_bhp = True
 
     return dict(
         hap1_reads=cluster1_reads,
@@ -448,13 +503,10 @@ def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
         hap0_reads=ambig_reads,
         is_homozygous=is_homozygous,
         empty_second_cluster=empty_second_cluster,
-        #is_flipped=consensus_is_flipped,
-        #edits_arr=cluster_edits.tolist(),
         fraction_ambig_reads=round(fraction_ambig, 3),
         # smaller edits_ratio implies consensus seqs robust to read ordering
         edits_ratio=round(edits_ratio, 3),
         diag_edits=diag_edits,
-        #flipped_phase_to_match_bhp=flipped_phase_to_match_bhp,
         nreads_cluster_phasing_matches_bhp=n_same_tags,
         nreads_cluster_phasing_switched_wrt_bhp=n_switched,
     )
@@ -467,8 +519,8 @@ def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
 
 @dataclasses.dataclass
 class ConsensusResult:
-    """Simple class for organizing consensus results and alignments
-    """
+    """Simple class for organizing consensus results and alignments."""
+
     rec: RecordName
     subreads: tuple
     consensus_seq: str = None
@@ -478,7 +530,10 @@ class ConsensusResult:
     exception: Exception = None
 
 
-def consensus_pileup_from_reads(rec, subreads, ref_fasta, min_depth=3):
+def consensus_pileup_from_reads(
+    rec, subreads, ref_fasta, min_depth=3, align_to_ref=False
+):
+    """Run consensus and generate read-consensus alignments."""
     if isinstance(rec, str):
         rec = RecordName.from_str(rec)
 
@@ -494,12 +549,11 @@ def consensus_pileup_from_reads(rec, subreads, ref_fasta, min_depth=3):
     if isinstance(ref_fasta, str):
         ref_fasta = pysam.FastaFile(ref_fasta)
 
-    reg_padded = rec.to_padded_region()
+    res.ref_seq = ref_fasta.fetch(
+        rec.ref_name, rec.ref_start_padded, rec.ref_end_padded)
 
-    res.ref_seq = ref_fasta.fetch(reg_padded.ref_name, reg_padded.start,
-                                  reg_padded.end)
-
-    consensus_read = medaka.smolecule.Read(name=str(rec), subreads=res.subreads)
+    consensus_read = medaka.smolecule.Read(
+        name=str(rec), subreads=res.subreads)
     # avoid realignment to discover strandedness
     consensus_read._orient = [
         RecordName.from_str(s.name).strand == 'fwd' for s in res.subreads
@@ -525,19 +579,21 @@ def consensus_pileup_from_reads(rec, subreads, ref_fasta, min_depth=3):
     )
 
     # align sub-reads (i.e. trimmed pileup) to reference (for debug purposes)
-
     res.ref_alignments = []
-    for aln in consensus_read.align_to_template(res.ref_seq,
-                                                reg_padded.ref_name):
-        aln_dict = aln._asdict()
-        # shift rstart to entire chromosome coords
-        aln_dict['rstart'] += reg_padded.start
-        res.ref_alignments.append(medaka.smolecule.Alignment(**aln_dict))
+    if align_to_ref:
+        for aln in consensus_read.align_to_template(
+            res.ref_seq, rec.ref_name,
+        ):
+            aln_dict = aln._asdict()
+            # shift rstart to entire chromosome coords
+            aln_dict['rstart'] += rec.ref_start_padded
+            res.ref_alignments.append(medaka.smolecule.Alignment(**aln_dict))
 
     return res
 
 
 def summarize_reads(names, prefix='', bhp_counts=False):
+    """Generate counts of reads by strand and optionally bam HP tags."""
     records = [RecordName.from_str(n) for n in names]
     counts = collections.Counter()
 
@@ -557,7 +613,7 @@ def summarize_reads(names, prefix='', bhp_counts=False):
 
 
 def bam_to_vcfs(bam_fp, ref_fasta):
-
+    """Decode variants from alignments."""
     if isinstance(ref_fasta, str):
         ref_fasta = pysam.FastaFile(ref_fasta)
 
@@ -580,39 +636,41 @@ def bam_to_vcfs(bam_fp, ref_fasta):
     vcf = f'{prefix}.TR.vcf'
     logger.info(f'Writing variants to {vcf}')
 
-    ref_seqs = {}
+    with medaka.vcf.VCFWriter(vcf, contigs=contigs, meta_info=meta) as vcfout:
+        with pysam.AlignmentFile(bam_fp) as bam:
+            for chrom in medaka.common.loose_version_sort(bam.references):
+                rseq = ref_fasta.fetch(chrom)
+                variants_by_pos = collections.defaultdict(list)
+                for aln in bam.fetch(chrom):
+                    # reference_start is 0 based, reference_end points to one
+                    # past the last aligned residue, i.e. same as bed file
+                    rn = RecordName.from_str(aln.query_name)
+                    # clustered consensus results have _HOM/_HET suffixes and
+                    # put all regions in their own phase blocks
+                    if rn.query_name.endswith('_HOM'):
+                        gts = ['0|1', '1|0']
+                    elif rn.hap == 1:
+                        gts = ['1|0']
+                    elif rn.hap == 2:
+                        gts = ['0|1']
+                    else:
+                        raise ValueError('Could not derive GT from {rec}')
 
-    with medaka.vcf.VCFWriter(vcf, contigs=contigs, meta_info=meta) as vcfout,\
-        pysam.AlignmentFile(bam_fp) as bam:
-        for chrom in medaka.common.loose_version_sort(bam.references):
-            rseq = ref_fasta.fetch(chrom)
-            variants_by_pos = collections.defaultdict(list)
-            for aln in bam.fetch(chrom):
-                # reference_start is 0 based, reference_end points to one past
-                # the last aligned residue, i.e. same as bed file
-                rn = RecordName.from_str(aln.query_name)
-                # clustered consensus results have _HOM/_HET suffixes and
-                # put all regions in their own phase blocks
-                if rn.query_name.endswith('_HOM'):
-                    gts = ['0|1', '1|0']
-                elif rn.hap == 1:
-                    gts = ['1|0']
-                elif rn.hap == 2:
-                    gts = ['0|1']
-                else:
-                    raise ValueError('Could not derive GT from {rec}')
-                reg = rn.to_unpadded_region()
+                    for v in medaka.variant.yield_variants_from_aln(
+                        aln, rseq, rn.to_unpadded_region(),
+                    ):
+                        for gt in gts:
+                            v_gt = deepcopy(v)
+                            v_gt.genotype_data['GT'] = gt
+                            v_gt.info['rec'] = aln.query_name
+                            v_gt.genotype_data['PS'] = rn.ref_start
+                            variants_by_pos[v_gt.pos].append(v_gt)
+                for pos, variants in sorted(variants_by_pos.items()):
+                    for v in sorted(
+                        variants, key=lambda x: x.gt, reverse=True
+                    ):
+                        vcfout.write_variant(v)
 
-                for v in medaka.variant.yield_variants_from_aln(aln, rseq, reg):
-                    for gt in gts:
-                        v_gt = deepcopy(v)
-                        v_gt.genotype_data['GT'] = gt
-                        v_gt.info['rec'] = aln.query_name
-                        v_gt.genotype_data['PS'] = reg.start
-                        variants_by_pos[v_gt.pos].append(v_gt)
-            for pos, variants in sorted(variants_by_pos.items()):
-                for v in sorted(variants, key=lambda x: x.gt, reverse=True):
-                    vcfout.write_variant(v)
 
 phasing_options = {
     'prephased': process_record_prephased,
@@ -621,14 +679,40 @@ phasing_options = {
 }
 
 
+def record_to_process_func(
+    record, phasing_method, sex, par_regions, sex_chroms, logger
+):
+    """Determime which function should be used to process a given region."""
+    region = record.to_unpadded_region()
+    chr_x_name, chr_y_name = sex_chroms
+    if sex == 'female':
+        # exlude Y regions, but otherwise process everything as diploid
+        if record.ref_name == chr_y_name:
+            logger.info(
+                (f'Skipping {record.to_unpadded_region()} on '
+                 f'{chr_y_name} as sample is female.'))
+            return
+        return phasing_options[phasing_method]
+    else:
+        # for male samples, process X and Y as haploid with exception of
+        # diploid PAR X regions.
+        if any((region.overlaps(par_reg) for par_reg in par_regions)):
+            logger.info(f'{region} is PAR, treating as diploid')
+            return phasing_options[phasing_method]
+        elif region.ref_name in sex_chroms:
+            logger.info(f'{region} is sex chrom, treating as haploid')
+            return process_record_haploid
+        else:
+            logger.info(f'{region} is not sex chrom, treating as diploid')
+            return phasing_options[phasing_method]
+
+
 def main(args):
     """Entry point for targeted tandem repeat variant calling."""
     logger = medaka.common.get_named_logger("TR")
     out_dir = args.output  # args.output will be later changed
     logger.info(f"Running medaka tr with options: {' '.join(sys.argv)}")
     medaka.common.mkdir_p(out_dir, info='Results will be overwritten.')
-
-    process_record = phasing_options[args.phasing]
 
     ref_fasta = pysam.FastaFile(args.ref_fasta)
 
@@ -639,13 +723,12 @@ def main(args):
             ref_name=r.ref_name,
             ref_start=r.start,
             ref_end=r.end,
+            ref_start_padded=max(r.start - args.pad, 0),
+            ref_end_padded=min(
+                r.end + args.pad, contig_lengths[r.ref_name]),
             hap=0,
             ) for r in args.regions
         ]
-
-    for r in records:
-        r.pad(args.pad, contig_lengths[r.ref_name])
-
 
     header = {'HD': {'VN': 1.0}, 'SQ': []}
     consensuses = []
@@ -657,17 +740,25 @@ def main(args):
 
     metrics_fhs = {
         k: open(os.path.join(out_dir, f'{k}_region_metrics.txt'), 'w')
-        for k in phasing_options if k != 'hybrid'}
+        for k in ('prephased', 'abpoa', 'haploid')
+    }
 
     with concurrent.futures.ProcessPoolExecutor(
-        max_workers=args.poa_threads) as ex:
-        futures_to_recs = {
-            ex.submit(
-                process_record, args.bam, rec, args.ref_fasta, args.depth,
-                args.min_mapq
-            ): rec
-            for rec in records
-        }
+        max_workers=args.poa_threads
+    ) as ex:
+        futures_to_recs = {}
+        for rec in records:
+            # get appropriate function to process each region based on phasing
+            # method with special handling of sex chromosomes
+            process_func = record_to_process_func(
+                rec, args.phasing, args.sex, args.PAR_regions,
+                args.sex_chroms, logger)
+            if process_func is not None:
+                fut = ex.submit(
+                    process_func, args.bam, rec, args.ref_fasta, args.depth,
+                    args.min_mapq
+                )
+                futures_to_recs[fut] = rec
         t0 = now()
         t1, tlast = t0, t0
         n_done = 1
@@ -676,10 +767,11 @@ def main(args):
             t1 = now()
             if t1 - tlast > 10:
                 tlast = t1
-                logger.info(f"{n_done/len(records):.1%} Done "
-                    f"({n_done}/{len(records)} regions) in {t1-t0:.1f}s")
+                logger.info(
+                    f"{n_done/len(records):.1%} Done "
+                    f"({n_done}/{len(records)} regions) in {t1-t0:.1f}s"
+                )
             rec = futures_to_recs[fut]
-            reg = rec.to_unpadded_region()
             e = fut.exception()
             if e is None:
                 metrics = rec.to_unpadded_region()._asdict()
@@ -719,42 +811,42 @@ def main(args):
                     f'Encountered exception whilst processing {rec}: {e}')
                 records_skipped.append(rec)
 
-        logger.info(f"Created {len(consensuses)} consensus with "
-                    f"{len(all_consensus_alignments)} alignments.")
+        logger.info(
+            f"Created {len(consensuses)} consensus with "
+            f"{len(all_consensus_alignments)} alignments."
+        )
     for fh in metrics_fhs.values():
         fh.close()
-
 
     # write bed file of regions skipped due to low depth
     skipped_bed_fp = os.path.join(out_dir, 'skipped.bed')
     with open(skipped_bed_fp, 'w') as fh:
         for r in records_skipped:
-            r.unpad()
             fh.write(f"{r.ref_name}\t{r.ref_start}\t{r.ref_end}\t{r}\n")
 
     # write bam of trimmed reads aligned to spoa consensus
     consensus_bam_file = os.path.join(out_dir, 'trimmed_reads_to_poa.bam')
 
-    logger.info("Writing trimmed reads to spoa draft medaka input bam for "
-                f"{len(all_consensus_alignments)} to {consensus_bam_file}.")
+    logger.info(
+        "Writing trimmed reads to spoa draft medaka input bam for "
+        f"{len(all_consensus_alignments)} to {consensus_bam_file}."
+    )
 
     medaka.smolecule.write_bam(
         consensus_bam_file, all_consensus_alignments, header)
 
     # write bam of trimmed reads aligned to reference
-    ref_bam_file = os.path.join(out_dir, 'trimmed_reads_to_ref.bam')
-    logger.info(f"Writing alignments of trimmed reads to ref: {ref_bam_file}.")
-
-    if isinstance(ref_fasta, str):
-        ref_fasta = pysam.FastaFile(ref_fasta)
-
-    medaka.smolecule.write_bam(
-        ref_bam_file,
-        [sorted(itertools.chain.from_iterable(all_ref_alignments),
-                key=lambda x: x.rstart)],
-        pysam.AlignmentHeader.from_references(ref_fasta.references,
-                                              ref_fasta.lengths),
-    )
+    # ref_bam_file = os.path.join(out_dir, 'trimmed_reads_to_ref.bam')
+    # if isinstance(ref_fasta, str):
+    #     ref_fasta = pysam.FastaFile(ref_fasta)
+    #
+    # ref_header = pysam.AlignmentHeader.from_references(
+    #     ref_fasta.references, ref_fasta.lengths)
+    #
+    # sorted_alns = sorted(
+    #     itertools.chain.from_iterable(all_ref_alignments),
+    #     key=lambda x: (ref_header.get_tid(x.rname), x.rstart, x.qname))
+    # medaka.smolecule.write_bam(ref_bam_file, [sorted_alns], ref_header)
 
     spoa_file = os.path.join(out_dir, 'poa.fasta')
     logger.info(f"Writing spoa consensus sequences to {spoa_file}.")
@@ -776,7 +868,7 @@ def main(args):
 
     # align poa consensus to ref
     poa_bam = os.path.join(out_dir, 'spoa_to_ref.bam')
-    align_consensus_to_ref(spoa_file, poa_bam, ref_fasta)
+    align_consensus_fx_to_ref(spoa_file, poa_bam, ref_fasta)
     bam_to_vcfs(poa_bam, ref_fasta)
 
     if args.poa_only:
@@ -805,11 +897,11 @@ def main(args):
     args.output = os.path.join(out_dir, 'consensus.{}'.format(out_ext))
     args.regions = None  # medaka consensus changes args.regions
     args.fillgaps = True
-    args.fill_char = None ## fill with poa sequence where medaka did not polish
+    args.fill_char = None  # fill with poa sequence where medaka did not polish
     args.min_depth = 0
     medaka.stitch.stitch(args)
     logger.info(f"Medaka consensus sequences written to {args.output}")
     # align consensus back to ref
     medaka_bam = os.path.join(out_dir, 'medaka_to_ref.bam')
-    align_consensus_to_ref(args.output, medaka_bam, ref_fasta)
+    align_consensus_fx_to_ref(args.output, medaka_bam, ref_fasta)
     bam_to_vcfs(medaka_bam, ref_fasta)
