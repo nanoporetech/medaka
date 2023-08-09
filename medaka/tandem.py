@@ -168,7 +168,7 @@ def get_subreads(bam_fp, rec, hap_tag_vals=(0, 1, 2), min_mapq=5):
                         query_name=f"read_{i:03d}",
                         strand='rev' if is_rev else 'fwd',
                         hap=h, **rn_kwargs)),
-                    medaka.common.reverse_complement(seq) if is_rev else seq))
+                    medaka.common.reverse_complement(seq) if is_rev else seq)
                 for i, (is_rev, seq) in enumerate(reads, 1)]
             )
         except ValueError:
@@ -402,7 +402,15 @@ def process_record_hybrid(*args):
 
 
 def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
-    """Assess dependence of read ordering on phasing and generate metrics."""
+    """Assess dependence of read ordering on phasing and generate metrics.
+
+    :param res_a: `abpoa.msa_result` using ordering of subreads subreads_a.
+    :param res_b: `abpoa.msa_result` using ordering of subreads subreads_b.
+    :param subreads_a: iterable of `medaka.smolecule.Subread` instances.
+    :param subreads_b: same as `subreads_a` but with alternative ordering.
+
+    :returns: dict
+    """
     # TODO check if clu_read_ids of each cluster are superset of subreads
     # have seen abpoa error messages suggesting some reads are not assigned a
     # cluster - these should be included in counts of ambigous reads but are
@@ -456,6 +464,7 @@ def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
 
     # if we have two clusters, but all reads in second cluster are ambigous and
     # hence removed  such that second cluster has no reads, make this haploid
+    # TODO - or should we skip such regions given such issues?
     empty_second_cluster = False
     if (
         max(res_a.n_cons, res_b.n_cons) > 1 and
