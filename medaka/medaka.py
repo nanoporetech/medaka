@@ -14,11 +14,11 @@ import medaka.prediction
 import medaka.rle
 import medaka.smolecule
 import medaka.stitch
+import medaka.tandem
 import medaka.training
 import medaka.variant
 import medaka.vcf
 import medaka.wrappers
-
 
 class ResolveModel(argparse.Action):
     """Resolve model filename or ID into filename"""
@@ -446,7 +446,6 @@ def medaka_parser():
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
     tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
 
-
     # Consensus from single-molecules with subreads
     smparser = subparsers.add_parser('smolecule',
         help='Create consensus sequences from single-molecule reads.',
@@ -465,6 +464,52 @@ def medaka_parser():
             help='Save features with consensus probabilities.')
     smparser.add_argument('--qualities', action='store_true', default=False,
             help='Output consensus with per-base quality scores (fastq).')
+
+    # Targeted Tandem Repeat calling
+    # TODO reorganise arguments common to predict, smolecule and tr into groups
+    # that can be more easily shared
+    trparser = subparsers.add_parser('tandem',
+        help='Targeted tandem repeat variant calling.',
+        parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500), _model_arg(), _min_depth_arg()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    trparser.set_defaults(func=medaka.tandem.main)
+    trparser.add_argument('bam', help='Input alignments.', action=CheckBam)
+    trparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
+    trparser.add_argument('regions', action=RegionParser, nargs='+',
+        help='Genomic regions to analyse, or a bed file.')
+    trparser.add_argument('sex', choices={'female', 'male'},
+        help='Sample sex, required for appropriate handling of X/Y chromosomes including PAR regions.')
+    trparser.add_argument('output', help='Output directory.')
+    trparser.add_argument('--phasing', choices=set(medaka.tandem.phasing_options.keys()),
+        default='hybrid', help='Phasing method. prephased: '
+        'use HP bam tags. abpoa: abpoa diploid clustering. '
+        'hybrid: try prephased, use abpoa when either '
+        'haplotype has < --depth coverage.')
+    trparser.add_argument('--depth', type=int, default=3,
+        help='Minimum reads per haplotype.')
+    trparser.add_argument('--min_mapq', type=int, default=5,
+        help='Minimum read mapq.')
+    trparser.add_argument('--pad', type=int, default=10,
+        help='Region padding for fetching trimmed reads and reference sequence.')
+    trparser.add_argument('--sex_chroms', metavar='<X> <Y>', default=['chrX', 'chrY'],
+        nargs=2, help='Names of X and Y chromosomes in --ref_fasta.')
+    trparser.add_argument('--PAR_regions', action=RegionParser, nargs='+',
+        help='Pseudoautosomal regions (PARs) to treat as diploid for male and female samples.',
+        default=[medaka.common.Region('chrX', 10000, 2781479),
+                 medaka.common.Region('chrX', 155701382, 156030895),])
+    trparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
+    trparser.add_argument('--poa_threads', type=int, default=1,
+            help='Number of threads used for POA.')
+    trparser.add_argument('--poa_only', action='store_true', default=False,
+            help='Stop after generating POA consensuses.')
+    trparser.add_argument('--check_output', action='store_true', default=False,
+            help='Verify integrity of output file after inference.')
+    trparser.add_argument('--save_features', action='store_true', default=False,
+            help='Save features with consensus probabilities.')
+    trparser.add_argument('--bam_workers', type=int, default=2,
+            help='Number of workers used to prepare data from bam.')
+    trparser.add_argument('--bam_chunk', type=int, default=int(1e6),
+            help='Size of reference chunks each worker parses from bam. (can be used to control memory use).')
 
     # Consensus from features input
     cfparser = subparsers.add_parser('consensus_from_features',
