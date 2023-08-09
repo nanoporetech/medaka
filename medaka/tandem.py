@@ -156,29 +156,23 @@ def get_subreads(bam_fp, rec, hap_tag_vals=(0, 1, 2), min_mapq=5):
         _, reads = get_trimmed_reads(
             bam_fp, reg_padded, partial=False, read_filters=read_filters)
 
-        try:
-            is_revs, seqs = zip(*reads)
-        except ValueError:
-            continue
-
-        # orientations from get_trimmed_reads are is_rev,
-        # medaka.smolecule.Read expects them to be is_fwd
-        is_fwds = [not is_rev for is_rev in is_revs]
-
         rn_kwargs = {
             k: v for k, v in rec.__dict__.items()
             if k not in {'query_name', 'strand', 'hap'}
         }
 
-        subreads.extend([
-            medaka.smolecule.Subread(
-                str(RecordName(
-                    query_name=f"read_{i:03d}",
-                    strand='fwd' if is_fwd else 'rev',
-                    hap=h, **rn_kwargs)),
-                seq if is_fwd else medaka.common.reverse_complement(seq))
-            for i, (seq, is_fwd) in enumerate(zip(seqs, is_fwds), 1)]
-        )
+        try:
+            subreads.extend([
+                medaka.smolecule.Subread(
+                    str(RecordName(
+                        query_name=f"read_{i:03d}",
+                        strand='rev' if is_rev else 'fwd',
+                        hap=h, **rn_kwargs)),
+                    medaka.common.reverse_complement(seq) if is_rev else seq))
+                for i, (is_rev, seq) in enumerate(reads, 1)]
+            )
+        except ValueError:
+            continue
     return subreads
 
 
