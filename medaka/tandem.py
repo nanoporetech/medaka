@@ -143,7 +143,6 @@ def get_subreads(bam_fp, rec, hap_tag_vals=(0, 1, 2), min_mapq=5):
     :returns: list of `medaka.smolecule.Subread` instances.
     """
     reg_padded = rec.to_padded_region()
-    read_filters = dict(min_mapq=5)
     subreads = []
 
     # TODO rewrite C-code to fetch reads with multiple tags and return tag vals
