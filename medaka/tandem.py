@@ -244,7 +244,7 @@ def align_consensus_fx_to_ref(consensus_fx, bam_fp, ref_fasta):
     aln_header = pysam.AlignmentHeader.from_references(
         ref_fasta.references, ref_fasta.lengths)
     alns = [
-        align_chunk_to_ref(polished_chunk, ref_fasta)
+        align_chunk_to_ref(polished_chunk, ref_fasta, aln_header=aln_header)
         for polished_chunk in pysam.FastxFile(consensus_fx)
     ]
     with pysam.AlignmentFile(bam_fp, 'wb', header=aln_header) as bam_fh:
