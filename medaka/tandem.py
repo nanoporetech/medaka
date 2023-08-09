@@ -283,7 +283,7 @@ def get_abpoa_clusters(subreads, record, put_bam_hp_in_name=True):
         subreads_rle.append(medaka.smolecule.Subread(s.name, rle_seq(s.seq)))
     # sort reads by length, see https://github.com/yangao07/abPOA/issues/48
     subreads_rle_asc = sorted(subreads_rle, key=lambda s: len(s.seq))
-    subreads_rle_dsc = sorted(subreads_rle, key=lambda s: -len(s.seq))
+    subreads_rle_dsc = subreads_rle_asc[::-1]
     aligner = abpoa.msa_aligner(aln_mode='g')
     result_rle_asc = abpoa_consensus(aligner, subreads_rle_asc, max_n_cons=2)
     result_rle_dsc = abpoa_consensus(aligner, subreads_rle_dsc, max_n_cons=2)
