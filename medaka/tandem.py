@@ -280,8 +280,7 @@ def get_abpoa_clusters(subreads, record, put_bam_hp_in_name=True):
     # run-length compress sequences
     subreads_rle = []
     for s in subreads:
-        rn = RecordName.from_str(s.name)
-        subreads_rle.append(medaka.smolecule.Subread(str(rn), rle_seq(s.seq)))
+        subreads_rle.append(medaka.smolecule.Subread(s.name, rle_seq(s.seq)))
     # sort reads by length, see https://github.com/yangao07/abPOA/issues/48
     subreads_rle_asc = sorted(subreads_rle, key=lambda s: len(s.seq))
     subreads_rle_dsc = sorted(subreads_rle, key=lambda s: -len(s.seq))
