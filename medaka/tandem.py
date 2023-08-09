@@ -273,7 +273,7 @@ def abpoa_consensus(aligner, subreads, max_n_cons=2):
     return result
 
 
-def get_abpoa_clusters(subreads, record, put_bam_hp_in_name=True):
+def get_abpoa_clusters(subreads, put_bam_hp_in_name=True):
     """Cluster / phase reads using abpoa, checking for order dependence."""
     def rle_seq(seq):
         return ''.join(medaka.common.rle(seq)['value'])
@@ -319,7 +319,7 @@ def process_record_abpoa(bam_fp, rec, ref_fasta, min_depth, min_mapq):
         raise InsufficientCoverage(
             f"{rec}: Retrieved too few reads ({len(subreads)} < {min_depth})")
 
-    d, clustered_reads = get_abpoa_clusters(subreads, rec)
+    d, clustered_reads = get_abpoa_clusters(subreads)
     cons = []
     for h in [1] if d['is_homozygous'] else [1, 2]:
         cons_rec = copy(rec)
