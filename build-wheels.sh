@@ -5,6 +5,8 @@ export MANYLINUX=1
 export MEDAKA_DIST=1
 export WITHDEFLATE=1
 
+arch=$(uname -m)
+
 workdir=$1
 shift
 
@@ -65,7 +67,11 @@ if [[ "${DO_COUNT_TEST}" == "1" ]]; then
         else
             PYBIN="/opt/python/cp3${minor}-cp3${minor}m/bin"
         fi
-        "${PYBIN}"/pip install --prefer-binary -r requirements.txt
+        # don't look, these pyspoa builds were a manual affair
+        if [ "${arch}" = "arm64" ] || [ "${arch}" = "aarch64" ]; then
+            "${PYBIN}"/pip install https://github.com/nanoporetech/pyspoa/releases/download/v0.0.10/pyspoa-0.0.10-cp3${minor}-cp3${minor}-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+        fi
+        "${PYBIN}"/pip install --use-pep517 --prefer-binary -r requirements.txt
         "${PYBIN}"/pip install "${PACKAGE_NAME}" --no-index -f ./wheelhouse
         "${PYBIN}"/medaka_counts --print medaka/test/data/test_reads.bam utg000001l:10000-10010
     done
