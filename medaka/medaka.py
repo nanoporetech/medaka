@@ -2,8 +2,6 @@ import argparse
 import logging
 import os
 
-from timeit import default_timer as now
-
 import pysam
 
 import medaka.common
