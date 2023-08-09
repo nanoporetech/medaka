@@ -205,9 +205,8 @@ def align_chunk_to_ref(chunk, ref_fasta, aln_header=None):
 
     rn = RecordName.from_str(chunk.name)
 
-    ref_region = rn.to_padded_region()
     ref_seq = ref_fasta.fetch(
-        ref_region.ref_name, ref_region.start, ref_region.end)
+        rn.ref_name, rn.ref_start_padded, rn.ref_end_padded)
     if rn.strand == 'fwd':
         query_seq = chunk.sequence
         flag = 0
@@ -232,7 +231,7 @@ def align_chunk_to_ref(chunk, ref_fasta, aln_header=None):
     aln = medaka.align.initialise_alignment(
         query_name=chunk.name,
         reference_id=aln_header.get_tid(rn.ref_name),
-        reference_start=rn.ref_start + rstart,
+        reference_start=rn.ref_start_padded + rstart,
         query_sequence=query_seq,
         cigarstring=cigar,
         flag=flag,
@@ -700,10 +699,9 @@ def record_to_process_func(
             logger.info(f'{region} is PAR, treating as diploid')
             return phasing_options[phasing_method]
         elif region.ref_name in sex_chroms:
-            logger.info(f'{region} is sex chrom, treating as haploid')
+            logger.info(f'{region} is sex chrom, so haploid for male.')
             return process_record_haploid
         else:
-            logger.info(f'{region} is not sex chrom, treating as diploid')
             return phasing_options[phasing_method]
 
 
@@ -790,7 +788,7 @@ def main(args):
                 metrics_fhs[method].write(
                     "\t".join((str(v) for v in metrics.values())) + "\n")
                 for hap in haps:  # hap is ConsensusResult
-                    logger.debug(f"Generated spoa consensus for {hap.rec}")
+                    logger.debug(f"Generated poa consensus for {hap.rec}")
                     if isinstance(hap.exception, InsufficientCoverage):
                         # insufficient depth on a single haplotype
                         logger.info(hap.exception.args[0])
@@ -831,11 +829,11 @@ def main(args):
         for r in records_skipped:
             fh.write(f"{r.ref_name}\t{r.ref_start}\t{r.ref_end}\t{r}\n")
 
-    # write bam of trimmed reads aligned to spoa consensus
+    # write bam of trimmed reads aligned to poa consensus
     consensus_bam_file = os.path.join(out_dir, 'trimmed_reads_to_poa.bam')
 
     logger.info(
-        "Writing trimmed reads to spoa draft medaka input bam for "
+        "Writing trimmed reads to poa draft medaka input bam for "
         f"{len(all_consensus_alignments)} to {consensus_bam_file}."
     )
 
@@ -855,9 +853,9 @@ def main(args):
     #     key=lambda x: (ref_header.get_tid(x.rname), x.rstart, x.qname))
     # medaka.smolecule.write_bam(ref_bam_file, [sorted_alns], ref_header)
 
-    spoa_file = os.path.join(out_dir, 'poa.fasta')
-    logger.info(f"Writing spoa consensus sequences to {spoa_file}.")
-    with open(spoa_file, 'w') as fh:
+    poa_file = os.path.join(out_dir, 'poa.fasta')
+    logger.info(f"Writing poa consensus sequences to {poa_file}.")
+    with open(poa_file, 'w') as fh:
         for rname, cons in consensuses:
             fh.write('>{}\n{}\n'.format(rname, cons))
 
@@ -874,8 +872,8 @@ def main(args):
             fh.write(f'>{reg_name}\n{ref_seq}\n')
 
     # align poa consensus to ref
-    poa_bam = os.path.join(out_dir, 'spoa_to_ref.bam')
-    align_consensus_fx_to_ref(spoa_file, poa_bam, ref_fasta)
+    poa_bam = os.path.join(out_dir, 'poa_to_ref.bam')
+    align_consensus_fx_to_ref(poa_file, poa_bam, ref_fasta)
     bam_to_vcfs(poa_bam, ref_fasta)
 
     if args.poa_only:
@@ -897,7 +895,7 @@ def main(args):
         _ = fut.result()
 
     logger.info("Running medaka stitch.")
-    args.draft = spoa_file
+    args.draft = poa_file
     args.inputs = [os.path.join(out_dir, 'consensus.hdf')]
     args.qualities = False
     out_ext = 'fasta'
