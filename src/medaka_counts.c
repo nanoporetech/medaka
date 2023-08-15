@@ -352,7 +352,7 @@ plp_data calculate_pileup(
 
         // reallocate output if necessary
         if (n_cols + max_ins > pileup->buffer_cols) {
-            float cols_per_pos = (float) (n_cols + max_ins) / (pos - start);
+            float cols_per_pos = (float) (n_cols + max_ins) / (1 + pos - start);
             // max_ins can dominate so add at least that
             buffer_cols = max_ins + max(2 * pileup->buffer_cols, (int) cols_per_pos * (end - start));
             enlarge_plp_data(pileup, buffer_cols);
