@@ -147,9 +147,18 @@ class ModelStoreTF(BaseModelStore):
     def cleanup(self):
         """Clean up temporary files."""
         if self.tmpdir:
+            try:
+                self._exitstack.close()
+            except OSError:
+                self.logger.warning(
+                    "Failed to correctly clean up model temporary files. "
+                    "Some files might be left in {self.tmpdir.name}.")
+            else:
+                self.logger.info(
+                    "Successfully removed temporary files "
+                    f"from {self.tmpdir.name}.")
             self.meta = None
             self.tmpdir = None
-            self._exitstack.close()
             del self._exitstack
 
     def __enter__(self):
