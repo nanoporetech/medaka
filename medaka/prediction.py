@@ -1,11 +1,11 @@
 """Inference program and ancilliary functions."""
-import logging
 import os
 import queue
 import threading
 from timeit import default_timer as now
 
 import numpy as np
+import tensorflow as tf
 
 import medaka.common
 import medaka.datastore
@@ -85,13 +85,8 @@ def run_prediction(
 
 def predict(args):
     """Inference program."""
-    logger_level = logging.getLogger(__package__).level
-    if logger_level > logging.DEBUG:
-        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
     logger = medaka.common.get_named_logger('Predict')
 
-    import tensorflow as tf
-    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
     # There's not to much speed up to be had with threads. We (mostly) use
     # a bidirectional GRU so its fair to set inter-operation threads to two
     # (for the two directions).
