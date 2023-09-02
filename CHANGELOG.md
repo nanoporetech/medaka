@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 ### Fixed
 - Sort VCF before annotating in `medaka_haploid_variant`.
+- Ignore errors when deleting temporary files.
 
 ## [v1.9.1]
 ### Fixed
