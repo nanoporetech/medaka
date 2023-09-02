@@ -1,7 +1,9 @@
 import array
 import unittest
 from collections import namedtuple
+import os
 import pickle
+import tempfile
 
 import numpy as np
 
@@ -88,10 +90,12 @@ class LabelSchemeTest(object):
             self.assertEqual(var.genotype_data['GT'], exp_gt)
 
     def test_picklable(self):
-        with open('data.pickle', 'wb') as f:
-            pickle.dump(self.ls, f, pickle.HIGHEST_PROTOCOL)
-        with open('data.pickle', 'rb') as f:
-            data = pickle.load(f)
+        with tempfile.TemporaryDirectory() as d:
+            fname = os.path.join(d, "data.pickle")
+            with open(fname, 'wb') as f:
+                pickle.dump(self.ls, f, pickle.HIGHEST_PROTOCOL)
+            with open(fname, 'rb') as f:
+                data = pickle.load(f)
 
 
 class VariantBoundaries(unittest.TestCase):
