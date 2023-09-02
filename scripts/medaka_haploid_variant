@@ -148,9 +148,18 @@ else
     echo "Not calling variants, ${OUTPUT}/${VARIANTS} exists."
 fi
 
+VARIANTS_SORTED=medaka.sorted.vcf
+if [[ ! -e "${VARIANTS_SORTED}" ]] || ${FORCE}; then
+    bcftools sort "${VARIANTS}" -o "${VARIANTS_SORTED}"  \
+        || { echo "Failed to sort variants."; exit 1; }
+    FORCE=true
+else
+    echo "Not sorting variants, ${OUTPUT}/${VARIANTS_SORTED} exists."
+fi
+
 ANNOTATED=medaka.annotated.vcf
 if [[ ! -e "${ANNOTATED}" ]] || ${FORCE}; then
-    medaka tools annotate ${ANNOT_OPTS} "${VARIANTS}" "${REFERENCE}" "${CALLS2REF}.bam" "${ANNOTATED}" \
+    medaka tools annotate ${ANNOT_OPTS} "${VARIANTS_SORTED}" "${REFERENCE}" "${CALLS2REF}.bam" "${ANNOTATED}" \
         || { echo "Failed to annotate variants."; exit 1; }
     echo "Variants written to ${OUTPUT}/${ANNOTATED}, have a nice day."
     FORCE=true
