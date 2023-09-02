@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import os
 import tempfile
 import unittest
@@ -44,15 +45,20 @@ class TestModelFiles(unittest.TestCase):
         os.rename(tmp_file, model_file)
 
     def test_999_load_all_models(self):
-        for name in medaka.options.allowed_models:
-            model_file = models.resolve_model(name)
-            with medaka.models.open_model(model_file) as ds:
-                model = ds.load_model()
-                self.assertIsInstance(model, tensorflow.keras.models.Model)
-                feature_encoder = ds.get_meta('feature_encoder')
-                self.assertIsInstance(feature_encoder, BaseFeatureEncoder)
-                label_scheme = ds.get_meta('label_scheme')
-                self.assertIsInstance(label_scheme, BaseLabelScheme)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            for name in medaka.options.allowed_models:
+                model_file = models.resolve_model(name)
+                executor.submit(self._load_one, args=[self, model_file])
+
+    def _load_one(self, model_file):
+        print(f"loading: {model_file}")
+        with medaka.models.open_model(model_file) as ds:
+            model = ds.load_model()
+            self.assertIsInstance(model, tensorflow.keras.models.Model)
+            feature_encoder = ds.get_meta('feature_encoder')
+            self.assertIsInstance(feature_encoder, BaseFeatureEncoder)
+            label_scheme = ds.get_meta('label_scheme')
+            self.assertIsInstance(label_scheme, BaseLabelScheme)
 
 
 class TestBuildModel(unittest.TestCase):
