@@ -3,9 +3,15 @@ import functools
 import os
 
 import numpy as np
+import tensorflow as tf
+from tensorflow.keras import backend as K
+from tensorflow.keras import optimizers
+from tensorflow.keras.callbacks import \
+    CSVLogger, EarlyStopping, TerminateOnNaN
 
 import medaka.common
 import medaka.datastore
+from medaka.keras_ext import ModelMetaCheckpointTF, SequenceBatcher
 import medaka.labels
 import medaka.models
 
@@ -18,7 +24,6 @@ def qscore(y_true, y_pred):
 
     :returns: class error expressed as a phred score.
     """
-    from tensorflow.keras import backend as K
     error = K.cast(K.not_equal(
         K.max(y_true, axis=-1), K.cast(K.argmax(y_pred, axis=-1), K.floatx())),
         K.floatx()
@@ -38,7 +43,6 @@ def cat_acc(y_true, y_pred):
     # sparse_categorical_accuracy is broken in keras 2.2.4
     #   https://github.com/keras-team/keras/issues/11348#issuecomment-439969957
     # this is taken from e59570ae
-    from tensorflow.keras import backend as K
     # reshape in case it's in shape (num_samples, 1) instead of (num_samples,)
     if K.ndim(y_true) == K.ndim(y_pred):
         y_true = K.squeeze(y_true, -1)
@@ -65,7 +69,6 @@ def train(args):
         args.features, args.validation,
         args.seed, args.batch_size, threads=args.threads_io)
 
-    import tensorflow as tf
     with tf.device('/gpu:{}'.format(args.device)):
         run_training(
             train_name, batcher, model_fp=args.model, epochs=args.epochs,
@@ -82,12 +85,6 @@ def run_training(
         epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1,
         optimizer='rmsprop', optim_args=None):
     """Run training."""
-    from tensorflow.keras.callbacks import \
-        CSVLogger, EarlyStopping, TerminateOnNaN
-    from tensorflow.keras import optimizers
-    from medaka.keras_ext import \
-        ModelMetaCheckpointTF, SequenceBatcher
-
     logger = medaka.common.get_named_logger('RunTraining')
 
     time_steps, feat_dim = batcher.feature_shape
