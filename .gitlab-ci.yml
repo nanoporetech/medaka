@@ -123,7 +123,7 @@ wheels-2_28:
         matrix:
             - PYWHEEL: [8, 9, 10]
               COMPUTE: ["gpu", "cpu"]
-              FLAVOUR: ["2_24"]
+              FLAVOUR: ["2_28"]
 
 
 wheels-arm-2014:
