@@ -2,9 +2,8 @@
 import re
 
 import edlib
+import parasail
 import pysam
-
-from medaka import parasail
 
 re_split_cigar = re.compile(r"(?P<len>\d+)(?P<op>\D+)")
 re_split_cigar_rev = re.compile(r"(?P<op>\D+)(?P<len>\d+)")

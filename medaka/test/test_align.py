@@ -2,7 +2,8 @@ import array
 import tempfile
 import unittest
 
-from medaka import parasail
+import parasail
+
 import medaka.align
 
 

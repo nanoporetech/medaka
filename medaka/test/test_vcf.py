@@ -9,9 +9,9 @@ import intervaltree
 import itertools
 import numpy as np
 np.random.seed(7)
+import parasail
 import pysam
 
-from medaka import parasail
 from medaka.common import yield_from_bed
 from medaka.vcf import (VCFWriter, VCFReader, Variant, Haploid2DiploidConverter,
                         split_variants, classify_variant, _merge_variants,

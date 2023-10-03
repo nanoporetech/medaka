@@ -8,9 +8,10 @@ import warnings
 
 import mappy
 import numpy as np
+import parasail
 import pysam
+import spoa
 
-from medaka import parasail, spoa
 import medaka.align
 import medaka.common
 import medaka.medaka

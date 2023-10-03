@@ -9,11 +9,11 @@ from threading import Lock
 
 import intervaltree
 import numpy as np
+import parasail
 import pysam
 
 import libmedaka
 from medaka import __version__ as medaka_version
-from medaka import parasail
 import medaka.common
 import medaka.features
 

@@ -3,9 +3,9 @@ import types
 import unittest
 import warnings
 
+import parasail
 import pytest
 
-from medaka import parasail
 import medaka.align
 from medaka import smolecule
 

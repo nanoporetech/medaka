@@ -39,34 +39,29 @@ stages:
     script:
         - make test
 
-# Latest versions as of 2023/02/10
+# Latest versions as of 2023/10/03
 
-test-3.7.16:
+test-3.8.18:
     variables:
-        PYENV_VERSION: 3.7.16
-    <<: *pytest
-
-test-3.8.16:
-    variables:
-        PYENV_VERSION: 3.8.16
+        PYENV_VERSION: 3.8.18
     <<: *pytest
 
 
-test-3.9.16:
+test-3.9.18:
     variables:
-        PYENV_VERSION: 3.9.16
+        PYENV_VERSION: 3.9.18
     <<: *pytest
 
 
-test-3.10.10:
+test-3.10.13:
     variables:
-        PYENV_VERSION: 3.10.10
+        PYENV_VERSION: 3.10.13
     <<: *pytest
 
 
 test-mem-check:
     variables:
-        PYENV_VERSION: 3.8.7
+        PYENV_VERSION: 3.8.18
     <<: *preparetest
     script:
         - make mem_check
@@ -111,7 +106,7 @@ wheels-2014:
     image: "quay.io/pypa/manylinux2014_x86_64"
     parallel:
         matrix:
-            - PYWHEEL: [7, 8, 9]
+            - PYWHEEL: [8, 9]
               COMPUTE: ["gpu", "cpu"]
               FLAVOUR: ["2014"]
 
