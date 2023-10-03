@@ -8,19 +8,6 @@ import sys
 __version__ = "1.9.1"
 
 try:
-    import parasail
-except ImportError:
-    sys.stderr.write(
-        "Cannot import parasail, some features may not be available.\n")
-    class parasail: pass # noqa
-    setattr(parasail, 'dnafull', None)
-try:
-    import spoa
-except ImportError:
-    sys.stderr.write(
-        "Cannot import spoa, some features may not be available.\n")
-    spoa = None
-try:
     import pyabpoa as abpoa
 except ImportError:
     sys.stderr.write(

@@ -12,9 +12,10 @@ from timeit import default_timer as now
 
 import edlib
 import numpy as np
+import parasail
 import pysam
 
-from medaka import abpoa, parasail
+from medaka import abpoa
 import medaka.align
 import medaka.common
 import medaka.features

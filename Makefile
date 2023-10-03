@@ -17,7 +17,7 @@ ifeq ($(ARCH), $(filter $(ARCH), aarch64 arm64))
 TUNE=
 MM2ARGS=arm_neon=1 aarch64=1
 ifeq ($(OS), Darwin) # macos arm
-export HDF5_DIR=/opt/homebrew/Cellar/hdf5/1.12.1
+export HDF5_DIR=/opt/homebrew/Cellar/hdf5/1.10
 .package-reqs: pyprep-m1
 endif
 
@@ -160,7 +160,7 @@ check_lfs: venv
 .PHONY: pyprep
 pyprep-m1: venv
 	@echo "\x1b[1;33mInstalling prerequisites with homebrew\x1b[0m"
-	brew install pkg-config hdf5@1.12 openssl@3
+	brew install pkg-config hdf5@1.10 openssl@3
 	@echo "\x1b[1;33mCompiling and installing mappy from custom repository\x1b[0m"
 	${IN_VENV} && pip install git+https://github.com/cjw85/minimap2.git@1951fe908ae83efd4f459e060d29b21254d54993
 

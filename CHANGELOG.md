@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 ### Changed
 - Tensorflow logging level no longer set from Python.
+- spoa and parasail are now strict requirements.
 ### Fixed
 - Sort VCF before annotating in `medaka_haploid_variant`.
 - Ignore errors when deleting temporary files.
+### Added
+- Support for Python 3.11.
+### Removed
+- Support for Python 3.7.
 
 ## [v1.9.1]
 ### Fixed

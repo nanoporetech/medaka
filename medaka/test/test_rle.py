@@ -5,9 +5,9 @@ import tempfile
 import unittest
 
 import numpy as np
+import parasail
 import pysam
 
-from medaka import parasail
 from medaka import common
 from .mock_data import create_simple_bam, mock_summary_file, \
     mock_fast5_file, simple_data
