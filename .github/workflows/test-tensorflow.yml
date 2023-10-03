@@ -1,0 +1,52 @@
+name: Test Medaka Builds
+
+on: workflow_dispatch
+
+jobs:
+  test-medaka:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-20.04]
+        python-version: [ '3.8', '3.9', '3.10' ]
+        tensorflow-version: [ '2.8.0', '2.9.0', '2.10.0', '2.11.0', '2.12.0' ]
+
+    runs-on: ${{ matrix.os }}
+
+    name: Run Tests (py ${{ matrix.python-version }}, tf ${{ matrix.tensorflow-version }})
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          lfs: 'true'
+          submodules: 'recursive'
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            gcc make cmake curl wget git \
+            zlib1g-dev libbz2-dev liblzma-dev libncurses5-dev libcurl4-gnutls-dev \
+            libssl-dev libffi-dev valgrind \
+            libreadline8 libreadline-dev sqlite3 libsqlite3-dev
+
+      - name: Add tf ${{ matrix.tensorflow-version }} to requirements.txt
+        run: |
+          mv requirements.txt requirements-orig.txt
+          grep -v tensorflow requirements-orig.txt > requirements.txt
+          echo "tensorflow~=${{ matrix.tensorflow-version }}" >> requirements.txt
+          cat requirements.txt
+
+      - name: Setup pyenv (python ${{ matrix.python-version }})
+        run: |
+          git clone https://github.com/pyenv/pyenv.git .pyenv
+          export PYENV_ROOT=".pyenv"
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          PYTHON_CONFIGURE_OPTS="--enable-shared" pyenv install ${{ matrix.python-version }}
+          echo "PYENV_ROOT=.pyenv" >> $GITHUB_ENV
+          echo "PATH=$PYENV_ROOT/bin:$PATH" >> $GITHUB_ENV
+          echo "PYTHON=$(PYENV_VERSION=${{ matrix.python-version }} pyenv which python)" >> $GITHUB_ENV
+          .pyenv/bin/pyenv which python
+
+      - name: Run test
+        run: |
+          make test
