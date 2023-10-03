@@ -13,7 +13,6 @@ import pysam
 
 import medaka.align
 import medaka.common
-import medaka.smolecule
 
 
 class RLEConverter(object):

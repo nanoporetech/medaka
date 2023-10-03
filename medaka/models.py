@@ -5,10 +5,6 @@ import pathlib
 import tempfile
 
 import requests
-import tensorflow as tf
-from tensorflow.keras.layers import \
-    Activation, Bidirectional, Dense, GRU, Lambda
-from tensorflow.keras.models import Sequential
 
 import medaka.common
 import medaka.datastore
@@ -132,6 +128,10 @@ def build_model(
     :returns: `keras.models.Sequential` object.
 
     """
+    import tensorflow as tf
+    from tensorflow.keras.layers import \
+        Bidirectional, Dense, GRU
+    from tensorflow.keras.models import Sequential
     #  Tensorflow2 uses a fast cuDNN implementation if a GPU is available
     #  and the arguments to the layer meet the CuDNN kernal requirements
     if tf.config.list_physical_devices('GPU'):
@@ -169,6 +169,11 @@ def build_majority(
     :returns: `keras.models.Sequential` object.
 
     """
+    import tensorflow as tf
+    from tensorflow.keras.layers import \
+        Activation, Lambda
+    from tensorflow.keras.models import Sequential
+
     def sum_counts(f):
         """Sum forward and reverse counts."""
         # TODO write to handle multiple dtypes
