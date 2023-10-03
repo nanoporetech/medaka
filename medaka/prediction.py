@@ -5,7 +5,6 @@ import threading
 from timeit import default_timer as now
 
 import numpy as np
-import tensorflow as tf
 
 import medaka.common
 import medaka.datastore
@@ -85,6 +84,7 @@ def run_prediction(
 
 def predict(args):
     """Inference program."""
+    import tensorflow as tf
     logger = medaka.common.get_named_logger('Predict')
 
     # There's not to much speed up to be had with threads. We (mostly) use
