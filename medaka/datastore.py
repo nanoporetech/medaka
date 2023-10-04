@@ -190,8 +190,13 @@ class ModelStoreTF(BaseModelStore):
         self.logger.info("Model {}".format(self.model))
         weights = os.path.join(
             self.tmpdir.name, self.top_level_dir, 'variables', 'variables')
-        self.logger.info("loading weights from {}".format(weights))
-        self.model.load_weights(weights)
+        self.logger.info(
+            "loading weights from {} (using expect partial)".format(weights))
+        # expect partial ignores errors about the optimizer state not being
+        # present saving the optimizer state would make the models bigger.
+        # would be nice to figure out how to delete the references to the
+        # optimizer from the models
+        self.model.load_weights(weights).expect_partial()
         return self.model
 
     def get_meta(self, key):
