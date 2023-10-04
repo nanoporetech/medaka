@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ignore errors when deleting temporary files.
 ### Added
 - Support for Python 3.11.
+- `--spoa_min_coverage` option to smolecule command.
 ### Removed
 - Support for Python 3.7.
 

@@ -65,7 +65,7 @@ skip_deps = {}
 rename_deps = {}
 if platform.machine() in {"aarch64", "arm64"}:
     # we used to set parasail and pyspoa here, but both can be fairly easily
-    # be built on both macOS and linux nowadays with basic build tool depedencies
+    # built on both macOS and linux nowadays with basic build tool dependencies
     skip_deps = {}
     if platform.system() == "Darwin":
         rename_deps['tensorflow'] = 'tensorflow-macos'
