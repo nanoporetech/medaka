@@ -176,7 +176,7 @@ class Read(object):
         """Return the number of subreads contained in the read."""
         return len(self.subreads)
 
-    def poa_consensus(self, method='spoa'):
+    def poa_consensus(self, method='spoa', spoa_min_coverage=None):
         """Create a consensus sequence for the read."""
         self.initialize()
         seqs = list()
@@ -187,7 +187,11 @@ class Read(object):
                 seq = medaka.common.reverse_complement(subread.seq)
             seqs.append(seq)
         if method == 'spoa':
-            consensus_seq, _ = spoa.poa(seqs, genmsa=False)
+            consensus_seq, _ = spoa.poa(
+                seqs,
+                genmsa=False,
+                min_coverage=spoa_min_coverage
+            )
         elif method == 'abpoa':
             import pyabpoa as pa
             abpoa_aligner = pa.msa_aligner(aln_mode='g')
@@ -322,11 +326,13 @@ def write_bam(fname, alignments, header, bam=True):
         pysam.index(fname)
 
 
-def _read_worker(read, align=True, method='spoa'):
+def _read_worker(read, align=True, method='spoa', spoa_min_coverage=None):
     read.initialize()
     if read.nseqs > 2:  # skip if there is only one subread
         for it in range(2):
-            read.poa_consensus(method=method)
+            read.poa_consensus(
+                method=method, spoa_min_coverage=spoa_min_coverage
+            )
     aligns = None
     if align:
         aligns = read.mappy_to_template(
@@ -344,7 +350,7 @@ def ignore_exception(func, *args, **kwargs):
     return None
 
 
-def poa_workflow(reads, threads, method='spoa'):
+def poa_workflow(reads, threads, method='spoa', spoa_min_coverage=None):
     """Worker function for processing repetitive reads.
 
     :param reads: list of `Read` s.
@@ -358,7 +364,12 @@ def poa_workflow(reads, threads, method='spoa'):
     consensuses = []
     alignments = []
 
-    worker = functools.partial(ignore_exception, _read_worker, method=method)
+    worker = functools.partial(
+        ignore_exception,
+        _read_worker,
+        method=method,
+        spoa_min_coverage=spoa_min_coverage,
+    )
     with ProcessPoolExecutor(max_workers=threads) as executor:
         for res in executor.map(worker, reads):
             if res is None:
@@ -436,7 +447,11 @@ def main(args):
         "Running {} pre-medaka consensus for all reads.".format(args.method))
     t0 = now()
     header, consensuses, alignments = poa_workflow(
-        reads, args.threads, method=args.method)
+        reads,
+        args.threads,
+        method=args.method,
+        spoa_min_coverage=args.spoa_min_coverage,
+    )
     t1 = now()
 
     logger.info(
