@@ -180,6 +180,10 @@ class Read(object):
         """Create a consensus sequence for the read."""
         self.initialize()
         seqs = list()
+        if self.consensus_run:
+            # running POA for the second time: use the output from
+            # the previous run as first read in the list
+            seqs.append(self.consensus)
         for orient, subread in zip(*self.interleaved_subreads):
             if orient:
                 seq = subread.seq
