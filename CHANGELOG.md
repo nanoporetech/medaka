@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Sort VCF before annotating in `medaka_haploid_variant`.
 - Ignore errors when deleting temporary files.
+- The output of the first POA run not being used in the second iteration in smolecule command.
 ### Added
 - Support for Python 3.11.
 - `--spoa_min_coverage` option to smolecule command.
