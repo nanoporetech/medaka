@@ -34,6 +34,7 @@ FORCE=false
 iflag=false
 rflag=false
 xflag=false
+mflag=false
 
 usage="
 ${medaka_version}
@@ -49,6 +50,8 @@ $(basename "$0") [-h] -i <fastx> -r <fasta>
     -o  output folder (default: medaka).
     -m  medaka model, (default: ${MODEL}).
         Choices: $MODELS.
+        If not provided, and automatic choice will be attempted based on
+        the contents of the input file.
     -s  Perform read realignment when annotating variants.
     -f  Force overwrite of outputs (default will reuse existing outputs).
     -x  Force recreation of alignment index.
@@ -62,7 +65,7 @@ while getopts ':hi:r:o:m:sfxt:b:' option; do
     i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
     r  ) rflag=true; REFERENCE=$(follow_link $OPTARG);;
     o  ) OUTPUT=$OPTARG;;
-    m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
+    m  ) mflag=true; MODEL=$(medaka tools resolve_model --model $OPTARG);;
     s  ) ANNOT_OPTS="--dpsp";;
     f  ) FORCE=true;;
     x  ) xflag=true;;
@@ -93,6 +96,17 @@ rleflag=$(medaka tools is_rle_model --model $MODEL)
 if $rleflag; then
     echo "Given model is unsupported for variant calling: $MODEL"
     exit 1
+fi
+
+if ! $mflag; then
+    echo "Attempting to automatically select model version."
+    model=$(medaka tools resolve_model --auto_model variant "${BASECALLS}" 2>/dev/null || true)
+    if [[ "${model}" == "" ]] ; then
+        echo "WARNING: Failed to detect a model version, will use default: '${MODEL}'"
+    else
+        echo "SUCCESS: Automatic model selection chose model: '${model}'"
+        MODEL=${model}
+    fi
 fi
 
 if [[ "${MODEL}" != *"variant"* ]]; then
