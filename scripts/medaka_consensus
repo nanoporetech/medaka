@@ -156,7 +156,12 @@ else
     echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
 fi
 
-CONSENSUS="consensus.fasta"
+if "${QUALITIES}"; then
+    suffix="fastq"
+else
+    suffix="fasta"
+fi
+CONSENSUS="consensus.${suffix}"
 if [[ ! -e "${CONSENSUS}" ]] || ${FORCE}; then
     STITCH_OPTS=""
     QUALITIES_OPT=""
