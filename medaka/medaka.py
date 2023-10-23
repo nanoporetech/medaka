@@ -20,6 +20,7 @@ import medaka.variant
 import medaka.vcf
 import medaka.wrappers
 
+
 class ResolveModel(argparse.Action):
     """Resolve model filename or ID into filename"""
     def __init__(
@@ -36,7 +37,22 @@ class ResolveModel(argparse.Action):
         except Exception as e:
             msg = "Error validating model from '--{}' argument: {}."
             raise RuntimeError(msg.format(self.dest, str(e)))
-        #TODO: verify the file is a model?
+        setattr(namespace, f"{self.dest}_was_given", True)
+        setattr(namespace, self.dest, model_fp)
+
+
+class AutoModel(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        variant, input_file = values
+        if variant not in {'consensus', 'variant'}:
+            raise ValueError("'TYPE' must be one of 'consensus' or 'variant'.")
+        variant = variant == 'variant'
+        model = medaka.models.model_from_basecaller(input_file, variant=variant)
+        try:
+            model_fp = medaka.models.resolve_model(model)
+        except Exception as e:
+            msg = "Error validating model from '--{}' argument: {}."
+            raise RuntimeError(msg.format(self.dest, str(e)))
         setattr(namespace, self.dest, model_fp)
 
 
@@ -91,7 +107,7 @@ class CheckBam(argparse.Action):
 
         :raises: RuntimeError
         """
-        with pysam.AlignmentFile(fname) as bam:
+        with pysam.AlignmentFile(fname, check_sq=False) as bam:
             # As of 13/12/19 pypi still has no wheel for pysam v0.15.3 so we
             # pinned to v0.15.2. However bioconda's v0.15.2 package
             # conflicts with the libdeflate they have so we are forced
@@ -177,9 +193,13 @@ def _log_level():
 def _model_arg():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
-    parser.add_argument('--model', action=ResolveModel,
+    grp = parser.add_mutually_exclusive_group()
+    grp.add_argument('--model', action=ResolveModel,
             default=medaka.options.default_models['consensus'],
             help='Model to use.')
+    grp.add_argument('--auto_model', nargs=2, action=AutoModel,
+            metavar=("TYPE", "INPUT"), dest='model',
+            help="Automatically choose model according to INPUT. TYPE should be one of 'consensus' or 'variant'.")
     return parser
 
 
@@ -245,18 +265,47 @@ def _chunking_feature_args(batch_size=100, chunk_len=10000, chunk_ovlp=1000):
     return parser
 
 
-def _validate_common_args(args):
+def _validate_common_args(args, parser):
     """Do some common argument validation."""
     logger = medaka.common.get_named_logger('ValidArgs')
+
+    # check BAM has some required fields, fail early
     if hasattr(args, 'bam') and args.bam is not None:
         RG = args.RG if hasattr(args, 'RG') else None
         CheckBam.check_read_groups(args.bam, RG)
         if RG is not None:
             msg = "Reads will be filtered to only those with RG tag: {}"
-            logger.info(msg.format(RG))
-    # if model is default, resolve to file, save mess in help text
-    if hasattr(args, 'model') and args.model is not None:
-        args.model = medaka.models.resolve_model(args.model)
+            logger.debug(msg.format(RG))
+
+    # rationalise the model
+    if hasattr(args, 'model'):
+        # if --model was not given on the command-line try to guess from the
+        # the input file. otherwise leave alone
+        if (
+                hasattr(args, 'bam')
+                and args.bam is not None
+                and not hasattr(args, 'model_was_given')):
+            # try to guess model using the input file, assume consensus
+            # assuming consensus might not be right, but this is not a change
+            # in behaviour from the historic.
+            logger.debug("Guessing model")
+            if hasattr(args, 'bam') and args.bam is not None:
+                model = medaka.models.model_from_basecaller(
+                    args.bam, variant="consensus")
+                try:
+                    args.model = medaka.models.resolve_model(model)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to guess medaka model input file. Using default.")
+                else:
+                    logger.debug(
+                        f"Chosen model '{args.model}' for input '{args.bam}'.")
+        elif args.model is not None:
+            # TODO: why is this done? it will have been done in ResolveModel?
+            #       the resolve_model function is idempotent so doesn't really
+            #       matter too much
+            args.model = medaka.models.resolve_model(args.model)
+            logger.debug(f"Model is: {args.model}")
 
 
 def print_model_path(args):
@@ -757,5 +806,6 @@ def main():
         # TODO: is there a cleaner way to access this?
         parser.__dict__['_actions'][1].choices['tools'].print_help()
     else:
-        _validate_common_args(args)
+        # perform some post processing on the values, then run entry point
+        _validate_common_args(args, parser)
         args.func(args)

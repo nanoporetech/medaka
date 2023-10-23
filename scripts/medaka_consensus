@@ -36,6 +36,7 @@ QUALITIES=false
 iflag=false
 dflag=false
 xflag=false
+mflag=false
 
 usage="
 ${medaka_version}
@@ -55,6 +56,8 @@ $(basename "$0") [-h] -i <fastx> -d <fasta>
     -m  medaka model, (default: ${MODEL}).
         Choices: ${MODELS}
         Alternatively a .tar.gz/.hdf file from 'medaka train'.
+        If not provided, and automatic choice will be attempted based on
+        the contents of the input file.
     -f  Force overwrite of outputs (default will reuse existing outputs).
     -x  Force recreation of alignment index.
     -t  number of threads with which to create features (default: 1).
@@ -70,7 +73,7 @@ while getopts ':hi::d:o:gr:m:fxt:b:q' option; do
     o  ) OUTPUT=$OPTARG;;
     g  ) NOFILLGAPS=true;;
     r  ) GAPFILLCHAR=$OPTARG;;
-    m  ) MODEL=$(medaka tools resolve_model --model $OPTARG);;
+    m  ) mflag=true; MODEL=$(medaka tools resolve_model --model $OPTARG);;
     f  ) FORCE=true;;
     x  ) xflag=true;;
     t  ) THREADS=$OPTARG;;
@@ -96,6 +99,17 @@ if ! $dflag; then
   exit 1;
 fi
 
+if ! $mflag; then
+    echo "Attempting to automatically select model version."
+    model=$(medaka tools resolve_model --auto_model consensus "${BASECALLS}" 2>/dev/null || true)
+    if [[ "${model}" == "" ]] ; then
+        echo "WARNING: Failed to detect a model version, will use default: '${MODEL}'"
+    else
+        echo "SUCCESS: Automatic model selection chose model: '${model}'"
+        MODEL=${model}
+    fi
+fi
+
 echo "Checking program versions"
 echo "This is ${medaka_version}"
 medaka_version_report || exit 1
@@ -103,9 +117,9 @@ medaka_version_report || exit 1
 if [[ ! -e "${OUTPUT}" ]]; then
   mkdir -p "${OUTPUT}"
 elif ${FORCE}; then
-  echo "Warning: Output will be overwritten (-f flag)"
+  echo "WARNING: Output will be overwritten (-f flag)"
 else
-  echo "Warning: Output ${OUTPUT} already exists, may use old results."
+  echo "WARNING: Output ${OUTPUT} already exists, may use old results."
 fi
 
 cd "${OUTPUT}"

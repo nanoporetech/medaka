@@ -61,6 +61,29 @@ class TestModelFiles(unittest.TestCase):
             self.assertIsInstance(label_scheme, BaseLabelScheme)
 
 
+class TestScrapBasecaller(unittest.TestCase):
+
+    root_dir = os.path.abspath(os.path.dirname(__file__))
+    bam = os.path.join(root_dir, 'data/bc_model_scrape.bam')
+    fastq = os.path.join(root_dir, 'data/bc_model_scrape.fastq.gz')
+
+    def test_000_from_bam_consensus(self):
+        model = models.model_from_basecaller(self.bam, variant=False)
+        self.assertEqual(model, "r1041_e82_400bps_hac_v4.2.0")
+
+    def test_001_from_bam_variant(self):
+        model = models.model_from_basecaller(self.bam, variant=True)
+        self.assertEqual(model, "r1041_e82_400bps_hac_variant_v4.2.0")
+
+    def test_010_from_fastq_consensus(self):
+        model = models.model_from_basecaller(self.fastq, variant=False)
+        self.assertEqual(model, "r1041_e82_400bps_hac_v4.2.0")
+
+    def test_011_from_fastq_variant(self):
+        model = models.model_from_basecaller(self.fastq, variant=True)
+        self.assertEqual(model, "r1041_e82_400bps_hac_variant_v4.2.0")
+
+
 class TestBuildModel(unittest.TestCase):
 
     def test_000_build_all_models(self):

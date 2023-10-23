@@ -7,16 +7,13 @@ import pathlib
 
 import pkg_resources
 
+# the models used by default for CLI entry points
+default_models = {
+    'consensus': 'r1041_e82_400bps_sup_v4.2.0',
+    'variant': 'r1041_e82_400bps_sup_variant_v4.2.0'
+}
 
-model_subdir = 'data'
-model_stores = (
-    pkg_resources.resource_filename(__package__, model_subdir),
-    os.path.join(
-        str(pathlib.Path.home()), '.{}'.format(__package__), model_subdir)
-)
-model_url_template = \
-    'https://github.com/nanoporetech/{pkg}/raw/master/{pkg}/{subdir}/{fname}'
-
+# current models are those included in PyPI packages
 current_models = [
     # r1041 e82 (kit14) consensus
     'r1041_e82_400bps_hac_v4.2.0',
@@ -25,6 +22,63 @@ current_models = [
     'r1041_e82_400bps_hac_variant_v4.2.0',
     'r1041_e82_400bps_sup_variant_v4.2.0',
 ]
+
+# mapping from basecaller model names to medaka models.
+# name: (consensus, variant)
+# models here are automatically added to full archived list
+basecaller_models = {
+    # R10.3
+    'dna_r10.3_450bps_hac':
+        ('r103_hac_g507', 'r103_hac_variant_g507'),
+    'dna_r10.3_450bps_hac_prom':
+    ('r103_hac_g507', 'r103_hac_variant_g507'),
+    # R10.4.1 260bps
+    'dna_r10.4.1_e8.2_260bps_hac':
+    ('r1041_e82_260bps_hac_g632', 'r1041_e82_260bps_hac_variant_g632'),
+    'dna_r10.4.1_e8.2_260bps_hac@v4.0.0':
+        ('r1041_e82_260bps_hac_v4.0.0', None),
+    'dna_r10.4.1_e8.2_260bps_hac@v4.1.0':
+        ('r1041_e82_260bps_hac_v4.1.0', 'r1041_e82_260bps_hac_variant_v4.1.0'),
+    'dna_r10.4.1_e8.2_260bps_hac_prom':
+        ('r1041_e82_260bps_hac_g632', 'r1041_e82_260bps_hac_variant_g632'),
+    'dna_r10.4.1_e8.2_260bps_sup@v4.0.0':
+        ('r1041_e82_260bps_sup_v4.0.0', None),
+    'dna_r10.4.1_e8.2_260bps_sup@v4.1.0':
+        ('r1041_e82_260bps_sup_v4.1.0', 'r1041_e82_260bps_sup_variant_v4.1.0'),
+    # R10.4.1 400bps
+    'dna_r10.4.1_e8.2_400bps_hac':
+        ('r1041_e82_400bps_hac_g632', 'r1041_e82_400bps_hac_variant_g632'),
+    'dna_r10.4.1_e8.2_400bps_hac@v3.5.2':
+        ('r1041_e82_400bps_hac_g632', 'r1041_e82_400bps_hac_variant_g632'),
+    'dna_r10.4.1_e8.2_400bps_hac@v4.0.0':
+        ('r1041_e82_400bps_hac_v4.0.0', None),
+    'dna_r10.4.1_e8.2_400bps_hac@v4.1.0':
+        ('r1041_e82_400bps_hac_v4.1.0', 'r1041_e82_400bps_hac_variant_v4.1.0'),
+    'dna_r10.4.1_e8.2_400bps_hac@v4.2.0':
+        ('r1041_e82_400bps_hac_v4.2.0', 'r1041_e82_400bps_hac_variant_v4.2.0'),
+    'dna_r10.4.1_e8.2_400bps_hac_prom':
+        ('r1041_e82_400bps_hac_g632', 'r1041_e82_400bps_hac_variant_g632'),
+    'dna_r10.4.1_e8.2_400bps_sup@v3.5.2':
+        ('r1041_e82_400bps_sup_g615', 'r1041_e82_400bps_sup_variant_g615'),
+    'dna_r10.4.1_e8.2_400bps_sup@v4.0.0':
+        ('r1041_e82_400bps_sup_v4.0.0', None),
+    'dna_r10.4.1_e8.2_400bps_sup@v4.1.0':
+        ('r1041_e82_400bps_sup_v4.1.0', 'r1041_e82_400bps_sup_variant_v4.1.0'),
+    'dna_r10.4.1_e8.2_400bps_sup@v4.2.0':
+        ('r1041_e82_400bps_sup_v4.2.0', 'r1041_e82_400bps_sup_variant_v4.2.0'),
+    # R9.4.1 This is a little dodgy
+    # note: 'dna_r9.4.1_450bps_hac' is not present here as there is not a
+    #       injective mapping.
+    'dna_r9.4.1_e8_fast@v3.4':
+        ('r941_min_fast_g507', 'r941_min_fast_variant_g507'),
+    'dna_r9.4.1_e8_hac@v3.3':
+        ('r941_min_hac_g507', 'r941_min_hac_variant_g507'),
+    'dna_r9.4.1_e8_sup@v3.3':
+        ('r941_min_sup_g507', 'r941_min_sup_variant_g507')}
+
+# archived models are not included in packages but can be downloaded on the fly
+# this list SHOULD NOT be added to, any new models should go into the above
+# basecaller_models structure
 archived_models = [
     # r9 consensus
     'r941_sup_plant_g610',
@@ -95,12 +149,23 @@ archived_models = [
     'r941_e81_fast_variant_g514', 'r941_e81_hac_variant_g514',
     'r941_e81_sup_variant_g514',
 ]
-allowed_models = sorted(current_models + archived_models)
-default_models = {
-    'consensus': 'r1041_e82_400bps_sup_v4.2.0',
-    'variant': 'r1041_e82_400bps_sup_variant_v4.2.0'
-}
 
+# add basecaller models, then deduplicate and sort
+for models in basecaller_models.values():
+    archived_models.extend((m for m in models if m is not None))
+allowed_models = sorted(set(current_models + archived_models))
+
+# where we look for model files and store them
+model_subdir = 'data'
+model_stores = (
+    pkg_resources.resource_filename(__package__, model_subdir),
+    os.path.join(
+        str(pathlib.Path.home()), '.{}'.format(__package__), model_subdir)
+)
+model_url_template = \
+    'https://github.com/nanoporetech/{pkg}/raw/master/{pkg}/{subdir}/{fname}'
+
+# suspect this isn't used anymore...
 alignment_params = {
     'rle': "-M 5 -S 4 -O 2 -E 3",
     'non-rle': "-M 2 -S 4 -O 4,24 -E 2,1"}

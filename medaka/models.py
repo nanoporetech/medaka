@@ -1,9 +1,11 @@
 """Creation and loading of models."""
 
+import itertools
 import os
 import pathlib
 import tempfile
 
+import pysam
 import requests
 
 import medaka.common
@@ -88,6 +90,98 @@ def resolve_model(model):
                 msg.format(
                     model, ' or '.join(medaka.options.model_stores), url))
     raise RuntimeError("Model resolution failed")
+
+
+def model_from_basecaller(fname, variant=False):
+    """Determine correct medaka model from basecaller output file.
+
+    :param fname: a basecaller output (.sam/.bam/.cram/.fastq).
+    :param variant: whether to return variant model (otherwise consensus).
+
+    There are slight differences is the search strategy for .bam and .fastq
+    files due to differences in what information is available in each.
+
+    For .bam (and related) files the DS subfield of the read group header
+    is examined to find the "basecall_model=" key=value entry. The found
+    model is returned vebatim without fursther checks.
+
+    For .fastq (and related) a RG:Z key=value in record comments is searched
+    in the first 100 records. Due to ambiguities in the representation the
+    search looks explicitely for known models.
+    """
+    logger = medaka.common.get_named_logger("MdlInspect")
+    logger.info("Trying to find model")
+    try:
+        models = _model_from_bam(fname)
+    except Exception:
+        try:
+            models = _model_from_fastq(fname)
+        except Exception:
+            raise IOError(
+                "Failed to parse basecaller models from input file.")
+
+    if len(models) != 1:
+        # TODO: this potentially conflicts with medaka's ability to use
+        #       multiple data types. In that case a user can just
+        #       explicitely provide the correct model.
+        raise ValueError(
+            "Input file did not contain precisely 1 basecaller "
+            "model reference.")
+
+    basecaller = list(models)[0]
+    if basecaller not in medaka.options.basecaller_models.keys():
+        raise KeyError(
+            "Unknown basecaller model. Please provide a medaka model "
+            "explicitely using --model.")
+
+    consensus, var = medaka.options.basecaller_models[basecaller]
+    model = var if variant else consensus
+    if model is None:
+        txt = "variant" if variant else "consensus"
+        raise ValueError(
+            f"No {txt} model available for basecaller {basecaller}.")
+    return model
+
+
+def _model_from_bam(fname):
+    """Search for basecaller models listed in a .bam."""
+    models = set()
+    with pysam.AlignmentFile(fname, check_sq=False) as bam:
+        callers = [rg['DS'] for rg in bam.header['RG']]
+        logger.info(f"Found basecall models: {callers}")
+        for caller in callers:
+            models.add(caller.split("basecall_model=")[1].split()[0])
+    return models
+
+
+def _model_from_fastq(fname):
+    """Search for model files listed in a .fastq."""
+    known_models = list(medaka.options.basecaller_models.keys())
+    models = set()
+    with pysam.FastxFile(fname, 'r') as fastq:
+        for rec in itertools.islice(fastq, 100):
+            # model is embedded in RG:Z: tag of comment as
+            # <run_id>_<model>_<barcode>, but model has _
+            # characters in also so search for known models
+            try:
+                read_group = rec.comment.split("RG:Z:")[1].split()[0]
+                for model in known_models:
+                    if model in read_group:
+                        models.add(model)
+            except Exception:
+                pass
+    if len(models) > 1:
+        # filter out any models without an `@`. These are likely FPs of
+        # the search above (there are unversioned models whose name
+        # is a substring of the versioned models).
+        unversioned = {m for m in models if '@' not in m}
+        versioned = {m for m in models if '@' in m}
+        remove = set()
+        for unver, ver in itertools.product(unversioned, versioned):
+            if unver in ver:
+                remove.add(unver)
+        models = models - remove
+    return models
 
 
 def open_model(fname):

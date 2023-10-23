@@ -110,7 +110,7 @@ not be provided by the user.
 
 **Using a GPU**
 
-Since version 1.1.0 `medaka` uses Tensorflow 2.2, prior versions used Tensorflow 1.4.
+Since version 1.1.0 `medaka` uses Tensorflow 2, prior versions used Tensorflow 1.
 For `medaka` 1.1.0 and higher installation from source or using `pip` can make
 immediate use of GPUs. However, note that the `tensorflow` package is compiled against
 specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the
@@ -213,6 +213,33 @@ Models
 For best results it is important to specify the correct model, `-m` in the
 above, according to the basecaller used. Allowed values can be found by
 running `medaka tools list\_models`.
+
+**Recent basecallers**
+
+Recent basecaller versions annotate their output with their model version.
+In such cases medaka can inspect the files and attempt to select an appropriate
+model for itself. This typically works best in the case of BAM output from
+basecallers. It will work also for FASTQ input provided the FASTQ has been
+created from basecaller output using:
+
+```
+samtools fastq -T '*' dorado.bam | gzip -c > dorado.fastq.gz
+```
+
+The command `medaka consensus` will attempt to automatically determine a
+correct model by inspecting its BAM input file. The helper scripts
+`medaka_consensus` and `medaka_haploid_variant` will make similar attempts
+from their FASTQ input.
+
+To inspect files for yourself, the command:
+
+```
+medaka tools resolve_model --auto_model <consensus/variant> <input.bam/input.fastq>
+```
+
+will print the model that automatic model selection will use.
+
+**For older basecallers and when automatic selection is unsuccessful**
 
 Medaka models are named to indicate i) the pore type, ii) the sequencing
 device (MinION or PromethION), iii) the basecaller variant, and iv) the
