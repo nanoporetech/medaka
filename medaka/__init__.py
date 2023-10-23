@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 
-__version__ = "1.10.0"
+__version__ = "1.11.0"
 
 try:
     import pyabpoa as abpoa

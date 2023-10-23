@@ -4,9 +4,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [unreleased]
+## [v1.11.0]
 ### Fixed
 - Correct suffix of consensus file when `medaka_consensus` outputs a fastq.
+### Added
+- Choice of model file can be introspected from input files. For BAM files the
+  read group (RG) headers are searched according to the dorado
+  [specification](https://github.com/nanoporetech/dorado/blob/master/documentation/SAM.md),
+  whilst for .fastq files the comment section of a number of reads are checked
+  for corresponding read group information. In the latter case see README for
+  information on correctly converting basecaller output to .fastq whilst
+  maintaining the relevant meta information.
+- `medaka tools resolve_model` can display the model that would automatically
+  be used for a given input file.
+### Changed
+- If no model is provided on command-line interface (medaka consensus,
+  medaka_consensus, and medaka_haploid_variant) automatic attempts will be made
+  to choose the appropriate model.
 
 ## [v1.10.0]
 ### Changed
