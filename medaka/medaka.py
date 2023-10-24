@@ -196,7 +196,7 @@ def _model_arg():
     grp = parser.add_mutually_exclusive_group()
     grp.add_argument('--model', action=ResolveModel,
             default=medaka.options.default_models['consensus'],
-            help='Model to use.')
+            help="Model to use. Can be a medaka model name or a basecaller model name suffixed with ':consensus' or ':variant'. For example 'dna_r10.4.1_e8.2_400bps_hac@v4.1.0:variant'.")
     grp.add_argument('--auto_model', nargs=2, action=AutoModel,
             metavar=("TYPE", "INPUT"), dest='model',
             help="Automatically choose model according to INPUT. TYPE should be one of 'consensus' or 'variant'.")
@@ -290,9 +290,9 @@ def _validate_common_args(args, parser):
             # in behaviour from the historic.
             logger.debug("Guessing model")
             if hasattr(args, 'bam') and args.bam is not None:
-                model = medaka.models.model_from_basecaller(
-                    args.bam, variant="consensus")
                 try:
+                    model = medaka.models.model_from_basecaller(
+                        args.bam, variant="consensus")
                     args.model = medaka.models.resolve_model(model)
                 except Exception as e:
                     logger.warning(

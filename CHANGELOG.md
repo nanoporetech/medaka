@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.11.1]
+### Fixed
+- Do not exit if model cannot be interpreted, use the default instead.
+### Added
+- Ability to use basecaller model name as --model argument.
+
 ## [v1.11.0]
 ### Fixed
 - Correct suffix of consensus file when `medaka_consensus` outputs a fastq.

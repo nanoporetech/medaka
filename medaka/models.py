@@ -30,8 +30,21 @@ def resolve_model(model):
     if os.path.exists(model):  # model is path to model file
         return model
     elif model not in medaka.options.allowed_models:
+        # try to resolve as a basecaller model <model>:<variety>
+        err_msg = f"Failed to interpret '{model}' as a basecaller model."
+        try:
+            bc_model, variety = model.split(":")
+            if variety in {'consensus', 'variant'} and \
+                    bc_model in medaka.options.basecaller_models.keys():
+                consensus, var = medaka.options.basecaller_models[bc_model]
+                mod = var if variety == 'variant' else consensus
+                return resolve_model(mod)
+            else:
+                raise ValueError(err_msg)
+        except Exception:
+            logger.warning(err_msg)
         raise ValueError(
-            "Model {} is not a known model or existant file.".format(model))
+            f"Model {model} is not a known model or existant file.")
     else:
         # check for model in model stores
         for suffix in suffixes:
