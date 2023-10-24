@@ -239,7 +239,21 @@ medaka tools resolve_model --auto_model <consensus/variant> <input.bam/input.fas
 
 will print the model that automatic model selection will use.
 
+
 **For older basecallers and when automatic selection is unsuccessful**
+
+If the name of the basecaller model used is known, but has been lost from the input
+files, the basecaller model can been provided to medaka directly. It must however
+be appended with either `:consensus` or `:variant` according to whether the user
+wishing to use the consensus or variant calling medaka model. For example:
+
+```
+medaka consensus input.bam output.hdf \
+    --model dna_r10.4.1_e8.2_400bps_hac@v4.1.0:variant
+```
+
+will use the medaka variant calling model appropriate for use with the basecaller
+model named `dna_r10.4.1_e8.2_400bps_hac@v4.1.0`.
 
 Medaka models are named to indicate i) the pore type, ii) the sequencing
 device (MinION or PromethION), iii) the basecaller variant, and iv) the
@@ -281,19 +295,19 @@ can take as input one or more of the `.hdf` files output by Step 2.
 
 So in summary something like this is possible:
 
-.. code-block:: bash
-
-    # align reads to assembly
-    mini_align -i basecalls.fasta -r assembly.fasta -P -m \
-        -p calls_to_draft.bam -t <threads>
-    # run lots of jobs like this, change model as appropriate
-    mkdir results
-    medaka consensus calls_to_draft.bam results/contigs1-4.hdf \
-        --model r941_min_fast_g303 --batch 200 --threads 8 \
-        --region contig1 contig2 contig3 contig4
-    ...
-    # wait for jobs, then collate results
-    medaka stitch results/*.hdf polished.assembly.fasta
+```
+# align reads to assembly
+mini_align -i basecalls.fasta -r assembly.fasta -P -m \
+    -p calls_to_draft.bam -t <threads>
+# run lots of jobs like this, change model as appropriate
+mkdir results
+medaka consensus calls_to_draft.bam results/contigs1-4.hdf \
+    --model r941_min_fast_g303 --batch 200 --threads 8 \
+    --region contig1 contig2 contig3 contig4
+...
+# wait for jobs, then collate results
+medaka stitch results/*.hdf polished.assembly.fasta
+```
 
 It is not recommended to specify a value of `--threads` greater than 2 for
 `medaka consensus` since the compute scaling efficiency is poor beyond this.

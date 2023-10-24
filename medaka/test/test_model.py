@@ -44,6 +44,11 @@ class TestModelFiles(unittest.TestCase):
         os.remove(new_file)
         os.rename(tmp_file, model_file)
 
+    def test_020_basecaller_model(self):
+        name = next(iter(medaka.options.basecaller_models.keys()))
+        for variety in ('consensus', 'variant'):
+            model = models.resolve_model(f"{name}:{variety}")
+
     def test_999_load_all_models(self):
         with ThreadPoolExecutor(max_workers=4) as executor:
             for name in medaka.options.allowed_models:
@@ -90,7 +95,6 @@ class TestBuildModel(unittest.TestCase):
         num_classes, time_steps, feat_len = 5, 5, 5
         for name, func in models.model_builders.items():
             model = func(feat_len, num_classes, time_steps=time_steps)
-
 
 
 class TestMajorityModel(unittest.TestCase):
