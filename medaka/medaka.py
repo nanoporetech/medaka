@@ -531,10 +531,13 @@ def medaka_parser():
         help='Sample sex, required for appropriate handling of X/Y chromosomes including PAR regions.')
     trparser.add_argument('output', help='Output directory.')
     trparser.add_argument('--phasing', choices=set(medaka.tandem.phasing_options.keys()),
-        default='hybrid', help='Phasing method. prephased: '
-        'use HP bam tags. abpoa: abpoa diploid clustering. '
-        'hybrid: try prephased, use abpoa when either '
-        'haplotype has < --depth coverage.')
+        default='hybrid', help='Phasing method. '
+        'prephased: use HP bam tags. '
+        'abpoa: abpoa diploid clustering. '
+        'hybrid: try prephased, use abpoa when either haplotype has < --depth '
+        'coverage.'
+        'unphased: assume sample is haploid / homozygous in target regions.'
+    )
     trparser.add_argument('--depth', type=int, default=3,
         help='Minimum reads per haplotype.')
     trparser.add_argument('--min_mapq', type=int, default=5,

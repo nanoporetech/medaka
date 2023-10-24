@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Do not exit if model cannot be interpreted, use the default instead.
 ### Added
 - Ability to use basecaller model name as --model argument.
+- Better handling or errors when running abpoa.
 
 ## [v1.11.0]
 ### Fixed

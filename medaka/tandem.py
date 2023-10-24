@@ -14,6 +14,7 @@ import edlib
 import numpy as np
 import parasail
 import pysam
+import wurlitzer
 
 from medaka import abpoa
 import medaka.align
@@ -267,14 +268,16 @@ def abpoa_consensus(aligner, subreads, max_n_cons=2):
     seqs = [
         s.seq if r.strand == 'fwd' else medaka.common.reverse_complement(s.seq)
         for s, r in zip(subreads, records)]
+    # capture abpoa c-code error messages written to sterr so we can report
+    # which regions / records had errors.
+    with wurlitzer.pipes(bufsize=0) as (out, err):
+        result = aligner.msa(
+            seqs, out_cons=True, out_msa=False, max_n_cons=max_n_cons,
+            min_freq=0.3)
+    return result, err.read()
 
-    result = aligner.msa(
-        seqs, out_cons=True, out_msa=False, max_n_cons=max_n_cons,
-        min_freq=0.3)
-    return result
 
-
-def get_abpoa_clusters(subreads, put_bam_hp_in_name=True):
+def get_abpoa_clusters(subreads, put_bam_hp_in_name=True, orderings='dsc'):
     """Cluster / phase reads using abpoa, checking for order dependence."""
     def rle_seq(seq):
         return ''.join(medaka.common.rle(seq)['value'])
@@ -286,8 +289,20 @@ def get_abpoa_clusters(subreads, put_bam_hp_in_name=True):
     subreads_rle_asc = sorted(subreads_rle, key=lambda s: len(s.seq))
     subreads_rle_dsc = subreads_rle_asc[::-1]
     aligner = abpoa.msa_aligner(aln_mode='g')
-    result_rle_asc = abpoa_consensus(aligner, subreads_rle_asc, max_n_cons=2)
-    result_rle_dsc = abpoa_consensus(aligner, subreads_rle_dsc, max_n_cons=2)
+    if orderings in {'asc', 'both'}:
+        result_rle_asc, err_asc = abpoa_consensus(
+            aligner, subreads_rle_asc, max_n_cons=2)
+        if orderings == 'asc':
+            result_rle_dsc, err_dsc = result_rle_asc, err_asc
+            subreads_rle_dsc = subreads_rle_asc
+
+    if orderings in {'dsc', 'both'}:
+        result_rle_dsc, err_dsc = abpoa_consensus(
+            aligner, subreads_rle_dsc, max_n_cons=2)
+        if orderings == 'dsc':
+            result_rle_asc, err_asc = result_rle_dsc, err_dsc
+            subreads_rle_asc = subreads_rle_dsc
+    abpoa_stderr = err_asc + err_dsc
 
     d = check_cluster_read_partitioning(
         result_rle_asc, result_rle_dsc, subreads_rle_asc, subreads_rle_dsc)
@@ -310,17 +325,23 @@ def get_abpoa_clusters(subreads, put_bam_hp_in_name=True):
             )
         del d[f'hap{h}_reads']
 
-    return d, clustered_subreads
+    return d, clustered_subreads, abpoa_stderr
 
 
-def process_record_abpoa(bam_fp, rec, ref_fasta, min_depth, min_mapq):
+def process_record_abpoa(
+        bam_fp, rec, ref_fasta, min_depth, min_mapq,
+        align_trimmed_reads_to_ref=False):
     """Process a record using abpoa for phasing."""
+    logger = medaka.common.get_named_logger('ABPOA')
+    logger.debug(f'Processing rec {rec}')
     subreads = get_subreads(bam_fp, rec, min_mapq=min_mapq)
     if len(subreads) < min_depth:
         raise InsufficientCoverage(
             f"{rec}: Retrieved too few reads ({len(subreads)} < {min_depth})")
 
-    d, clustered_reads = get_abpoa_clusters(subreads)
+    d, clustered_reads, abpoa_stderr = get_abpoa_clusters(subreads)
+    if abpoa_stderr:
+        logger.debug(f'Abpoa stderr for {rec}:\n{abpoa_stderr}')
     cons = []
     for h in [1] if d['is_homozygous'] else [1, 2]:
         cons_rec = copy(rec)
@@ -329,14 +350,19 @@ def process_record_abpoa(bam_fp, rec, ref_fasta, min_depth, min_mapq):
         cons.append(
             consensus_pileup_from_reads(cons_rec,
                                         clustered_reads[h],
-                                        ref_fasta,
                                         min_depth=min_depth)
         )
+    ref_alns = None
+    if align_trimmed_reads_to_ref:
+        ref_alns = align_trimmed_reads_to_ref(
+            rec, [s for h in clustered_reads.values() for s in h], ref_fasta)
     d['phasing_method'] = 'abpoa'
-    return d, cons, clustered_reads[0]
+    return d, cons, ref_alns, clustered_reads[0]
 
 
-def process_record_prephased(bam_fp, rec, ref_fasta, min_depth, min_mapq):
+def process_record_prephased(
+        bam_fp, rec, ref_fasta, min_depth, min_mapq,
+        align_trimmed_reads_to_ref=False):
     """Process a record using prephased reads (using HP tags in bam)."""
     subreads = get_subreads(bam_fp, rec, min_mapq=min_mapq)
     if len(subreads) < 2 * min_depth:  # min_depth per haplotype
@@ -354,19 +380,24 @@ def process_record_prephased(bam_fp, rec, ref_fasta, min_depth, min_mapq):
         cons.append(
             consensus_pileup_from_reads(cons_rec,
                                         subreads_by_hap[h],
-                                        ref_fasta,
                                         min_depth=min_depth))
     d = dict()
     for h in range(3):
         d.update(summarize_reads(
             [s.name for s in subreads_by_hap[h]],
             prefix=f'hap{h}_', bhp_counts=False))
+
+    ref_alns = None
+    if align_trimmed_reads_to_ref:
+        ref_alns = align_trimmed_reads_to_ref(rec, subreads, ref_fasta)
     d['phasing_method'] = 'prephased'
-    return d, cons, subreads_by_hap[0]
+    return d, cons, ref_alns, subreads_by_hap[0]
 
 
-def process_record_haploid(bam_fp, rec, ref_fasta, min_depth, min_mapq):
-    """Process haploid regions e.g. sex chromosomes."""
+def process_record_unphased(
+        bam_fp, rec, ref_fasta, min_depth, min_mapq,
+        align_trimmed_reads_to_ref=False):
+    """Process unphased regions e.g. sex chromosomes."""
     subreads = get_subreads(bam_fp, rec, min_mapq=min_mapq)
     if len(subreads) < min_depth:
         raise InsufficientCoverage(
@@ -376,30 +407,34 @@ def process_record_haploid(bam_fp, rec, ref_fasta, min_depth, min_mapq):
     cons_rec.hap = h
     cons_rec.query_name += '_HOM'
     c = consensus_pileup_from_reads(
-        cons_rec, subreads, ref_fasta, min_depth=min_depth)
+        cons_rec, subreads, min_depth=min_depth)
     d = summarize_reads(
         [s.name for s in subreads], prefix='', bhp_counts=False)
-    d['phasing_method'] = 'haploid'
+
+    ref_alns = None
+    if align_trimmed_reads_to_ref:
+        ref_alns = align_trimmed_reads_to_ref(rec, subreads, ref_fasta)
+    d['phasing_method'] = 'unphased'
     ambig_reads = []
-    return d, [c], ambig_reads
+    return d, [c], ref_alns, ambig_reads
 
 
 def process_record_hybrid(*args):
     """Try to using existing phasing, fall back to abpoa."""
     try:
-        m, haps, ambig_reads = process_record_prephased(*args)
+        m, haps, ref_alns, ambig_reads = process_record_prephased(*args)
         for hap in haps:  # hap is ConsensusResult
             if isinstance(hap.exception, InsufficientCoverage):
                 # insufficient depth on a single haplotype
                 return process_record_abpoa(*args)
     except InsufficientCoverage:
         # less than 2 * min_depth in total
-        # still try to phase with abpoa as if abpoa decides region is haploid,
+        # still try to phase with abpoa as if abpoa decides region is hom,
         # can get away with min_depth not 2 * min_depth
         # TODO revisit this.
         return process_record_abpoa(*args)
 
-    return m, haps, ambig_reads
+    return m, haps, ref_alns, ambig_reads
 
 
 def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
@@ -412,10 +447,6 @@ def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
 
     :returns: dict
     """
-    # TODO check if clu_read_ids of each cluster are superset of subreads
-    # have seen abpoa error messages suggesting some reads are not assigned a
-    # cluster - these should be included in counts of ambigous reads but are
-    # probably not currently being used in consensus calculations.
     assert res_a.n_seq == res_b.n_seq
     # subreads should be in a different order but check we have same reads
     assert set(s.name for s in subreads_a) == set(s.name for s in subreads_b)
@@ -452,9 +483,16 @@ def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
         ambig_reads = cluster_ovlps[0][0] | cluster_ovlps[1][1]
         diag_edits, off_diag_edits = off_diag_edits, diag_edits
 
-    # get fraction of reads that have jumped between clusters upon alternative
-    # ordering of reads
-    fraction_ambig = len(ambig_reads) / res_a.n_seq
+    # check if clu_read_ids of each cluster are superset of subreads
+    # abpoa reports that in come cases reads are not assigned a
+    # cluster - these should be inluded in counts of ambigous reads
+    all_names = set((s.name for s in subreads_a))
+    unassigned = set()
+    for res, reads in ((res_a, subreads_a), (res_b, subreads_b)):
+        assigned = set((reads[i].name for c in res.clu_read_ids for i in c))
+        # track unassigned reads with either ordering.
+        unassigned.update(all_names - assigned)
+
     # in an ideal case of no POA order dependence, diagonal edits (i.e. between
     # a single haplotype with alternative orderings) will be zero, so edits
     # ratio will be zero. Large values imply stronger order depedence of the
@@ -464,7 +502,7 @@ def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
     is_homozygous = all([r.n_cons == 1 for r in (res_a, res_b)])
 
     # if we have two clusters, but all reads in second cluster are ambigous and
-    # hence removed  such that second cluster has no reads, make this haploid
+    # hence removed  such that second cluster has no reads, make this hom
     # TODO - or should we skip such regions given such issues?
     empty_second_cluster = False
     if (
@@ -499,12 +537,16 @@ def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
             n_same_tags, n_switched = n_switched, n_same_tags
 
     return dict(
+        n_reads=len(subreads_a),
         hap1_reads=cluster1_reads,
         hap2_reads=cluster2_reads,
-        hap0_reads=ambig_reads,
+        hap0_reads=ambig_reads | unassigned,
         is_homozygous=is_homozygous,
         empty_second_cluster=empty_second_cluster,
-        fraction_ambig_reads=round(fraction_ambig, 3),
+        # reads that jumped clusters upon alternative read ordering
+        n_ambig_reads=len(ambig_reads),
+        # reads that were not assigned clusters
+        n_unasign_reads=len(unassigned),
         # smaller edits_ratio implies consensus seqs robust to read ordering
         edits_ratio=round(edits_ratio, 3),
         diag_edits=diag_edits,
@@ -527,13 +569,45 @@ class ConsensusResult:
     consensus_seq: str = None
     consensus_alignments: tuple = None
     ref_seq: str = None
-    ref_alignments: tuple = None
     exception: Exception = None
 
 
-def consensus_pileup_from_reads(
-    rec, subreads, ref_fasta, min_depth=3, align_to_ref=False
-):
+def align_trimmed_reads_to_ref(rec, subreads, ref_fasta):
+    """Run consensus and generate read-consensus alignments."""
+    if isinstance(rec, str):
+        rec = RecordName.from_str(rec)
+
+    if isinstance(ref_fasta, str):
+        ref_fasta = pysam.FastaFile(ref_fasta)
+
+    ref_seq = ref_fasta.fetch(
+        rec.ref_name, rec.ref_start_padded, rec.ref_end_padded)
+
+    consensus_read = medaka.smolecule.Read(
+        name=str(rec), subreads=subreads)
+    # avoid realignment to discover strandedness
+    consensus_read._orient = [
+        RecordName.from_str(s.name).strand == 'fwd' for s in subreads
+    ]
+    consensus_read._initialized = True
+
+    # use global aligner
+    consensus_read.parasail_aligner_name = 'nw_trace_scan_32'
+
+    # align sub-reads (i.e. trimmed pileup) to reference (for debug purposes)
+    ref_alignments = []
+    for aln in consensus_read.align_to_template(
+        ref_seq, rec.ref_name,
+    ):
+        aln_dict = aln._asdict()
+        # shift rstart to entire chromosome coords
+        aln_dict['rstart'] += rec.ref_start_padded
+        ref_alignments.append(medaka.smolecule.Alignment(**aln_dict))
+
+    return ref_alignments
+
+
+def consensus_pileup_from_reads(rec, subreads, min_depth=3):
     """Run consensus and generate read-consensus alignments."""
     if isinstance(rec, str):
         rec = RecordName.from_str(rec)
@@ -546,12 +620,6 @@ def consensus_pileup_from_reads(
         res.exception = InsufficientCoverage(
             f"{rec}: Too few reads ({len(res.subreads)} < {min_depth})")
         return res
-
-    if isinstance(ref_fasta, str):
-        ref_fasta = pysam.FastaFile(ref_fasta)
-
-    res.ref_seq = ref_fasta.fetch(
-        rec.ref_name, rec.ref_start_padded, rec.ref_end_padded)
 
     consensus_read = medaka.smolecule.Read(
         name=str(rec), subreads=res.subreads)
@@ -578,18 +646,6 @@ def consensus_pileup_from_reads(
         template=res.consensus_seq,
         template_name=consensus_read.name,
     )
-
-    # align sub-reads (i.e. trimmed pileup) to reference (for debug purposes)
-    res.ref_alignments = []
-    if align_to_ref:
-        for aln in consensus_read.align_to_template(
-            res.ref_seq, rec.ref_name,
-        ):
-            aln_dict = aln._asdict()
-            # shift rstart to entire chromosome coords
-            aln_dict['rstart'] += rec.ref_start_padded
-            res.ref_alignments.append(medaka.smolecule.Alignment(**aln_dict))
-
     return res
 
 
@@ -677,6 +733,7 @@ phasing_options = {
     'prephased': process_record_prephased,
     'abpoa': process_record_abpoa,
     'hybrid': process_record_hybrid,
+    'unphased': process_record_unphased,
 }
 
 
@@ -689,7 +746,7 @@ def record_to_process_func(
     if sex == 'female':
         # exlude Y regions, but otherwise process everything as diploid
         if record.ref_name == chr_y_name:
-            logger.info(
+            logger.debug(
                 (f'Skipping {record.to_unpadded_region()} on '
                  f'{chr_y_name} as sample is female.'))
             return
@@ -698,13 +755,40 @@ def record_to_process_func(
         # for male samples, process X and Y as haploid with exception of
         # diploid PAR X regions.
         if any((region.overlaps(par_reg) for par_reg in par_regions)):
-            logger.info(f'{region} is PAR, treating as diploid')
+            logger.debug(f'{region} is PAR, treating as diploid')
             return phasing_options[phasing_method]
         elif region.ref_name in sex_chroms:
-            logger.info(f'{region} is sex chrom, so haploid for male.')
-            return process_record_haploid
+            logger.debug(f'{region} is sex chrom, so haploid for male.')
+            return process_record_unphased
         else:
             return phasing_options[phasing_method]
+
+
+def write_bam(fname, alignments, header, bam=True):
+    """Write a `.bam` file for a set of alignments.
+
+    :param fname: output filename.
+    :param alignments: a list of `Alignment` tuples.
+    :param header: bam header
+    :param bam: write bam, else sam
+
+    """
+    # TODO this is copied from smolecule - figure out where to put common
+    # version
+    mode = 'wb' if bam else 'w'
+    if isinstance(header, dict):
+        header = pysam.AlignmentHeader.from_dict(header)
+    with pysam.AlignmentFile(fname, mode, header=header) as fh:
+        for subreads in alignments:
+            for aln in sorted(subreads, key=lambda x: x.rstart):
+                r = RecordName.from_str(aln.qname)
+                a = medaka.align.initialise_alignment(
+                    aln.qname, header.get_tid(aln.rname),
+                    aln.rstart, aln.seq,
+                    aln.cigar, aln.flag, tags=dict(HP=r.hap))
+                fh.write(a)
+    if mode == 'wb':
+        pysam.index(fname)
 
 
 def main(args):
@@ -757,7 +841,7 @@ def main(args):
 
     metrics_fhs = {
         k: open(os.path.join(out_dir, f'{k}_region_metrics.txt'), 'w')
-        for k in ('prephased', 'abpoa', 'haploid')
+        for k in ('prephased', 'abpoa', 'unphased')
     }
 
     with concurrent.futures.ProcessPoolExecutor(
@@ -792,7 +876,7 @@ def main(args):
             e = fut.exception()
             if e is None:
                 metrics = rec.to_unpadded_region()._asdict()
-                (m, haps, ambig_reads) = fut.result()
+                (m, haps, ref_alns, ambig_reads) = fut.result()
                 method = m.pop('phasing_method')
                 metrics.update(m)
                 if not metrics_fhs[method].tell():  # file empty
@@ -800,7 +884,6 @@ def main(args):
                 metrics_fhs[method].write(
                     "\t".join((str(v) for v in metrics.values())) + "\n")
                 for hap in haps:  # hap is ConsensusResult
-                    logger.debug(f"Generated poa consensus for {hap.rec}")
                     if isinstance(hap.exception, InsufficientCoverage):
                         # insufficient depth on a single haplotype
                         logger.info(hap.exception.args[0])
@@ -814,10 +897,11 @@ def main(args):
                     # appending to lists. only thing need to accumulate is
                     # consensus alignments as don't have header
                     consensuses.append([str(hap.rec), hap.consensus_seq])
-                    all_ref_alignments.append(hap.ref_alignments)
                     all_trimmed_reads += list(hap.subreads)
                     all_ref_seqs.append((str(hap.rec), hap.ref_seq))
                 all_trimmed_reads += list(ambig_reads)
+                if ref_alns is not None:
+                    all_ref_alignments += ref_alns
             elif isinstance(e, InsufficientCoverage):
                 # insufficient depth on both haplotypes
                 logger.info(e.args[0])
@@ -853,17 +937,19 @@ def main(args):
         consensus_bam_file, all_consensus_alignments, header)
 
     # write bam of trimmed reads aligned to reference
-    # ref_bam_file = os.path.join(out_dir, 'trimmed_reads_to_ref.bam')
-    # if isinstance(ref_fasta, str):
-    #     ref_fasta = pysam.FastaFile(ref_fasta)
-    #
-    # ref_header = pysam.AlignmentHeader.from_references(
-    #     ref_fasta.references, ref_fasta.lengths)
-    #
-    # sorted_alns = sorted(
-    #     itertools.chain.from_iterable(all_ref_alignments),
-    #     key=lambda x: (ref_header.get_tid(x.rname), x.rstart, x.qname))
-    # medaka.smolecule.write_bam(ref_bam_file, [sorted_alns], ref_header)
+#    ref_bam_file = os.path.join(out_dir, 'trimmed_reads_to_ref.bam')
+#    if isinstance(ref_fasta, str):
+#        ref_fasta = pysam.FastaFile(ref_fasta)
+#
+#    ref_header = pysam.AlignmentHeader.from_references(
+#        ref_fasta.references, ref_fasta.lengths)
+
+    # TODO figure out why this is failing
+    # with "Chromosome blocks not continuous" error (despite reads being
+    # sorted)
+#    sorted_alns = sorted(all_ref_alignments,
+#        key=lambda x: (ref_header.get_tid(x.rname), x.rstart, x.flag))
+#    write_bam(ref_bam_file, [sorted_alns], ref_header)
 
     poa_file = os.path.join(out_dir, 'poa.fasta')
     logger.info(f"Writing poa consensus sequences to {poa_file}.")
