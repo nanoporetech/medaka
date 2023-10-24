@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An issue with co-ordinate handling in computing variants from alignments.
 ### Added
 - Ability to use basecaller model name as --model argument.
+- Better handling or errors when running abpoa.
 
 ## [v1.11.0]
 ### Fixed

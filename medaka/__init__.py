@@ -13,6 +13,12 @@ except ImportError:
     sys.stderr.write(
         "Cannot import pyabpoa, some features may not be available.\n")
     abpoa = None
+try:
+    import wurlitzer
+except ImportError:
+    sys.stderr.write(
+        "Cannot import wurlitzer, some features may not be available.\n")
+    wurlitzer = None
 
 
 def check_minimap2_version():
