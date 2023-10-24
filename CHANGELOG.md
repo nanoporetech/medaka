@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v1.11.1]
 ### Fixed
 - Do not exit if model cannot be interpreted, use the default instead.
+- An issue with co-ordinate handling in computing variants from alignments.
 ### Added
 - Ability to use basecaller model name as --model argument.
 

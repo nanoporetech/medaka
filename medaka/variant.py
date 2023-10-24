@@ -293,24 +293,30 @@ def yield_variants_from_aln(aln, ref_seq, region=None):
     last_match = None
     seq = aln.query_sequence
 
-    rstart, rend = aln.reference_start, aln.reference_end
+    rstart_aln, rend_aln = aln.reference_start, aln.reference_end
     if region is not None:
         if region.ref_name != aln.reference_name:
             raise ValueError(
                 f'region ref name {region.ref_name} does not '
                 f'match aln ref name {aln.reference_name}'
             )
-        rstart, rend = max(rstart, region.start), min(rend, region.end)
+        rstart, rend = max(rstart_aln, region.start), min(rend_aln, region.end)
+    else:
+        rstart, rend = rstart_aln, rend_aln
     qstart, qend = aln.query_alignment_start, aln.query_alignment_end
     gt = {'GT': '1'}
     chrm = aln.reference_name
     queue = []
 
     def is_not_end(x):
-        return x[1] != rend and x[0] != qend
+        not_rend = x[1] != rend
+        not_qend = x[0] != qend if rstart == rstart_aln else True
+        return not_rend and not_qend
 
     def is_not_start(x):
-        return x[1] != rstart and x[0] != qstart
+        not_rstart = x[1] != rstart
+        not_qstart = x[0] != qstart if rstart == rstart_aln else True
+        return not_rstart and not_qstart
 
     def decode_variant(queue):
         def pos_is_none(x):
