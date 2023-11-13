@@ -1162,8 +1162,6 @@ def annotate_vcf_n_reads(args):
 
     vcf = VCFReader(args.vcf)
     chrom = None
-    pref = 'Depth of reads '
-    suff = ' by strand (fwd, rev)'
     g_open = 5
     g_ext = 3
     # use parasail.dnafull (match 5, mismatch -4)
@@ -1178,16 +1176,23 @@ def annotate_vcf_n_reads(args):
     assert np.unique(matrix.matrix.diagonal()[:4])[0] == match
 
     ann_meta = [
-        ('INFO', 'DP', 1, 'Integer', pref + 'at pos'),
-        ('INFO', 'DPS', 2, 'Integer', pref + 'at pos' + suff),
+        ('INFO', 'DP', 1, 'Integer',
+            'Depth of reads at position, calculated from read pileup, '
+            'capped to ~8000.'),
+        ('INFO', 'DPS', 2, 'Integer',
+            'Depth of reads at position by strand (fwd, rev), calculated '
+            'from read pileup, capped to ~8000 total.'),
         ('INFO', 'DPSP', 1, 'Integer',
-            pref + 'spanning pos +-{}'.format(args.pad)),
+            'Depth of reads spanning pos +-{}. '.format(args.pad) +
+            'This is not capped as in the case of DP and DPS.'),
         ('INFO', 'SR', '.', 'Integer',
             'Depth of spanning reads by strand which best align to each '
-            'allele (ref fwd, ref rev, alt1 fwd, alt1 rev, etc.)'),
+            'allele (ref fwd, ref rev, alt1 fwd, alt1 rev, etc.). '
+            'This is not capped as in the case of DP and DPS.'),
         ('INFO', 'AR', 2, 'Integer',
             'Depth of ambiguous spanning reads by strand which align '
-            'equally well to all alleles (fwd, rev)'),
+            'equally well to all alleles (fwd, rev). '
+            'This is not capped as in the case of DP and DPS.'),
         ('INFO', 'SC', '.', 'Integer',
             'Total alignment score to each allele of spanning reads by '
             'strand (ref fwd, ref rev, alt1 fwd, alt1 rev, etc.) '
