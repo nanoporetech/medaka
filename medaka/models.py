@@ -173,16 +173,24 @@ def _model_from_fastq(fname):
     models = set()
     with pysam.FastxFile(fname, 'r') as fastq:
         for rec in itertools.islice(fastq, 100):
-            # model is embedded in RG:Z: tag of comment as
-            # <run_id>_<model>_<barcode>, but model has _
-            # characters in also so search for known models
             try:
+                # dorado SAM converted to FASTQ with e.g. samtools fastq
+                # model is embedded in RG:Z: tag of comment as
+                # <run_id>_<model>_<barcode>, but model has _
+                # characters in also so search for known models
                 read_group = rec.comment.split("RG:Z:")[1].split()[0]
                 for model in known_models:
                     if model in read_group:
                         models.add(model)
             except Exception:
-                pass
+                # minknow/guppy
+                # basecall_model_version_id=<model>
+                try:
+                    model = rec.comment.split(
+                        "basecall_model_version_id=")[1].split()[0]
+                    models.add(model)
+                except Exception:
+                    pass
     if len(models) > 1:
         # filter out any models without an `@`. These are likely FPs of
         # the search above (there are unversioned models whose name
