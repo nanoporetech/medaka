@@ -71,6 +71,7 @@ class TestScrapBasecaller(unittest.TestCase):
     root_dir = os.path.abspath(os.path.dirname(__file__))
     bam = os.path.join(root_dir, 'data/bc_model_scrape.bam')
     fastq = os.path.join(root_dir, 'data/bc_model_scrape.fastq.gz')
+    fastq_minknow = os.path.join(root_dir, 'data/bc_model_scrape_minknow.fastq.gz')
 
     def test_000_from_bam_consensus(self):
         model = models.model_from_basecaller(self.bam, variant=False)
@@ -88,6 +89,13 @@ class TestScrapBasecaller(unittest.TestCase):
         model = models.model_from_basecaller(self.fastq, variant=True)
         self.assertEqual(model, "r1041_e82_400bps_hac_variant_v4.2.0")
 
+    def test_020_from_fastq_minknow(self):
+        model = models.model_from_basecaller(self.fastq_minknow, variant=False)
+        self.assertEqual(model, "r1041_e82_400bps_sup_v4.2.0")
+
+    def test_021_from_fastq_minknow_variant(self):
+        model = models.model_from_basecaller(self.fastq_minknow, variant=True)
+        self.assertEqual(model, "r1041_e82_400bps_sup_variant_v4.2.0")
 
 class TestBuildModel(unittest.TestCase):
 
