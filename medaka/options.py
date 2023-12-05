@@ -9,18 +9,18 @@ import pkg_resources
 
 # the models used by default for CLI entry points
 default_models = {
-    'consensus': 'r1041_e82_400bps_sup_v4.2.0',
-    'variant': 'r1041_e82_400bps_sup_variant_v4.2.0'
+    'consensus': 'r1041_e82_400bps_sup_v4.3.0',
+    'variant': 'r1041_e82_400bps_sup_variant_v4.3.0'
 }
 
 # current models are those included in PyPI packages
 current_models = [
     # r1041 e82 (kit14) consensus
-    'r1041_e82_400bps_hac_v4.2.0',
-    'r1041_e82_400bps_sup_v4.2.0',
+    'r1041_e82_400bps_hac_v4.3.0',
+    'r1041_e82_400bps_sup_v4.3.0',
     # r1041 variant calling
-    'r1041_e82_400bps_hac_variant_v4.2.0',
-    'r1041_e82_400bps_sup_variant_v4.2.0',
+    'r1041_e82_400bps_hac_variant_v4.3.0',
+    'r1041_e82_400bps_sup_variant_v4.3.0',
 ]
 
 # mapping from basecaller model names to medaka models.
@@ -56,6 +56,8 @@ basecaller_models = {
         ('r1041_e82_400bps_hac_v4.1.0', 'r1041_e82_400bps_hac_variant_v4.1.0'),
     'dna_r10.4.1_e8.2_400bps_hac@v4.2.0':
         ('r1041_e82_400bps_hac_v4.2.0', 'r1041_e82_400bps_hac_variant_v4.2.0'),
+    'dna_r10.4.1_e8.2_400bps_hac@v4.3.0':
+        ('r1041_e82_400bps_hac_v4.3.0', 'r1041_e82_400bps_hac_variant_v4.3.0'),
     'dna_r10.4.1_e8.2_400bps_hac_prom':
         ('r1041_e82_400bps_hac_g632', 'r1041_e82_400bps_hac_variant_g632'),
     'dna_r10.4.1_e8.2_400bps_sup@v3.5.2':
@@ -66,6 +68,8 @@ basecaller_models = {
         ('r1041_e82_400bps_sup_v4.1.0', 'r1041_e82_400bps_sup_variant_v4.1.0'),
     'dna_r10.4.1_e8.2_400bps_sup@v4.2.0':
         ('r1041_e82_400bps_sup_v4.2.0', 'r1041_e82_400bps_sup_variant_v4.2.0'),
+    'dna_r10.4.1_e8.2_400bps_sup@v4.3.0':
+        ('r1041_e82_400bps_sup_v4.3.0', 'r1041_e82_400bps_sup_variant_v4.3.0'),
     # R9.4.1 This is a little dodgy
     # note: 'dna_r9.4.1_450bps_hac' is not present here as there is not a
     #       injective mapping.
@@ -106,6 +110,7 @@ archived_models = [
     'r1041_e82_260bps_hac_v4.0.0', 'r1041_e82_260bps_sup_v4.0.0',
     'r1041_e82_260bps_hac_v4.1.0', 'r1041_e82_260bps_sup_v4.1.0',
     'r1041_e82_400bps_hac_v4.1.0', 'r1041_e82_400bps_sup_v4.1.0',
+    'r1041_e82_400bps_hac_v4.2.0', 'r1041_e82_400bps_sup_v4.2.0',
     # r1041 e82 variant calling
     'r1041_e82_400bps_hac_variant_g615',
     'r1041_e82_400bps_fast_variant_g615',
