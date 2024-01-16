@@ -152,7 +152,7 @@ class ModelStoreTF(BaseModelStore):
             except OSError:
                 self.logger.warning(
                     "Failed to correctly clean up model temporary files. "
-                    "Some files might be left in {self.tmpdir.name}.")
+                    f"Some files might be left in {self.tmpdir.name}.")
             else:
                 self.logger.info(
                     "Successfully removed temporary files "
