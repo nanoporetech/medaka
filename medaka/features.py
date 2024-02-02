@@ -458,7 +458,7 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
     def __init__(
             self, normalise='total', dtypes=('',),
             tag_name=None, tag_value=None, tag_keep_missing=False,
-            read_group=None):
+            read_group=None, sym_indels=False):
         """Initialize creation of neural network input features.
 
         :param normalise: str, how to normalise the data.
@@ -468,6 +468,8 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         :param tag_value: integer value of tag for reads to keep.
         :param tag_keep_missing: whether to keep reads when tag is missing.
         :param read_group: value of RG tag to which to filter reads.
+        :param sym_indels: bool, whether to count a lack of an insertion
+            as a deletion.
 
         """
         self.logger = medaka.common.get_named_logger('Feature')
@@ -478,6 +480,7 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         self.tag_value = tag_value
         self.tag_keep_missing = tag_keep_missing
         self.read_group = read_group
+        self.sym_indels = sym_indels
 
         if self.normalise not in self._norm_modes_:
             raise ValueError('normalise={} is not one of {}'.format(
@@ -525,6 +528,24 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
 
         depth = np.sum(counts, axis=1)
         depth[minor_inds] = depth[major_ind_at_minor_inds]
+
+        if self.sym_indels:
+            # make indels at ref and non-ref positions symmetric.
+            # major columns otherwise have counts of reads with and without a
+            # deletion, whilst minor (inserted) columns only have counts of
+            # the reads with an isertion.
+            # To make ref and non-ref positions symmetric,q
+            # fill in counts of reads which don't have insertions
+            # i.e. depth_del = depth_major - depth_ins
+            for (dt, is_rev), inds in self.feature_indices.items():
+                dt_depth = np.sum(counts[:, inds], axis=1)
+                featlen_index = libmedaka.lib.rev_del if is_rev else\
+                    libmedaka.lib.fwd_del
+                dtype_size = libmedaka.lib.featlen
+                del_ind =\
+                    [x for x in inds if x % dtype_size == featlen_index][0]
+                counts[minor_inds, del_ind] =\
+                    dt_depth[major_ind_at_minor_inds] - dt_depth[minor_inds]
 
         if self.normalise == 'total':
             # normalize counts by total depth at major position, since the
