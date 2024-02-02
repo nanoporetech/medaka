@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+### Added
+- `sym_indels` option to make indels at ref and non-ref positions symmetric
+  during medaka feature generation step.
+
+
 ## [v1.11.3]
 ### Added
 - Consensus and variant models for v4.3.0 dorado models.

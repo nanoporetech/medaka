@@ -126,6 +126,47 @@ class CountsTest(unittest.TestCase):
         self.assertEqual(expected_label_shape, got_label_shape)
 
 
+    def test_032_bams_to_training_samples_sym_indels(self):
+        reads_bam = tempfile.NamedTemporaryFile(suffix='.bam').name
+
+        # we had a bug caused by missing qualities and bad indexing...
+        data = copy.deepcopy(simple_data['calls'])
+        data[0]['quality'] = None
+
+        create_simple_bam(reads_bam, data)
+        encoder_sym_indels = medaka.features.CountsFeatureEncoder(normalise='total', sym_indels=True)
+        region = Region('ref', 0, 100)
+
+        result_sym_indels = encoder_sym_indels.bam_to_sample(
+            reads_bam, region)[0]
+
+        expected_sym_indels = Sample(
+            ref_name='ref',
+            features=np.array([
+                [0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.  , 0.  ],
+                [0.  , 0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.  ],
+                [0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.  , 0.  ],
+                [0.  , 0.25, 0.  , 0.25, 0.  , 0.  , 0.  , 0.25, 0.  , 0.25],
+                [0.25, 0.  , 0.  , 0.  , 0.  , 0.  , 0.  , 0.  , 0.25, 0.5 ],
+                [0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  ],
+                [0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.  , 0.  ],
+                [0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  ],
+                [0.  , 0.  , 0.5 , 0.  , 0.  , 0.  , 0.5 , 0.  , 0.  , 0.  ]],
+                dtype='float32'),
+            # the two insertions with respect to the draft are dropped
+            labels=None,
+            ref_seq=None,
+            positions=np.array([
+                (0, 0), (1, 0), (2, 0), (3, 0), (3, 1), (4, 0), (5, 0), (6, 0), (7, 0)],
+                dtype=[('major', '<i8'), ('minor', '<i8')]),
+            label_probs=None,
+            depth=np.array(9 * [10]),
+        )
+
+        np.testing.assert_equal(result_sym_indels.features, expected_sym_indels.features)
+        np.testing.assert_equal(result_sym_indels.positions, expected_sym_indels.positions)
+
+
 
 class TrimReadsTest(unittest.TestCase):
 
