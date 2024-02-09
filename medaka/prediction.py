@@ -144,6 +144,9 @@ def predict(args):
         feature_encoder.tag_value = args.tag_value
         feature_encoder.tag_keep_missing = args.tag_keep_missing
         feature_encoder.read_group = args.RG
+        # To support models legacy
+        if not hasattr(feature_encoder, "sym_indels"):
+            feature_encoder.sym_indels = False
 
         if len(tf.config.list_physical_devices('GPU')) > 0:
             logger.info("Found a GPU.")
