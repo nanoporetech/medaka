@@ -287,7 +287,7 @@ float* _get_weibull_scores(const bam_pileup1_t *p, const size_t indel, const siz
 plp_data calculate_pileup(
         const char *region, const bam_fset* bam_set, size_t num_dtypes, char *dtypes[],
         size_t num_homop, const char tag_name[2], const int tag_value, const bool keep_missing,
-        bool weibull_summation, const char *read_group) {
+        bool weibull_summation, const char *read_group, const int min_mapQ) {
     if (num_dtypes == 1 && dtypes != NULL) {
         fprintf(stderr, "Recieved invalid num_dtypes and dtypes args.\n");
         exit(1);
@@ -319,7 +319,7 @@ plp_data calculate_pileup(
     // setup bam interator
     mplp_data *data = xalloc(1, sizeof(mplp_data), "pileup init data");
     data->fp = fp; data->hdr = hdr; data->iter = bam_itr_querys(idx, hdr, region);
-    data->min_mapQ = 1; memcpy(data->tag_name, tag_name, 2); data->tag_value = tag_value;
+    data->min_mapQ = min_mapQ; memcpy(data->tag_name, tag_name, 2); data->tag_value = tag_value;
     data->keep_missing = keep_missing; data->read_group = read_group;
 
     bam_mplp_t mplp = bam_mplp_init(1, read_bam, (void **)& data);
@@ -481,13 +481,14 @@ int main(int argc, char *argv[]) {
     size_t num_homop = 5;
     bool weibull_summation = false;
     const char* read_group = NULL;
+    const int min_mapQ = 1;
 
     bam_fset* bam_set = create_bam_fset(bam_file);
 
     plp_data pileup = calculate_pileup(
         reg, bam_set, num_dtypes, dtypes,
         num_homop, tag_name, tag_value, keep_missing,
-        weibull_summation, read_group);
+        weibull_summation, read_group, min_mapQ);
     print_pileup_data(pileup, num_dtypes, dtypes, num_homop);
     fprintf(stdout, "pileup is length %zu, with buffer of %zu columns\n", pileup->n_cols, pileup->buffer_cols);
     destroy_plp_data(pileup);

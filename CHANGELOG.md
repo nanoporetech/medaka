@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `sym_indels` option to make indels at ref and non-ref positions symmetric
   during medaka feature generation step.
-
+- Added `--min_mapq` minimum  mapping quality alignment fitering option for medaka consensus. 
+  Default value of one represents no change with respect to previous medaka releases. 
+  
 
 ## [v1.11.3]
 ### Added

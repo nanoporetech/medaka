@@ -144,6 +144,7 @@ def predict(args):
         feature_encoder.tag_value = args.tag_value
         feature_encoder.tag_keep_missing = args.tag_keep_missing
         feature_encoder.read_group = args.RG
+        feature_encoder.min_mapq = args.min_mapq
         # To support models legacy
         if not hasattr(feature_encoder, "sym_indels"):
             feature_encoder.sym_indels = False
