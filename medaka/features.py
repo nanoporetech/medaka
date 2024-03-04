@@ -186,7 +186,7 @@ def _tidy_libfunc_args(
 def pileup_counts(
         region, bam, dtype_prefixes=None, region_split=100000, workers=8,
         tag_name=None, tag_value=None, keep_missing=False, num_qstrat=1,
-        weibull_summation=False, read_group=None):
+        weibull_summation=False, read_group=None, min_mapq=1):
     """Create pileup counts feature array for region.
 
     :param region: `medaka.common.Region` object
@@ -202,6 +202,8 @@ def pileup_counts(
     :param num_qstrat: number of layers for qscore stratification.
     :param weibull_summation: use a Weibull partial-counts approach,
         requires 'WL' and 'WK' float-array tags.
+    :param read_group: str, bam read group for reads to keep.
+    :param min_mapq: minimum mapping quality for reads to keep.
 
     :returns: iterator of tuples
         (pileup counts array, reference positions, insertion positions)
@@ -226,7 +228,7 @@ def pileup_counts(
             counts = lib.calculate_pileup(
                 region_str.encode(), fh, num_dtypes, dtypes,
                 num_qstrat, tag_name, tag_value, keep_missing,
-                weibull_summation, read_group)
+                weibull_summation, read_group, min_mapq)
         np_counts, positions = _plp_data_to_numpy(
             counts, featlen * num_dtypes * num_qstrat)
         lib.destroy_plp_data(counts)
@@ -458,7 +460,7 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
     def __init__(
             self, normalise='total', dtypes=('',),
             tag_name=None, tag_value=None, tag_keep_missing=False,
-            read_group=None, sym_indels=False):
+            read_group=None, min_mapq=1, sym_indels=False):
         """Initialize creation of neural network input features.
 
         :param normalise: str, how to normalise the data.
@@ -468,6 +470,7 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         :param tag_value: integer value of tag for reads to keep.
         :param tag_keep_missing: whether to keep reads when tag is missing.
         :param read_group: value of RG tag to which to filter reads.
+        :param min_mapq: minimum mapping quality for reads to keep.
         :param sym_indels: bool, whether to count a lack of an insertion
             as a deletion.
 
@@ -480,6 +483,7 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
         self.tag_value = tag_value
         self.tag_keep_missing = tag_keep_missing
         self.read_group = read_group
+        self.min_mapq = min_mapq
         self.sym_indels = sym_indels
 
         if self.normalise not in self._norm_modes_:
@@ -506,7 +510,8 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
             region, bam,
             dtype_prefixes=self.dtypes,
             tag_name=self.tag_name, tag_value=self.tag_value,
-            keep_missing=self.tag_keep_missing, read_group=self.read_group)
+            keep_missing=self.tag_keep_missing, read_group=self.read_group,
+            min_mapq=self.min_mapq)
 
     def _post_process_pileup(self, counts, positions, region):
         # Normalise produced counts using chosen method.
@@ -644,7 +649,7 @@ class HardRLEFeatureEncoder(CountsFeatureEncoder):
     def __init__(
             self, normalise='total', dtypes=('', ), tag_name=None,
             tag_value=None, tag_keep_missing=False, num_qstrat=15,
-            read_group=None):
+            read_group=None, min_mapq=1):
         """Class to generate neural network input features.
 
         :param normalise: str, how to normalise the data.
@@ -655,12 +660,15 @@ class HardRLEFeatureEncoder(CountsFeatureEncoder):
         :param tag_keep_missing: whether to keep reads when tag is missing.
         :param num_qstrat: number of layers for qscore stratification.
         :param read_group: value of RG tag to which to filter reads.
+        :param min_mapq: minimum mapping quality for reads to keep.
 
         """
         self.num_qstrat = num_qstrat
         super().__init__(
             normalise, dtypes=dtypes, tag_name=tag_name, tag_value=tag_value,
-            tag_keep_missing=tag_keep_missing, read_group=read_group)
+            tag_keep_missing=tag_keep_missing, read_group=read_group,
+            min_mapq=min_mapq
+        )
         self.feature_indices = pileup_counts_norm_indices(
             self.dtypes, num_qstrat=self.num_qstrat)
 
@@ -670,7 +678,7 @@ class HardRLEFeatureEncoder(CountsFeatureEncoder):
             dtype_prefixes=self.dtypes,
             tag_name=self.tag_name, tag_value=self.tag_value,
             keep_missing=self.tag_keep_missing, num_qstrat=self.num_qstrat,
-            read_group=self.read_group)
+            read_group=self.read_group, min_mapq=self.min_mapq)
 
     @property
     def feature_vector_length(self):
@@ -731,7 +739,7 @@ class SoftRLEFeatureEncoder(HardRLEFeatureEncoder):
             region, bam, dtype_prefixes=self.dtypes, tag_name=self.tag_name,
             tag_value=self.tag_value, keep_missing=self.tag_keep_missing,
             num_qstrat=self.num_qstrat, weibull_summation=True,
-            read_group=self.read_group)
+            read_group=self.read_group, min_mapq=self.min_mapq)
 
 
 class SampleGenerator(object):

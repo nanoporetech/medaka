@@ -131,6 +131,8 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_
  *  @param tag_value by which to filter data
  *  @param keep_missing alignments which do not have tag
  *  @param weibull_summation use predefined bam tags to perform homopolymer partial counts.
+ *  @param read group used for filtering. 
+ *  @param mininimum mapping quality for filtering. 
  *  @returns a pileup counts data pointer.
  *
  *  The return value can be freed with destroy_plp_data.
@@ -148,7 +150,7 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_
 plp_data calculate_pileup(
         const char *region, const bam_fset* bam_set, size_t num_dtypes, char *dtypes[],
         size_t num_homop, const char tag_name[2], const int tag_value, const _Bool keep_missing,
-        bool weibull_summation, const char *read_group);
+        bool weibull_summation, const char *read_group, const int min_mapQ);
 
 
 #endif
