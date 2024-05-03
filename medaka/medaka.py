@@ -270,9 +270,10 @@ def _validate_common_args(args, parser):
     logger = medaka.common.get_named_logger('ValidArgs')
 
     # check BAM has some required fields, fail early
-    if hasattr(args, 'bam') and args.bam is not None:
-        RG = args.RG if hasattr(args, 'RG') else None
-        CheckBam.check_read_groups(args.bam, RG)
+    if getattr(args, 'bam', None) is not None:
+        RG = getattr(args, 'RG', None)
+        if RG is not None or not getattr(args, 'ignore_read_groups', False):
+            CheckBam.check_read_groups(args.bam, RG)
         if RG is not None:
             msg = "Reads will be filtered to only those with RG tag: {}"
             logger.debug(msg.format(RG))
@@ -282,24 +283,22 @@ def _validate_common_args(args, parser):
         # if --model was not given on the command-line try to guess from the
         # the input file. otherwise leave alone
         if (
-                hasattr(args, 'bam')
-                and args.bam is not None
+                getattr(args, 'bam', None) is not None
                 and not hasattr(args, 'model_was_given')):
             # try to guess model using the input file, assume consensus
             # assuming consensus might not be right, but this is not a change
             # in behaviour from the historic.
             logger.debug("Guessing model")
-            if hasattr(args, 'bam') and args.bam is not None:
-                try:
-                    model = medaka.models.model_from_basecaller(
-                        args.bam, variant="consensus")
-                    args.model = medaka.models.resolve_model(model)
-                except Exception as e:
-                    logger.warning(
-                        "Failed to guess medaka model input file. Using default.")
-                else:
-                    logger.debug(
-                        f"Chosen model '{args.model}' for input '{args.bam}'.")
+            try:
+                model = medaka.models.model_from_basecaller(
+                    args.bam, variant="consensus")
+                args.model = medaka.models.resolve_model(model)
+            except Exception as e:
+                logger.warning(
+                    "Failed to guess medaka model input file. Using default.")
+            else:
+                logger.debug(
+                    f"Chosen model '{args.model}' for input '{args.bam}'.")
         elif args.model is not None:
             # TODO: why is this done? it will have been done in ResolveModel?
             #       the resolve_model function is idempotent so doesn't really
@@ -531,6 +530,8 @@ def medaka_parser():
     trparser.add_argument('sex', choices={'female', 'male'},
         help='Sample sex, required for appropriate handling of X/Y chromosomes including PAR regions.')
     trparser.add_argument('output', help='Output directory.')
+    trparser.add_argument('--ignore_read_groups', action='store_true', default=False,
+            help='Ignore read groups in bam-file')
     trparser.add_argument('--phasing', choices=set(medaka.tandem.phasing_options.keys()),
         default='hybrid', help='Phasing method. '
         'prephased: use HP bam tags. '

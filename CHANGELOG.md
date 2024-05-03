@@ -5,12 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- tandem: Use haplotag 0 in unphased mode.
+- tandem: Don't run consensus if regions set is empty.
 ### Added
 - `sym_indels` option to make indels at ref and non-ref positions symmetric
   during medaka feature generation step.
 - Added `--min_mapq` minimum  mapping quality alignment fitering option for medaka consensus. 
-  Default value of one represents no change with respect to previous medaka releases. 
-  
+  Default value of one represents no change with respect to previous medaka releases.
+- tandem: Option `--ignore_read_groups` to ignore read groups present in bam file.
 
 ## [v1.11.3]
 ### Added
