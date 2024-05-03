@@ -403,7 +403,7 @@ def process_record_unphased(
         raise InsufficientCoverage(
             f"{rec}: Retrieved too few reads ({len(subreads)} < {min_depth})")
     cons_rec = copy(rec)
-    h = 1
+    h = 0
     cons_rec.hap = h
     cons_rec.query_name += '_HOM'
     c = consensus_pileup_from_reads(
@@ -975,6 +975,10 @@ def main(args):
     bam_to_vcfs(poa_bam, ref_fasta)
 
     if args.poa_only:
+        return
+    if len(all_consensus_alignments) == 0:
+        logger.warning("No consensus sequences were generated.")
+        logger.warning("Check your initial bam and bed files. Finishing.")
         return
 
     logger.info("Running medaka consensus.")
