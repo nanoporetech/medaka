@@ -32,6 +32,7 @@ FORCE=false
 NOFILLGAPS=false
 GAPFILLCHAR=""
 QUALITIES=false
+MIN_MAPQ=""
 
 iflag=false
 dflag=false
@@ -62,10 +63,11 @@ $(basename "$0") [-h] -i <fastx> -d <fasta>
     -x  Force recreation of alignment index.
     -t  number of threads with which to create features (default: 1).
     -b  batchsize, controls memory use (default: ${BATCH_SIZE}).
-    -q  Output consensus with per-base quality scores (fastq)."
+    -q  Output consensus with per-base quality scores (fastq).
+    -M  Minimum mapq (default: None)."
 
 
-while getopts ':hi::d:o:gr:m:fxt:b:q' option; do
+while getopts ':hi::d:o:gr:m:fxt:b:qM:' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
@@ -79,6 +81,7 @@ while getopts ':hi::d:o:gr:m:fxt:b:q' option; do
     t  ) THREADS=$OPTARG;;
     b  ) BATCH_SIZE=$OPTARG;;
     q  ) QUALITIES=true;;
+    M  ) MIN_MAPQ=$OPTARG;;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
     :  ) echo "Option -$OPTARG requires an argument." >&2; exit 1;;
   esac
@@ -162,8 +165,13 @@ CONSENSUSPROBS="consensus_probs.hdf"
 if [[ ! -e "${CONSENSUSPROBS}" ]] || ${FORCE}; then
     echo "Running medaka consensus"
     rm -rf "${CONSENSUSPROBS}"
+    MAPQ_OPTS=""
+    if [ -n "${MIN_MAPQ}" ]; then
+        MAPQ_OPTS="--min_mapq ${MIN_MAPQ}"
+    fi
     medaka consensus "${CALLS2DRAFT}.bam" "${CONSENSUSPROBS}" \
         --model "${MODEL}" --batch_size "${BATCH_SIZE}" --threads "${THREADS}" \
+        ${MAPQ_OPTS} \
         || { echo "Failed to run medaka consensus."; exit 1; }
     FORCE=true
 else

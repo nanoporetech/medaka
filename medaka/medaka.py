@@ -493,7 +493,7 @@ def medaka_parser():
     tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
     tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
-    tag_group.add_argument('--min_mapq', type=int, default=1, help='Minimum mapping quality.')
+    tag_group.add_argument('--min_mapq', type=int, default=None, help='Minimum mapping quality. (Default: use model default.')
 
     # Consensus from single-molecules with subreads
     smparser = subparsers.add_parser('smolecule',

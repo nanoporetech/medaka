@@ -144,7 +144,16 @@ def predict(args):
         feature_encoder.tag_value = args.tag_value
         feature_encoder.tag_keep_missing = args.tag_keep_missing
         feature_encoder.read_group = args.RG
-        feature_encoder.min_mapq = args.min_mapq
+        # If min_mapq was not set in the feature encoder, set it to the old
+        # default
+        if not hasattr(feature_encoder, "min_mapq"):
+            feature_encoder.min_mapq = 1
+        # Override feature_encoder min_mapq if it has been explicitly set
+        if args.min_mapq is not None:
+            feature_encoder.min_mapq = args.min_mapq
+        msg = "Using minimum mapQ threshold of {} for read filtering."
+        logger.info(msg.format(feature_encoder.min_mapq))
+
         # To support models legacy
         if not hasattr(feature_encoder, "sym_indels"):
             feature_encoder.sym_indels = False
