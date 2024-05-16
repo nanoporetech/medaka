@@ -3,7 +3,7 @@
 cffi==1.15.0  # no wheel for 1.15.1, note also in pyproject.toml and build-wheels.sh
 edlib
 grpcio 
-h5py
+h5py~=3.10.0
 intervaltree
 tensorflow~=2.10.0
 numpy>=1.21.6
