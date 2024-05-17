@@ -1,5 +1,6 @@
 """Commonly used data structures and functions."""
 import collections
+import concurrent.futures
 from distutils.version import LooseVersion
 import enum
 import errno
@@ -8,6 +9,7 @@ import itertools
 import logging
 import os
 import re
+import tempfile
 
 import intervaltree
 import numpy as np
@@ -1028,3 +1030,58 @@ def cuda_visible_devices(devices=""):
     disable child access to CUDA devices.
     """
     os.environ["CUDA_VISIBLE_DEVICES"] = devices
+
+
+def tag_merge_bams(args):
+    """Add tags to and merge one or more bam files.
+
+    Alignments in the input bams are batched, tagged and writen to temporary
+    files, which are finally merged into a single bam.
+    """
+    n_bams = len(args.input_bams)
+    n_values = len(args.values)
+    if not n_bams == n_values:
+        raise ValueError(
+            f"Number of input files ({n_bams}) and "
+            f"values ({n_values}) must match.")
+
+    if os.path.exists(args.output):
+        raise ValueError("Output file exists.")
+
+    tmp_files = []
+    outdir = os.path.dirname(args.output)
+    logger = get_named_logger("Tag")
+
+    def _process_input_bam(proc_args, io_threads=1):
+        path, value = proc_args
+        logger.info(f"Adding tag '{value}' to {path}")
+        with pysam.AlignmentFile(
+                path, 'r', check_sq=False, threads=io_threads) as in_bam:
+            tmp_file = tempfile.NamedTemporaryFile(dir=outdir)
+            with pysam.AlignmentFile(
+                    tmp_file.name, "wb", header=in_bam.header,
+                    threads=io_threads) as out_bam:
+                for r in in_bam.fetch(until_eof=True):
+                    r.set_tag(args.tag, value)
+                    out_bam.write(r)
+        return tmp_file
+
+    with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(args.threads, len(args.input_bams))
+    ) as executor:
+        process = functools.partial(
+            _process_input_bam,
+            io_threads=max(1, args.threads // (2 * len(args.input_bams))))
+        tmp_files = list(executor.map(
+                process, zip(args.input_bams, args.values)))
+
+    logger.info(f"Merging from {len(tmp_files)} temporary files")
+    pysam.merge(
+        "-o", str(args.output), *[fh.name for fh in tmp_files], "-O", "BAM",
+        "-@", str(args.threads), '-c', '-p'
+    )
+
+    for fh in tmp_files:
+        fh.close()
+
+    pysam.index(str(args.output), "-@", str(args.threads))

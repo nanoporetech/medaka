@@ -12,8 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `sym_indels` option to make indels at ref and non-ref positions symmetric
   during medaka feature generation step.
 - Added `--min_mapq` minimum  mapping quality alignment fitering option for medaka consensus. 
-  Default value of one represents no change with respect to previous medaka releases.
+  Default value of one represents no change with respect to previous medaka releases. 
 - tandem: Option `--ignore_read_groups` to ignore read groups present in bam file.
+- Wrapper script `medaka_consensus_joint` and convenience tools (`prepare_tagged_bam`,
+  `get_model_dtypes`) to facilitate joint polishing with multiple datatypes.
 
 ## [v1.11.3]
 ### Added

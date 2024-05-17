@@ -64,7 +64,7 @@ $(basename "$0") [-h] -i <fastx> -d <fasta>
     -t  number of threads with which to create features (default: 1).
     -b  batchsize, controls memory use (default: ${BATCH_SIZE}).
     -q  Output consensus with per-base quality scores (fastq).
-    -M  Minimum mapq (default: None)."
+    -M  Minimum mapQ (default: None)."
 
 
 while getopts ':hi::d:o:gr:m:fxt:b:qM:' option; do
@@ -154,7 +154,7 @@ if $xflag; then
 fi
 if [[ ! -e "${CALLS2DRAFT}.bam" ]] || ${FORCE}; then
     echo "Aligning basecalls to draft"
-    mini_align -i "${BASECALLS}" -r "${DRAFT}" -p "${CALLS2DRAFT}" -t "${THREADS}" -m ${ALIGN_PARAMS} \
+    mini_align -i "${BASECALLS}" -r "${DRAFT}" -p "${CALLS2DRAFT}" -t "${THREADS}" -m ${ALIGN_PARAMS} -T DT \
       || { echo "Failed to run alignment of reads to draft."; exit 1; } 
     FORCE=true
 else
