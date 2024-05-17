@@ -336,6 +336,12 @@ def print_alignment_params(args):
     print(get_alignment_params(args.model))
 
 
+def get_model_dtypes(args):
+    modelstore = medaka.models.open_model(args.model)
+    encoder = modelstore.get_meta('feature_encoder')
+    print(','.join(encoder.dtypes))
+
+
 def print_all_models(args):
     print('Available:', ', '.join(medaka.options.allowed_models))
     for key in ('consensus', 'variant'):
@@ -791,6 +797,29 @@ def medaka_parser():
         '--models', nargs='+', default=medaka.options.allowed_models,
         help='Model(s) to download to cache.')
     dwnldparser.set_defaults(func=download_models)
+
+    tagbamparser = toolsubparsers.add_parser('prepare_tagged_bam',
+        help='Add tags to bam files and merge',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    tagbamparser.add_argument('input_bams', nargs='+', help='Input bam files')
+    tagbamparser.add_argument(
+        '--output', required=True, type=str, help='Output tagged bam file')
+    tagbamparser.add_argument(
+        '--values', nargs='+', required=True, type=str, help='Tag values')
+    tagbamparser.add_argument('--tag', default='DT', help='Tag identifier')
+    tagbamparser.add_argument('--threads', type=int, default=1,
+        help='Number of threads for parallel execution.')
+    tagbamparser.add_argument('--batch_size', type=int, default=100000,
+        help='Reads to process per batch.')
+    tagbamparser.set_defaults(func=medaka.common.tag_merge_bams)
+
+    # check if feature encoder expects DT tags
+    mdltagparser = toolsubparsers.add_parser('get_model_dtypes',
+        help='Get the expected dtype tags for a model.',
+        parents=[_model_arg()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    mdltagparser.set_defaults(func=get_model_dtypes)
 
     return parser
 

@@ -1,0 +1,180 @@
+#!/bin/bash
+set -eo pipefail
+
+function follow_link {
+  python -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' $1
+}
+
+if [ -z ${TF_CPP_MIN_LOG_LEVEL+x} ]; then
+    export TF_CPP_MIN_LOG_LEVEL=3
+fi
+echo "TF_CPP_MIN_LOG_LEVEL is set to '$TF_CPP_MIN_LOG_LEVEL'"
+
+OUTPUT="medaka"
+THREADS=1
+
+medaka_version=$(medaka --version)
+modeldata=()
+while read -r line; do
+    modeldata+=("$line")
+done < <(medaka tools list_models)
+# 0: Available models
+# 1: default consensus model
+# 2: default variant model
+MODEL=${modeldata[1]##* }
+MODELS=$(
+    echo ${modeldata[0]} | sed 's/Available://' | python -c \
+        "import sys; import itertools; mods=[f'{x[:-1]}' for x in sys.stdin.readline().split() if ('variant' not in x and 'snp' not in x)]; print(' '.join(mods))"
+)
+
+BATCH_SIZE=100
+FORCE=false
+NOFILLGAPS=false
+GAPFILLCHAR=""
+QUALITIES=false
+MIN_MAPQ=""
+BASECALLS=()
+TAG_VALUES=()
+
+iflag=false
+dflag=false
+xflag=false
+mflag=false
+
+usage="
+${medaka_version}
+------------
+
+Assembly polishing via neural networks
+
+$(basename "$0") [-h] -i <reads> -v <datatype> [-i <reads> -v <datatype> ...] -d <draft>
+
+    -h  show this help text.
+    -i  fastx input basecalls (required).
+    -v  input tag values (required).
+    -d  fasta input assembly (required).
+    -o  output folder (default: medaka).
+    -g  don't fill gaps in consensus with draft sequence.
+    -r  use gap-filling character instead of draft sequence (default: None)
+    -m  medaka model, (default: ${MODEL}).
+        Choices: ${MODELS}
+        Alternatively a .tar.gz/.hdf file from 'medaka train'.
+        If not provided, and automatic choice will be attempted based on
+        the contents of the input file.
+    -f  Force overwrite of outputs (default will reuse existing outputs).
+    -x  Force recreation of alignment index.
+    -t  number of threads with which to create features (default: 1).
+    -b  batchsize, controls memory use (default: ${BATCH_SIZE}).
+    -q  Output consensus with per-base quality scores (fastq).
+    -M  Minimum mapQ (default: None)."
+
+
+while getopts ':hi::v:d:o:gr:m:fxt:b:q' option; do
+  case "$option" in
+    h  ) echo "$usage" >&2; exit;;
+    i  ) iflag=true; BASECALLS+=($(follow_link $OPTARG));;
+    v  ) vflag=true; TAG_VALUES+=($OPTARG);;
+    d  ) dflag=true; DRAFT=$(follow_link $OPTARG);;
+    o  ) OUTPUT=$OPTARG;;
+    g  ) NOFILLGAPS=true;;
+    r  ) GAPFILLCHAR=$OPTARG;;
+    m  ) mflag=true; MODEL=$(medaka tools resolve_model --model $OPTARG);;
+    f  ) FORCE=true;;
+    x  ) xflag=true;;
+    t  ) THREADS=$OPTARG;;
+    b  ) BATCH_SIZE=$OPTARG;;
+    q  ) QUALITIES=true;;
+    M  ) MIN_MAPQ=$OPTARG;;
+    \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
+    :  ) echo "Option -$OPTARG requires an argument." >&2; exit 1;;
+  esac
+done
+shift $(($OPTIND - 1))
+
+if ! $iflag; then
+  echo "$usage" >&2;
+  echo "" >&2;
+  echo "-i must be specified." >&2;
+  exit 1;
+fi
+
+if ! $dflag; then
+  echo "$usage" >&2;
+  echo "" >&2;
+  echo "-d must be specified." >&2;
+  exit 1;
+fi
+
+if ! $vflag; then
+  echo "$usage" >&2;
+  echo "" >&2;
+  echo "-v must be specified." >&2;
+  exit 1;
+fi
+
+if ! $mflag; then
+  echo "Model autoselection is not yet implemented for joint polishing."
+  echo "Please specify a model."
+  exit 1
+fi
+
+echo "Checking program versions"
+echo "This is ${medaka_version}"
+medaka_version_report || exit 1
+
+echo "Reading expected data types from model"
+IFS=',' read -ra dtypes <<< $(medaka tools get_model_dtypes --model ${MODEL} 2> /dev/null)
+mismatches=$(echo ${dtypes[@]} ${TAG_VALUES[@]} | tr ' ' '\n' | sort | uniq -u)
+if [[ -n ${mismatches} ]]; then
+  echo "Mismatch between model data types and specified values:"
+  echo ${mismatches}
+  exit 1
+else
+  echo "Data types match"
+fi
+
+if [[ ! -e "${OUTPUT}" ]]; then
+  mkdir -p "${OUTPUT}"
+elif ${FORCE}; then
+  echo "WARNING: Output will be overwritten (-f flag)"
+else
+  echo "WARNING: Output ${OUTPUT} already exists, may use old results."
+fi
+
+cd "${OUTPUT}"
+
+CALLS2DRAFT="calls_to_draft.bam"
+MERGED_BAM="merged_tagged.bam"
+if [[ ! -e "${CALLS2DRAFT}" ]] || ${FORCE}; then
+  if [[ ! -e ${MERGED_BAM}  ]] || ${FORCE}; then
+    echo "Tagging and merging basecalls"
+    medaka tools prepare_tagged_bam ${BASECALLS[@]} --output ${MERGED_BAM} --values ${TAG_VALUES[@]} --threads $THREADS \
+      || { echo "Preparing tagged bam failed."; exit 1; }
+    else
+      echo "Not tagging and merging basecalls, ${MERGED_BAM} exists."
+  fi 
+fi
+
+cd -
+
+consensus_args=" -i ${OUTPUT}/${MERGED_BAM} -d ${DRAFT} -o ${OUTPUT} -t ${THREADS} -b ${BATCH_SIZE} -m ${MODEL}"
+if ${NOFILLGAPS}; then
+  consensus_args="${consensus_args} -g"
+fi
+if ${QUALITIES}; then
+  consensus_args="${consensus_args} -q"
+fi
+if ${xflag}; then
+  consensus_args="${consensus_args} -x"
+fi
+if ${FORCE}; then
+  consensus_args="${consensus_args} -f"
+fi
+if [[ -n ${GAPFILLCHAR} ]]; then
+  consensus_args="${consensus_args} -r ${GAPFILLCHAR}"
+fi
+if [[ -n ${MIN_MAPQ} ]]; then
+  consensus_args="${consensus_args} -M ${MIN_MAPQ}"
+fi
+
+medaka_consensus $consensus_args
