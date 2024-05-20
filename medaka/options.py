@@ -82,7 +82,13 @@ basecaller_models = {
     'dna_r9.4.1_e8_hac@v3.3':
         ('r941_min_hac_g507', 'r941_min_hac_variant_g507'),
     'dna_r9.4.1_e8_sup@v3.3':
-        ('r941_min_sup_g507', 'r941_min_sup_variant_g507')}
+        ('r941_min_sup_g507', 'r941_min_sup_variant_g507'),
+    # APK joint polishing
+    # Not adding this since simultaneously matching on multiple tags is not
+    # implemented
+    # 'dna_r10.4.1_e8.2_260bps_apk_sup@v5.0.0':
+    #     ('r1041_e82_260bps_joint_apk_ulk_v5.0.0', None),
+}
 
 # archived models are not included in packages but can be downloaded on the fly
 # this list SHOULD NOT be added to, any new models should go into the above
@@ -162,6 +168,8 @@ archived_models = [
     # r941 e81 variant calling
     'r941_e81_fast_variant_g514', 'r941_e81_hac_variant_g514',
     'r941_e81_sup_variant_g514',
+    # APK joint polishing consensus
+    'r1041_e82_260bps_joint_apk_ulk_v5.0.0'
 ]
 
 # add basecaller models, then deduplicate and sort
