@@ -48,6 +48,8 @@ basecaller_models = {
     # R10.4.1 400bps
     'dna_r10.4.1_e8.2_400bps_hac':
         ('r1041_e82_400bps_hac_g632', 'r1041_e82_400bps_hac_variant_g632'),
+    'dna_r10.4.1_e8.2_400bps_hac@v3.5.1':
+        ('r1041_e82_400bps_hac_g615', 'r1041_e82_400bps_hac_variant_g615'),
     'dna_r10.4.1_e8.2_400bps_hac@v3.5.2':
         ('r1041_e82_400bps_hac_g632', 'r1041_e82_400bps_hac_variant_g632'),
     'dna_r10.4.1_e8.2_400bps_hac@v4.0.0':
@@ -63,6 +65,8 @@ basecaller_models = {
     'dna_r10.4.1_e8.2_400bps_hac_prom':
         ('r1041_e82_400bps_hac_g632', 'r1041_e82_400bps_hac_variant_g632'),
     'dna_r10.4.1_e8.2_400bps_sup@v3.5.2':
+        ('r1041_e82_400bps_sup_g615', 'r1041_e82_400bps_sup_variant_g615'),
+    'dna_r10.4.1_e8.2_400bps_sup@v3.5.1':
         ('r1041_e82_400bps_sup_g615', 'r1041_e82_400bps_sup_variant_g615'),
     'dna_r10.4.1_e8.2_400bps_sup@v4.0.0':
         ('r1041_e82_400bps_sup_v4.0.0', None),
