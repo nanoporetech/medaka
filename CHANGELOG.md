@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [unreleased]
+### Fixed
+- medaka_consensus: only keep bam tags if input file matches joint polishing pipeline.
 ### Added
 - Consensus and variant models lookup for v3.5.1 Dorado models.
 

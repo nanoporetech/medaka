@@ -154,7 +154,11 @@ if $xflag; then
 fi
 if [[ ! -e "${CALLS2DRAFT}.bam" ]] || ${FORCE}; then
     echo "Aligning basecalls to draft"
-    mini_align -i "${BASECALLS}" -r "${DRAFT}" -p "${CALLS2DRAFT}" -t "${THREADS}" -m ${ALIGN_PARAMS} -T DT \
+    BAM_TAG_PARAMS=""
+    if [[ ${BASECALLS} == */merged_tagged.bam ]]; then
+        BAM_TAG_PARAMS="-T DT"
+    fi
+    mini_align -i "${BASECALLS}" -r "${DRAFT}" -p "${CALLS2DRAFT}" -t "${THREADS}" -m ${ALIGN_PARAMS} ${BAM_TAG_PARAMS} \
       || { echo "Failed to run alignment of reads to draft."; exit 1; } 
     FORCE=true
 else
