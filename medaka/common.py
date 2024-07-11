@@ -1033,11 +1033,7 @@ def cuda_visible_devices(devices=""):
 
 
 def tag_merge_bams(args):
-    """Add tags to and merge one or more bam files.
-
-    Alignments in the input bams are batched, tagged and writen to temporary
-    files, which are finally merged into a single bam.
-    """
+    """Add tags to and merge one or more bam files."""
     n_bams = len(args.input_bams)
     n_values = len(args.values)
     if not n_bams == n_values:

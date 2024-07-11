@@ -810,8 +810,6 @@ def medaka_parser():
     tagbamparser.add_argument('--tag', default='DT', help='Tag identifier')
     tagbamparser.add_argument('--threads', type=int, default=1,
         help='Number of threads for parallel execution.')
-    tagbamparser.add_argument('--batch_size', type=int, default=100000,
-        help='Reads to process per batch.')
     tagbamparser.set_defaults(func=medaka.common.tag_merge_bams)
 
     # check if feature encoder expects DT tags
