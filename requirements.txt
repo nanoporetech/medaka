@@ -9,7 +9,7 @@ tensorflow~=2.10.0
 numpy>=1.21.0,<2.0.0
 mappy
 ont_fast5_api
-parasail
+ont-parasail
 pysam>=0.16.0.1       # 0.16.0 is broken, various others too
 pyspoa>=0.2.1         # 0.2.0 has `min_coverage` parameter
 requests
