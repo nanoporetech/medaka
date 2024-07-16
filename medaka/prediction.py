@@ -1,5 +1,4 @@
 """Inference program and ancilliary functions."""
-import os
 import queue
 import threading
 from timeit import default_timer as now
@@ -23,7 +22,7 @@ def run_prediction(
     # start loading data
     loader = DataLoader(
         bam, regions, batch_size,
-        batch_cache_size=8, bam_workers=2,
+        batch_cache_size=8, bam_workers=bam_workers,
         feature_encoder=feature_encoder,
         chunk_len=chunk_len, chunk_overlap=chunk_ovlp,
         enable_chunking=enable_chunking)
@@ -84,32 +83,7 @@ def run_prediction(
 
 def predict(args):
     """Inference program."""
-    import tensorflow as tf
     logger = medaka.common.get_named_logger('Predict')
-
-    # There's not to much speed up to be had with threads. We (mostly) use
-    # a bidirectional GRU so its fair to set inter-operation threads to two
-    # (for the two directions).
-    if args.threads > 2:
-        logger.warning("Reducing threads to 2, anymore is a waste.")
-        args.threads = 2
-        if len(tf.config.list_physical_devices('GPU')) == 0:
-            logger.info(
-                "It looks like you are running medaka without a GPU "
-                "and attempted to set a high number of threads. We "
-                "have scaled this down to an optimal number. If you "
-                "wish to improve performance please see "
-                "https://nanoporetech.github.io/medaka/"
-                "installation.html#improving-parallelism.")
-    logger.info(
-        "Setting tensorflow inter/intra-op threads to {}/1.".format(
-            args.threads))
-    os.environ["TF_NUM_INTEROP_THREADS"] = str(args.threads)
-    os.environ["TF_NUM_INTRAOP_THREADS"] = str(1)
-    os.environ["OMP_NUM_THREADS"] = str(1)  # this one is for the conda builds
-    # These function calls seem not to work:
-    # tf.config.threading.set_intra_op_parallelism_threads(args.threads)
-    # tf.config.threading.set_inter_op_parallelism_threads(args.threads)
 
     bam_regions = medaka.common.get_bam_regions(
         args.bam, regions=args.regions)
@@ -158,67 +132,83 @@ def predict(args):
         if not hasattr(feature_encoder, "sym_indels"):
             feature_encoder.sym_indels = False
 
-        if len(tf.config.list_physical_devices('GPU')) > 0:
+        import torch
+        if torch.cuda.device_count() > 0:
             logger.info("Found a GPU.")
-            logger.info(
-                "If cuDNN errors are observed, try setting the environment "
-                "variable `TF_FORCE_GPU_ALLOW_GROWTH=true`. To explicitely "
-                "disable use of cuDNN use the commandline option "
-                "`--disable_cudnn. If OOM (out of memory) errors are found "
-                "please reduce batch size.")
+            device = torch.device("cuda")
+            # logger.info(
+            #     "If cuDNN errors are observed, try setting the environment "
+            #     "variable `TF_FORCE_GPU_ALLOW_GROWTH=true`. To explicitely "
+            #     "disable use of cuDNN use the commandline option "
+            #     "`--disable_cudnn. If OOM (out of memory) errors are found "
+            #     "please reduce batch size.")
+        else:
+            device = torch.device("cpu")
+            torch.set_num_threads(args.threads)
+            args.full_precision = True
 
-        bam_pool = medaka.features.BAMHandler(args.bam)
+        model = model_store.load_model(device=device)
 
-        if len(regions) > 0:
+    logger.info("Model device: {}".format(model.device()))
+    if args.full_precision:
+        logger.info("Running prediction at full precision")
+    else:
+        logger.info("Running prediction at half precision")
+        model.half()
 
-            logger.info("Processing {} long region(s) with batching.".format(
-                len(regions)))
-            model = model_store.load_model(time_steps=args.chunk_len)
+    # # TODO: see whether compilation improves performance
+    # compiled_model = torch.compile(model, backend="inductor")
 
-            # the returned regions are those where the pileup width is smaller
-            # than chunk_len (which could happen due to gaps in coverage)
-            remainder_regions_depth = run_prediction(
-                args.output, bam_pool, regions, model, feature_encoder,
-                args.chunk_len, args.chunk_ovlp,
-                batch_size=args.batch_size, save_features=args.save_features,
-                bam_workers=args.bam_workers)
+    bam_pool = medaka.features.BAMHandler(args.bam)
 
-            # run_prediction returns [(region, pileup width)]
-            remainder_regions.extend([r[0] for r in remainder_regions_depth])
+    if len(regions) > 0:
 
-        # short/remainder regions: just do things without chunking. We can do
-        # this here because we now have the size of all pileups (and know they
-        # are small).
-        # TODO: can we avoid calculating pileups twice whilst controlling
-        # memory?
-        if len(remainder_regions) > 0:
-            logger.info("Processing {} short region(s).".format(
-                len(remainder_regions)))
+        logger.info("Processing {} long region(s) with batching.".format(
+            len(regions)))
 
-            # switch to running model eagerly since we don't want to retrace
-            # the model every time the pileup width changes. This also avoids
-            # creating a thread that does not die for every retrace
-            model = model_store.load_model(time_steps=None)
-            model.run_eagerly = True
-            new_remainders = run_prediction(
-                args.output, bam_pool, remainder_regions, model,
-                feature_encoder,
-                args.chunk_len, args.chunk_ovlp,  # these won't be used
-                batch_size=1,  # everything is a different size, cant batch
-                save_features=args.save_features, enable_chunking=False)
-            if len(new_remainders) > 0:
-                # shouldn't get here
-                ignored = [x[0] for x in new_remainders]
-                n_ignored = len(ignored)
-                logger.warning("{} regions were not processed: {}.".format(
-                    n_ignored, ignored))
+        # the returned regions are those where the pileup width is smaller
+        # than chunk_len (which could happen due to gaps in coverage)
+        remainder_regions_depth = run_prediction(
+            args.output, bam_pool, regions, model, feature_encoder,
+            args.chunk_len, args.chunk_ovlp,
+            batch_size=args.batch_size, save_features=args.save_features,
+            bam_workers=args.bam_workers)
 
-        logger.info("Finished processing all regions.")
+        # run_prediction returns [(region, pileup width)]
+        remainder_regions.extend([r[0] for r in remainder_regions_depth])
 
-        if args.check_output:
-            logger.info("Validating and finalising output data.")
-            with medaka.datastore.DataStore(args.output, 'a') as _:
-                pass
+    # short/remainder regions: just do things without chunking. We can do
+    # this here because we now have the size of all pileups (and know they
+    # are small).
+    # TODO: can we avoid calculating pileups twice whilst controlling
+    # memory?
+    if len(remainder_regions) > 0:
+        logger.info("Processing {} short region(s).".format(
+            len(remainder_regions)))
+
+        # TODO: see whether this is still relevant for pytorch models
+        # if "keras" in model.__module__:
+        #     model.run_eagerly = True
+
+        new_remainders = run_prediction(
+            args.output, bam_pool, remainder_regions, model,
+            feature_encoder,
+            args.chunk_len, args.chunk_ovlp,  # these won't be used
+            batch_size=1,  # everything is a different size, cant batch
+            save_features=args.save_features, enable_chunking=False)
+        if len(new_remainders) > 0:
+            # shouldn't get here
+            ignored = [x[0] for x in new_remainders]
+            n_ignored = len(ignored)
+            logger.warning("{} regions were not processed: {}.".format(
+                n_ignored, ignored))
+
+    logger.info("Finished processing all regions.")
+
+    if args.check_output:
+        logger.info("Validating and finalising output data.")
+        with medaka.datastore.DataStore(args.output, 'a') as _:
+            pass
 
 
 class DataLoader(object):

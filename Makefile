@@ -31,6 +31,13 @@ PYTHON ?= python3
 VENV ?= venv
 DOCKERTAG ?= "medaka/medaka:latest"
 COVFAIL = 80
+MEDAKA_CPU ?= 0
+
+ifeq ($(MEDAKA_CPU), 1)
+EXTRA_INDEX=--extra-index-url https://download.pytorch.org/whl/cpu
+else
+EXTRA_INDEX=
+endif
 
 VERSION := $(shell grep "__version__" medaka/__init__.py | awk '{gsub("\"","",$$3); print $$3}')
 
@@ -172,13 +179,13 @@ pyprep-m1: venv
 .PHONY: install
 install: .package-reqs
 	@echo "\x1b[1;33mInstalling medaka\x1b[0m"
-	${IN_VENV} && LDFLAGS=$(LDFLAGS) pip install .
+	${IN_VENV} && LDFLAGS=$(LDFLAGS) pip install . $(EXTRA_INDEX)
 
 
 .PHONY: develop
 develop: .package-reqs 
 	@echo "\x1b[1;33mInstalling medaka in development mode\x1b[0m"
-	${IN_VENV} && WITHDEFLATE=$(WITHDEFLATE) LDFLAGS=$(LDFLAGS) pip install -e .
+	${IN_VENV} && WITHDEFLATE=$(WITHDEFLATE) LDFLAGS=$(LDFLAGS) pip install -e . $(EXTRA_INDEX)
 
 
 .PHONY: test
@@ -198,7 +205,7 @@ test: install
 .PHONY: install_root
 install_root: check_lfs scripts/mini_align libhts.a | $(addprefix $(VENV)/bin/, $(BINARIES)) 
 	pip3 install pip --upgrade
-	pip3 install -r requirements.txt
+	pip3 install -r requirements.txt $(EXTRA_INDEX)
 	pip3 install .
 	# copy binaries to PATH
 	cp $| $$(dirname $$(which pip3))

@@ -11,6 +11,7 @@ import tempfile
 import warnings
 
 import numpy as np
+import torch
 
 import medaka.common
 
@@ -30,7 +31,10 @@ class BaseModelStore(ABC):
 
     @abstractmethod
     def load_model(self, time_steps):
-        """Load a model from hdf file/tensorflow directory."""
+        """Load a model from hdf file.
+
+        Deprecated on switch to torch.
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -68,16 +72,8 @@ class ModelStore(BaseModelStore):
         """Load a model from an .hdf file.
 
         :param time_steps: number of time points in RNN, `None` for dynamic.
-
-        ..note:: keras' `load_model` cannot handle CuDNNGRU layers, hence this
-            function builds the model then loads the weights.
         """
-        with DataStore(self.filepath) as ds:
-            self.logger.info('filepath {}'.format(self.filepath))
-            model_partial_function = ds.get_meta('model_function')
-            model = model_partial_function(time_steps=time_steps)
-            model.load_weights(self.filepath)
-        return model
+        raise NotImplementedError
 
     def get_meta(self, key):
         """Retrieve a meta data item.
@@ -93,8 +89,8 @@ class ModelStore(BaseModelStore):
             return ds.copy_meta(other)
 
 
-class ModelStoreTF(BaseModelStore):
-    """Read and write model to tensorflow storage directory."""
+class ModelStoreTGZ(BaseModelStore):
+    """Read and write model to compressed .tar.gz archive."""
 
     top_level_dir = 'model'
 
@@ -103,7 +99,7 @@ class ModelStoreTF(BaseModelStore):
 
         :param filename: filepath to saved_model directory
         """
-        self.logger = medaka.common.get_named_logger('MdlStrTF')
+        self.logger = medaka.common.get_named_logger('MdlStrTGZ')
         self.filepath = filepath
         self.meta = None
         self.tmpdir = None
@@ -170,15 +166,15 @@ class ModelStoreTF(BaseModelStore):
         """Remove temporary unpack_filepath."""
         self.cleanup()
         if exception_type is not None:
-            self.logger.info('ModelStoreTF exception {}'.format(
+            self.logger.info('ModelStoreTGZ exception {}'.format(
                 exception_type))
 
     def __del__(self):
         """Run cleanup on destroy."""
         self.cleanup()
 
-    def load_model(self, time_steps=None):
-        """Load a model from a tf saved_model file.
+    def load_model(self, time_steps=None, device=None, *args, **kwargs):
+        """Load a model from a saved_model file.
 
         :param time_steps: number of time points in RNN, `None` for dynamic.
 
@@ -188,15 +184,15 @@ class ModelStoreTF(BaseModelStore):
         model_partial_function = self.get_meta('model_function')
         self.model = model_partial_function(time_steps=time_steps)
         self.logger.info("Model {}".format(self.model))
+
+        # try to load weights in torch format
         weights = os.path.join(
-            self.tmpdir.name, self.top_level_dir, 'variables', 'variables')
+            self.tmpdir.name, self.top_level_dir, 'weights.pt')
         self.logger.info(
-            "loading weights from {} (using expect partial)".format(weights))
-        # expect partial ignores errors about the optimizer state not being
-        # present saving the optimizer state would make the models bigger.
-        # would be nice to figure out how to delete the references to the
-        # optimizer from the models
-        self.model.load_weights(weights).expect_partial()
+            "loading weights from {}".format(weights))
+        self.model.load_state_dict(torch.load(weights, map_location=device))
+        if device is not None:
+            self.model = self.model.to(device)
         return self.model
 
     def get_meta(self, key):

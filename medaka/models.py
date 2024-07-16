@@ -1,5 +1,6 @@
 """Creation and loading of models."""
 
+import abc
 import itertools
 import os
 import pathlib
@@ -7,10 +8,12 @@ import tempfile
 
 import pysam
 import requests
+import torch
 
 import medaka.common
 import medaka.datastore
 import medaka.options
+
 
 logger = medaka.common.get_named_logger('ModelLoad')
 
@@ -19,17 +22,21 @@ class DownloadError(ValueError):
     """Raised when model is unsuccessfully downloaded."""
 
 
+model_suffixes = ["_model_pt.tar.gz", ]
+
+
 def resolve_model(model):
     """Resolve a model filepath, downloading known models if necessary.
 
     :param model_name: str, model filepath or model ID
 
-    :returns: str: filepath to hdf model file or TF model directory.
+    :returns: str: filepath to hdf/tar.gz model file or model directory.
     """
-    suffixes = ("_model.tar.gz", "_model.hdf5")
     if os.path.exists(model):  # model is path to model file
         return model
-    elif model not in medaka.options.allowed_models:
+    elif model in medaka.options.deprecated_models:
+        raise medaka.options.DeprecationError(model)
+    elif model not in medaka.options.known_models:
         # try to resolve as a basecaller model <model>:<variety>
         err_msg = f"Failed to interpret '{model}' as a basecaller model."
         try:
@@ -41,13 +48,15 @@ def resolve_model(model):
                 return resolve_model(mod)
             else:
                 raise ValueError(err_msg)
+        except medaka.options.DeprecationError as ex:
+            raise ex
         except Exception:
             logger.warning(err_msg)
         raise ValueError(
             f"Model {model} is not a known model or existant file.")
     else:
         # check for model in model stores
-        for suffix in suffixes:
+        for suffix in model_suffixes:
             fname = '{}{}'.format(model, suffix)
             for ms in medaka.options.model_stores:
                 fp = os.path.join(ms, fname)
@@ -57,7 +66,7 @@ def resolve_model(model):
         # try to download model
         download_errors = 0
         data = None
-        for suffix in suffixes:
+        for suffix in model_suffixes:
             fname = '{}{}'.format(model, suffix)
             url = medaka.options.model_url_template.format(
                 pkg=__package__, subdir=medaka.options.model_subdir,
@@ -77,7 +86,7 @@ def resolve_model(model):
                 download_errors += 1
             else:
                 break
-        if download_errors == len(suffixes):
+        if download_errors == len(model_suffixes):
             raise DownloadError(
                 "The model file for {} is not already installed and "
                 "could not be downloaded. Check you are connected to "
@@ -217,79 +226,137 @@ def open_model(fname):
     if ext == ".hdf5":
         return medaka.datastore.ModelStore(fname)
     elif ext == ".gz":
-        return medaka.datastore.ModelStoreTF(fname)
+        return medaka.datastore.ModelStoreTGZ(fname)
     else:
         raise ValueError(
             "Model {} does not have .hdf5 or .gz extension.".format(fname))
 
 
-def build_model(
+class TorchModel(torch.nn.Module):
+    """Base class for pytorch models."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        """Initialise underlying Module."""
+        super().__init__(*args, **kwargs)
+        self.half_precision = False
+
+    @abc.abstractmethod
+    def forward(self, *args, **kwargs) -> torch.Tensor:
+        """Model forward pass, to be overwritted by the specific model."""
+        raise NotImplementedError
+
+    def device(self) -> torch.device:
+        """Device where model has been loaded."""
+        try:
+            return next(self.parameters()).device
+        except StopIteration:
+            return torch.device("cpu")
+
+    def half(self):
+        """Set model to half precision."""
+        super().half()
+        self.half_precision = True
+
+    def predict_on_batch(self, x):
+        """Run inference on a feature batch.
+
+        Handles moving features to the correct device and type conversion
+        if required. Returns a cpu tensor.
+        """
+        with torch.inference_mode():
+            x = torch.Tensor(x).to(self.device())
+            if self.half_precision:
+                x = x.half()
+            x = self.forward(x).detach().cpu()
+        return x
+
+
+class GRUModel(TorchModel):
+    """Implementation of bidirectional GRU model in pytorch."""
+
+    def __init__(
+            self, num_features, num_classes, gru_size, *args,
+            classify_activation="softmax", **kwargs):
+        """Initialise bidirectional GRU model.
+
+        :param num_features: int, number of features for each pileup column.
+        :param num_classes: int, number of output class labels.
+        :param gru_size: int, size of each GRU layer (in each direction).
+        :param classify_activation: str, activation to use in classification
+            layer.
+        """
+        if classify_activation != "softmax":
+            raise NotImplementedError
+
+        self.gru_size = gru_size
+        self.num_classes = num_classes
+        super().__init__(*args, **kwargs)
+        self.gru = torch.nn.GRU(
+            num_features,
+            gru_size,
+            num_layers=2,
+            bidirectional=True,
+            batch_first=True
+        )
+        self.linear = torch.nn.Linear(2 * gru_size, num_classes)
+        self.normalise = True
+
+    def forward(self, x):
+        """Model forward pass."""
+        x = self.gru(x)[0]
+        x = self.linear(x)
+        if self.normalise:
+            # switch normalise off for training to return logits for
+            # cross-entropy loss
+            x = torch.softmax(x, dim=-1)
+        return x
+
+
+def build_model_torch(
         feature_len, num_classes, gru_size=128,
         classify_activation='softmax', time_steps=None):
-    """Build a bidirectional GRU model with CuDNNGRU support.
-
-    CuDNNGRU implementation is claimed to give speed-up on GPU of 7x.
-    The function will build a model capable of running on GPU with
-    CuDNNGRU provided a) a GPU is present, b) the arguments to the
-    keras layer meet the CuDNN kernal requirements for cudnn = True;
-    otherwise a compatible (but not CuDNNGRU accelerated model) is built.
+    """Build a bidirectional GRU model.
 
     :param feature_len: int, number of features for each pileup column.
     :param num_classes: int, number of output class labels.
     :param gru_size: int, size of each GRU layer.
     :param classify_activation: str, activation to use in classification layer.
-    :param time_steps: int, number of pileup columns in a sample.
+    :param time_steps: int, number of pileup columns in a sample (ignored).
 
-    :returns: `keras.models.Sequential` object.
+    :returns: `torch.nn.Module` object.
 
     """
-    import tensorflow as tf
-    from tensorflow.keras.layers import \
-        Bidirectional, Dense, GRU
-    from tensorflow.keras.models import Sequential
-    #  Tensorflow2 uses a fast cuDNN implementation if a GPU is available
-    #  and the arguments to the layer meet the CuDNN kernal requirements
-    if tf.config.list_physical_devices('GPU'):
-        logger.info("GPU available: building model with cudnn optimization")
-
-    model = Sequential()
-    input_shape = (time_steps, feature_len)
-    for i in [1, 2]:
-        name = 'gru{}'.format(i)
-        gru = GRU(
-            gru_size, reset_after=True, recurrent_activation='sigmoid',
-            return_sequences=True, name=name)
-        model.add(Bidirectional(gru, input_shape=input_shape))
-
-    # see keras #10417 for why we specify input shape
-    model.add(Dense(
-        num_classes, activation=classify_activation, name='classify',
-        input_shape=(time_steps, 2 * gru_size)
-    ))
-
+    model = GRUModel(
+        feature_len, num_classes, gru_size,
+        classify_activation=classify_activation)
     return model
 
 
-def build_majority(
-        feature_len, num_classes, gru_size=128,
-        classify_activation='softmax', time_steps=None):
-    """Build a mock model that simply sums counts.
+def build_model(*args, **kwargs):
+    """Catch old format TF model builder commands."""
+    raise ValueError("Model format is not supported by medaka v2.x.")
 
-    :param feature_len: int, number of features for each pileup column.
-    :param num_classes: int, number of output class labels.
-    :param gru_size: int, size of each GRU layer.
-    :param classify_activation: str, activation to use in classification layer.
-    :param time_steps: int, number of pileup columns in a sample.
 
-    :returns: `keras.models.Sequential` object.
+class MajorityModel(TorchModel):
+    """Implementation of majority-rules model in pytorch."""
 
-    """
-    import tensorflow as tf
-    from tensorflow.keras.layers import \
-        Activation, Lambda
-    from tensorflow.keras.models import Sequential
+    def __init__(self, classify_activation="softmax"):
+        """Initialise MajorityModel.
 
-    def sum_counts(f):
+        :param claissify_activation: str, activation to use in classification
+            layer. NB: any value other than `softmax` will cause an exception.
+        """
+        if classify_activation != "softmax":
+            raise NotImplementedError
+        super().__init__()
+
+    def forward(self, x):
+        """Model forward pass."""
+        x = self._sum_counts(x)
+        x = torch.softmax(x, dim=-1)
+        return x
+
+    def _sum_counts(self, f):
         """Sum forward and reverse counts."""
         # TODO write to handle multiple dtypes
         # acgtACGTdD
@@ -297,16 +364,22 @@ def build_majority(
         b = f[:, :, 0:4] + f[:, :, 4:8]
         # sum deletion counts (indexing in this way retains correct shape)
         d = f[:, :, 8:9] + f[:, :, 9:10]
-        return tf.concat([d, b], axis=-1)
+        return torch.concat([d, b], axis=-1)
 
-    model = Sequential()
-    model.add(Lambda(sum_counts, output_shape=(time_steps, num_classes)))
-    model.add(Activation('softmax'))
+
+def build_majority(*args, classify_activation='softmax', **kwargs):
+    """Build a mock model that simply sums counts.
+
+    :param classify_activation: str, activation to use in classification layer.
+
+    :returns: `torch.nn.Module` object.
+
+    """
+    model = MajorityModel(classify_activation=classify_activation)
     return model
 
 
-default_model = 'two_layer_bidirectional_CuDNNGRU'
 model_builders = {
-    'two_layer_bidirectional_CuDNNGRU': build_model,
+    'two_layer_bidirectional_TorchGRU': build_model_torch,
     'majority_vote': build_majority,
 }

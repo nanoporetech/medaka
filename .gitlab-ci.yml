@@ -89,10 +89,7 @@ build:sdist:
         DO_COUNT_TEST: 1
     script:
         - echo "Building a Python ${PYWHEEL} wheel on manylinux_${FLAVOUR} for ${COMPUTE}"
-        # this is still required, because otherwise test in build-wheel
-        # will first install tensorflow, then try to install tensorflow-cpu
-        # and complain
-        - if [[ "${COMPUTE}" == "cpu" ]]; then export PACKAGE_NAME=medaka-cpu; export MEDAKA_CPU=1; sed -i "s/tensorflow/tensorflow-cpu/" requirements.txt; fi
+        - if [[ "${COMPUTE}" == "cpu" ]]; then export PACKAGE_NAME=medaka-cpu; export MEDAKA_CPU=1; sed -i "s/torch==[0-9]\+[\.0-9]\+/&+cpu/" requirements.txt; fi
         - ./build-wheels.sh . ${PYWHEEL}
     artifacts:
         paths:

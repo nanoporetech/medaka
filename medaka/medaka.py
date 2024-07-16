@@ -18,7 +18,6 @@ import medaka.tandem
 import medaka.training
 import medaka.variant
 import medaka.vcf
-import medaka.wrappers
 
 
 class ResolveModel(argparse.Action):
@@ -461,18 +460,22 @@ def medaka_parser():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     tparser.set_defaults(func=medaka.training.train)
     tparser.add_argument('features', nargs='+', help='Paths to training data.')
-    tparser.add_argument('--train_name', type=str, default='keras_train', help='Name for training run.')
+    tparser.add_argument('--train_name', type=str, default='medaka_train', help='Name for training run.')
     tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
     tparser.add_argument('--batch_size', type=int, default=100, help='Training batch size.')
-    tparser.add_argument('--max_samples', type=int, default=float("inf"), help='Only train on max_samples.')
+    tparser.add_argument('--max_samples', type=int, default=None, help='Only train on max_samples.')
+    tparser.add_argument('--max_valid_samples', type=int, default=None, help='Only validate on max_valid_samples.')
     tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
     tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
     tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
     tparser.add_argument('--device', type=int, default=0, help='GPU device to use.')
-    tparser.add_argument('--optimizer', type=str, default='rmsprop', choices=['nadam','rmsprop'], help='Optimizer to use.')
+    tparser.add_argument('--optimizer', type=str, default='rmsprop', choices=['nadam','rmsprop','sgd'], help='Optimizer to use.')
     tparser.add_argument('--optim_args', action=StoreDict, default=None, nargs='+',
         metavar="KEY1=VAL1,KEY2=VAL2...", help="Optimizer key-word arguments.")
+    tparser.add_argument('--loss_args', action=StoreDict, default=None, nargs='+',
+        metavar="KEY1=VAL1,KEY2=VAL2...", help="Training loss key-word arguments.")
+    tparser.add_argument('--lr_schedule', type=str, default='none', choices=['cosine', 'none'], help="Learning rate scheduler to use.")
 
     vgrp = tparser.add_mutually_exclusive_group()
     vgrp.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
@@ -500,6 +503,7 @@ def medaka_parser():
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
     tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
     tag_group.add_argument('--min_mapq', type=int, default=None, help='Minimum mapping quality. (Default: use model default.')
+    tag_group.add_argument('--full_precision', action='store_true', default=False, help='Run model in full precision (default is half on GPU).')
 
     # Consensus from single-molecules with subreads
     smparser = subparsers.add_parser('smolecule',

@@ -1,8 +1,9 @@
+import os
 import tempfile
 import unittest
 
-
 import numpy as np
+
 from medaka.common import Region, Sample
 from medaka import datastore
 
