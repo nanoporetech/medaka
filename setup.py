@@ -44,7 +44,7 @@ spec.loader.exec_module(_options)
 def check_model_lfs():
     # determine if data files look like LFS stubs, fail if they are
     model = _options.default_models['consensus']
-    default_model = os.path.join(__pkg_path__, 'data', '{}_model.tar.gz'.format(model))
+    default_model = os.path.join(__pkg_path__, 'data', '{}_model_pt.tar.gz'.format(model))
     stub_signature = "ASCII text"
     if os.path.exists(default_model):
         stdout = subprocess.check_output(['file', default_model])
@@ -67,11 +67,12 @@ if platform.machine() in {"aarch64", "arm64"}:
     # we used to set parasail and pyspoa here, but both can be fairly easily
     # built on both macOS and linux nowadays with basic build tool dependencies
     skip_deps = {}
-    if platform.system() == "Darwin":
-        rename_deps['tensorflow'] = 'tensorflow-macos'
+    # if platform.system() == "Darwin":
+        # rename_deps['tensorflow'] = 'tensorflow-macos'
 else:
-    if os.environ.get('MEDAKA_CPU') is not None:
-        rename_deps['tensorflow'] = 'tensorflow-cpu'
+    pass
+    # if os.environ.get('MEDAKA_CPU') is not None:
+        # rename_deps['tensorflow'] = 'tensorflow-cpu'
 dir_path = os.path.dirname(__file__)
 install_requires = []
 with open(os.path.join(dir_path, 'requirements.txt')) as fh:
@@ -127,7 +128,7 @@ if __name__ == '__main__':
         packages=find_packages(exclude=['*.test', '*.test.*', 'test.*', 'test']),
         package_data={
             __pkg_name__:[
-                os.path.join('data', '{}_model.tar.gz'.format(f))
+                os.path.join('data', '{}_model_pt.tar.gz'.format(f))
                 for f in bundled_models],
         },
         cffi_modules=["build.py:ffibuilder"],
@@ -144,7 +145,7 @@ if __name__ == '__main__':
             'scripts/medaka_consensus',
             'scripts/medaka_consensus_joint',
             'scripts/medaka_haploid_variant',
-            'scripts/mini_align', 'scripts/hdf2tf.py'],
+            'scripts/mini_align'],
         zip_safe=False,
         cmdclass={
             'build_ext': HTSBuild

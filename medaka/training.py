@@ -1,51 +1,16 @@
 """Training program and ancillary functions."""
+import csv
 import functools
 import os
 
 import numpy as np
+import torch
 
 import medaka.common
 import medaka.datastore
 import medaka.labels
 import medaka.models
-
-
-def qscore(y_true, y_pred):
-    """Keras metric function for calculating scaled error.
-
-    :param y_true: tensor of true class labels.
-    :param y_pred: class output scores from network.
-
-    :returns: class error expressed as a phred score.
-    """
-    from tensorflow.keras import backend as K
-    error = K.cast(K.not_equal(
-        K.max(y_true, axis=-1), K.cast(K.argmax(y_pred, axis=-1), K.floatx())),
-        K.floatx()
-    )
-    error = K.sum(error) / K.sum(K.ones_like(error))
-    return -10.0 * 0.434294481 * K.log(error)
-
-
-def cat_acc(y_true, y_pred):
-    """Keras loss function for sparse_categorical_accuracy.
-
-    :param y_true: tensor of true class labels.
-    :param y_pred: class output scores from network.
-
-    :returns: categorical accuracy.
-    """
-    # sparse_categorical_accuracy is broken in keras 2.2.4
-    #   https://github.com/keras-team/keras/issues/11348#issuecomment-439969957
-    # this is taken from e59570ae
-    # reshape in case it's in shape (num_samples, 1) instead of (num_samples,)
-    from tensorflow.keras import backend as K
-    if K.ndim(y_true) == K.ndim(y_pred):
-        y_true = K.squeeze(y_true, -1)
-    # convert dense predictions to labels
-    y_pred_labels = K.argmax(y_pred, axis=-1)
-    y_pred_labels = K.cast(y_pred_labels, K.floatx())
-    return K.cast(K.equal(y_true, y_pred_labels), K.floatx())
+import medaka.torch_ext
 
 
 def train(args):
@@ -63,15 +28,18 @@ def train(args):
 
     batcher = TrainBatcher(
         args.features, args.validation,
-        args.seed, args.batch_size, threads=args.threads_io)
+        args.seed, args.batch_size,
+        args.max_samples, args.max_valid_samples,
+        threads=args.threads_io)
 
-    import tensorflow as tf
-    with tf.device('/gpu:{}'.format(args.device)):
+    with torch.cuda.device('cuda:{}'.format(args.device)):
         run_training(
             train_name, batcher, model_fp=args.model, epochs=args.epochs,
             n_mini_epochs=args.mini_epochs,
             threads_io=args.threads_io, optimizer=args.optimizer,
-            optim_args=args.optim_args)
+            optim_args=args.optim_args,
+            loss_args=args.loss_args,
+            lr_schedule=args.lr_schedule)
 
     # stop batching threads
     logger.info("Training finished.")
@@ -79,13 +47,13 @@ def train(args):
 
 def run_training(
         train_name, batcher, model_fp=None,
-        epochs=5000, class_weight=None, n_mini_epochs=1, threads_io=1,
-        optimizer='rmsprop', optim_args=None):
+        epochs=10, n_mini_epochs=1, threads_io=1,
+        optimizer='rmsprop', optim_args=None,
+        loss_args=None, quantile_grad_clip=True,
+        lr_schedule='none'):
     """Run training."""
-    from tensorflow.keras import optimizers
-    from tensorflow.keras.callbacks import \
-        CSVLogger, EarlyStopping, TerminateOnNaN
-    from medaka.keras_ext import ModelMetaCheckpointTF, SequenceBatcher
+    import torch.optim as optimizers
+    from medaka.torch_ext import ModelMetaCheckpoint
 
     logger = medaka.common.get_named_logger('RunTraining')
 
@@ -97,11 +65,13 @@ def run_training(
         model = model_store.load_model(time_steps=time_steps)
     else:
         num_classes = batcher.label_scheme.num_classes
-        model_name = medaka.models.default_model
+        model_name = "two_layer_bidirectional_TorchGRU"
+        # model_name = medaka.models.default_model
         model_function = medaka.models.model_builders[model_name]
         partial_model_function = functools.partial(
             model_function, feat_dim, num_classes)
         model = partial_model_function(time_steps=time_steps)
+    model = model.to('cuda')
 
     model_metadata = {
         'model_function': partial_model_function,
@@ -110,80 +80,131 @@ def run_training(
 
     if isinstance(
             batcher.label_scheme, medaka.labels.DiploidLabelScheme):
-        metrics = ['binary_accuracy']
-        call_back_metrics = metrics
-        loss = 'binary_crossentropy'
-        logger.info(
-            "Using {} loss function for multi-label training".format(loss))
-    else:
-        metrics = [cat_acc, qscore]
-        call_back_metrics = {'cat_acc': cat_acc}
-        loss = 'sparse_categorical_crossentropy'
-        logger.info("Using {} loss function".format(loss))
+        logger.debug("Training with DiploidLabelScheme is untested")
+
+    accuracy = medaka.torch_ext.SparseCategoricalAccuracy
+    metrics = {
+        "val_cat_acc": accuracy(),
+        "val_qscore": medaka.torch_ext.QScore(eps=1e-6, accuracy=accuracy,)
+    }
+    loss = torch.nn.CrossEntropyLoss(
+        **(loss_args if loss_args is not None else {}))
+    logger.info("Using {} loss function".format(loss))
 
     if optimizer == 'nadam':
         if optim_args is None:
-            # defaults from docs as of 01/09/2019
             optim_args = {
-                'lr': 0.002, 'beta_1': 0.9, 'beta_2': 0.999,
-                'epsilon': 1e-07, 'schedule_decay': 0.004}
-        optimizer = optimizers.Nadam(**optim_args)
+                'lr': 0.002,
+                'betas': (0.9, 0.99),
+                'eps': 1e-07,
+                # 'momentum_decay': 0.0
+            }
+        optimizer = functools.partial(optimizers.NAdam, **optim_args)
     elif optimizer == 'rmsprop':
         if optim_args is None:
             optim_args = {
-                'lr': 0.001, 'rho': 0.9, 'epsilon': 1e-07, 'decay': 0.0}
-        optimizer = optimizers.RMSprop(**optim_args)
+                'lr': 0.001,
+                'alpha': 0.9,
+                'eps': 1e-07,
+                'momentum': 0.0
+            }
+        optimizer = functools.partial(optimizers.RMSprop, **optim_args)
+    elif optimizer == 'sgd':
+        if optim_args is None:
+            optim_args = {
+                'lr': 0.001,
+            }
+        optimizer = functools.partial(optimizers.SGD, **optim_args)
     else:
         raise ValueError('Unknown optimizer: {}'.format(optimizer))
+    optimizer = optimizer(model.parameters())
+    logger.info("Optimizer: {}".format(optimizer))
 
-    opts = dict(
-        verbose=1, save_weights_only=False, mode='max')
+    scaler = torch.cuda.amp.GradScaler()
 
-    callbacks = []
-    # write a model at the end of every epoch
-    callbacks.append(ModelMetaCheckpointTF(
-        model_metadata, os.path.join(train_name, 'model-{epoch:02d}'),
-        save_best_only=False, **opts))
-
-    for metric in call_back_metrics:
-        # Validation result keys are prefixed with val_
-        for m in metric, 'val_{}'.format(metric):
-            fn = 'model.best.{}'.format(m)
-            callbacks.append(ModelMetaCheckpointTF(
-                model_metadata, os.path.join(train_name, fn),
-                monitor=m, save_best_only=True, **opts))
-    callbacks.extend([
-        # Stop when no improvement
-        EarlyStopping(monitor='val_loss', patience=20),
-        # Log of epoch stats
-        CSVLogger(os.path.join(train_name, 'training.log'), separator='\t'),
-        TerminateOnNaN()
-    ])
-
-    if n_mini_epochs == 1:
-        logger.info(
-            "Not using mini_epochs, an epoch is a full traversal "
-            "of the training data")
+    if quantile_grad_clip:
+        clip_grad = medaka.torch_ext.ClipGrad()
     else:
-        logger.info(
-            "Using mini_epochs, an epoch is a traversal of 1/{} "
-            "of the training data".format(n_mini_epochs))
+        def clip_grad_fn(params, max_norm=2.0):
+            return torch.nn.utils.clip_grad_norm_(
+                params, max_norm=max_norm).item()
+        clip_grad = clip_grad_fn
 
-    model.compile(loss=loss, optimizer=optimizer, metrics=metrics)
-    model.fit(
-        SequenceBatcher(batcher, mini_epochs=n_mini_epochs),
-        validation_data=SequenceBatcher(batcher, 'validation'),
-        max_queue_size=2*threads_io, workers=threads_io,
-        use_multiprocessing=True, epochs=epochs, callbacks=callbacks,
-        class_weight=class_weight)
+    metacheckpoint = ModelMetaCheckpoint(model_metadata, train_name)
+
+    train_loader = batcher.train_loader(n_mini_epochs, threads=threads_io)
+    valid_loader = batcher.valid_loader(threads=threads_io)
+
+    total_mini_epochs = epochs * n_mini_epochs
+
+    if lr_schedule == 'none':
+        lr_scheduler = medaka.torch_ext.no_schedule(warmup_steps=None)
+        logger.info("Using constant learning rate.")
+    elif lr_schedule == 'cosine':
+        lr_scheduler = medaka.torch_ext.linear_warmup_cosine_decay()
+        logger.info("Using cosine learning rate decay.")
+    else:
+        raise ValueError(f"Unknown learning rate schedule: {lr_schedule}.")
+    lr_scheduler = lr_scheduler(optimizer, train_loader, total_mini_epochs, 0)
+
+    best_val_loss, best_val_loss_epoch = np.inf, -1
+    best_metrics = {k: 0 for k in metrics.keys()}
+
+    if os.environ.get('MEDAKA_DETECT_ANOMALY') is not None:
+        logger.info("Activating anomaly detection")
+        torch.autograd.set_detect_anomaly(True, check_nan=True)
+
+    with CSVLogger(
+            os.path.join(train_name, 'training.csv'), write_cache=0) \
+            as training_log:
+        for n in range(total_mini_epochs):
+            with CSVLogger(
+                    os.path.join(train_name, 'losses_{}.csv'.format(n))) \
+                    as loss_log:
+                train_loss = medaka.torch_ext.train_one_epoch(
+                    model, train_loader, loss, optimizer, scaler, clip_grad,
+                    lr_scheduler=lr_scheduler, loss_log=loss_log)
+
+            val_loss, val_metrics = \
+                medaka.torch_ext.validate_one_epoch(
+                    model, valid_loader, loss, metrics=metrics)
+            logger.info(
+                f"epoch {n + 1}/{total_mini_epochs}: val_loss={val_loss}, "
+                ", ".join(f'{k}={v:.4f}' for k, v in val_metrics.items())
+            )
+
+            # log epoch results
+            training_log.append({
+                "epoch": n,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                **val_metrics
+            })
+
+            # save model checkpoints
+            metacheckpoint.on_epoch_end(n, model)
+
+            for k, v in val_metrics.items():
+                if k in best_metrics and v > best_metrics[k]:
+                    metacheckpoint.on_epoch_end("best_{}".format(k), model)
+                    best_metrics[k] = v
+
+            if val_loss < best_val_loss:
+                metacheckpoint.on_epoch_end("best_val_loss", model)
+                best_val_loss = val_loss
+                best_val_loss_epoch = n
+
+            # early stopping
+            if n >= best_val_loss_epoch + 20:
+                break
 
 
-class TrainBatcher():
+class TrainBatcher:
     """Batching of training and validation samples."""
 
     def __init__(
-            self, features, validation=0.2, seed=0,
-            batch_size=500, threads=1):
+            self, features, validation=0.2, seed=0, batch_size=500,
+            max_samples=None, max_valid_samples=None, threads=1):
         """Serve up batches of training or validation data.
 
         :param features: iterable of str, training feature files.
@@ -192,8 +213,11 @@ class TrainBatcher():
         :param seed: int, random seed for separation of batches into
             training/validation.
         :param batch_size: int, number of samples per batch.
-        :param threads: int, number of threads to use for preparing batches.
-
+        :param max_samples: int, number of samples to use for training, `None`
+            to use the full dataset (default=`None`).
+        :param max_valid_samples: int, number of samples to use for validation,
+            `None` to use the full dataset (default=`None`).
+        :param threads: int, number of threads to use for indexing samples.
         """
         self.logger = medaka.common.get_named_logger('TrainBatcher')
         self.features = features
@@ -234,17 +258,79 @@ class TrainBatcher():
                 (len(self.valid_samples) + len(self.train_samples))
             self.logger.info(msg.format(len(self.valid_samples), fraction))
 
-        msg = 'Got {} samples in {} batches ({} labels) for {}'
-        self.logger.info(msg.format(
+        msg1 = 'Got {} samples ({} labels) for {}'
+        msg2 = '{} set, using {} samples for {}'
+
+        self.logger.info(msg1.format(
             len(self.train_samples),
-            len(self.train_samples) // batch_size,
             len(self.train_samples) * self.feature_shape[0],
             'training'))
-        self.logger.info(msg.format(
+        if max_samples is not None and max_samples < len(self.train_samples):
+            np.random.shuffle(self.train_samples)
+            self.train_samples = self.train_samples[:max_samples]
+            self.logger.info(
+                msg2.format(
+                    "max_samples", len(self.training_samples), "training"))
+
+        self.logger.info(msg1.format(
             len(self.valid_samples),
-            len(self.valid_samples) // batch_size,
             len(self.valid_samples) * self.feature_shape[0],
             'validation'))
+        if (
+            max_valid_samples is not None and
+            max_valid_samples < len(self.valid_samples)
+        ):
+            np.random.shuffle(self.valid_samples)
+            self.valid_samples = self.valid_samples[:max_valid_samples]
+            self.logger.info(
+                msg2.format(
+                    "max_valid_samples", len(self.valid_samples), "validation"
+                ))
+
+    def train_loader(self, mini_epochs=1, threads=1, **kwargs):
+        """Create a DataLoader for the training samples array.
+
+        :param mini_epochs: int, number of mini_epochs per full epoch.
+        :param threads: int, number of parallel threads for loading samples.
+
+        :returns: SequenceBatcher
+        """
+        return medaka.torch_ext.SequenceBatcher(
+            medaka.torch_ext.Sequence(
+                self.train_samples,
+                sampler_func=functools.partial(
+                        self.sample_to_x_y_bq_worker,
+                        label_scheme=self.label_scheme),
+                dataset="train",
+                mini_epochs=mini_epochs,
+                seed=self.seed,
+                **kwargs
+            ),
+            batch_size=self.batch_size,
+            threads=threads,
+        )
+
+    def valid_loader(self, threads=1, **kwargs):
+        """Create a DataLoader for the validation samples array.
+
+        :param threads: int, number of parallel threads for loading samples.
+
+        :returns: SequenceBatcher
+        """
+        return medaka.torch_ext.SequenceBatcher(
+            medaka.torch_ext.Sequence(
+                self.valid_samples,
+                sampler_func=functools.partial(
+                        self.sample_to_x_y_bq_worker,
+                        label_scheme=self.label_scheme),
+                dataset="validation",
+                mini_epochs=1,
+                seed=self.seed,
+                **kwargs
+            ),
+            batch_size=self.batch_size,
+            threads=threads,
+        )
 
     def sample_to_x_y(self, sample):
         """Convert a `common.Sample` object into a training x, y tuple.
@@ -294,3 +380,57 @@ class TrainBatcher():
         x = s.features
         y = label_scheme.encoded_labels_to_training_vectors(s.labels)
         return x, y
+
+
+class CSVLogger:
+    """Common interface for writing logs to file.
+
+    Based on bonito.io.CSVLogger.
+    """
+
+    def __init__(self, filename, sep=',', write_cache=100):
+        """Initialise file for output.
+
+        :param filename: output file path.
+        :param sep: delimiter (default=',')
+        :param write_cache: number of lines to cache before writing.
+        """
+        self.filename = str(filename)
+        if os.path.exists(self.filename):
+            with open(self.filename) as f:
+                self.columns = csv.DictReader(f).fieldnames
+        else:
+            self.columns = None
+        self.fh = open(self.filename, 'a', newline='')
+        self.csvwriter = csv.writer(self.fh, delimiter=sep)
+        self.count = 0
+        self.write_cache = write_cache
+
+    def set_columns(self, columns):
+        """Set list of column headers."""
+        if self.columns:
+            raise Exception('Columns already set')
+        self.columns = list(columns)
+        self.csvwriter.writerow(self.columns)
+
+    def append(self, row):
+        """Append a row entry to the writer queue."""
+        if self.columns is None:
+            self.set_columns(row.keys())
+        self.csvwriter.writerow([row.get(k, '-') for k in self.columns])
+        self.count += 1
+        if self.count > self.write_cache:
+            self.count = 0
+            self.fh.flush()
+
+    def close(self):
+        """Close output file handle."""
+        self.fh.close()
+
+    def __enter__(self):
+        """Context manager entry for opening output file."""
+        return self
+
+    def __exit__(self, *args):
+        """Context manager exit for closing output file."""
+        self.close()

@@ -54,6 +54,14 @@ We recommend using medaka within a virtual environment, viz.:
     version 2.17 are recommended as these are those used in development of
     medaka.
 
+The default installation has the capacity to run on a GPU (see _Using a GPU_ below),
+or on CPU. If you are using `medaka` exclusively on CPU, and don't need the ability
+to run on GPU, you may wish to install the CPU-only version with:
+
+.. code-block:: bash
+
+    pip install medaka-cpu --extra-index-url https://download.pytorch.org/whl/cpu
+
 
 **Installation from source**
 
@@ -83,45 +91,50 @@ into a python virtual environment. To setup the environment run:
 Using this method both ``samtools`` and ``minimap2`` are built from source and need
 not be provided by the user.
 
+When building from source, to install a CPU-only version without the capacity to
+run on GPU, modify the above to:
+
+.. code-block:: bash
+
+    MEDAKA_CPU=1 make install
+
+
 
 **Using a GPU**
 
-Since version 1.1.0 ``medaka`` uses Tensorflow 2.2, prior versions used Tensorflow 1.4.
-For ``medaka`` 1.1.0 and higher installation from source or using ``pip`` can make
-immediate use of GPUs. However, note that the ``tensorflow`` package is compiled against
-specific versions of the NVIDIA CUDA and cuDNN libraries; users are directed to the
-`tensorflow installation <https://www.tensorflow.org/install/gpu>`_) pages
-for further information. cuDNN can be obtained from the
-`cuDNN Archive <https://developer.nvidia.com/rdp/cudnn-archive>`_, whilst CUDA
-from the `CUDA Toolkit Archive <https://developer.nvidia.com/cuda-toolkit-archive>`.
+Since version 2.0 `medaka` uses PyTorch. Prior versions (v1.x) used Tensorflow.
 
-For ``medaka`` prior to version 1.1.0, to enable the use of GPU resource it is
-necessary to install the ``tensorflow-gpu`` package. Using the source code from github
-a working GPU-powered ``medaka`` can be configured with:
+The default version of PyTorch that is installed when building from source or 
+when installing through `pip` can make immediate use of GPUs via NVIDIA CUDA.
+However, note that the `torch` package is compiled against specific versions of
+the CUDA and cuDNN libraries; users are directed to the 
+[torch installation](https://pytorch.org/get-started/locally/) pages for further
+information. cuDNN can be obtained from the 
+[cuDNN Archive](https://developer.nvidia.com/rdp/cudnn-archive), whilst CUDA from
+the [CUDA Toolkit Archive](https://developer.nvidia.com/cuda-toolkit-archive).
 
+As described above, if the capability to run on GPU is not required, `medaka-cpu`
+can be installed with a CPU-only version of PyTorch that doesn't depend on the CUDA
+libraries, as follows:
 
 .. code-block:: bash
 
-    git clone https://github.com/nanoporetech/medaka.git
-    cd medaka
-    sed -i 's/tensorflow/tensorflow-gpu/' requirements.txt
-    make install
+    pip install medaka-cpu --extra-index-url https://download.pytorch.org/whl/cpu
 
-*GPU usage notes:*
+if using the prebuilt packages, or 
 
-Depending on your GPU, ``medaka`` may show out of memory errors when running.
+.. code-black:: bash
+
+    MEDAKA_CPU=1 make install
+
+if building from source.
+
+*GPU Usage notes*
+
+Depending on your GPU, `medaka` may show out of memory errors when running.
 To avoid these the inference batch size can be reduced from the default
-value by setting the ``-b`` option when running ``medaka_consensus``. A value
-``-b 100`` is suitable for 11Gb GPUs.
-
-For users with RTX series GPUs it may be required to additionally set an
-environment variable to have ``medaka`` run without failure:
-
-.. code-block:: bash
-
-    export TF_FORCE_GPU_ALLOW_GROWTH=true
-
-In this situation a further reduction in batch size may be required.
+value by setting the `-b` option when running `medaka_consensus`. A value
+`-b 100` is suitable for 11Gb GPUs.
 
 
 .. _sequence_correction:
