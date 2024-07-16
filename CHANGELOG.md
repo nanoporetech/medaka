@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [Unreleased]
+
+Switched from tensorflow to pytorch.
+
+Existing models for recent basecallers have been converted to the new format.
+Pytorch format models contain a ``_pt`` suffix in the filename.
+
+### Added
+- option `--lr_schedule` allows using cosine learning rate schedule in training
+- option `--max_valid_samples` to set number of samples in a training validation batch
+### Changed
+- loading models in hdf format has been deprecated
+- deleted minimap2 and racon wrappers in `medaka/wrapper.py`
+### Fixed
+- training models with DiploidLabelScheme uses categorical cross-entropy loss
+  instead of binary cross-entropy
+
+
 ## [v1.12.1]
 
 (Probably) final version of medaka using tensorflow. Future versions will use
