@@ -168,7 +168,7 @@ if [[ ! -e "${CONSENSUSPROBS}" ]] || ${FORCE}; then
     if [ -n "${MIN_MAPQ}" ]; then
         MAPQ_OPTS="--min_mapq ${MIN_MAPQ}"
     fi
-    medaka consensus "${CALLS2DRAFT}.bam" "${CONSENSUSPROBS}" \
+    medaka inference "${CALLS2DRAFT}.bam" "${CONSENSUSPROBS}" \
         --model "${MODEL}" --batch_size "${BATCH_SIZE}" --threads "${THREADS}" \
         ${MAPQ_OPTS} \
         || { echo "Failed to run medaka consensus."; exit 1; }
@@ -195,7 +195,7 @@ if [[ ! -e "${CONSENSUS}" ]] || ${FORCE}; then
     if "${QUALITIES}"; then
         QUALITIES_OPT="--qualities"
     fi
-    medaka stitch "${CONSENSUSPROBS}" "${DRAFT}" "${CONSENSUS}" \
+    medaka sequence "${CONSENSUSPROBS}" "${DRAFT}" "${CONSENSUS}" \
         --threads "${THREADS}" ${STITCH_OPTS} ${QUALITIES_OPT} \
         || { echo "Failed to stitch consensus chunks."; exit 1; }
     echo "Polished assembly written to ${OUTPUT}/${CONSENSUS}, have a nice day."

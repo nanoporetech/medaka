@@ -144,7 +144,7 @@ CONSENSUSPROBS=consensus_probs.hdf
 if [[ ! -e "${CONSENSUSPROBS}" ]] || ${FORCE}; then
     echo "Running medaka consensus"
     rm -rf "${CONSENSUSPROBS}"
-    medaka consensus "${CALLS2REF}.bam" "${CONSENSUSPROBS}" \
+    medaka inference "${CALLS2REF}.bam" "${CONSENSUSPROBS}" \
         --model "${MODEL}" --batch_size "${BATCH_SIZE}" --threads "${THREADS}" \
         || { echo "Failed to run medaka consensus."; exit 1; }
     FORCE=true
@@ -154,7 +154,7 @@ fi
 
 VARIANTS=medaka.vcf
 if [[ ! -e "${VARIANTS}" ]] || ${FORCE}; then
-    medaka variant "${REFERENCE}" "${CONSENSUSPROBS}" "${VARIANTS}" \
+    medaka vcf "${CONSENSUSPROBS}" "${REFERENCE}" "${VARIANTS}" \
         || { echo "Failed to create variants."; exit 1; }
     FORCE=true
 else
