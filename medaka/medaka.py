@@ -484,7 +484,7 @@ def medaka_parser():
     # Consensus from bam input
     # NB: any args added here should be set to default values in smolecule:main()
     #     to avoid attribute errors in that program.
-    cparser = subparsers.add_parser('consensus',
+    cparser = subparsers.add_parser('inference',
         help='Run inference from a trained model and alignments.',
         parents=[_log_level(), _chunking_feature_args(), _regions_or_bed_args(), _model_arg(), _rg_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -594,9 +594,9 @@ def medaka_parser():
     rleparser.add_argument('--block_size', action=CheckBlockSize, default=94, type=int,
         help='Block size for hompolymer splitting, e.g. with a value of blocksize=3, AAAA -> A3 A1.')
 
-    # Post-processing of consensus outputs
-    sparser = subparsers.add_parser('stitch',
-        help='Stitch together output from medaka consensus into final output.',
+    # Post-processing of inference outputs
+    sparser = subparsers.add_parser('sequence',
+        help='Stitch together output from medaka inference into a final consensus sequence.',
         parents=[_log_level(), _region_ref_names(), _min_depth_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     sparser.set_defaults(func=medaka.stitch.stitch)
@@ -620,13 +620,13 @@ def medaka_parser():
         help="Output with per-base quality scores (fastq).",
         action='store_true')
 
-    var_parser = subparsers.add_parser('variant',
-        help='Decode probabilities to VCF.',
+    var_parser = subparsers.add_parser('vcf',
+        help='Stitch together output from medaka inference into a final VCF file.',
         parents=[_log_level(), _region_ref_names()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     var_parser.set_defaults(func=medaka.variant.variants_from_hdf)
-    var_parser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
     var_parser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
+    var_parser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
     var_parser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
     var_parser.add_argument('--verbose', action='store_true',
                             help='Populate VCF info fields.')
@@ -634,21 +634,6 @@ def medaka_parser():
                          help='Decode variants at ambiguous reference positions.')
     var_parser.add_argument('--gvcf', action='store_true',
                          help='Output VCF records for reference loci predicted to be non-variant.')
-
-    # TODO do we still need this?
-    snp_parser = subparsers.add_parser('snp',
-        help='Decode probabilities to SNPs.',
-        parents=[_log_level(), _region_ref_names()],
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    snp_parser.set_defaults(func=medaka.variant.snps_from_hdf)
-    snp_parser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
-    snp_parser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
-    snp_parser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
-    snp_parser.add_argument('--threshold', default=0.04, type=float,
-                            help='Threshold for considering secondary calls. A value of 1 will result in haploid decoding.')
-    snp_parser.add_argument('--ref_vcf', default=None, help='Reference vcf.')
-    snp_parser.add_argument('--verbose', action='store_true',
-                         help='Populate VCF info fields.')
 
     # Tools
     toolparser = subparsers.add_parser('tools',

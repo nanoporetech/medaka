@@ -5,6 +5,8 @@ scripts/mini_align
 src/vcf2fasta/vcf2fasta
 submodules/
 venv
+medaka/test/data/workflow/reference.fasta.fai
+medaka/test/data/workflow/reference.fasta.mmi
 *.pyd
 *.pyc
 *.so

@@ -154,7 +154,7 @@ IN_VENV=. ./${VENV}/bin/activate
 
 $(VENV)/bin/activate:
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV) --prompt "medaka"
-	${IN_VENV} && pip install pip wheel --upgrade
+	${IN_VENV} && pip install pip wheel setuptools --upgrade
 
 $(VENV)/bin/%: $(BINCACHEDIR)/%
 	cp $< $@
@@ -199,6 +199,16 @@ test: install
 	${IN_VENV} && pytest medaka -n 4 --doctest-modules \
 		--cov=medaka --cov-report html --cov-report term \
 		--cov-fail-under=${COVFAIL} --cov-report term-missing
+
+
+.PHONY: test-consensus
+test-consensus: install
+	${IN_VENV} && medaka_consensus -i medaka/test/data/workflow/reads.fq.gz -d medaka/test/data/workflow/reference.fasta -o tmp-cons
+
+
+.PHONY: test-variants
+test-variants: install
+	${IN_VENV} && medaka_variant -i medaka/test/data/workflow/reads.fq.gz -r medaka/test/data/workflow/reference.fasta -o tmp-var
 
 
 # mainly here for the Dockerfile

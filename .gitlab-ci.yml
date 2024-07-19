@@ -38,6 +38,8 @@ stages:
     <<: *preparetest
     script:
         - make test
+        - make test-consensus
+        - make test-variants
 
 # Latest versions as of 2023/10/03
 

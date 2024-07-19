@@ -4,30 +4,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-
-## [Unreleased]
-
+## [v2.0.0a1]
 Switched from tensorflow to pytorch.
 
 Existing models for recent basecallers have been converted to the new format.
 Pytorch format models contain a ``_pt`` suffix in the filename.
-
-### Added
-- option `--lr_schedule` allows using cosine learning rate schedule in training
-- option `--max_valid_samples` to set number of samples in a training validation batch
 ### Changed
-- loading models in hdf format has been deprecated
-- deleted minimap2 and racon wrappers in `medaka/wrapper.py`
+- Inference is now performed using PyTorch instead of TensorFlow.
+- The `medaka consensus` command has been renamed to `medaka inference` to reflect
+  its function in running an arbitrary model and avoid confusion with `medaka_consensus`.
+- The `medaka stitch` command has been renamed to `medaka sequence` to reflect its
+  function in creating a consensus sequence.
+- The `medaka variant` command has been renamed to `medaka vcf` to reflect its function
+  in consolidating variants and avoid confusion with `medaka_variant`.
+- Order of arguments to `medaka vcf` has been changed to be more consistent
+  with `medaka sequence`.
+- The helper script `medaka_haploid_variant` has been renamed `medaka_variant` to
+  save typing.
+### Removed
+- The `medaka snp` command has been removed. This was long defunct as diploid SNP calling
+  had been deprecated, and `medaka variant` is used to create VCFs for current models.
+- Loading models in hdf format has been deprecated.
+- Deleted minimap2 and racon wrappers in `medaka/wrapper.py`.
+### Added
+- Option `--lr_schedule` allows using cosine learning rate schedule in training.
+- Option `--max_valid_samples` to set number of samples in a training validation batch.
 ### Fixed
-- training models with DiploidLabelScheme uses categorical cross-entropy loss
-  instead of binary cross-entropy
-
+- Training models with DiploidLabelScheme uses categorical cross-entropy loss
+  instead of binary cross-entropy.
 
 ## [v1.12.1]
-
 (Probably) final version of medaka using tensorflow. Future versions will use
 pytorch instead.
-
 ### Fixed
 - medaka_consensus: only keep bam tags if input file matches joint polishing pipeline.
 - Pin numpy to <2.0.0.
@@ -49,7 +57,6 @@ pytorch instead.
 ## [v1.11.3]
 ### Added
 - Consensus and variant models for v4.3.0 dorado models.
-
 
 ## [v1.11.2]
 ### Added

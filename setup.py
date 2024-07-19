@@ -144,7 +144,7 @@ if __name__ == '__main__':
         scripts=[
             'scripts/medaka_consensus',
             'scripts/medaka_consensus_joint',
-            'scripts/medaka_haploid_variant',
+            'scripts/medaka_variant',
             'scripts/mini_align'],
         zip_safe=False,
         cmdclass={
