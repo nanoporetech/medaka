@@ -36,6 +36,8 @@ stages:
 # medaka test suite on various Pythons, latest as of 2024-08-14
 pytest: &pytest
     <<: *preparetest
+    variables:
+        MEDAKA_CPU: 1
     script:
         - make test
         - make test-consensus
@@ -78,9 +80,10 @@ build:sdist:
     stage: build
     variables:
         DO_COUNT_TEST: 1
+        MEDAKA_CPU: 1
     script:
         - echo "Building a Python ${PYWHEEL} wheel on manylinux_${FLAVOUR} for ${COMPUTE}"
-        - if [[ "${COMPUTE}" == "cpu" ]]; then export PACKAGE_NAME=medaka-cpu; export MEDAKA_CPU=1; sed -i "s/torch==[0-9]\+[\.0-9]\+/&+cpu/" requirements.txt; fi
+        - if [[ "${COMPUTE}" == "cpu" ]]; then export PACKAGE_NAME=medaka-cpu; sed -i "s/torch==[0-9]\+[\.0-9]\+/&+cpu/" requirements.txt; fi
         - ./build-wheels.sh . ${PYWHEEL}
     artifacts:
         paths:
