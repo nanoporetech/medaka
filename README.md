@@ -13,7 +13,8 @@ Medaka
 
 `medaka` is a tool to create consensus sequences and variant calls from
 nanopore sequencing data. This task is performed using neural networks applied
-a pileup of individual sequencing reads against a draft assembly. It provides
+a pileup of individual sequencing reads against a reference sequence, mostly commonly
+either a draft assembly or a database reference sequence. It provides
 state-of-the-art results outperforming sequence-graph based methods and
 signal-based methods, whilst also being faster.
 
@@ -28,7 +29,7 @@ Features
   * Includes extras for implementing and training bespoke correction
     networks.
   * Works on Linux and MacOS.
-  * Open source (Mozilla Public License 2.0).
+  * Open source (Oxford Nanopore Technologies PLC. Public License Version 1.0)
 
 For creating draft assemblies we recommend [Flye](https://github.com/fenderglass/Flye).
 
@@ -44,13 +45,13 @@ Official binary releases of medaka are available on
 
     pip install medaka
 
-On Linux platforms this will install a precompiled binary, on MacOS (and other)
-platforms this will fetch and compile a source distribution.
+On contemporaray Linux and macOS platforms this will install a precompiled binary,
+on other platforms a source distribution may be fetched fetch and compiled.
 
 We recommend using medaka within a virtual environment, viz.:
 
-    virtualenv medaka --python=python3 --prompt "(medaka) "
-    . medaka/bin/activate
+    python3 -m venv medaka
+    . ./medaka/bin/activate
     pip install --upgrade pip
     pip install medaka
 
@@ -61,9 +62,9 @@ Using this method requires the user to provide several binaries:
  * [tabix](https://github.com/samtools/htslib), and
  * [bgzip](https://github.com/samtools/htslib)
 
-and place these within the `PATH`. `samtools/bgzip/tabix` version 1.14 and
-`minimap2` version 2.17 are recommended as these are those used in development
-of medaka. (Newer versions are almost certainly fine).
+and place these within the `PATH`. `samtools/bgzip/tabix` versions >=1.14 and
+`minimap2` version >=2.17 are recommended as these are those used in development
+of medaka.
 
 The default installation has the capacity to run on a GPU (see _Using a GPU_ below),
 or on CPU. If you are using `medaka` exclusively on CPU, and don't need the ability
@@ -74,7 +75,7 @@ to run on GPU, you may wish to install the CPU-only version with:
 
 **Installation with conda**
 
-> The bioconda medaka packages are no longer supported by Oxford Nanopore Technologies.
+> The bioconda medaka packages are not supported by Oxford Nanopore Technologies.
 
 For those who prefer the conda package manager, medaka is available via the
 [bioconda](https://anaconda.org/bioconda/medaka) channel:
@@ -87,8 +88,8 @@ releases.
 
 **Installation from source**
 
-> This method is useful for macOS M1 devices as it will assist in building
-> dependencies which will fail with the other methods above.
+> This method is useful only when the above methods have failed, 
+> as it will assist in building various dependencies.
 
 Medaka can be installed from its source quite easily on most systems.
 
@@ -184,22 +185,21 @@ the user.
     BASECALLS=basecalls.fa
     DRAFT=draft_assm/assm_final.fa
     OUTDIR=medaka_consensus
-    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} -m r941_min_high_g303
+    medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC}
 
 The variables `BASECALLS`, `DRAFT`, and `OUTDIR` in the above should be set
-appropriately. For the selection of the model (`-m r941_min_high_g303` in the
-example above) see the Model section following.
+appropriately. The `-t` option specifies the number of CPU threads to use. 
 
 When `medaka_consensus` has finished running, the consensus will be saved to
 `${OUTDIR}/consensus.fasta`.
 
 
-**Bacterial (ploidy-1) variant calling**
+**Haploid variant calling**
 
-Variant calling for monoploid samples is enabled through the `medaka_haploid_variant`
+Variant calling for happloid samples is enabled through the `medaka_variant`
 workflow:
 
-    medaka_haploid_variant -i <reads.fastq> -r <ref.fasta>
+    medaka_variant -i <reads.fastq> -r <ref.fasta>
     
 which requires the reads as a `.fasta` or `.fastq` and a reference sequence as a
 `.fasta` file.
@@ -207,7 +207,7 @@ which requires the reads as a `.fasta` or `.fastq` and a reference sequence as a
 
 **Diploid variant calling**
 
-The diploid variant calling workflow `medaka_variant` that was historically implemented
+The diploid variant calling workflow that was historically implemented
 within the medaka package has been surpassed in accuracy and compute performance by
 other methods, it has therefore been deprecated. Our current recommendation for
 performing this task is to use [Clair3](https://github.com/HKU-BAL/Clair3) either directly
@@ -218,9 +218,8 @@ through [EPI2ME Labs](https://labs.epi2me.io/wfindex#variant-calling).
 Models
 ------
 
-For best results it is important to specify the correct model, `-m` in the
-above, according to the basecaller used. Allowed values can be found by
-running `medaka tools list\_models`.
+For best results it is important to specify the correct inference model, according
+to the basecaller used. Allowed values can be found by running `medaka tools list\_models`.
 
 **Recent basecallers**
 
@@ -234,9 +233,9 @@ created from basecaller output using:
 samtools fastq -T '*' dorado.bam | gzip -c > dorado.fastq.gz
 ```
 
-The command `medaka consensus` will attempt to automatically determine a
+The command `medaka inference` will attempt to automatically determine a
 correct model by inspecting its BAM input file. The helper scripts
-`medaka_consensus` and `medaka_haploid_variant` will make similar attempts
+`medaka_consensus` and `medaka_variant` will make similar attempts
 from their FASTQ input.
 
 To inspect files for yourself, the command:
@@ -256,26 +255,16 @@ be appended with either `:consensus` or `:variant` according to whether the user
 wishing to use the consensus or variant calling medaka model. For example:
 
 ```
-medaka consensus input.bam output.hdf \
+medaka inference input.bam output.hdf \
     --model dna_r10.4.1_e8.2_400bps_hac@v4.1.0:variant
 ```
 
 will use the medaka variant calling model appropriate for use with the basecaller
 model named `dna_r10.4.1_e8.2_400bps_hac@v4.1.0`.
 
-Medaka models are named to indicate i) the pore type, ii) the sequencing
-device (MinION or PromethION), iii) the basecaller variant, and iv) the
-basecaller version, with the format:
-
-    {pore}_{device}_{caller variant}_{caller version}
-
-For example the model named `r941_min_fast_g303` should be used with data from
-MinION (or GridION) R9.4.1 flowcells using the fast Guppy basecaller version
-3.0.3. By contrast the model `r941_prom_hac_g303` should be used with PromethION
-data and the high accuracy basecaller (termed "hac" in Guppy configuration
-files). Where a version of Guppy has been used without an exactly corresponding
-medaka model, the medaka model with the highest version equal to or less than
-the guppy version should be selected.
+Historically medaka models followed a nomenclature describing both the chemistry
+and basecaller versions. These old models are now deprecated, usees are encouraged
+to rebasecall their data with a more recent basecaller version prior to using medaka.
 
 
 Improving parallelism
@@ -289,9 +278,9 @@ can be achieved by running independently the component steps of
 1. alignment of reads to input assembly (via `mini_align` which is a thin
    veil over `minimap2`)
 2. running of consensus algorithm across assembly regions
-   (`medaka consensus`, note no underscore!)
+   (`medaka inference`)
 3. aggregation of the results of 2. to create consensus sequences
-   (`medaka stitch`)
+   (`medaka sequence`)
 
 The three steps are discrete, and can be split apart and run independently. In
 most cases, Step 2. is the bottleneck and can be trivially parallelized. The
@@ -307,19 +296,18 @@ So in summary something like this is possible:
 # align reads to assembly
 mini_align -i basecalls.fasta -r assembly.fasta -P -m \
     -p calls_to_draft.bam -t <threads>
-# run lots of jobs like this, change model as appropriate
+# run lots of jobs like this:
 mkdir results
-medaka consensus calls_to_draft.bam results/contigs1-4.hdf \
-    --model r941_min_fast_g303 --batch 200 --threads 8 \
+medaka inference calls_to_draft.bam results/contigs1-4.hdf \
     --region contig1 contig2 contig3 contig4
 ...
 # wait for jobs, then collate results
-medaka stitch results/*.hdf polished.assembly.fasta
+medaka sequence results/*.hdf polished.assembly.fasta
 ```
 
 It is not recommended to specify a value of `--threads` greater than 2 for
-`medaka consensus` since the compute scaling efficiency is poor beyond this.
-Note also that `medaka consensus` may been seen to use resources equivalent to
+`medaka inference` since the compute scaling efficiency is poor beyond this.
+Note also that `medaka inference` may been seen to use resources equivalent to
 `<threads> + 4` as an additional 4 threads are used for reading and preparing
 input data.
 
@@ -361,7 +349,7 @@ Help
 
 © 2018- Oxford Nanopore Technologies Ltd.
 
-`medaka` is distributed under the terms of the Mozilla Public License 2.0.
+`medaka` is distributed under the terms of the Oxford Nanopore Technologies PLC. Public License Version 1.0
 
 **Research Release**
 
