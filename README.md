@@ -46,7 +46,7 @@ Official binary releases of medaka are available on
     pip install medaka
 
 On contemporaray Linux and macOS platforms this will install a precompiled binary,
-on other platforms a source distribution may be fetched fetch and compiled.
+on other platforms a source distribution may be fetched and compiled.
 
 We recommend using medaka within a virtual environment, viz.:
 
@@ -196,7 +196,7 @@ When `medaka_consensus` has finished running, the consensus will be saved to
 
 **Haploid variant calling**
 
-Variant calling for happloid samples is enabled through the `medaka_variant`
+Variant calling for haploid samples is enabled through the `medaka_variant`
 workflow:
 
     medaka_variant -i <reads.fastq> -r <ref.fasta>
@@ -263,7 +263,7 @@ will use the medaka variant calling model appropriate for use with the basecalle
 model named `dna_r10.4.1_e8.2_400bps_hac@v4.1.0`.
 
 Historically medaka models followed a nomenclature describing both the chemistry
-and basecaller versions. These old models are now deprecated, usees are encouraged
+and basecaller versions. These old models are now deprecated, users are encouraged
 to rebasecall their data with a more recent basecaller version prior to using medaka.
 
 
