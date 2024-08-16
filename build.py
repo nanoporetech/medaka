@@ -21,6 +21,7 @@ if os.getenv('WITHDEFLATE') == "1":
 src_dir='src'
 
 extra_compile_args = ['-std=c99', '-O3']
+extra_link_args = []
 if platform.machine() in {"aarch64", "arm64"}:
     if platform.system() == "Darwin":
         pass
@@ -28,6 +29,15 @@ if platform.machine() in {"aarch64", "arm64"}:
         extra_compile_args.append("-march=armv8-a+simd")
 else:
     extra_compile_args.append("-mtune=haswell")
+
+if os.getenv('MEDAKA_COMPILE_ARGS') is not None:
+    extra_compile_args.append(os.getenv('MEDAKA_COMPILE_ARGS'))
+if os.getenv('MEDAKA_LINK_ARGS') is not None:
+    extra_link_args.append(os.getenv('MEDAKA_LINK_ARGS'))
+
+print("Extra compile args: ", extra_compile_args)
+print("Extra link args: ", extra_link_args)
+
 
 ffibuilder = FFI()
 ffibuilder.set_source("libmedaka",
@@ -52,7 +62,8 @@ ffibuilder.set_source("libmedaka",
             'fastrle.c', 'medaka_trimbam.c', 'medaka_pytrimbam.c',
             'medaka_rnn_variants.c')],
     extra_compile_args=extra_compile_args,
-    extra_objects=['libhts.a']
+    extra_objects=['libhts.a'],
+    extra_link_args=extra_link_args,
 )
 
 cdef = [

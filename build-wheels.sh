@@ -46,13 +46,9 @@ fi
 
 # Compile wheels
 for minor in $@; do
-    if [[ "${minor}" == "8" ]]  || [[ "${minor}" == "9" ]] || [[ "${minor}" == "10" ]]; then
-        PYBIN="/opt/python/cp3${minor}-cp3${minor}/bin"
-    else
-        PYBIN="/opt/python/cp3${minor}-cp3${minor}m/bin"
-    fi
+    PYBIN="/opt/python/cp3${minor}-cp3${minor}/bin"
     # auditwheel/issues/102
-    "${PYBIN}"/pip install --upgrade setuptools pip wheel==0.31.1 cffi==1.15.0
+    "${PYBIN}"/pip install --upgrade setuptools pip wheel cffi
     "${PYBIN}"/pip wheel --prefer-binary --no-dependencies . -w ./wheelhouse/
 done
 
@@ -68,11 +64,7 @@ unset LD_LIBRARY_PATH
 ## Install packages
 if [[ "${DO_COUNT_TEST}" == "1" ]]; then
     for minor in $@; do
-        if [[ "${minor}" == "8" || "${minor}" == "9" ]] || [[ "${minor}" == "10" ]]; then
-            PYBIN="/opt/python/cp3${minor}-cp3${minor}/bin"
-        else
-            PYBIN="/opt/python/cp3${minor}-cp3${minor}m/bin"
-        fi
+        PYBIN="/opt/python/cp3${minor}-cp3${minor}/bin"
         "${PYBIN}"/pip install --use-pep517 --prefer-binary -r requirements.txt ${extra_index}
         "${PYBIN}"/pip install "${PACKAGE_NAME}" --no-index -f ./wheelhouse
         "${PYBIN}"/medaka_counts --print medaka/test/data/test_reads.bam utg000001l:10000-10010

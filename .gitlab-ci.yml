@@ -33,32 +33,21 @@ stages:
           python3-all-dev python3-venv
 
 
-# medaka test suite on various Pythons
-.pytest: &pytest
+# medaka test suite on various Pythons, latest as of 2024-08-14
+pytest: &pytest
     <<: *preparetest
     script:
         - make test
         - make test-consensus
         - make test-variants
-
-# Latest versions as of 2023/10/03
-
-test-3.8.18:
-    variables:
-        PYENV_VERSION: 3.8.18
-    <<: *pytest
-
-
-test-3.9.18:
-    variables:
-        PYENV_VERSION: 3.9.18
-    <<: *pytest
-
-
-test-3.10.13:
-    variables:
-        PYENV_VERSION: 3.10.13
-    <<: *pytest
+    parallel:
+        matrix:
+            - PYENV_VERSION: 3.8.19
+            - PYENV_VERSION: 3.9.19
+            - PYENV_VERSION: 3.10.14
+            - PYENV_VERSION: 3.11.9
+            # no pytorch 2.0 for 3.12
+            #- PYENV_VERSION: 3.12.5
 
 
 test-mem-check:
@@ -74,7 +63,7 @@ test-mem-check:
 #
 
 build:sdist:
-    stage: test
+    stage: build
     <<: *minimal-python
     script:
         - make sdist
@@ -113,9 +102,11 @@ wheels-2014:
 wheels-2_28:
     extends: .many-linux
     image: "quay.io/pypa/manylinux_2_28_x86_64"
+    before_script: 
+        - dnf install -y libffi-devel
     parallel:
         matrix:
-            - PYWHEEL: [8, 9, 10]
+            - PYWHEEL: [8, 9, 10, 11]
               COMPUTE: ["gpu", "cpu"]
               FLAVOUR: ["2_28"]
 
@@ -139,6 +130,48 @@ wheels-arm-2014:
             - PYWHEEL: [8, 9, 10]
               COMPUTE: ["gpu"]
               FLAVOUR: ["2014"]
+
+
+###
+# macOS wheels, note we don't take special care of macOS runtime version
+#
+
+.mac-wheel:
+    stage: build
+    script:
+        - echo "Building a wheel on macOS"
+        - arch; echo ""
+        - clang --version
+        - gcc --version
+        - python3 -m venv pypi_build --prompt "pypi"
+        - . ./pypi_build/bin/activate
+        - pip install cibuildwheel
+        - make scripts/mini_align
+        - CIBW_BUILD=cp3${PYWHEEL}-macosx_${arch} MACOSX_DEPLOYMENT_TARGET=12 CIBW_ENVIRONMENT="MEDAKA_LINK_ARGS='-L/opt/homebrew/lib'" cibuildwheel --output-dir wheelhouse-final
+    artifacts:
+        paths:
+            - wheelhouse-final/*.whl
+    parallel:
+        matrix:
+            # 8 gives grief with wanted to add -mtune=haswell \:D/
+            # suggests platform.machine() isn't reported correctly
+            - PYWHEEL: [9, 10, 11]
+
+
+macOS-arm64-wheel:
+    extends: .mac-wheel
+    variables:
+        arch: arm64
+    tags:
+        - macos
+        - oxford
+        - arm
+        - shell
+
+
+# macOS-x64-wheel:
+# there's no pytorch macOS x64 wheels, so we don't build them
+
 
 
 ###
