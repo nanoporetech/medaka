@@ -176,7 +176,7 @@ wheels-arm-2014:
         - . ./pypi_build/bin/activate
         - pip install cibuildwheel
         - make scripts/mini_align
-        - CIBW_BUILD=cp3${PYWHEEL}-macosx_${arch} MACOSX_DEPLOYMENT_TARGET=12 CIBW_ENVIRONMENT="MEDAKA_LINK_ARGS='-L/opt/homebrew/lib'" cibuildwheel --output-dir wheelhouse-final
+        - CIBW_BUILD=cp3${PYWHEEL}-macosx_${arch} MACOSX_DEPLOYMENT_TARGET=12 CIBW_ENVIRONMENT="MEDAKA_LINK_ARGS='-L/opt/homebrew/lib' MEDAKA_DIST=1" cibuildwheel --output-dir wheelhouse-final
     artifacts:
         paths:
             - wheelhouse-final/*.whl
@@ -262,6 +262,11 @@ push-pypi:
         - twine upload dist/*.tar.gz wheelhouse-final/*.whl
     only:
         - tags
+    artifacts:
+        # just gathered together for easy inspection
+        paths:
+            - dist/*.tar.gz
+            - wheelhouse-final/*.whl
 
 
 .setup-gh-push:
@@ -301,6 +306,7 @@ push-github:
 
 # Deploy to conda - need to rebuild because the template code
 # is a one step build and push, for reasons...
+# we override the rule so that we can push pre-release versions
 .before-conda-tag: &before-conda-tag |
     export CONDA_PKG=${CI_PROJECT_NAME}
     export CONDA_PKG_VERSION=${CI_COMMIT_TAG/v/}
@@ -312,6 +318,8 @@ push-conda:
         USE_ORG_CHANNEL: "yes"
     before_script:
         - *before-conda-tag
+    rules:
+        - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(\S+)?$/'
 
 push-conda-arm:
     extends: .deploy-conda-linux-arm
@@ -319,6 +327,8 @@ push-conda-arm:
         USE_ORG_CHANNEL: "yes"
     before_script:
         - *before-conda-tag
+    rules:
+        - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(\S+)?$/'
 
 push-conda-mac-arm:
     extends: .deploy-conda-mac-arm
@@ -326,3 +336,5 @@ push-conda-mac-arm:
         USE_ORG_CHANNEL: "yes"
     before_script:
         - *before-conda-tag
+    rules:
+        - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(\S+)?$/'
