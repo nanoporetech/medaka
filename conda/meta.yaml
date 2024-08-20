@@ -1,0 +1,79 @@
+# this doesn't work
+# {% set data = load_setup_py_data() %}
+
+package:
+  name: {{ environ.get('CONDA_PKG') }}
+  version: {{ environ.get('CONDA_PKG_VERSION') }}
+
+source:
+    path: ../
+
+build:
+  number: 0
+  entry_points:
+    - medaka = medaka.medaka:main
+    - medaka_counts = medaka.medaka_counts:main
+    - medaka_data_path = medaka.common:print_data_path
+    - medaka_version_report = medaka:report_binaries
+
+requirements:
+  host:
+    - {{ compiler('c') }}
+    - coreutils
+    - python
+    - cffi
+    # this is forced, to help along conda resolving deps
+    - htslib >=1.20
+    # don't understand why this is needed, but it is to get zlib.h
+    # when using htslib >=1.20
+    - zlib
+  run:
+    - python
+    # python requirements, ordered as requirement.txt for convenience
+    - cffi
+    - python-edlib
+    - h5py==3.10.*
+    - intervaltree
+    - numpy >=1.21.0,<2.0.0
+    - mappy
+    - ont-fast5-api
+    - parasail-python
+    - pyabpoa
+    - pysam
+    - pyspoa
+    - requests
+    - pytorch==2.3.*
+    # see pytorch/issues/123097
+    #- mkl==2024.0  # [osx] 
+    - tqdm
+    - wurlitzer
+    # other stuff
+    - samtools
+    - bcftools
+    - minimap2
+    - htslib >=1.20
+
+test:
+  imports:
+    - medaka
+  commands:
+    - medaka --help
+    - medaka_consensus -h
+    - medaka_variant -h
+    - medaka_data_path
+    - medaka_version_report
+
+
+about:
+  home: https://github.com/nanoporetech/medaka
+  summary: Neural network sequence error correction.
+  license: Oxford Nanopore Technologies PLC. Public License Version 1.0
+  license_family: OTHER
+  license_file: LICENSE
+  dev_url: https://github.com/nanoporetech/medaka
+
+
+extra:
+  recipe-maintainers:
+    - epi2melabs-bot
+
