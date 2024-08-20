@@ -1,7 +1,7 @@
 include src/*.c
 include src/*.h
 include README.md
-include LICENSE.md
+include LICENSE
 include requirements.txt
 include build.py
 include Makefile

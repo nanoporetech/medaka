@@ -43,6 +43,8 @@ spec.loader.exec_module(_options)
 
 def check_model_lfs():
     # determine if data files look like LFS stubs, fail if they are
+    if os.environ.get('MEDAKA_DIST') is not None:
+        return
     model = _options.default_models['consensus']
     default_model = os.path.join(__pkg_path__, 'data', '{}_model_pt.tar.gz'.format(model))
     stub_signature = "ASCII text"
@@ -108,7 +110,10 @@ class HTSBuild(build_ext):
 
 
 if __name__ == '__main__':
-    check_model_lfs()
+    if os.environ.get('SKIP_LFS_CHECK') is None:
+        check_model_lfs()
+    else:
+        print("Skipping LFS model check.")
 
     pymajor, pyminor = sys.version_info[0:2]
     if (pymajor < 3) or (pyminor not in {8, 9, 10, 11}):

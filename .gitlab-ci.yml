@@ -1,9 +1,17 @@
+
+include:
+    - project: "epi2melabs/ci-templates"
+      file: "push-conda.yaml"
+    - project: "epi2melabs/ci-templates"
+      file: "snippets.yaml"
+
+
 image: ${UBUNTU_IMAGE}:20.04
 
 stages:
     - test
     - build
-    - deploy
+    - release
 
 # Install a particular Python and set PYTHON envvar for Makefile 
 .install-pyenv: &install-pyenv |
@@ -33,6 +41,21 @@ stages:
           python3-all-dev python3-venv
 
 
+# Check that the changelog is up to date and other stuff
+# do this is test 'cos no one wants to wait for all the
+# wheels to build to find out they forgot to update the log
+deploy-checks:
+    stage: test
+    script:
+        - export LICENSE_FILE="ONT-LICENSE"
+        - !reference [.check, python-version]
+        - !reference [.check, changelog]
+        - !reference [.check, license]
+    rules:
+        - if: '$CI_COMMIT_TAG =~ /^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$/'
+
+
+
 # medaka test suite on various Pythons, latest as of 2024-08-14
 pytest: &pytest
     <<: *preparetest
@@ -48,7 +71,7 @@ pytest: &pytest
             - PYENV_VERSION: 3.9.19
             - PYENV_VERSION: 3.10.14
             - PYENV_VERSION: 3.11.9
-            # no pytorch 2.0 for 3.12
+            # no edlib for 3.12, and bdist_wheel fails
             #- PYENV_VERSION: 3.12.5
 
 
@@ -84,12 +107,11 @@ build:sdist:
     script:
         - echo "Building a Python ${PYWHEEL} wheel on manylinux_${FLAVOUR} for ${COMPUTE}"
         - if [[ "${COMPUTE}" == "cpu" ]]; then export PACKAGE_NAME=medaka-cpu; sed -i "s/torch==[0-9]\+[\.0-9]\+/&+cpu/" requirements.txt; fi
+        - cat requirements.txt
         - ./build-wheels.sh . ${PYWHEEL}
     artifacts:
         paths:
             - wheelhouse-final/*.whl
-    #only:
-        #- tags
 
 
 wheels-2014:
@@ -128,6 +150,10 @@ wheels-arm-2014:
           && chmod +x install.sh && ./install.sh
           && cd ..
         - GIT_SSL_NO_VERIFY=1 git lfs pull
+        # pytorch 2.3 wheel is busted with something looking like pytorch/issues/97226:
+        #   we get Illegal instruction when running medaka counts test, so use 2.0.1 which
+        #   is known to work
+        - sed -i '/^torch~=[^[:space:]]*/s/^torch~=[^[:space:]]*/torch==2.0.1/' requirements.txt
     parallel:
         matrix:
             - PYWHEEL: [8, 9, 10]
@@ -176,14 +202,59 @@ macOS-arm64-wheel:
 # there's no pytorch macOS x64 wheels, so we don't build them
 
 
+# Build conda packages but don't publish them
+.before-conda: &before-conda |
+    export CONDA_PKG=${CI_PROJECT_NAME}
+    export CONDA_PKG_VERSION="dev"
+    cd conda
+
+conda:
+    extends: .deploy-conda
+    stage: build
+    variables:
+        UPLOAD: "no"
+        USE_ORG_CHANNEL: "yes"
+    before_script:
+        - *before-conda
+    rules:
+        - if: $CI_COMMIT_TAG =~ /^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$/
+          when: never
+        - if: $CI_PIPELINE_SOURCE == "push"
+
+conda-arm:
+    extends: .deploy-conda-linux-arm
+    stage: build
+    variables:
+        UPLOAD: "no"
+        USE_ORG_CHANNEL: "yes"
+    before_script:
+        - *before-conda
+    rules:
+        - if: $CI_COMMIT_TAG =~ /^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$/
+          when: never
+        - if: $CI_PIPELINE_SOURCE == "push"
+
+conda-mac-arm:
+    extends: .deploy-conda-mac-arm
+    stage: build
+    variables:
+        UPLOAD: "no"
+        USE_ORG_CHANNEL: "yes"
+    before_script:
+        - *before-conda
+    rules:
+        - if: $CI_COMMIT_TAG =~ /^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$/
+          when: never
+        - if: $CI_PIPELINE_SOURCE == "push"
+
 
 ###
 # Deploy stages
 #
 
 # Send all tags to PyPI
-deploy:pypi:
-    stage: deploy
+push-pypi:
+    stage: release
     <<: *minimal-python
     script:
         - make pypi_build/bin/activate
@@ -208,7 +279,7 @@ deploy:pypi:
 
 # Send all tags matching vX.Y.Z to github (code and release)
 push-github:
-    stage: deploy
+    stage: release
     extends: .setup-gh-push
     script:
         # Push master and tag to github
@@ -227,3 +298,31 @@ push-github:
     rules:
         - if: '$CI_COMMIT_TAG =~ /^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$/'
 
+
+# Deploy to conda - need to rebuild because the template code
+# is a one step build and push, for reasons...
+.before-conda-tag: &before-conda-tag |
+    export CONDA_PKG=${CI_PROJECT_NAME}
+    export CONDA_PKG_VERSION=${CI_COMMIT_TAG/v/}
+    cd conda
+
+push-conda:
+    extends: .deploy-conda
+    variables:
+        USE_ORG_CHANNEL: "yes"
+    before_script:
+        - *before-conda-tag
+
+push-conda-arm:
+    extends: .deploy-conda-linux-arm
+    variables:
+        USE_ORG_CHANNEL: "yes"
+    before_script:
+        - *before-conda-tag
+
+push-conda-mac-arm:
+    extends: .deploy-conda-mac-arm
+    variables:
+        USE_ORG_CHANNEL: "yes"
+    before_script:
+        - *before-conda-tag
