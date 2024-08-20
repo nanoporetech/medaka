@@ -7,8 +7,7 @@ Medaka
 
 [![](https://img.shields.io/pypi/v/medaka.svg)](https://pypi.org/project/medaka/)
 [![](https://img.shields.io/pypi/wheel/medaka.svg)](https://pypi.org/project/medaka/)
-[![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)](https://anaconda.org/bioconda/medaka)
-[![](https://img.shields.io/conda/pn/bioconda/medaka.svg)](https://anaconda.org/bioconda/medaka)
+[![](https://anaconda.org/nanoporetech/medaka/badges/version.svg)](https://anaconda.org/nanoporetech/medaka)
 
 
 `medaka` is a tool to create consensus sequences and variant calls from
@@ -78,18 +77,19 @@ to run on GPU, you may wish to install the CPU-only version with:
 > The bioconda medaka packages are not supported by Oxford Nanopore Technologies.
 
 For those who prefer the conda package manager, medaka is available via the
-[bioconda](https://anaconda.org/bioconda/medaka) channel:
+[anaconda.org](https://anaconda.org/nanoporetech/medaka) channel:
 
-    conda create -n medaka -c conda-forge -c bioconda medaka
+    conda create -n medaka -c conda-forge -c nanoporetech -c bioconda medaka
 
-The bioconda releases lag behind the source code and [PyPI](https://pypi.org/project/medaka/)
-releases.
-
+Installations with this method will bundle the additional tools required to run
+an end-to-end correction workflow.
 
 **Installation from source**
 
 > This method is useful only when the above methods have failed, 
-> as it will assist in building various dependencies.
+> as it will assist in building various dependencies. Its unlikely that
+> our developers will be able to provide further assistance in your
+> specific circumstances if you install using this method.
 
 Medaka can be installed from its source quite easily on most systems.
 
@@ -134,6 +134,11 @@ information. cuDNN can be obtained from the
 [cuDNN Archive](https://developer.nvidia.com/rdp/cudnn-archive), whilst CUDA from
 the [CUDA Toolkit Archive](https://developer.nvidia.com/cuda-toolkit-archive).
 
+> Installation with conda is a little different. See the
+> [conda-forge]https://conda-forge.org/docs/user/tipsandtricks/#installing-cuda-enabled-packages-like-tensorflow-and-pytorch)
+> documentation. In summary, the conda package should do something sensible
+> bespoke to the computer it is being installed on.
+
 As described above, if the capability to run on GPU is not required, `medaka-cpu`
 can be installed with a CPU-only version of PyTorch that doesn't depend on the
 CUDA libraries, as follows:
@@ -152,22 +157,6 @@ Depending on your GPU, `medaka` may show out of memory errors when running.
 To avoid these the inference batch size can be reduced from the default
 value by setting the `-b` option when running `medaka_consensus`. A value
 `-b 100` is suitable for 11Gb GPUs.
-
-
-**Using Docker**
-
-The source code repository contains a `Dockerfile` which can be used to create
-a GPU compatible Docker container image with the appropriate CUDA and cuDNN
-library versions for running medaka. The image is built on top of images
-[provided by NVIDIA](https://hub.docker.com/r/nvidia/cuda) designed to run with the [NVIDIA Container
-Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
-With the toolkit setup on your host computer the following command can be used
-to run the latest version of medaka:
-
-    docker run --rm --gpus 0 ontresearch/medaka:latest medaka --help
-
-(The `--gpus` option can be amended as appropriate for your environment). Versioned
-tags are also available.
 
 
 Usage
@@ -247,7 +236,7 @@ medaka tools resolve_model --auto_model <consensus/variant> <input.bam/input.fas
 will print the model that automatic model selection will use.
 
 
-**For older basecallers and when automatic selection is unsuccessful**
+**When automatic selection is unsuccessful, and older basecallers**
 
 If the name of the basecaller model used is known, but has been lost from the input
 files, the basecaller model can been provided to medaka directly. It must however
