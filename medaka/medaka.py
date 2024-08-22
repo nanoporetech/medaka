@@ -211,11 +211,13 @@ def _min_depth_arg():
 
 
 def _rg_arg():
-
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
     rg_group = parser.add_argument_group('read group', 'Filtering alignments the read group (RG) tag, expected to be string value.')
-    rg_group.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
+    rg_group_args = rg_group.add_mutually_exclusive_group()
+    rg_group_args.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
+    rg_group_args.add_argument('--ignore_read_groups', action='store_true', default=False,
+            help='Ignore read groups in bam file.')
     return parser
 
 
@@ -530,7 +532,7 @@ def medaka_parser():
     # that can be more easily shared
     trparser = subparsers.add_parser('tandem',
         help='Targeted tandem repeat variant calling.',
-        parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500), _model_arg(), _min_depth_arg()],
+        parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500), _model_arg(), _min_depth_arg(), _rg_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     trparser.set_defaults(func=medaka.tandem.main)
     trparser.add_argument('bam', help='Input alignments.', action=CheckBam)
@@ -540,8 +542,6 @@ def medaka_parser():
     trparser.add_argument('sex', choices={'female', 'male'},
         help='Sample sex, required for appropriate handling of X/Y chromosomes including PAR regions.')
     trparser.add_argument('output', help='Output directory.')
-    trparser.add_argument('--ignore_read_groups', action='store_true', default=False,
-            help='Ignore read groups in bam-file')
     trparser.add_argument('--phasing', choices=set(medaka.tandem.phasing_options.keys()),
         default='hybrid', help='Phasing method. '
         'prephased: use HP bam tags. '
