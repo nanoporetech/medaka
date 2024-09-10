@@ -144,11 +144,12 @@ wheels-arm-2014:
     before_script:
         # ARM CI image doesn't have git lfs, so need to jump some hoops
         - yum install -y wget
+        - ROOT_DIR=$(pwd)
         - mkdir git-lfs && cd git-lfs
-          && wget https://github.com/git-lfs/git-lfs/releases/download/v2.12.0/git-lfs-linux-arm64-v2.12.0.tar.gz
-          && tar -xzvf git-lfs-linux-arm64-v2.12.0.tar.gz
-          && chmod +x install.sh && ./install.sh
-          && cd ..
+          && wget https://github.com/git-lfs/git-lfs/releases/download/v3.5.1/git-lfs-linux-arm64-v3.5.1.tar.gz
+          && tar -xzvf git-lfs-linux-arm64-v3.5.1.tar.gz
+          && cd git-lfs-3.5.1 && chmod +x install.sh && ./install.sh
+        - cd ${ROOT_DIR}
         - GIT_SSL_NO_VERIFY=1 git lfs pull
         # pytorch 2.3 wheel is busted with something looking like pytorch/issues/97226:
         #   we get Illegal instruction when running medaka counts test, so use 2.0.1 which
