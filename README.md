@@ -235,6 +235,27 @@ medaka tools resolve_model --auto_model <consensus/variant> <input.bam/input.fas
 
 will print the model that automatic model selection will use.
 
+**Bacterial and plasmid sequencing**
+
+For native data with bacterial modifications, such as bacterial isolates,
+metagenomic samples, or plasmids expressed in bacteria, there is a research
+model that shows improved consensus accuracy. This model is compatible with
+several basecaller versions for the R10 chemistries. By adding the flag `--bacteria`
+the bacterial model will be selected if it is compatible with the input basecallers:
+
+```
+medaka_consensus -i ${BASECALLS} -d ${DRAFT} -o ${OUTDIR} -t ${NPROC} --bacteria
+```
+
+A legacy default model will be used if the bacterial model is not compatible with
+the input files. The model selection can be confirmed by running:
+
+```
+medaka tools resolve_model --auto_model consensus_bacteria <input.bam/input.fastq>
+```
+
+which will display the model `r1041_e82_400bps_bacterial_methylation` if
+compatible or the default model name otherwise.
 
 **When automatic selection is unsuccessful, and older basecallers**
 

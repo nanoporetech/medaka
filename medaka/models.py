@@ -114,11 +114,13 @@ def resolve_model(model):
     raise RuntimeError("Model resolution failed")
 
 
-def model_from_basecaller(fname, variant=False):
+def model_from_basecaller(fname, variant=False, bacteria=False):
     """Determine correct medaka model from basecaller output file.
 
     :param fname: a basecaller output (.sam/.bam/.cram/.fastq).
     :param variant: whether to return variant model (otherwise consensus).
+    :param bacteria: whether to override basecaller consensus model with
+        bacterial methylation model (for 5khz hac and sup models only).
 
     There are slight differences is the search strategy for .bam and .fastq
     files due to differences in what information is available in each.
@@ -162,6 +164,15 @@ def model_from_basecaller(fname, variant=False):
         txt = "variant" if variant else "consensus"
         raise ValueError(
             f"No {txt} model available for basecaller {basecaller}.")
+
+    # replace with bacterial consensus model if needed
+    if bacteria and not variant:
+        if model in medaka.options.bact_methyl_compatible_models:
+            model = "r1041_e82_400bps_bacterial_methylation"
+        else:
+            logger.warning(
+                "WARNING: --bacteria specified but input data was not "
+                "compatible. Using default model {}.".format(model))
     return model
 
 

@@ -43,10 +43,13 @@ class ResolveModel(argparse.Action):
 class AutoModel(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         variant, input_file = values
-        if variant not in {'consensus', 'variant'}:
-            raise ValueError("'TYPE' must be one of 'consensus' or 'variant'.")
+        if variant not in {'consensus', 'variant', 'consensus_bacteria'}:
+            raise ValueError("'TYPE' must be one of 'consensus', 'variant'," 
+                             "or 'consensus_bacteria'.")
+        bacteria = 'bacteria' in variant
         variant = variant == 'variant'
-        model = medaka.models.model_from_basecaller(input_file, variant=variant)
+        model = medaka.models.model_from_basecaller(
+            input_file, variant=variant, bacteria=bacteria)
         try:
             model_fp = medaka.models.resolve_model(model)
         except Exception as e:
