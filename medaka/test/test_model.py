@@ -109,6 +109,16 @@ class TestScrapBasecaller(unittest.TestCase):
         model = models.model_from_basecaller(self.fastq_minknow, variant=True)
         self.assertEqual(model, "r1041_e82_400bps_sup_variant_v4.2.0")
 
+    def test_030_from_bam_consensus_bacteria(self):
+        model = models.model_from_basecaller(self.bam, variant=False,
+                                             bacteria=True)
+        self.assertEqual(model, "r1041_e82_400bps_bacterial_methylation")
+
+    def test_031_from_fastq_consensus_bacteria(self):
+        model = models.model_from_basecaller(self.fastq, variant=False,
+                                             bacteria=True)
+        self.assertEqual(model, "r1041_e82_400bps_bacterial_methylation")
+        
 
 class TestBuildModel(unittest.TestCase):
 

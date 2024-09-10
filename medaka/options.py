@@ -160,7 +160,15 @@ archived_models = [
     'r941_e81_fast_variant_g514', 'r941_e81_hac_variant_g514',
     'r941_e81_sup_variant_g514',
     # APK joint polishing consensus
-    'r1041_e82_260bps_joint_apk_ulk_v5.0.0'
+    'r1041_e82_260bps_joint_apk_ulk_v5.0.0',
+    # bacterial methylation consensus
+    'r1041_e82_400bps_bacterial_methylation',
+]
+
+bact_methyl_compatible_models = [
+    'r1041_e82_400bps_hac_v4.2.0', 'r1041_e82_400bps_sup_v4.2.0',
+    'r1041_e82_400bps_hac_v4.3.0', 'r1041_e82_400bps_sup_v4.3.0',
+    'r1041_e82_400bps_hac_v5.0.0', 'r1041_e82_400bps_sup_v5.0.0',
 ]
 
 # Previous models that have not been converted to v2.0 format. Attempting to

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eo pipefail
+set -eou pipefail
 
 function follow_link {
   python -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' $1
@@ -28,6 +28,7 @@ NOFILLGAPS=false
 GAPFILLCHAR=""
 QUALITIES=false
 MIN_MAPQ=""
+BACTERIA=""
 
 iflag=false
 dflag=false
@@ -59,10 +60,12 @@ $(basename "$0") [-h] -i <fastx> -d <fasta>
     -t  number of threads with which to create features (default: 1).
     -b  batchsize, controls memory use (default: ${BATCH_SIZE}).
     -q  Output consensus with per-base quality scores (fastq).
-    -M  Minimum mapQ (default: None)."
+    -M  Minimum mapQ (default: None).
+    --bacteria automatically select best model for bacteria
+               and plasmid sequencing. "
 
 
-while getopts ':hi::d:o:gr:m:fxt:b:qM:' option; do
+while getopts ':hi::d:o:gr:m:fxt:b:qM:-:' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
@@ -77,6 +80,12 @@ while getopts ':hi::d:o:gr:m:fxt:b:qM:' option; do
     b  ) BATCH_SIZE=$OPTARG;;
     q  ) QUALITIES=true;;
     M  ) MIN_MAPQ=$OPTARG;;
+    -  )
+	case "${OPTARG}" in
+	    bacteria ) BACTERIA="_bacteria";;  # Handle the long option --bacteria
+	    * ) echo "Invalid option: --${OPTARG}." >&2; exit 1;;
+	esac
+	;;
     \? ) echo "Invalid option: -${OPTARG}." >&2; exit 1;;
     :  ) echo "Option -$OPTARG requires an argument." >&2; exit 1;;
   esac
@@ -99,7 +108,7 @@ fi
 
 if ! $mflag; then
     echo "Attempting to automatically select model version."
-    model=$(medaka tools resolve_model --auto_model consensus "${BASECALLS}" 2>/dev/null || true)
+    model=$(medaka tools resolve_model --auto_model consensus"${BACTERIA}" "${BASECALLS}" 2>/dev/null || true)
     if [[ "${model}" == "" ]] ; then
         echo "WARNING: Failed to detect a model version, will use default: '${MODEL}'"
     else
