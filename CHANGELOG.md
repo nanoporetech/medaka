@@ -4,13 +4,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [v2.0.0]
+Switched from tensorflow to pytorch.
+
+Existing models for recent basecallers have been converted to the new format.
+Pytorch format models contain a ``_pt`` suffix in the filename.
+
 ### Changed
+- Inference is now performed using PyTorch instead of TensorFlow.
+- The `medaka consensus` command has been renamed to `medaka inference` to reflect
+  its function in running an arbitrary model and avoid confusion with `medaka_consensus`.
+- The `medaka stitch` command has been renamed to `medaka sequence` to reflect its
+  function in creating a consensus sequence.
+- The `medaka variant` command has been renamed to `medaka vcf` to reflect its function
+  in consolidating variants and avoid confusion with `medaka_variant`.
+- Order of arguments to `medaka vcf` has been changed to be more consistent
+  with `medaka sequence`.
+- The helper script `medaka_haploid_variant` has been renamed `medaka_variant` to
+  save typing.
 - Make `--ignore_read_groups` option available to more medaka subcommands including `inference`.
+### Removed
+- The `medaka snp` command has been removed. This was long defunct as diploid SNP calling
+  had been deprecated, and `medaka variant` is used to create VCFs for current models.
+- Loading models in hdf format has been deprecated.
+- Deleted minimap2 and racon wrappers in `medaka/wrapper.py`.
+### Added
+- Release conda packages for Linux (x86 and aarch64) and macOS (arm64).
+- Option `--lr_schedule` allows using cosine learning rate schedule in training.
+- Option `--max_valid_samples` to set number of samples in a training validation batch.
+### Fixed
+- Training models with DiploidLabelScheme uses categorical cross-entropy loss
+  instead of binary cross-entropy.
 
 ## [v2.0.0a2]
 ### Changed
-- Minor edits to README around model selection and pacakge installation.
+- Minor edits to README around model selection and package installation.
 ### Added
 - Release conda packages for Linux (x86 and aarch64) and macOS (arm64).
 
