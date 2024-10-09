@@ -113,6 +113,7 @@ class Read(object):
             above this value.
 
         """
+        logger = medaka.common.get_named_logger("FastReader")
         depth_filter = max(1, depth_filter)
         if take_all and read_id is None:
             read_id = os.path.splitext(os.path.basename(fastx))[0]
@@ -123,14 +124,25 @@ class Read(object):
             for entry in fh:
                 if not take_all:
                     cur_read_id = entry.name.split("_")[0]
+                    if read_id is None:
+                        read_id = cur_read_id
                     if cur_read_id != read_id:
                         if len(subreads) >= depth_filter:
                             med_length = np.median(
                                 [len(x.seq) for x in subreads])
                             if med_length > length_filter:
                                 yield cls(read_id, subreads)
+                            else:
+                                logger.debug(
+                                    "Read {} has too short subreads.".format(
+                                        read_id))
+                        else:
+                            logger.debug(
+                                "Read {} has too few subreads.".format(
+                                    read_id))
                         read_id = cur_read_id
                         subreads = []
+
                 if len(entry.sequence) > 0:
                     subreads.append(Subread(entry.name, entry.sequence))
 
@@ -138,6 +150,11 @@ class Read(object):
                 med_length = np.median([len(x.seq) for x in subreads])
                 if med_length > length_filter:
                     yield cls(read_id, subreads)
+                else:
+                    logger.debug(
+                        "Read {} has too short subreads.".format(read_id))
+            else:
+                logger.debug("Read {} has too few subreads.".format(read_id))
 
     @property
     def seqs(self):
@@ -414,9 +431,10 @@ class MyArgs:
 
 def main(args):
     """Entry point for repeat read consensus creation."""
+    print(args)
     parser = medaka.medaka.medaka_parser()
     defaults = parser.parse_args([
-        "consensus", medaka.medaka.CheckBam.fake_sentinel,
+        "inference", medaka.medaka.CheckBam.fake_sentinel,
         "fake_out"])
 
     args = MyArgs(args, defaults)
