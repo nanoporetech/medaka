@@ -165,6 +165,7 @@ archived_models = [
     'r1041_e82_400bps_bacterial_methylation',
 ]
 
+bact_methyl_model = 'r1041_e82_400bps_bacterial_methylation'
 bact_methyl_compatible_models = [
     'r1041_e82_400bps_hac_v4.2.0', 'r1041_e82_400bps_sup_v4.2.0',
     'r1041_e82_400bps_hac_v4.3.0', 'r1041_e82_400bps_sup_v4.3.0',
