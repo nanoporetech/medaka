@@ -52,8 +52,22 @@ def resolve_model(model):
             raise ex
         except Exception:
             logger.warning(err_msg)
+
+        extra_msg = ""
+        if "fast" in model:
+            extra_msg = (
+                " 'fast' basecalling models are not supported by medaka, "
+                "if you have used a 'fast' model to perform basecalling you "
+                "will need to first perform basecalling with a "
+                "'high accuracy' or 'super accuracy' model before using "
+                "medaka.")
         raise ValueError(
-            f"Model {model} is not a known model or existant file.")
+            f"The model '{model}' is not a recognised basecaller model or "
+            "existant file. This could indicate a malformed input file (for "
+            "which medaka was unable to identify correctly the basecaller "
+            "meta-information) or simply be that the model is not supported "
+            f"by medaka.{extra_msg}")
+
     else:
         # check for model in model stores
         for suffix in model_suffixes:
@@ -168,7 +182,7 @@ def model_from_basecaller(fname, variant=False, bacteria=False):
     # replace with bacterial consensus model if needed
     if bacteria and not variant:
         if model in medaka.options.bact_methyl_compatible_models:
-            model = "r1041_e82_400bps_bacterial_methylation"
+            model = medaka.options.bact_methyl_model
         else:
             logger.warning(
                 "WARNING: --bacteria specified but input data was not "
@@ -210,7 +224,13 @@ def _model_from_fastq(fname):
                         "basecall_model_version_id=")[1].split()[0]
                     models.add(model)
                 except Exception:
-                    pass
+                    try:
+                        # rogue non-spec conforming minknow versions
+                        model = rec.comment.split(
+                            "model_version_id=")[1].split()[0]
+                        models.add(model)
+                    except Exception:
+                        pass
     if len(models) > 1:
         # filter out any models without an `@`. These are likely FPs of
         # the search above (there are unversioned models whose name

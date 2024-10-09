@@ -34,7 +34,7 @@ class ResolveModel(argparse.Action):
         try:
             model_fp = medaka.models.resolve_model(val)
         except Exception as e:
-            msg = "Error validating model from '--{}' argument: {}."
+            msg = "Error validating model from '--{}' argument: {}"
             raise RuntimeError(msg.format(self.dest, str(e)))
         setattr(namespace, f"{self.dest}_was_given", True)
         setattr(namespace, self.dest, model_fp)
@@ -44,8 +44,9 @@ class AutoModel(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         variant, input_file = values
         if variant not in {'consensus', 'variant', 'consensus_bacteria'}:
-            raise ValueError("'TYPE' must be one of 'consensus', 'variant'," 
-                             "or 'consensus_bacteria'.")
+            raise ValueError(
+                "'TYPE' must be one of 'consensus', 'variant',"
+                "or 'consensus_bacteria'.")
         bacteria = 'bacteria' in variant
         variant = variant == 'variant'
         model = medaka.models.model_from_basecaller(
@@ -197,11 +198,11 @@ def _model_arg():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
     grp = parser.add_mutually_exclusive_group()
     grp.add_argument('--model', action=ResolveModel,
-            default=medaka.options.default_models['consensus'],
-            help="Model to use. Can be a medaka model name or a basecaller model name suffixed with ':consensus' or ':variant'. For example 'dna_r10.4.1_e8.2_400bps_hac@v4.1.0:variant'.")
+        default=medaka.options.default_models['consensus'],
+        help="Model to use. Can be a medaka model name or a basecaller model name suffixed with ':consensus' or ':variant'. For example 'dna_r10.4.1_e8.2_400bps_hac@v4.1.0:variant'.")
     grp.add_argument('--auto_model', nargs=2, action=AutoModel,
-            metavar=("TYPE", "INPUT"), dest='model',
-            help="Automatically choose model according to INPUT. TYPE should be one of 'consensus' or 'variant'.")
+        metavar=("TYPE", "INPUT"), dest='model',
+        help="Automatically choose model according to INPUT. TYPE should be one of 'consensus' or 'variant'.")
     return parser
 
 
