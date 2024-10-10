@@ -4,9 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [unreleased]
+## [v2.0.1]
 ### Fixed
 - `medaka smolecule` was broken by change from `medaka consensus` to `medaka inference`.
+### Changed
+- Improved error message when model is not found.
 
 ## [v2.0.0]
 Switched from tensorflow to pytorch.
