@@ -58,6 +58,8 @@ basecaller_models = {
         ('r1041_e82_400bps_hac_v4.1.0', 'r1041_e82_400bps_hac_variant_v4.1.0'),
     'dna_r10.4.1_e8.2_400bps_hac@v4.2.0':
         ('r1041_e82_400bps_hac_v4.2.0', 'r1041_e82_400bps_hac_variant_v4.2.0'),
+    'dna_r10.4.1_e8.2_5khz_400bps_hac@v4.2.0':  # alias for v4.2.0
+        ('r1041_e82_400bps_hac_v4.1.0', 'r1041_e82_400bps_hac_variant_v4.1.0'),
     'dna_r10.4.1_e8.2_400bps_hac@v4.3.0':
         ('r1041_e82_400bps_hac_v4.3.0', 'r1041_e82_400bps_hac_variant_v4.3.0'),
     'dna_r10.4.1_e8.2_400bps_hac@v5.0.0':
@@ -74,6 +76,8 @@ basecaller_models = {
         ('r1041_e82_400bps_sup_v4.1.0', 'r1041_e82_400bps_sup_variant_v4.1.0'),
     'dna_r10.4.1_e8.2_400bps_sup@v4.2.0':
         ('r1041_e82_400bps_sup_v4.2.0', 'r1041_e82_400bps_sup_variant_v4.2.0'),
+    'dna_r10.4.1_e8.2_5khz_400bps_sup@v4.2.0':  # alias for v4.2.0
+        ('r1041_e82_400bps_sup_v4.1.0', 'r1041_e82_400bps_sup_variant_v4.1.0'),
     'dna_r10.4.1_e8.2_400bps_sup@v4.3.0':
         ('r1041_e82_400bps_sup_v4.3.0', 'r1041_e82_400bps_sup_variant_v4.3.0'),
     'dna_r10.4.1_e8.2_400bps_sup@v5.0.0':

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [unreleased]
+### Added
+- Models `dna_r10.4.1_e8.2_5khz_400bps_sup` and `dna_r10.4.1_e8.2_5khz_400bps_hac` added
+  as aliases to those without `_5kz_` in their names. 
+
 ## [v2.0.1]
 ### Fixed
 - `medaka smolecule` was broken by change from `medaka consensus` to `medaka inference`.
