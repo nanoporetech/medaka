@@ -48,47 +48,6 @@ class BaseModelStore(ABC):
         raise NotImplementedError
 
 
-class ModelStore(BaseModelStore):
-    """Read and write model and meta to a hdf file."""
-
-    def __init__(self, filepath):
-        """Initialize a Modelstore.
-
-        :param filename: filepath to hdf file
-        """
-        self.filepath = filepath
-        self.logger = medaka.common.get_named_logger('MdlStore')
-
-    def __enter__(self):
-        """Create context for handling a modelstore file."""
-        return self
-
-    def __exit__(self, exception_type, exception_value, traceback):
-        """Exit context manager."""
-        if exception_type is not None:
-            self.logger.info('ModelStore exception {}'.format(exception_value))
-
-    def load_model(self, time_steps=None):
-        """Load a model from an .hdf file.
-
-        :param time_steps: number of time points in RNN, `None` for dynamic.
-        """
-        raise NotImplementedError
-
-    def get_meta(self, key):
-        """Retrieve a meta data item.
-
-        :param key: name of item to load.
-        """
-        with DataStore(self.filepath) as ds:
-            return ds.get_meta(key)
-
-    def copy_meta(self, other):
-        """Copy meta data to hdf."""
-        with DataStore(self.filepath) as ds:
-            return ds.copy_meta(other)
-
-
 class ModelStoreTGZ(BaseModelStore):
     """Read and write model to compressed .tar.gz archive."""
 
