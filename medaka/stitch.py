@@ -40,7 +40,7 @@ def _stitch_samples(samples, label_scheme, region, min_depth):
     :param label_scheme: a `LabelScheme` describing network outputs.
     :param region: `medaka.common.Region` instance.
     :param min_depth: int, minimum depth at each position for medaka consensus
-        sequence sequence to be decoded. Gaps in coverage will result in breaks
+        sequence to be decoded. Gaps in coverage will result in breaks
         in contiguity.
 
     :returns: list of (region string, sequence, qualities).
@@ -89,7 +89,7 @@ def stitch_from_probs(h5_fp, region, min_depth):
     :param h5_fp: iterable of HDF5 filepaths.
     :param region: `medaka.common.Region` instance.
     :param min_depth: int, minimum depth at each position for medaka consensus
-        sequence sequence to be decoded. Gaps in coverage will result in breaks
+        sequence to be decoded. Gaps in coverage will result in breaks
         in contiguity.
 
     :returns: list of (region string, sequence, qualities).
