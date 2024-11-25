@@ -9,4 +9,3 @@ graft submodules/samtools-*/htslib-*
 prune submodules/samtools-*/htslib-*/test
 graft images
 prune build
-prune docs

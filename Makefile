@@ -271,25 +271,3 @@ pypi_build/bin/activate:
 .PHONY: sdist
 sdist: pypi_build/bin/activate scripts/mini_align submodules/samtools-$(SAMVER)/Makefile
 	${IN_BUILD} && MEDAKA_DIST=1 python setup.py sdist
-
-
-# Documentation
-SPHINXOPTS    =
-SPHINXBUILD   = sphinx-build
-PAPER         =
-BUILDDIR      = _build
-PAPEROPT_a4     = -D latex_paper_size=a4
-PAPEROPT_letter = -D latex_paper_size=letter
-ALLSPHINXOPTS   = -d $(BUILDDIR)/doctrees $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) .
-DOCSRC = docs
-
-.PHONY: docs
-docs: venv
-	${IN_VENV} && pip install sphinx==3.5.4 sphinx_rtd_theme sphinx-argparse
-	${IN_VENV} && cd $(DOCSRC) && $(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
-	rm -rf docs/modules.rst docs/medaka.rst  
-	@echo
-	@echo "Build finished. The HTML pages are in $(DOCSRC)/$(BUILDDIR)/html."
-	touch $(DOCSRC)/$(BUILDDIR)/html/.nojekyll
-
-

@@ -171,7 +171,7 @@ fi
 
 CONSENSUSPROBS="consensus_probs.hdf"
 if [[ ! -e "${CONSENSUSPROBS}" ]] || ${FORCE}; then
-    echo "Running medaka consensus"
+    echo "Running medaka inference"
     rm -rf "${CONSENSUSPROBS}"
     MAPQ_OPTS=""
     if [ -n "${MIN_MAPQ}" ]; then
@@ -180,10 +180,10 @@ if [[ ! -e "${CONSENSUSPROBS}" ]] || ${FORCE}; then
     medaka inference "${CALLS2DRAFT}.bam" "${CONSENSUSPROBS}" \
         --model "${MODEL}" --batch_size "${BATCH_SIZE}" --threads "${THREADS}" \
         ${MAPQ_OPTS} \
-        || { echo "Failed to run medaka consensus."; exit 1; }
+        || { echo "Failed to run medaka inference."; exit 1; }
     FORCE=true
 else
-    echo "Not running medaka consensus, ${CONSENSUSPROBS} exists."
+    echo "Not running medaka inference, ${CONSENSUSPROBS} exists."
 fi
 
 if "${QUALITIES}"; then

@@ -287,17 +287,17 @@ can be achieved by running independently the component steps of
 
 1. alignment of reads to input assembly (via `mini_align` which is a thin
    veil over `minimap2`)
-2. running of consensus algorithm across assembly regions
+2. running of inference algorithm across assembly regions
    (`medaka inference`)
 3. aggregation of the results of 2. to create consensus sequences
    (`medaka sequence`)
 
 The three steps are discrete, and can be split apart and run independently. In
 most cases, Step 2. is the bottleneck and can be trivially parallelized. The
-`medaka consensus` program can be supplied a `--regions`
+`medaka inference` program can be supplied a `--regions`
 argument which will restrict its action to particular assembly sequences from
 the `.bam` file output in Step 1. Therefore individual jobs can be run for batches
-of assembly sequences simultaneously. In the final step, `medaka stitch`
+of assembly sequences simultaneously. In the final step, `medaka sequence`
 can take as input one or more of the `.hdf` files output by Step 2.
 
 So in summary something like this is possible:
