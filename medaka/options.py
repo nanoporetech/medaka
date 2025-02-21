@@ -167,6 +167,11 @@ archived_models = [
     'r1041_e82_260bps_joint_apk_ulk_v5.0.0',
     # bacterial methylation consensus
     'r1041_e82_400bps_bacterial_methylation',
+    # read level models
+    "r1041_e82_400bps_hac_v5.0.0_rl_lstm384_dwells",
+    "r1041_e82_400bps_hac_v5.0.0_rl_lstm384_no_dwells",
+    "r1041_e82_400bps_sup_v5.0.0_rl_lstm384_dwells",
+    "r1041_e82_400bps_sup_v5.0.0_rl_lstm384_no_dwells",
 ]
 
 bact_methyl_model = 'r1041_e82_400bps_bacterial_methylation'

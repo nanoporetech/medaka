@@ -1,5 +1,6 @@
 """Extensions to torch API for medaka."""
-from abc import ABC, abstractmethod
+from collections import defaultdict
+from dataclasses import dataclass
 import math
 import os
 import pickle
@@ -8,31 +9,27 @@ import tarfile
 from time import perf_counter
 
 import numpy as np
+import toml
 import torch
 from tqdm import tqdm
 
 import medaka.common
 import medaka.datastore
 
-# define subclassess here to avoid top-level torch import
+EXPORT_CONFIG_VERSION = 3
 
 
 # Subclass to save model and metadata
-
 class ModelMetaCheckpoint:
     """Custom ModelCheckpoint to add medaka-specific metadata to hdf5 files."""
 
-    def __init__(self, medaka_meta, outdir, *args, **kwargs):
+    def __init__(self, medaka_meta, outdir):
         """Initialize checkpointing.
 
         :param medaka_meta: dict of meta data to store in checkpoint files.
         :param outdir: directory in which to output saved models
-        :param args: positional arguments for baseclass.
-        :param kwargs: keyword arguments for baseclass.
-
         """
-        required_meta = set(
-            ('model_function', 'label_scheme', 'feature_encoder'))
+        required_meta = {'model_function', 'label_scheme', 'feature_encoder'}
         self.medaka_meta = medaka_meta
         if not set(medaka_meta.keys()).issubset(required_meta):
             raise KeyError(
@@ -65,98 +62,138 @@ class ModelMetaCheckpoint:
 
 
 # Training datasets and other useful classes
-
 class Sequence(torch.utils.data.Dataset):
     """Interface for a torch Dataset to a sample array in a `TrainBatcher`."""
 
     def __init__(
-            self, data, sampler_func, dataset="train", mini_epochs=1,
+            self, data, sampler_func, dataset="train",
             seed=None):
         """Initialize batching for training.
 
         :param data: array of samples from a `TrainBatcher`.
         :param sampler_func: function to get a sample given an index in data.
-        :param dataset: one of 'train' or 'validation'.
-        :param mini_epochs: factor by which to rescale the number of batches
-            in an epoch (useful to output checkpoints more frequently).
         :param seed: random seed for shuffling data.
 
         """
         self.data = data
         self.sampler_func = sampler_func
         self.dataset = dataset
-        self.mini_epochs = mini_epochs
         if seed is not None:
             np.random.seed(seed)
+
+        if dataset not in ['train', 'validation']:
+            raise ValueError(
+                "dataset must be one of 'train' or 'validation'")
 
         self.logger = medaka.common.get_named_logger(
             '{}Batcher'.format(self.dataset.capitalize()))
 
-        if dataset == 'train':
-            if self.mini_epochs == 1:
-                self.logger.info(
-                    "Not using mini_epochs, an epoch is a full traversal "
-                    "of the training data")
-            else:
-                self.logger.info(
-                    "Using mini_epochs, an epoch is a traversal of 1/{} "
-                    "of the training data".format(self.mini_epochs))
-        elif dataset == 'validation':
-            if mini_epochs != 1:
-                raise ValueError(
-                    "'mini_epochs' must be equal to 1 for validation data.")
-        else:
-            raise ValueError("'dataset' should be 'train' or 'validation'.")
-
         np.random.shuffle(self.data)
-        self.samples_per_epoch = len(self.data) // self.mini_epochs
-
-        self.mini_epoch_counter = 0
-        self.epoch_start = 0
 
     def __len__(self):
         """Return the number of samples in one epoch."""
-        return self.samples_per_epoch
+        return len(self.data)
 
     def __getitem__(self, index: int):
         """Get the sample of data at a given index position."""
-        return self.sampler_func(self.data[index + self.epoch_start])
+        return self.sampler_func(self.data[index])
 
-    def on_epoch_start(self):
-        """Perform actions at the start of an epoch."""
-        self.epoch_start = self.mini_epoch_counter * self.samples_per_epoch
-        self.logger.debug(
-            f"Mini-epoch {self.mini_epoch_counter + 1} of {self.mini_epochs}")
-        self.logger.debug(
-            f"Sample start index: {self.epoch_start}, "
-            f"end index: {self.epoch_start + self.samples_per_epoch}")
 
-    def on_epoch_end(self):
-        """Perform actions at the end of an epoch."""
-        if self.dataset == 'train':
-            self.mini_epoch_counter += 1
-            if self.mini_epoch_counter == self.mini_epochs:
-                self.logger.debug("Shuffling data")
-                np.random.shuffle(self.data)
-                self.mini_epoch_counter = 0
+@dataclass
+class Batch:
+    """Batch of samples, used for both training and inference."""
+
+    read_level_features: torch.Tensor = None
+    counts_matrix: torch.Tensor = None
+    labels: torch.Tensor = None
+    majority_vote_probs: torch.Tensor = None
+
+    @classmethod
+    def collate(cls, samples, counts_matrix=False):
+        """Construct batch from a list of samples.
+
+        :param samples: List of `medaka.common.Sample` objects.
+        :param counts_matrix: bool: Whether to calculate the counts matrix
+            if features are read-level. Disabled at inference time for speed,
+            enabled at training so models can be compared with argmax. Note,
+            this does not affect features already saved as counts matrices.
+        :returns: torch_ext.Batch
+        """
+        batch_size = len(samples)
+        feature_shape = samples[0].features.shape
+        features = [torch.from_numpy(s.features) for s in samples]
+        batch_dict = {}
+
+        def pad_to_max_depth(read_level_features):
+            depths = [rlf.shape[1] for rlf in read_level_features]
+            npos, _, nfeats = feature_shape
+            depths = [rlf.shape[1] for rlf in read_level_features]
+            max_depth = max(depths)
+            rlf_shape = (batch_size, npos, max_depth, nfeats)
+            feature_matrix = np.zeros(rlf_shape, dtype=np.uint8)
+            for i, rlf in enumerate(read_level_features):
+                feature_matrix[i, :, : depths[i], :] = rlf
+            return torch.from_numpy(feature_matrix).to(torch.uint8)
+
+        if features[0].ndim == 3:
+            # 3-dimensional features are read level
+            batch_dict['read_level_features'] = pad_to_max_depth(features)
+            if counts_matrix:
+                batch_dict['counts_matrix'] = torch.stack(
+                    [
+                        torch.from_numpy(s.counts_matrix)
+                        for s in samples
+                    ]).float()
+        elif features[0].ndim == 2:
+            batch_dict['counts_matrix'] = torch.stack(features).float()
+        else:
+            raise ValueError(
+                f"Unknown feature dimension {features[0].ndim}. Expect 3 for"
+                "read level features or 2 for counts matrices.")
+
+        if getattr(batch_dict, 'counts_matrix', None) is not None:
+            # also get the majority vote probs for comparison of model
+            # with argmax
+            batch_dict['majority_vote_probs'] = torch.stack(
+                [torch.from_numpy(s.majority_vote_probs) for s in samples]
+            )
+
+        if samples[0].labels is not None:
+            batch_dict['labels'] = torch.stack([
+                torch.from_numpy(s.labels) for s in samples])
+
+        # now make batch from the tensors
+        return cls(**batch_dict)
+
+    @property
+    def features(self):
+        """Return the features tensor."""
+        if self.read_level_features is None:
+            return self.counts_matrix
+        return self.read_level_features
 
 
 class SequenceBatcher(torch.utils.data.DataLoader):
     """Dataloader operating on a Sequence dataset."""
 
-    def __init__(self, sequence, batch_size=1, threads=1):
+    def __init__(
+            self, sequence, batch_size=1, threads=1,
+            shuffle=False, collate_fn=Batch.collate):
         """Initialize Dataloader.
 
         :param sequence: a `medaka.torch_ext.Sequence` instance.
         :param batch_size: number of samples per batch.
         :param threads: number of parallel loader threads.
+        :param collate_fn: function to collate samples into a batch.
+        :param shuffle: shuffle the data at the start of each epoch.
         """
         super().__init__(
             sequence,
             batch_size=batch_size,
-            shuffle=False,
             num_workers=threads,
-            drop_last=True
+            shuffle=shuffle,
+            collate_fn=collate_fn,
+            drop_last=True,
         )
         self.dataset.logger.info(
             '{} batches of {} samples ({}) per epoch.'.format(
@@ -203,7 +240,6 @@ class ClipGrad:
 
 
 # Training loop functions
-
 class ProgressBar(tqdm):
     """Container for a progress bar to display epoch progress."""
 
@@ -219,17 +255,29 @@ class ProgressBar(tqdm):
             bar_format='{l_bar}{bar}| [{elapsed}{postfix}]'
         )
 
-    def on_batch(self, samples, loss):
+    def on_batch(self, n_samples, loss, model_acc, argmax_acc, batch_size):
         """Update with batch results."""
-        self.set_postfix(loss='%.4f' % loss)
-        self.set_description(
-            "[{}/{}]".format(samples, self.total))
-        self.update()
+
+        def qacc(x):
+            return -10 * np.log10(np.max([1e-6, 1 - x]))
+
+        model_qacc = qacc(model_acc)
+        argmax_qacc = qacc(argmax_acc)
+
+        self.set_postfix(
+            loss="%.4f" % loss,
+            model_q="%.2f" % model_qacc,
+            argmax_q="%.2f" % argmax_qacc,
+            delta="%.2f" % (model_qacc - argmax_qacc),
+        )
+        self.set_description("[{}/{}]".format(n_samples, self.total))
+        self.update(batch_size)
 
 
-def train_one_epoch(
+def run_epoch(
         model, dataloader, loss_fn, optimizer, scaler=None, clip_grad=None,
-        lr_scheduler=None, loss_log=None):
+        lr_scheduler=None, loss_log=None,
+        is_training_epoch=False, total_num_samples=None):
     """Run training for one epoch.
 
     :param model
@@ -240,50 +288,63 @@ def train_one_epoch(
     :param clip_grad: optional, gradient clipping function.
     :param lr_scheduler: optional, learning rate scheduler.
     :param loss_log: optional CSVLogger, log loss per batch to file.
+    :param is_training_epoch (bool), whether this is a training epoch.
+    :param total_num_samples: optional int, number of samples in the epoch.
 
     :returns: mean training loss per sample.
     """
-    model.train()
-    device = model.device()
-    dataloader.dataset.on_epoch_start()
-    train_loss = 0
-    samples = 0
+    model.train() if is_training_epoch else model.eval()
+    sum_epoch_loss = 0
+    n_samples = 0
     t0 = perf_counter()
-    model.normalise = False
+    model.normalise = not isinstance(loss_fn, torch.nn.CrossEntropyLoss)
+    total_epoch_metrics = defaultdict(float)
 
-    progress_bar = ProgressBar(len(dataloader))
-    for X, targets in dataloader:
-        optimizer.zero_grad()
+    # use the entire dataset if total_num_samples is not provided
+    if total_num_samples is None:
+        total_num_samples = len(dataloader.dataset)
 
-        samples += X.shape[0]
-        X, targets = X.to(device), targets.to(device)
-        try:
-            pred = model(X)
-            # Model output order is (N,T,C) but torch loss functions
-            # require (N,C,...), so apply swapaxes here.
-            loss = loss_fn(pred.swapaxes(-1, -2), targets.squeeze())
+    total_num_batches = total_num_samples // dataloader.batch_size
 
-            if lr_scheduler is not None:
-                lr_scheduler.step()
-            if scaler is not None:
-                scaler.scale(loss).backward()
-                scaler.unscale_(optimizer)
-            else:
-                loss.backward()
+    progress_bar = ProgressBar(total_num_samples)
+    for batch_idx, batch in enumerate(dataloader):
+        n_samples += batch.labels.shape[0]
+        if optimizer is not None:
+            optimizer.zero_grad()
+
+        with torch.set_grad_enabled(is_training_epoch):
+            loss, batch_metrics = model.process_batch(batch, loss_fn)
+
+        if is_training_epoch:
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
             if clip_grad is not None:
                 grad_norm = clip_grad(model.parameters())
+            else:
+                grad_norm = 0
             if scaler is not None:
                 scaler.step(optimizer)
                 scaler.update()
             else:
                 optimizer.step()
-        except RuntimeError as ex:
-            dump_dir = os.path.dirname(loss_log.filename)
-            dump_state(model, (X, targets), optimizer, dump_dir)
-            raise ex
 
-        train_loss += loss.item()
+        sum_epoch_loss += loss.item()
 
+        batch_model_acc = (
+            batch_metrics["n_model_correct"]
+            / batch_metrics["n_positions"]
+        )
+        if "n_argmax_correct" in batch_metrics:
+            batch_argmax_acc = (
+                batch_metrics["n_argmax_correct"]
+                / batch_metrics["n_positions"]
+            )
+        else:
+            batch_argmax_acc = 0
+        for key, count in batch_metrics.items():
+            total_epoch_metrics[key] += count
+
+        # record batch-level losses
         if loss_log is not None:
             lr = (
                 lr_scheduler.get_last_lr()
@@ -292,150 +353,55 @@ def train_one_epoch(
             )
             if len(lr) == 1:
                 lr = lr[0]
-            loss_log.append({
-                'samples': samples,
-                'time': perf_counter() - t0,
-                'grad_norm': grad_norm,
-                'lr': lr,
-                'loss': loss.item()
-            })
+            loss_log.append(
+                {
+                    "samples": n_samples,
+                    "time": perf_counter() - t0,
+                    "grad_norm": grad_norm,
+                    "lr": lr,
+                    "loss": loss.item(),
+                    "model_correct": batch_model_acc,
+                    "argmax_correct": batch_argmax_acc,
+                    "n_positions": batch_metrics["n_positions"],
+                }
+            )
 
-        progress_bar.on_batch(samples, loss)
+        if lr_scheduler is not None:
+            lr_scheduler.step()
 
-    dataloader.dataset.on_epoch_end()
+        progress_bar.on_batch(
+            n_samples,
+            loss,
+            batch_model_acc,
+            batch_argmax_acc,
+            dataloader.batch_size,
+        )
 
-    return train_loss / (samples)
+        if batch_idx >= total_num_batches - 1:
+            break
 
-
-def validate_one_epoch(model, dataloader, loss_fn, metrics={}):
-    """Run validation for one epoch.
-
-    :param model
-    :param dataloader: SequenceBatcher, iterable of training batches.
-    :param loss_fn: loss function.
-    :param metrics: dict of secondary evaluation metrics to compute.
-
-    :returns: (mean validation loss per sample, mean of each metric per sample)
-    """
-    model.eval()
-    device = model.device()
-    dataloader.dataset.on_epoch_start()
-    test_loss = 0.0
-    samples = 0
-    metric_values = {k: 0 for k in metrics.keys()}
-    model.normalise = False
-    progress_bar = ProgressBar(len(dataloader))
-    with torch.no_grad():
-        for X, targets in dataloader:
-            samples += X.shape[0]
-            X, targets = X.to(device), targets.to(device)
-            pred = model(X)
-            loss = loss_fn(pred.swapaxes(-1, -2), targets.squeeze())
-            test_loss += loss.item()
-            for k, f in metrics.items():
-                v = f(targets, pred)
-                if v.ndim > 1:
-                    v = v.mean(dim=-1)
-                metric_values[k] += v.sum().item()
-
-            progress_bar.on_batch(samples, loss)
-    dataloader.dataset.on_epoch_end()
-
-    return (
-        test_loss / samples,
-        {k: m / samples for k, m in metric_values.items()}
+    epoch_model_acc = (
+        total_epoch_metrics["n_model_correct"]
+        / total_epoch_metrics["n_positions"]
+    )
+    epoch_argmax_acc = (
+        total_epoch_metrics["n_argmax_correct"]
+        / total_epoch_metrics["n_positions"]
     )
 
+    # calculate metrics to return
+    epoch_mean_batch_loss = sum_epoch_loss / (
+        n_samples / dataloader.batch_size
+    )  # divide sum loss by number of batches
+    epoch_metrics = {
+        "model_tot_acc": epoch_model_acc,
+        "argmax_tot_acc": epoch_argmax_acc,
+    }
 
-# Score metrics
+    for key, count in total_epoch_metrics.items():
+        epoch_metrics[key] = count
 
-class Metric(ABC):
-    """Abstract class for accuracy metrics."""
-
-    @abstractmethod
-    def __init__(self, *args, **kwargs):
-        """Initialise an accuracy metric."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def __call__(self, y_true: torch.Tensor, y_pred: torch.Tensor):
-        """Calculate accuracy.
-
-        :param y_true: tensor of true class labels.
-        :param y_pred: class output scores from network.
-
-        :returns: tensor, binary whether each entry is correct.
-        """
-        raise NotImplementedError
-
-
-class SparseCategoricalAccuracy(Metric):
-    """Sparse categorical accuracy."""
-
-    def __init__(self):
-        """Initialise."""
-        pass
-
-    def __call__(self, y_true, y_pred):
-        """Loss function for sparse_categorical_accuracy.
-
-        :param y_true: tensor of true integer class labels.
-        :param y_pred: tensor of class output scores from network.
-
-        :returns: tensor, binary whether each entry is correct.
-        """
-        # reshape in case it's in shape (num_samples, 1) instead of
-        # (num_samples,)
-        true_type = y_true.dtype
-        def_float_type = torch.get_default_dtype()
-        if len(y_true.shape) == len(y_pred.shape):
-            y_true = torch.squeeze(y_true, -1)
-        # convert dense predictions to labels
-        y_pred_labels = torch.argmax(y_pred, dim=-1)
-        y_pred_labels = y_pred_labels.to(true_type)
-        return (y_true == y_pred_labels).to(def_float_type)
-
-
-class CategoricalAccuracy(SparseCategoricalAccuracy):
-    """Categorical accuracy."""
-
-    def __init__(self):
-        """Initialise categorical accuracy."""
-        super().__init__()
-
-    def __call__(self, y_true, y_pred):
-        """Loss function for binary accuracy.
-
-        :param y_true: tensor of one-hot true class labels.
-        :param y_pred: tensor of class output scores from network.
-
-        :returns: tensor, binary whether each entry is correct.
-        """
-        return super().__call__(torch.argmax(y_true, dim=-1), y_pred)
-
-
-class QScore(Metric):
-    """Accuracy converted to q-score."""
-
-    def __init__(
-        self,
-        eps: float = 1e-10,
-        accuracy: Metric = CategoricalAccuracy,
-        accuracy_kwargs: dict = {}
-    ):
-        """Initialize q-score.
-
-        accuracy specifies the Metric function that will be called to get
-        the accuracy which will be converted to Qscore.
-        """
-        self.eps = eps
-        self.accuracy = accuracy(**accuracy_kwargs)
-
-    def __call__(self, y_true, y_pred):
-        """Calculate accuracy and convert to q-score."""
-        error = 1 - self.accuracy(y_true, y_pred)
-        error = error.mean(dim=-1).clip(self.eps, 1.)
-        return -10.0 * 0.434294481 * torch.log(error)
+    return epoch_mean_batch_loss, epoch_metrics
 
 
 def dump_state(model, batch, optimizer, dirname):
@@ -503,3 +469,65 @@ def no_schedule(warmup_steps=None, **kwargs):
         warmup_steps=warmup_steps,
         start_step=last_epoch * len(train_loader),
     )
+
+
+def export_model(args):
+    """Export a model to a torchscript model and config file."""
+    logger = medaka.common.get_named_logger('ModelExport')
+    model_fp = args.model
+    output_fp = args.output
+    force = args.force
+    script = args.script
+    supported_basecallers = args.supported_basecallers
+
+    if not os.path.exists(model_fp):
+        raise FileNotFoundError(f"Model file not found: {model_fp}")
+
+    if output_fp is None:
+        output_fp = os.path.basename(model_fp).replace(".tar.gz", "_export")
+
+    logger.info(f"Exporting model from {model_fp} to {output_fp}.tar.gz")
+    logger.info("Supported basecallers: {}".format(supported_basecallers))
+    if force:
+        os.makedirs(output_fp, exist_ok=True)
+    else:
+        os.mkdir(output_fp)
+
+    msg = "Output file path cannot be the same as the model file path"
+    assert model_fp != output_fp, msg
+
+    model_store = medaka.models.open_model(model_fp)
+    model = model_store.load_model()
+    label_scheme = model_store.get_meta("label_scheme")
+    feature_encoder = model_store.get_meta("feature_encoder")
+
+    config = {
+        'config_version': EXPORT_CONFIG_VERSION,
+        'model': model.to_dict(),
+        'feature_encoder': feature_encoder.to_dict(),
+        'supported_basecallers': supported_basecallers,
+        'label_scheme': label_scheme.to_dict()}
+
+    with open(os.path.join(output_fp, 'config.toml'), 'w') as f:
+        toml.dump(config, f)
+
+    if script:
+        for name, module in model.named_modules():
+            if (
+                isinstance(module, torch.nn.LSTM) or
+                isinstance(module, torch.nn.GRU)
+            ):
+                module.flatten_parameters()
+        scripted_model = torch.jit.script(model)
+        scripted_model.save(os.path.join(output_fp, 'model.pt'))
+
+    # save state dict
+    w = {k: v.cpu() for k, v in model.state_dict().items()}
+    torch.save(w, os.path.join(output_fp, 'weights.pt'))
+
+    # now add to tarfile
+    output_tarfile = output_fp + ".tar.gz"
+    with tarfile.open(output_tarfile, "w:gz") as tar:
+        tar.add(output_fp, arcname='model')
+
+    shutil.rmtree(output_fp)

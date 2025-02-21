@@ -9,6 +9,64 @@ import medaka.labels
 root_dir = os.path.abspath(os.path.dirname(__file__))
 test_file = os.path.join(root_dir, 'data/test_probs.hdf')
 
+def get_test_samples(num_train=1000, num_test=500, chunk_size=1000, read_level_features=False):
+    # Adapted from medaka v2.0.1 - the dataloaders now expect a list of samples
+    # instead of a tuple of lists of features and labels (these are then
+    # converted into a medaka.torch.Batch object which is passed to the model's
+    # process_batch or predict_on_batch methods, depending on whether training
+    # or doing inference).
+    num_samples = num_train + num_test
+    train_samples = []
+    valid_samples = []
+    # insert minor positions with 10% probability
+    is_major_position = np.random.random(size=(chunk_size)) < 0.9
+    is_major_position[0] = True
+    is_minor_position = ~is_major_position
+    major_position_index = np.cumsum(is_major_position.astype(int))-1
+    indicies = [(0,0)]
+    minor_idx = 0
+    for i in range(1, chunk_size):
+        prev_index = indicies[-1]
+        if major_position_index[i] == prev_index[0]:
+            minor_idx += 1
+        else:
+            minor_idx = 0
+        indicies.append((major_position_index[i], minor_idx))
+    pos = np.array(indicies, dtype=[('major', int), ('minor', int)])
+
+    for i in range(num_samples):
+        labels = np.random.randint(0, 5, size=(num_samples, chunk_size))
+        # choose random depth between 10 & 20
+        depths = np.ones_like(labels)*np.random.randint(10, 20)
+        if read_level_features:
+
+            features = np.zeros((num_samples, chunk_size, np.max(depths), 5)
+            )
+            # bases
+            features[:,:,:, 0] = np.random.randint(0, 5, size=(num_samples, chunk_size, np.max(depths)))
+            # q scores
+            features[:,:,:, 1] = np.random.randint(0, 50, size=(num_samples, chunk_size, np.max(depths)))
+        else:
+            features = np.random.random(size=(num_samples, chunk_size,10))
+            depths = np.ones_like(labels)
+
+        
+        sample = medaka.common.Sample(
+            ref_name=f"sample_{i}",
+            features=features[i],
+            labels=labels[i],
+            ref_seq="",
+            positions=pos,
+            label_probs=None,
+            depth=depths
+        )
+        if i < num_train:
+            train_samples.append(sample)
+        else:
+            valid_samples.append(sample)
+
+    return train_samples, valid_samples
+
 class TestRegion(unittest.TestCase):
     def test_self_overlap(self):
         cases = [
@@ -327,6 +385,16 @@ class TestSample(unittest.TestCase):
             for j, (got, sl) in enumerate(zip(samples_filt, expt_slices)):
                 expt = sample.slice(sl)
                 self.assertEqual(got, expt, msg="Failed for case {} slice {}".format(i, j))
+
+    def test_sample_counts_matrix_and_read_level_features(self):
+        samples, _ = get_test_samples(num_train=1, num_test=1, chunk_size=10, read_level_features=True)
+        sample = samples[0]
+        assert sample.counts_matrix.ndim == 2
+        assert sample.features.ndim == 3
+
+
+
+
 
 class TestTrimSamples(unittest.TestCase):
 

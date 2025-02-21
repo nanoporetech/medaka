@@ -35,54 +35,67 @@ simple_data = {
             'seq': 'ACATGATG',  # exactly ref
             'quality': array.array('B', [2, 1, 4, 5, 1, 1, 2, 1]),
             'cigarstring': '8=',
+            'mapping_quality': 40,
             'flag': 0,
             'tags': {
                 'cs': '=ACATGATG',
                 'AA': 1,
                 'WL': [1.5, 0.5, 3.5, 4.5, 0.5, 0.5, 1.5, 0.5],
                 'WK': [1e3] * 8,  # sharply peaked, on wl + 0.5
-                'DT': 'r9'}
-            },
+                'DT': 'r9',
+                'mv': [5, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0],
+            }
+        },
         {
             'query_name': 'basecall_2',
             'seq': 'ACAGATG',  # deletion of T in the middle
             'quality': array.array(
                 'B', [0, 1, 4, 1, 1, 1, 2]),  # zero, see above
             'cigarstring': '3=1D4=',
+            'mapping_quality': 10,
             'flag': 0,
             'tags': {
                 'cs': '=ACA-t=GATG',
                 'AA': 1,
                 'WL': [1.0] * 7,
                 'WK': [1.0] * 7,
-                'DT': 'r9'}
-            },
+                'DT': 'r9',
+                'mv': [5, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0],
+            }
+        },
         {
             'query_name': 'basecall_3',
             'seq': 'ACATAGATG',  # insertion of A in the middle
             'quality':  array.array('B', [2, 1, 4, 5, 1, 1, 1, 2, 1]),
             'cigarstring': '4=1I4=',
+            'mapping_quality': 16,
             'flag': 16,
             'tags': {
                 'cs': '=ACAT+a=GATG',
                 'AA': 2,
                 'WL': [1.0] * 9,
                 'WK': [1.0] * 9,
-                'DT': 'r9'}
-            },
+                'DT': 'r9',
+                'mv': [5, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 1, 0],
+            }
+        },
         {
             'query_name': 'basecall_4',
             'seq': 'ACACGATG',  # substitution T->C
             'quality': array.array('B', [2, 1, 4, 1, 1, 1, 2, 1]),
             'cigarstring': '3=1X4=',
+            'mapping_quality': 24,
             'flag': 16,
             'tags': {
                 # no 'AA' tag to test "keep_missing" behaviour of medaka.features.PileupCounts
                 'cs': '=ACA*tc=GATG',
                 'WL': [1.0] * 8,
                 'WK': [1.0] * 8,
-                'DT': 'r10'}
+                'DT': 'r10',
+                # malformed move table too long for the provided sequence
+                'mv': [5, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0],
             }
+        }
     ]
 }
 
@@ -107,6 +120,7 @@ def create_simple_bam(fname, calls):
                 cigarstring=basecall['cigarstring'],
                 flag=basecall['flag'],
                 query_qualities=basecall['quality'],
+                mapping_quality=basecall.get('mapping_quality', 60),
                 tags=basecall['tags'])
 
             output.write(a)

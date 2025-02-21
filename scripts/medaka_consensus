@@ -121,6 +121,9 @@ echo "Checking program versions"
 echo "This is ${medaka_version}"
 medaka_version_report || exit 1
 
+# check if the selected model is compatible with the given data
+$(medaka tools is_compatible --model $MODEL --data $BASECALLS) || { echo "Model ${MODEL} is not compatible with ${BASECALLS}"; exit 1; }
+
 if [[ ! -e "${OUTPUT}" ]]; then
   mkdir -p "${OUTPUT}"
 elif ${FORCE}; then

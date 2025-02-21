@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 import numpy as np
+import toml
 import torch
 
 from medaka import models
@@ -12,7 +13,7 @@ from medaka.features import BaseFeatureEncoder
 from medaka.labels import BaseLabelScheme
 import medaka.options
 import medaka.models
-
+import medaka.torch_ext
 
 class TestModelFiles(unittest.TestCase):
 
@@ -37,13 +38,11 @@ class TestModelFiles(unittest.TestCase):
 
     def test_011_success_download(self):
         name = 'r1041_e82_400bps_hac_v5.0.0'
-        # Temporarily add in old suffix format so we can test
-        # download that already exists in lfs
-        medaka.models.model_suffixes += ["_model.tar.gz",]
         model_file = models.resolve_model(name)
         tmp_file = "{}.tmp".format(model_file)
         os.rename(model_file, tmp_file)
         new_file = models.resolve_model(name)
+        assert new_file == model_file
         self.assertTrue(os.path.isfile(new_file))
         os.remove(new_file)
         os.rename(tmp_file, model_file)
@@ -56,6 +55,18 @@ class TestModelFiles(unittest.TestCase):
             except medaka.options.DeprecationError:
                 continue
 
+    def test_021_toml_loading(self):
+        test_toml_str = """
+        type = "GRUModel"
+
+        [kwargs]
+        num_features = 10
+        num_classes = 5
+        gru_size = 100
+        """
+        toml_dict = toml.loads(test_toml_str)
+        model = medaka.models.model_from_dict(toml_dict)
+       
     def test_030_resolve_deprecated(self):
         name = 'r941_min_high_g351'
         with self.assertRaises(medaka.options.DeprecationError):
@@ -120,25 +131,24 @@ class TestScrapBasecaller(unittest.TestCase):
         self.assertEqual(model, "r1041_e82_400bps_bacterial_methylation")
         
 
-class TestBuildModel(unittest.TestCase):
-
-    def test_000_build_all_models(self):
-        num_classes, time_steps, feat_len = 5, 5, 5
-        for name, func in models.model_builders.items():
-            model = func(feat_len, num_classes, time_steps=time_steps)
-
-
 class TestMajorityModel(unittest.TestCase):
 
     def test_000_initialise_majority_model(self):
         in_features, out_labels = 10, 5
-        majority_model = models.build_majority(in_features, out_labels)
+        model_dict = {'type': 'MajorityVoteModel', 'kwargs': {}}
+        majority_model = medaka.models.model_from_dict(model_dict)
         self.assertIsInstance(majority_model, torch.nn.Module)
-
         batch_size = 4
         positions = 100
-        test_data = torch.rand((batch_size, positions, in_features), dtype=float)
+        reads = 10
+        test_data = medaka.torch_ext.Batch(
+            read_level_features=torch.rand((batch_size, positions, reads, in_features), dtype=float),
+            counts_matrix=torch.rand((batch_size, positions, in_features), dtype=float),
+            labels = torch.rand((batch_size, positions), dtype=float),
+            majority_vote_probs=torch.rand((batch_size, positions, out_labels), dtype=float),
+        )
+
 
         result = majority_model.predict_on_batch(test_data)
-        expected_size = (batch_size, positions, out_labels)
+        expected_size = test_data.majority_vote_probs.shape
         self.assertSequenceEqual(list(result.shape), expected_size)

@@ -3,12 +3,12 @@ import queue
 import threading
 from timeit import default_timer as now
 
-import numpy as np
-
+from medaka.architectures.base_classes import ReadLevelFeaturesModel
 import medaka.common
 import medaka.datastore
 import medaka.features
 import medaka.models
+import medaka.torch_ext
 
 
 def run_prediction(
@@ -41,10 +41,10 @@ def run_prediction(
         t0 = now()
         tlast = t0
         tcache = t0
-        for data, x_data in loader:
+        for data, batch in loader:
             n_batches += 1
-            class_probs = model.predict_on_batch(x_data)
-            for sample, prob, feat in zip(data, class_probs, x_data):
+            class_probs = model.predict_on_batch(batch)
+            for sample, prob, feat in zip(data, class_probs, batch.features):
                 # write out positions and predictions for later analysis
                 features = feat if save_features else None
                 new_sample = sample.amend(
@@ -53,8 +53,8 @@ def run_prediction(
 
             # log loading of batches
             if now() - tcache > cache_size_log_interval:
-                logger.info("Batches in cache: {}.".format(
-                    loader._batches.qsize()))
+                logger.info("Batches/Samples in cache: {}/{}".format(
+                    loader._batches.qsize(), loader._samples.qsize()))
                 tcache = now()
             # calculate bases done taking into account overlap
             new_bases = 0
@@ -149,6 +149,17 @@ def predict(args):
 
         model = model_store.load_model(device=device)
 
+        # fails if invalid feature encoder for model
+        model.check_feature_encoder_compatibility(feature_encoder)
+
+        if isinstance(model, ReadLevelFeaturesModel) and device.type == "cpu":
+            msg = (
+                "WARNING: Using a read level features model on a CPU. This is "
+                "expected to be slow. To improve performance, consider "
+                "running on a GPU or using a counts matrix model, by "
+                "passing the '--fast' to medaka_consensus.")
+            logger.warning(msg)
+
     logger.info("Model device: {}".format(model.device()))
     if args.full_precision:
         logger.info("Running prediction at full precision")
@@ -220,8 +231,8 @@ class DataLoader(object):
         """Initialise data loading.
 
         Once constructed, iterating over this object will yield
-        tuples containing a list of `Samples`, and a stacked array
-        of the corresponding features.
+        tuples containing a list of `Samples`, and a corresponding
+        medaka.torch_ext.Batch
 
         :param bam: input `.bam` file.
         :param regions: regions to process.
@@ -343,16 +354,17 @@ class DataLoader(object):
                     self._samples.task_done()
 
     def _batch_worker(self):
+        """Create batch from list of samples to be used for inference.
+
+        :returns: (list of `Samples`, medaka.torch_ext Batch).
+
+        The first element of output used to keep track of which sample comes
+        from where in the assembly, the second element is the actual data
+        passed to the model's predict_on_batch function.
+        """
         for data in medaka.common.grouper(
                 self._get_samples(), self.batch_size):
-            batch = np.stack([x.features for x in data])
-            # remake the samples pointing their .features to view the batch,
-            # note this doesn't save memory because the .features are already
-            # views onto larger matrices from feature generation: we do this
-            # just so the batch matrix and sample list are tied in an obvious
-            # manner.
-            data = [
-                sample.amend(features=feat)
-                for feat, sample in zip(batch, data)]
+
+            batch = medaka.torch_ext.Batch.collate(data)
             self._batches.put((data, batch))
         self._batches.put(StopIteration)

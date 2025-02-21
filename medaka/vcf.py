@@ -1240,8 +1240,8 @@ def annotate_vcf_n_reads(args):
             ref_seq = ref_fasta.fetch(chunk.ref_name).upper()
             trimmed_chunk = medaka.common.Region(
                 chrom, variants[0].pos, variants[-1].pos+1)
-            pileup = medaka.features.pileup_counts(
-                trimmed_chunk, args.bam, read_group=args.RG)
+            pileup = feature_encoder._pileup_function(
+                trimmed_chunk, args.bam)
 
             # pileup_counts can return discontiguous(and not fully spanning)
             # chunks, pad to make lookups below faster

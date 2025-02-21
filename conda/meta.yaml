@@ -27,6 +27,7 @@ requirements:
     # don't understand why this is needed, but it is to get zlib.h
     # when using htslib >=1.20
     - zlib
+    - xz
   run:
     - python
     # python requirements, ordered as requirement.txt for convenience
@@ -44,7 +45,8 @@ requirements:
     - requests
     - pytorch==2.3.*
     # see pytorch/issues/123097
-    #- mkl==2024.0  # [osx] 
+    #- mkl==2024.0  # [osx]
+    - toml
     - tqdm
     - wurlitzer
     # other stuff

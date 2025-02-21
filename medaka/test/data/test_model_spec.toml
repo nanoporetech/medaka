@@ -1,0 +1,4 @@
+type = 'GRUModel'
+
+[kwargs]
+gru_size = 256

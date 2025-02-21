@@ -149,9 +149,11 @@ class ModelStoreTGZ(BaseModelStore):
             self.tmpdir.name, self.top_level_dir, 'weights.pt')
         self.logger.info(
             "loading weights from {}".format(weights))
-        self.model.load_state_dict(torch.load(weights, map_location=device))
+        self.model.load_state_dict(torch.load(
+            weights, map_location='cpu', weights_only=True))
         if device is not None:
             self.model = self.model.to(device)
+        self.model.eval()
         return self.model
 
     def get_meta(self, key):
