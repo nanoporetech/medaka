@@ -1,0 +1,24 @@
+config_version = 3
+supported_basecallers = [ "dna_r10.4.1_e8.2_400bps_hac@v5.0.0",]
+
+[model]
+type = "GRUModel"
+
+[feature_encoder]
+type = "CountsFeatureEncoder"
+
+[label_scheme]
+type = "HaploidLabelScheme"
+
+[model.kwargs]
+num_features = 10
+num_classes = 5
+gru_size = 128
+classify_activation = "softmax"
+
+[feature_encoder.kwargs]
+normalise = "total"
+dtypes = [ "",]
+tag_keep_missing = false
+min_mapq = 1
+sym_indels = false

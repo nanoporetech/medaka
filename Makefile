@@ -235,15 +235,15 @@ clean: clean_htslib
 
 
 .PHONY: mem_check
-mem_check: pileup
-	valgrind --error-exitcode=1 --tool=memcheck ./pileup medaka/test/data/test_reads.bam utg000001l:5000-5500 || (ret=$$?; rm mem_test.bam* && exit $$ret)
+mem_check: test_features
+	valgrind --error-exitcode=1 --tool=memcheck ./test_features medaka/test/data/test_reads.bam utg000001l:5000-5500 || (ret=$$?; rm mem_test.bam* && exit $$ret)
 	rm -rf mem_test.bam*
 
 
-pileup: libhts.a
+test_features: libhts.a
 	gcc -pthread  -g -Wall -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIC -std=c99 -msse3 -O3 \
 		-Isrc -Isubmodules/samtools-${SAMVER}/htslib-${SAMVER} \
-		src/medaka_common.c src/medaka_counts.c src/medaka_bamiter.c libhts.a \
+		src/medaka_common.c src/medaka_counts.c src/medaka_read_matrix.c src/medaka_bamiter.c libhts.a src/test_features.c \
 		$(CFLAGS) $(LDFLAGS) $(LIBS) \
 		-o $(@) -std=c99 -msse3 -O3
 

@@ -69,12 +69,6 @@ if platform.machine() in {"aarch64", "arm64"}:
     # we used to set parasail and pyspoa here, but both can be fairly easily
     # built on both macOS and linux nowadays with basic build tool dependencies
     skip_deps = {}
-    # if platform.system() == "Darwin":
-        # rename_deps['tensorflow'] = 'tensorflow-macos'
-else:
-    pass
-    # if os.environ.get('MEDAKA_CPU') is not None:
-        # rename_deps['tensorflow'] = 'tensorflow-cpu'
 dir_path = os.path.dirname(__file__)
 install_requires = []
 with open(os.path.join(dir_path, 'requirements.txt')) as fh:

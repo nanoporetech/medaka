@@ -8,7 +8,7 @@ import pysam
 
 from medaka.align import initialise_alignment
 from medaka.common import get_bam_regions, Region
-from medaka.features import BAMHandler, CountsFeatureEncoder
+from medaka.features import BAMHandler, CountsFeatureEncoder, ReadAlignmentFeatureEncoder
 from medaka.prediction import DataLoader
 
 
@@ -26,20 +26,24 @@ class TestDataLoader(unittest.TestCase):
         pysam.index(cls.bam)
         logging.getLogger('medaka').setLevel(logging.CRITICAL)
 
-    def _run_one(self, batch_size, chunk_len, chunk_overlap, exp_batches, exp_samples, exp_remains=0, regions=None):
+    def _run_one(self, batch_size, chunk_len, chunk_overlap, exp_batches, exp_samples, exp_remains=0, regions=None, read_level=False):
         if regions is None:
             regions = get_bam_regions(self.bam)
         bam = BAMHandler(self.bam, size=1)
         loader = DataLoader(
             bam, regions, batch_size,
             batch_cache_size=4, bam_workers=4,
-            feature_encoder=CountsFeatureEncoder(),
+            feature_encoder=ReadAlignmentFeatureEncoder() if read_level else CountsFeatureEncoder(),
             chunk_len=chunk_len, chunk_overlap=chunk_overlap,
             enable_chunking=True)
         batches = list(x[1] for x in loader)
         self.assertEqual(len(loader.remainders), exp_remains)
-        self.assertEqual(sum(len(b) for b in batches), exp_samples)
+        total_samples = sum(len(b.read_level_features if b.read_level_features is not None else b.counts_matrix) for b in batches)
+        self.assertEqual(total_samples, exp_samples)
         self.assertEqual(len(batches), exp_batches)
+
+        if read_level:
+            self.assertEqual(batches[0].read_level_features.ndim, 4)
 
     def test_010_singleton(self):
         self._run_one(200, 5000, 100, exp_batches=1, exp_samples=1)
@@ -82,4 +86,7 @@ class TestDataLoader(unittest.TestCase):
         regions = [get_bam_regions(self.bam)[0]] * 100
         regions += [Region.from_string("ref:0-100")] * 1000  # spam
         self._run_one(19, 250, 0, exp_batches=106, exp_samples=2000, exp_remains=1000, regions=regions)
+
+    def test_one_read_level(self):
+        self._run_one(200, 5000, 100, exp_batches=1, exp_samples=1, read_level=True)
 

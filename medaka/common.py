@@ -22,6 +22,15 @@ ComprAlignPos = collections.namedtuple(
     'ComprAlignPos',
     ('qpos', 'qbase', 'qlen', 'rpos', 'rbase', 'rlen'))
 
+# mapping from integers to bases in counts matrix
+base2index = {
+    chr(c_int): idx for idx, c_int in
+    enumerate(np.frombuffer(
+        libmedaka.ffi.buffer(libmedaka.lib.plp_bases, libmedaka.lib.featlen),
+        dtype=np.uint8
+    ))
+}
+
 
 class OverlapException(Exception):
     """Exception class used when examining range overlaps."""
@@ -117,6 +126,58 @@ class Sample(_Sample):
         lmaj, lmin = self.last_pos
         return '{}:{}.{}-{}.{}'.format(
             self.ref_name, fmaj, fmin, lmaj, lmin)
+
+    @functools.cached_property
+    def counts_matrix(self):
+        """Create a counts matrix representation of the pileup.
+
+        If the features are 2d, assume already a counts matrix, else calculate
+        from the 3d full-alignment features
+        """
+        if self.features.ndim == 2:
+            # if features are saved as counts matrices, simply return them
+            return self.features
+
+        # otherwise, if features have been saved as full alignment matrices
+        # calculate the counts matrix from them.
+        else:
+            x = self.features
+            positions = self.positions
+            y = np.zeros((x.shape[0], 10))
+            minor_inds = np.where(positions['minor'] > 0)
+            major_pos_at_minor_inds = positions['major'][minor_inds]
+            major_ind_at_minor_inds = np.searchsorted(
+                positions['major'], major_pos_at_minor_inds, side='left')
+
+            depth = np.sum(x[:, :, 0] != 0, axis=1)
+            depth[minor_inds] = depth[major_ind_at_minor_inds]
+            depth[depth == 0] = 1
+            # get forward and reverse read masks by looking at strand channel
+            # of features
+            forward_mask = x[:, :, 2] == 1
+            reverse_mask = ~forward_mask
+            for base_idx, base in enumerate('pacgtd'):
+                if base == 'p':
+                    # ignore pad token in counts matrix
+                    continue
+                cur_for = np.sum(forward_mask*(x[:, :, 0] == base_idx), axis=1)
+                cur_rev = np.sum(reverse_mask*(x[:, :, 0] == base_idx), axis=1)
+                y[:, base2index[base]] = cur_for/depth
+                y[:, base2index[base.upper()]] = cur_rev/depth
+        return y
+
+    @functools.cached_property
+    def majority_vote_probs(self):
+        """Calculate the base vote probabilities from the pileup."""
+        b2i = base2index
+        pileup = self.counts_matrix
+        b = pileup[:, b2i['a']:b2i['t']+1] + pileup[:, b2i['A']:b2i['T']+1]
+        # sum deletion counts (indexing in this way retains correct shape)
+        d = pileup[:, b2i['d']:b2i['d']+1] + pileup[:, b2i['D']:b2i['D']+1]
+        # d first as it is the deletion class, labelled 0 in training data
+        out = np.concatenate([d, b], axis=-1)
+        out[:, 0] += (1-out.sum(axis=-1))
+        return out
 
     @staticmethod
     def decode_sample_name(name):

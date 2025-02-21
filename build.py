@@ -48,6 +48,7 @@ ffibuilder.set_source("libmedaka",
     #include "medaka_counts.h"
     #include "medaka_trimbam.h"
     #include "medaka_pytrimbam.h"
+    #include "medaka_read_matrix.h"
     #include "medaka_rnn_variants.h"
     #include "fastrle.h"
     #include "kseq.h"
@@ -60,6 +61,7 @@ ffibuilder.set_source("libmedaka",
         os.path.join(src_dir, x) for x in (
             'medaka_bamiter.c', 'medaka_common.c', 'medaka_counts.c',
             'fastrle.c', 'medaka_trimbam.c', 'medaka_pytrimbam.c',
+            'medaka_read_matrix.c',
             'medaka_rnn_variants.c')],
     extra_compile_args=extra_compile_args,
     extra_objects=['libhts.a'],
@@ -71,7 +73,7 @@ cdef = [
     "bam_fset* create_bam_fset(char* fname);"
     "void destroy_bam_fset(bam_fset* fset);"
 ]
-for header in ('medaka_counts.h','fastrle.h', 'medaka_pytrimbam.h', 'medaka_rnn_variants.h'):
+for header in ('medaka_counts.h','fastrle.h', 'medaka_pytrimbam.h', 'medaka_read_matrix.h', 'medaka_rnn_variants.h'):
     with open(os.path.join(src_dir, header), 'r') as fh:
         # remove directives
         lines = ''.join(x for x in fh.readlines() if not x.startswith('#'))

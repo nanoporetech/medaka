@@ -10,50 +10,9 @@ typedef struct _plp_data {
     size_t *matrix;
     size_t *major;
     size_t *minor;
+    size_t featlen;
 } _plp_data;
 typedef _plp_data *plp_data;
-
-
-/** Format an array values as a comma seperate string
- *
- * @param values integer input array
- * @param length size of input array
- * @param result output char buffer of size 4 * length * sizeof char
- * @returns void
- *
- * The output buffer size comes from:
- *    a single value is max 3 chars
- *    + 1 for comma (or \0 at end)
- */
-void format_uint8_array(uint8_t* values, size_t length, char* result);
-
-
-// Simple container for strings
-typedef struct string_set {
-    size_t n;
-    char **strings;
-} string_set;
-
-
-/** Destroys a string set
- *
- *  @param data the object to cleanup.
- *  @returns void.
- *
- */
-void destroy_string_set(string_set strings);
-
-
-/** Retrieves contents of key-value tab delimited file.
- *
- *  @param fname input file path.
- *  @returns a string_set
- *
- *  The return value can be free'd with destroy_string_set.
- *  key-value pairs are stored sequentially in the string set
- *
- */
-string_set read_key_value(char * fname);
 
 
 // medaka-style base encoding
@@ -61,9 +20,6 @@ static const char plp_bases[] = "acgtACGTdD";
 static const size_t featlen = 10; // len of the above
 static const size_t fwd_del = 9; // position of D
 static const size_t rev_del = 8;  // position of d
-
-// bam tag used for datatypes
-static const char datatype_tag[] = "DT";
 
 // convert 16bit IUPAC (+16 for strand) to plp_bases index
 static const int num2countbase[32] = {
@@ -80,6 +36,7 @@ static const int num2countbase[32] = {
  *  @param buffer_cols number of pileup columns.
  *  @param num_dtypes number of datatypes in pileup.
  *  @param num_homop maximum homopolymer length to consider.
+ *  @param featlen number of features per column.
  *  @param fixed_size if not zero data matrix is allocated as fixed_size * n_cols, ignoring other arguments
  *  @see destroy_plp_data
  *  @returns a plp_data pointer.
@@ -87,7 +44,7 @@ static const int num2countbase[32] = {
  *  The return value can be freed with destroy_plp_data.
  *
  */
-plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_homop, size_t fixed_size);
+plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_homop, size_t featlen, size_t fixed_size);
 
 
 /** Enlarge the internal buffers of a pileup data structure.
@@ -111,13 +68,11 @@ void destroy_plp_data(plp_data data);
 /** Prints a pileup data structure.
  *
  *  @param pileup a pileup counts structure.
- *  @param num_dtypes number of datatypes in the pileup.
  *  @param dtypes datatype prefix strings.
- *  @param num_homop maximum homopolymer length to consider.
  *  @returns void
  *
  */
-void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_t num_homop);
+void print_pileup_data(plp_data pileup, char *dtypes[]);
 
 
 /** Generates medaka-style feature data in a region of a bam.

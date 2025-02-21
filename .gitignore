@@ -9,6 +9,7 @@ medaka/test/data/workflow/reference.fasta.fai
 medaka/test/data/workflow/reference.fasta.mmi
 *.pyd
 *.pyc
+*.o
 *.so
 *#
 *~
@@ -21,3 +22,4 @@ deb_dist
 tmp/
 *__pycache__*
 *.fna
+.vscode

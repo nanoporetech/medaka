@@ -143,6 +143,11 @@ class HaploidLabelSchemeTest(unittest.TestCase, LabelSchemeTest):
     def test_n_element(self):
         self.assertEqual(self.ls.n_elements, 1)
 
+    def test_label_scheme_to_dict_from_dict(self):
+        label_scheme_dict = self.ls.to_dict()
+        new_label_scheme = medaka.labels.from_dict(label_scheme_dict)
+        assert isinstance(new_label_scheme, self.ls.__class__)
+
     def test_num_classes(self):
         self.assertEqual(self.ls.num_classes, len(self.ls.symbols))
 

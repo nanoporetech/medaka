@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <string.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -95,5 +96,94 @@ size_t uint8_to_str(uint8_t value, char *dst) {
     if (value < TEN) return 1;
     if (value < HUNDRED) return 2;
     else return 3;
+}
+
+
+/** Swap two strings
+ *
+ *  @param a first string
+ *  @param b second string
+ *  @returns a plp_data pointer.
+ *
+ */
+void swap_strings(char** a, char** b) {
+    char *temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+
+/** Format an array values as a comma seperate string
+ *
+ * @param values integer input array
+ * @param length size of input array
+ * @param result output char buffer of size 4 * length * sizeof char
+ * @returns void
+ *
+ * The output buffer size comes from:
+ *    a single value is max 3 chars
+ *    + 1 for comma (or \0 at end)
+ */
+void format_uint8_array(uint8_t* values, size_t length, char* result) {
+    size_t len = 0;
+    for (size_t i = 0; i < length; ++i) {
+        len += uint8_to_str(values[i], result + len);
+        strcpy(result + len, ",");
+        len += 1;
+    }
+    result[len-1] = '\0';
+}
+
+
+/** Destroys a string set
+ *
+ *  @param data the object to cleanup.
+ *  @returns void.
+ *
+ */
+void destroy_string_set(string_set strings) {
+    for(size_t i = 0; i < strings.n; ++i) {
+        free(strings.strings[i]);
+    }
+    free(strings.strings);
+}
+
+
+/** Retrieves contents of key-value tab delimited file.
+ *
+ *  @param fname input file path.
+ *  @returns a string_set
+ *
+ *  The return value can be free'd with destroy_string_set.
+ *  key-value pairs are stored sequentially in the string set
+ *
+ */
+string_set read_key_value(char * fname) {
+    FILE *fp;
+    char *line = NULL;
+    size_t len = 0;
+    size_t read = 0;
+    kvec_t(char*) strings;
+    kv_init(strings);
+
+    fp = fopen(fname, "r");
+    if (fp == NULL)
+        exit(EXIT_FAILURE);
+
+    while ((read = getdelim(&line, &len, '\t', fp)) != -1) {
+        line[read - 1] = '\0';
+        char *key = NULL; swap_strings(&key, &line);
+        kv_push(char*, strings, key);
+        read = getline(&line, &len, fp);
+        line[read - 1] = '\0';
+        char *value = NULL; swap_strings(&value, &line);
+        kv_push(char*, strings, value);
+    }
+    free(line);
+    // move strings into a simpler container (awkward to pass kvec_t through cffi)
+    string_set my_strings;
+    my_strings.n = strings.n;
+    my_strings.strings = strings.a;
+    return(my_strings);
 }
 

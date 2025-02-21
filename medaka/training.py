@@ -4,6 +4,7 @@ import functools
 import os
 
 import numpy as np
+import toml
 import torch
 
 import medaka.common
@@ -20,6 +21,7 @@ def train(args):
 
     logger = medaka.common.get_named_logger('Training')
     logger.debug("Loading datasets:\n{}".format('\n'.join(args.features)))
+    logger.info(f"Starting training with seed: {args.seed}")
 
     if args.validation_features is None:
         args.validation = args.validation_split
@@ -32,14 +34,24 @@ def train(args):
         args.max_samples, args.max_valid_samples,
         threads=args.threads_io)
 
-    with torch.cuda.device('cuda:{}'.format(args.device)):
-        run_training(
-            train_name, batcher, model_fp=args.model, epochs=args.epochs,
-            n_mini_epochs=args.mini_epochs,
-            threads_io=args.threads_io, optimizer=args.optimizer,
-            optim_args=args.optim_args,
-            loss_args=args.loss_args,
-            lr_schedule=args.lr_schedule)
+    with torch.cuda.device("cuda:{}".format(args.device)):
+        if args.validate_only:
+            run_validation(
+                train_name,
+                batcher,
+                model_path=args.model,
+                threads_io=args.threads_io,
+                loss_args=args.loss_args,
+                amp=args.amp,
+            )
+        else:
+            run_training(
+                train_name, batcher, model_fp=args.model, epochs=args.epochs,
+                samples_per_training_epoch=args.samples_per_training_epoch,
+                threads_io=args.threads_io, optimizer=args.optimizer,
+                optim_args=args.optim_args,
+                loss_args=args.loss_args,
+                amp=args.amp, use_lr_schedule=args.use_lr_schedule,)
 
     # stop batching threads
     logger.info("Training finished.")
@@ -47,46 +59,47 @@ def train(args):
 
 def run_training(
         train_name, batcher, model_fp=None,
-        epochs=10, n_mini_epochs=1, threads_io=1,
-        optimizer='rmsprop', optim_args=None,
+        epochs=10, threads_io=1,
+        samples_per_training_epoch=None, optimizer="adam", optim_args=None,
         loss_args=None, quantile_grad_clip=True,
-        lr_schedule='none'):
+        amp=False, use_lr_schedule=True, save_optim_every=5):
     """Run training."""
-    import torch.optim as optimizers
     from medaka.torch_ext import ModelMetaCheckpoint
 
     logger = medaka.common.get_named_logger('RunTraining')
 
-    time_steps, feat_dim = batcher.feature_shape
-
-    if model_fp is not None:
+    time_steps, feat_dim = batcher.feature_shape[0:2]
+    if model_fp.endswith('.gz') or model_fp.endswith('.hdf'):
+        msg = "Loading pretrained model from model store: {}"
+        logger.info(msg.format(model_fp))
         model_store = medaka.models.open_model(model_fp)
         partial_model_function = model_store.get_meta('model_function')
-        model = model_store.load_model(time_steps=time_steps)
-    else:
-        num_classes = batcher.label_scheme.num_classes
-        model_name = "two_layer_bidirectional_TorchGRU"
-        # model_name = medaka.models.default_model
-        model_function = medaka.models.model_builders[model_name]
+    elif model_fp is None or model_fp.endswith('toml'):
+        if model_fp is None:
+            model_dict = medaka.models.DEFAULT_MODEL_DICT
+            msg = "No model file given, using default."
+        else:
+            msg = f"Loading model config from {model_fp}"
+            model_dict = toml.load(model_fp)
         partial_model_function = functools.partial(
-            model_function, feat_dim, num_classes)
-        model = partial_model_function(time_steps=time_steps)
-    model = model.to('cuda')
+            medaka.models.model_from_dict, model_dict
+        )
+    else:
+        raise ValueError(f"Unknown model file type: {model_fp}")
+
+    # now build model
+    model = partial_model_function().to('cuda')
+    logger.info("Model loaded: {}".format(model))
 
     model_metadata = {
         'model_function': partial_model_function,
         'label_scheme': batcher.label_scheme,
         'feature_encoder': batcher.feature_encoder}
 
-    if isinstance(
-            batcher.label_scheme, medaka.labels.DiploidLabelScheme):
-        logger.debug("Training with DiploidLabelScheme is untested")
+    model.check_feature_encoder_compatibility(batcher.feature_encoder)
+    metacheckpoint = ModelMetaCheckpoint(model_metadata, train_name)
 
-    accuracy = medaka.torch_ext.SparseCategoricalAccuracy
-    metrics = {
-        "val_cat_acc": accuracy(),
-        "val_qscore": medaka.torch_ext.QScore(eps=1e-6, accuracy=accuracy,)
-    }
+    metrics = ['val_model_tot_acc']
     loss = torch.nn.CrossEntropyLoss(
         **(loss_args if loss_args is not None else {}))
     logger.info("Using {} loss function".format(loss))
@@ -99,7 +112,16 @@ def run_training(
                 'eps': 1e-07,
                 # 'momentum_decay': 0.0
             }
-        optimizer = functools.partial(optimizers.NAdam, **optim_args)
+        optimizer = functools.partial(torch.optim.NAdam, **optim_args)
+    elif optimizer == 'adam':
+        if optim_args is None:
+            optim_args = {
+                'lr': 0.0001,
+                'betas': (0.9, 0.99),
+                'eps': 1e-07,
+                # 'momentum_decay': 0.0
+            }
+        optimizer = functools.partial(torch.optim.Adam, **optim_args)
     elif optimizer == 'rmsprop':
         if optim_args is None:
             optim_args = {
@@ -108,19 +130,20 @@ def run_training(
                 'eps': 1e-07,
                 'momentum': 0.0
             }
-        optimizer = functools.partial(optimizers.RMSprop, **optim_args)
+        optimizer = functools.partial(torch.optim.RMSprop, **optim_args)
     elif optimizer == 'sgd':
         if optim_args is None:
             optim_args = {
                 'lr': 0.001,
             }
-        optimizer = functools.partial(optimizers.SGD, **optim_args)
+        optimizer = functools.partial(torch.optim.SGD, **optim_args)
     else:
         raise ValueError('Unknown optimizer: {}'.format(optimizer))
     optimizer = optimizer(model.parameters())
     logger.info("Optimizer: {}".format(optimizer))
 
-    scaler = torch.cuda.amp.GradScaler()
+    model.half_precision = amp
+    scaler = torch.amp.GradScaler("cuda")
 
     if quantile_grad_clip:
         clip_grad = medaka.torch_ext.ClipGrad()
@@ -130,25 +153,19 @@ def run_training(
                 params, max_norm=max_norm).item()
         clip_grad = clip_grad_fn
 
-    metacheckpoint = ModelMetaCheckpoint(model_metadata, train_name)
-
-    train_loader = batcher.train_loader(n_mini_epochs, threads=threads_io)
+    train_loader = batcher.train_loader(threads=threads_io)
     valid_loader = batcher.valid_loader(threads=threads_io)
 
-    total_mini_epochs = epochs * n_mini_epochs
-
-    if lr_schedule == 'none':
-        lr_scheduler = medaka.torch_ext.no_schedule(warmup_steps=None)
-        logger.info("Using constant learning rate.")
-    elif lr_schedule == 'cosine':
+    if use_lr_schedule:
         lr_scheduler = medaka.torch_ext.linear_warmup_cosine_decay()
         logger.info("Using cosine learning rate decay.")
     else:
-        raise ValueError(f"Unknown learning rate schedule: {lr_schedule}.")
-    lr_scheduler = lr_scheduler(optimizer, train_loader, total_mini_epochs, 0)
+        lr_scheduler = medaka.torch_ext.no_schedule(warmup_steps=None)
+        logger.info("Using constant learning rate.")
+    lr_scheduler = lr_scheduler(optimizer, train_loader, epochs, 0)
 
     best_val_loss, best_val_loss_epoch = np.inf, -1
-    best_metrics = {k: 0 for k in metrics.keys()}
+    best_metrics = {k: 0 for k in metrics}
 
     if os.environ.get('MEDAKA_DETECT_ANOMALY') is not None:
         logger.info("Activating anomaly detection")
@@ -157,28 +174,48 @@ def run_training(
     with CSVLogger(
             os.path.join(train_name, 'training.csv'), write_cache=0) \
             as training_log:
-        for n in range(total_mini_epochs):
+        for n in range(epochs):
             with CSVLogger(
                     os.path.join(train_name, 'losses_{}.csv'.format(n))) \
                     as loss_log:
-                train_loss = medaka.torch_ext.train_one_epoch(
+                train_loss, train_metrics = medaka.torch_ext.run_epoch(
                     model, train_loader, loss, optimizer, scaler, clip_grad,
-                    lr_scheduler=lr_scheduler, loss_log=loss_log)
+                    is_training_epoch=True,
+                    total_num_samples=samples_per_training_epoch,
+                    lr_scheduler=lr_scheduler, loss_log=loss_log,
+                )
 
-            val_loss, val_metrics = \
-                medaka.torch_ext.validate_one_epoch(
-                    model, valid_loader, loss, metrics=metrics)
+            # save optimizer state dict
+            if n % save_optim_every == 0:
+                with open("optim_{}.pt".format(n), "wb") as f:
+                    torch.save(optimizer.state_dict(), f)
+
+            val_loss, val_metrics = medaka.torch_ext.run_epoch(
+                model, valid_loader, loss, optimizer, scaler, clip_grad,
+                is_training_epoch=False, lr_scheduler=lr_scheduler,
+                loss_log=None)
+
             logger.info(
-                f"epoch {n + 1}/{total_mini_epochs}: val_loss={val_loss}, "
-                ", ".join(f'{k}={v:.4f}' for k, v in val_metrics.items())
+                f"epoch {n + 1}/{epochs}: "
+                f"val_loss={val_loss}, train_loss={train_loss}"
             )
+
+            def qacc(x):
+                return -10 * np.log10(np.max([1e-6, 1 - x]))
+
+            train_metrics = {"train_" + k: v for k, v in train_metrics.items()}
+            val_metrics = {"val_" + k: v for k, v in val_metrics.items()}
+            all_metrics = {**train_metrics, **val_metrics}
+
+            for k, v in all_metrics.items():
+                logger.info(f"{k}={v:.5f} ({qacc(v):.4f} Q)")
 
             # log epoch results
             training_log.append({
                 "epoch": n,
                 "train_loss": train_loss,
                 "val_loss": val_loss,
-                **val_metrics
+                **all_metrics
             })
 
             # save model checkpoints
@@ -197,6 +234,62 @@ def run_training(
             # early stopping
             if n >= best_val_loss_epoch + 20:
                 break
+
+
+def run_validation(
+        train_name,
+        batcher,
+        model_path,
+        threads_io,
+        loss_args,
+        amp=False,
+):
+    """Run single validation epoch."""
+    logger = medaka.common.get_named_logger("RunValidation")
+
+    time_steps, feat_dim = batcher.feature_shape[0:2]
+    if model_path.endswith(".hdf5") or model_path.endswith(".gz"):
+        logger.info("Loading pretrained model from {}".format(model_path))
+        model_store = medaka.models.open_model(model_path)
+        model = model_store.load_model(time_steps=time_steps)
+
+    else:
+        raise ValueError("Not a valid trained model: {}".format(model_path))
+
+    logger.info("Number of trainable parameters: {}".format(
+        model.count_parameters()
+    ))
+    model = model.to("cuda")
+
+    loss = torch.nn.CrossEntropyLoss(
+        **(loss_args if loss_args is not None else {})
+    )
+    logger.info("Using {} loss function".format(loss))
+
+    valid_loader = batcher.valid_loader(threads=threads_io)
+
+    if os.environ.get("MEDAKA_DETECT_ANOMALY") is not None:
+        logger.info("Activating anomaly detection")
+        torch.autograd.set_detect_anomaly(True, check_nan=True)
+
+    val_loss, val_metrics = medaka.torch_ext.run_epoch(
+        model,
+        valid_loader,
+        loss_fn=loss,
+        optimizer=None,
+        is_training_epoch=False,
+        loss_log=None,
+    )
+
+    logger.info(f"val_loss={val_loss}")
+
+    def qacc(x):
+        return -10 * np.log10(1 - x + 1e-6)
+
+    val_metrics = {"val_" + k: v for k, v in val_metrics.items()}
+
+    for k, v in val_metrics.items():
+        logger.info(f"{k}={v:.5f} ({qacc(v):.4f} Q)")
 
 
 class TrainBatcher:
@@ -236,12 +329,19 @@ class TrainBatcher:
         with medaka.datastore.DataStore(test_fname) as ds:
             # TODO: this should come from feature_encoder
             self.feature_shape = ds.load_sample(test_sample).features.shape
+            assert len(self.feature_shape) in (
+                2,
+                3,
+            ), "Bad feature shape. Must be 2D (counts) or 3D (full alignment)"
+            self.feature_type = (
+                "pileup" if len(self.feature_shape) == 2 else "full_alignment"
+            )
         self.logger.info(
             "Sample features have shape {}".format(self.feature_shape))
 
+        generator = np.random.default_rng(self.seed)
         if isinstance(self.validation, float):
-            np.random.seed(self.seed)
-            np.random.shuffle(self.samples)
+            generator.shuffle(self.samples)
             n_sample_train = int((1 - self.validation) * len(self.samples))
             self.train_samples = self.samples[:n_sample_train]
             self.valid_samples = self.samples[n_sample_train:]
@@ -266,11 +366,12 @@ class TrainBatcher:
             len(self.train_samples) * self.feature_shape[0],
             'training'))
         if max_samples is not None and max_samples < len(self.train_samples):
-            np.random.shuffle(self.train_samples)
+            generator = np.random.default_rng(self.seed)
+            generator.shuffle(self.train_samples)
             self.train_samples = self.train_samples[:max_samples]
             self.logger.info(
                 msg2.format(
-                    "max_samples", len(self.training_samples), "training"))
+                    "max_samples", len(self.train_samples), "training"))
 
         self.logger.info(msg1.format(
             len(self.valid_samples),
@@ -280,17 +381,17 @@ class TrainBatcher:
             max_valid_samples is not None and
             max_valid_samples < len(self.valid_samples)
         ):
-            np.random.shuffle(self.valid_samples)
+            generator = np.random.default_rng(self.seed)
+            generator.shuffle(self.valid_samples)
             self.valid_samples = self.valid_samples[:max_valid_samples]
             self.logger.info(
                 msg2.format(
                     "max_valid_samples", len(self.valid_samples), "validation"
                 ))
 
-    def train_loader(self, mini_epochs=1, threads=1, **kwargs):
+    def train_loader(self, threads=1, **kwargs):
         """Create a DataLoader for the training samples array.
 
-        :param mini_epochs: int, number of mini_epochs per full epoch.
         :param threads: int, number of parallel threads for loading samples.
 
         :returns: SequenceBatcher
@@ -299,15 +400,17 @@ class TrainBatcher:
             medaka.torch_ext.Sequence(
                 self.train_samples,
                 sampler_func=functools.partial(
-                        self.sample_to_x_y_bq_worker,
-                        label_scheme=self.label_scheme),
-                dataset="train",
-                mini_epochs=mini_epochs,
+                    self.load_sample_worker,
+                    label_scheme=self.label_scheme),
                 seed=self.seed,
                 **kwargs
             ),
             batch_size=self.batch_size,
             threads=threads,
+            collate_fn=functools.partial(
+                medaka.torch_ext.Batch.collate,
+                counts_matrix=True),
+            shuffle=True
         )
 
     def valid_loader(self, threads=1, **kwargs):
@@ -321,48 +424,22 @@ class TrainBatcher:
             medaka.torch_ext.Sequence(
                 self.valid_samples,
                 sampler_func=functools.partial(
-                        self.sample_to_x_y_bq_worker,
-                        label_scheme=self.label_scheme),
-                dataset="validation",
-                mini_epochs=1,
+                    self.load_sample_worker, label_scheme=self.label_scheme),
                 seed=self.seed,
                 **kwargs
             ),
             batch_size=self.batch_size,
             threads=threads,
+            collate_fn=functools.partial(
+                medaka.torch_ext.Batch.collate,
+                counts_matrix=True
+            ),
+            shuffle=False
         )
 
-    def sample_to_x_y(self, sample):
-        """Convert a `common.Sample` object into a training x, y tuple.
-
-        This method is synonymous to the static method
-        sample_to_x_y_bq_worker.
-
-        :param sample: (filename, sample key)
-
-        :returns: (np.ndarray of inputs, np.ndarray of labels)
-
-        """
-        return self.sample_to_x_y_bq_worker(sample, self.label_scheme)
-
-    def samples_to_batch(self, samples):
-        """Convert a set of `common.Sample` objects into a training X, Y tuple.
-
-        The function wraps `.sample_to_x_y` and stacks the outputs.
-
-        :param samples: (filename, sample key) tuples
-
-        :returns: (np.ndarray of inputs, np.ndarray of labels)
-
-        """
-        items = [self.sample_to_x_y(s) for s in samples]
-        xs, ys = zip(*items)
-        x, y = np.stack(xs), np.stack(ys)
-        return x, y
-
     @staticmethod
-    def sample_to_x_y_bq_worker(sample, label_scheme):
-        """Convert a `common.Sample` object into a training x, y tuple.
+    def load_sample_worker(sample, label_scheme):
+        """Load a `common.Sample` object.
 
         :param sample: (sample key, filename).
         :param label_scheme: `LabelScheme` obj.
@@ -374,12 +451,30 @@ class TrainBatcher:
 
         with medaka.datastore.DataStore(sample_file) as ds:
             s = ds.load_sample(sample_key)
-        if s.labels is None:
-            raise ValueError("Sample {} in {} has no labels.".format(
-                sample_key, sample_file))
-        x = s.features
-        y = label_scheme.encoded_labels_to_training_vectors(s.labels)
-        return x, y
+            # precompute and cache the majority_vote_probs
+            # while still in worker thread - minor speed up
+            s.majority_vote_probs
+
+        return s
+
+
+def get_argmax_preds_from_pileup(pileup):
+    """Calculate majority vote and support from pileup features.
+
+    :param pileup: np.ndarray, shape (n, 10), pileup (trad medaka) matrix.
+
+    :returns: (np.ndarray of shape n, np.ndarray of shape n).
+    """
+    b2i = medaka.common.base2index
+    # slice pileup and sum for reverse and forward base counts
+    b = pileup[:, b2i['a']:b2i['t']+1] + pileup[:, b2i['A']:b2i['G']+1]
+    # sum deletion counts (indexing in this way retains correct shape)
+    d = pileup[:, b2i['d']:b2i['d']+1] + pileup[:, b2i['D']:b2i['D']+1]
+    out = np.concatenate(
+        [d, b], axis=-1
+    )  # d first - it is the deletion class and labelled 0 in training data
+    out[:, 0] += 1 - out.sum(axis=-1)
+    return np.argmax(out, axis=-1), np.max(out, axis=-1)
 
 
 class CSVLogger:

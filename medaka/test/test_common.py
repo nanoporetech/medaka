@@ -21,3 +21,9 @@ class TestMkdir(unittest.TestCase):
         # time stamp of directory unchanged after calling mkdir_p twice
         self.assertEqual(t0, t1)
         os.rmdir(dirname)
+
+class TestBase2IndexDict(unittest.TestCase):
+    def testb2iu(self):
+        b2i_dict = medaka.common.base2index
+        for idx,character in enumerate('acgtACGTdD'):
+            assert b2i_dict[character] == idx

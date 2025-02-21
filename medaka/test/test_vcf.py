@@ -16,7 +16,8 @@ from medaka.common import yield_from_bed
 from medaka.vcf import (VCFWriter, VCFReader, Variant, Haploid2DiploidConverter,
                         split_variants, classify_variant, _merge_variants,
                         MetaInfo, get_padded_haplotypes, align_read_to_haps,
-                        align_reads_to_haps, annotate_vcf_n_reads, split_mnp)
+                        align_reads_to_haps, annotate_vcf_n_reads, split_mnp,
+                        get_homozygous_regions)
 
 root_dir = os.path.abspath(os.path.dirname(__file__))
 test1_file = os.path.join(root_dir, 'data/test1.vcf')
@@ -815,3 +816,18 @@ class TestAnnotateVCFs(unittest.TestCase):
             for i, v in enumerate(vcf_reader.fetch()):
                 self.assertEqual(v, variants_annotated[i],
                                  'Annotation failed for variant {}: {} {}.'.format(i, v.chrom, v.pos))
+
+__vcf__ = os.path.join(os.path.dirname(__file__), 'data', 'test_merged.vcf')
+class TestHetHomRegions(unittest.TestCase):
+    def test_het_hom_command(self):
+        args = Namespace(vcf=__vcf__,
+                         region='contig1:0-1000',
+                         min_len=100,
+                         quiet=20,
+                         debug=20,
+                         suffix='regions.txt')
+
+        tempdir = tempfile.TemporaryDirectory()
+        os.chdir(tempdir.name)
+        # TODO: should probably check the actual outputs of this function
+        get_homozygous_regions(args=args)

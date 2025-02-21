@@ -3,6 +3,7 @@ import abc
 import collections
 from copy import copy
 import functools
+import importlib
 import itertools
 from operator import attrgetter
 
@@ -14,6 +15,13 @@ import libmedaka
 import medaka.common
 import medaka.rle
 import medaka.vcf
+
+
+def from_dict(dict):
+    """Create a label scheme from a config dict."""
+    name = dict['type']
+    symbol = importlib.import_module(__name__)
+    return getattr(symbol, name)()
 
 
 class TruthAlignment(object):
@@ -361,6 +369,10 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
         label arrays to align with feature arrays,
         where reads introduce minor positions.
         """
+
+    def to_dict(self):
+        """Export label scheme to dict."""
+        return {"type": self.__class__.__name__}
 
     @staticmethod
     def _singleton(it):

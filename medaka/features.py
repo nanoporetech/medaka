@@ -3,7 +3,7 @@ import abc
 from collections import defaultdict
 import concurrent.futures
 from contextlib import contextmanager
-import functools
+import importlib
 import inspect
 import itertools
 import os
@@ -17,6 +17,14 @@ import libmedaka
 import medaka.common
 import medaka.datastore
 import medaka.labels
+
+
+def from_dict(dict):
+    """Create a feature encoder from a config dict."""
+    name = dict['type']
+    kwargs = dict['kwargs']
+    symbol = importlib.import_module(__name__)
+    return getattr(symbol, name)(**kwargs)
 
 
 class BAMHandler(object):
@@ -62,25 +70,30 @@ class BAMHandler(object):
         libmedaka.lib.destroy_bam_fset(fset)
 
 
-def _plp_data_to_numpy(plp_data, n_rows):
+def _plp_data_to_numpy(plp_data):
     """Create numpy representation of feature data.
 
     Copy the feature matrix and alignment column names from a
     `plp_data` structure returned from C library function calls.
 
     :param plp_data: a cffi proxy to a `plp_data*` pointer
-    :param nrows: the number of rows in the plp_data.matrix (the number
-        of elements in the feature per pileup column).
 
     :returns: pileup counts numpy array, reference positions
 
     """
     ffi = libmedaka.ffi
     size_sizet = np.dtype(np.uintp).itemsize
-    np_counts = np.frombuffer(ffi.buffer(
-        plp_data.matrix, size_sizet * plp_data.n_cols * n_rows),
-        dtype=np.uintp
-    ).reshape(plp_data.n_cols, n_rows).copy()
+    featlen = plp_data.featlen * plp_data.num_homop * plp_data.num_dtypes
+    np_counts = (
+        np.frombuffer(
+            ffi.buffer(
+                plp_data.matrix, size_sizet * plp_data.n_cols * featlen
+            ),
+            dtype=np.uintp,
+        )
+        .reshape(plp_data.n_cols, featlen)
+        .copy()
+    )
 
     positions = np.empty(plp_data.n_cols, dtype=[
         ('major', int), ('minor', int)])
@@ -211,7 +224,6 @@ def pileup_counts(
         positions caused e.g. by gaps in coverage.
     """
     lib = libmedaka.lib
-    featlen = lib.featlen
     (
         num_dtypes, dtypes, _dtypes, tag_name, tag_value,
         keep_missing, read_group) = _tidy_libfunc_args(
@@ -229,8 +241,7 @@ def pileup_counts(
                 region_str.encode(), fh, num_dtypes, dtypes,
                 num_qstrat, tag_name, tag_value, keep_missing,
                 weibull_summation, read_group, min_mapq)
-        np_counts, positions = _plp_data_to_numpy(
-            counts, featlen * num_dtypes * num_qstrat)
+        np_counts, positions = _plp_data_to_numpy(counts)
         lib.destroy_plp_data(counts)
         return np_counts, positions
 
@@ -241,6 +252,309 @@ def pileup_counts(
         results = executor.map(_process_region, regions)
         chunk_results = __enforce_pileup_chunk_contiguity(results)
 
+    return chunk_results
+
+
+def read_alignment_matrix(
+        region, bam, dtype_prefixes=None, region_split=100000, workers=8,
+        tag_name=None, tag_value=None, keep_missing=False, read_group=None,
+        min_mapq=1, row_per_read=False, include_dwells=False,
+        include_haplotype=False, max_reads=100, clip_to_zero=True):
+    """Create pileup counts feature array for region.
+
+    :param region: `medaka.common.Region` object
+    :param bam: .bam file with alignments.
+    :param dtype_prefixes: prefixes for query names which to separate counts.
+        If `None` (or of length 1), counts are not split.
+    :param region_split: largest region to process in single thread.
+        Regions are processed in parallel and stitched before being returned.
+    :param workers: worker threads for calculating pileup.
+    :param tag_name: two letter tag name by which to filter reads.
+    :param tag_value: integer value of tag for reads to keep.
+    :param keep_missing: whether to keep reads when tag is missing.
+    :param min_mapq: minimum mapping quality for reads to keep.
+    :param row_per_read: whether to place each read on a new row.
+    :param include_dwells: whether to include dwell channel.
+    :param include_haplotype: whether to include haplotag channel.
+    :param max_reads: maximum number of reads to include in the output.
+    :param clip_to_zero: whether to clip negative values to zero.
+
+    :returns: iterator of tuples
+        (read alignment array, reference positions, insertion positions)
+        Multiple chunks are returned if there are discontinuities in
+        positions caused e.g. by gaps in coverage.
+    """
+    lib = libmedaka.lib
+    (
+        num_dtypes, dtypes, _dtypes, tag_name, tag_value,
+        keep_missing, read_group) = _tidy_libfunc_args(
+            dtype_prefixes, tag_name, tag_value, keep_missing, read_group)
+
+    def _process_region(reg):
+        # htslib start is 1-based, medaka.common.Region object is 0-based
+        region_str = "{}:{}-{}".format(reg.ref_name, reg.start + 1, reg.end)
+        if isinstance(bam, BAMHandler):
+            bam_handle = bam
+        else:
+            bam_handle = BAMHandler(bam)
+        with bam_handle.borrow() as fh:
+            counts = libmedaka.lib.calculate_read_alignment(
+                region_str.encode(), fh, num_dtypes, dtypes,
+                tag_name, tag_value, keep_missing,
+                read_group, min_mapq, row_per_read,
+                include_dwells, include_haplotype,
+                max_reads)
+        np_counts, positions, read_ids = _read_matrix_data_to_numpy(counts)
+        lib.destroy_read_aln_data(counts)
+        if clip_to_zero:
+            np_counts = np.maximum(np_counts, 0)
+        return np_counts, positions, read_ids
+
+    # split large regions for performance
+    regions = region.split(region_split, fixed_size=False)
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
+    with ex as executor:
+        results = executor.map(_process_region, regions)
+        chunk_results = __enforce_read_matrix_chunk_contiguity(results)
+
+    return chunk_results
+
+
+def _read_matrix_data_to_numpy(read_matrix_data):
+    """Create numpy representation of feature data.
+
+    Copy the feature matrix and alignment column names from a
+    `read_aln_data` structure returned from C library function calls.
+
+    :param read_aln_data: a cffi proxy to a `read_aln_data*` pointer
+
+    :returns: read alignment numpy array, reference positions
+
+    """
+    ffi = libmedaka.ffi
+    size_int8 = np.dtype(np.int8).itemsize
+    size_sizet = np.dtype(np.uintp).itemsize
+    buffer_size = (
+        size_int8 * read_matrix_data.buffer_reads
+        * read_matrix_data.featlen * read_matrix_data.n_pos)
+    np_counts = (
+        np.frombuffer(
+            ffi.buffer(read_matrix_data.matrix, buffer_size),
+            dtype=np.int8)
+        .reshape(
+            read_matrix_data.n_pos, read_matrix_data.buffer_reads,
+            read_matrix_data.featlen)[:, : read_matrix_data.n_reads, :]
+        .copy())
+
+    positions = np.empty(
+        read_matrix_data.n_pos,
+        dtype=[("major", int), ("minor", int)])
+
+    np.copyto(
+        positions["major"],
+        np.frombuffer(
+            ffi.buffer(
+                read_matrix_data.major, size_sizet * read_matrix_data.n_pos
+            ), dtype=np.uintp))
+    np.copyto(
+        positions["minor"],
+        np.frombuffer(
+            ffi.buffer(
+                read_matrix_data.minor, size_sizet * read_matrix_data.n_pos
+            ),
+            dtype=np.uintp,
+        ),
+    )
+
+    read_ids_left = np.array(
+        [
+            b""
+            if read_matrix_data.read_ids_left[n] == ffi.NULL
+            else ffi.string(read_matrix_data.read_ids_left[n])
+            for n in range(read_matrix_data.n_reads)
+        ],
+        dtype=np.string_,
+    )
+    read_ids_right = np.array(
+        [
+            b""
+            if read_matrix_data.read_ids_right[n] == ffi.NULL
+            else ffi.string(read_matrix_data.read_ids_right[n])
+            for n in range(read_matrix_data.n_reads)
+        ],
+        dtype=np.string_,
+    )
+    return np_counts, positions, (read_ids_left, read_ids_right)
+
+
+def _pad_reads(chunks, target_depth=None):
+    if target_depth is None:
+        target_depth = max([chunk.shape[1] for chunk in chunks])
+    return [
+        np.concatenate(
+            [
+                chunk,
+                np.zeros(
+                    (
+                        chunk.shape[0],
+                        target_depth - chunk.shape[1],
+                        chunk.shape[2],
+                    ),
+                    dtype=chunk.dtype,
+                ),
+            ],
+            axis=1,
+        )
+        for chunk in chunks
+    ]
+
+
+def _reorder_reads(chunks, read_ids):
+    if len(chunks) == 1:
+        return chunks
+
+    read_ids_in, read_ids_out = zip(*read_ids)
+    read_ids_in, read_ids_out = list(read_ids_in), list(read_ids_out)
+
+    reordered_chunks = [chunks[0]]
+
+    def _find_index(rid, rid_array):
+        where = np.nonzero(rid_array == rid)[0]
+        return where[0] if len(where) > 0 else -1
+
+    for n in range(1, len(chunks)):
+        chunk = chunks[n]
+        rids_out = read_ids_out[n - 1]
+        rids_in = read_ids_in[n]
+
+        new_indices = np.fromiter(
+            (_find_index(rid, rids_in) for rid in rids_out), dtype=int
+        )
+        missing_out_indices = list(np.where(new_indices == -1)[0])
+        missing_in_indices = list(
+            set(np.arange(len(rids_in))) - set(new_indices[new_indices != -1])
+        )
+
+        for out_idx, in_idx in zip(missing_out_indices, missing_in_indices):
+            new_indices[out_idx] = in_idx
+
+        if len(missing_in_indices) > len(missing_out_indices):
+            new_indices = np.concatenate(
+                [new_indices,
+                    missing_in_indices[len(missing_out_indices):]]
+            )
+
+        reordered_chunk = np.zeros(
+            (chunk.shape[0], max(len(rids_out), len(rids_in)), chunk.shape[2]),
+            dtype=chunk.dtype,
+        )
+        reordered_chunk[:, new_indices != -1, :] = chunk[
+            :, new_indices[new_indices != -1], :
+        ]
+
+        reordered_chunks.append(reordered_chunk)
+
+        if n < len(chunks) - 1:
+            tmp_next_rids_out = []
+            i = 1
+            for idx in new_indices:
+                if idx == -1:
+                    tmp_next_rids_out.append(f"__inserted_{i}".encode())
+                    i += 1
+                else:
+                    tmp_next_rids_out.append(read_ids_out[n][idx])
+            read_ids_out[n] = tmp_next_rids_out
+    return reordered_chunks
+
+
+def __enforce_read_matrix_chunk_contiguity(pileups):
+    """Split and join ordered pileup chunks to ensure contiguity.
+
+    :param pileups: iterable of (counts, pileups, read_ids) as constructed by
+        `_read_matrix_data_to_numpy`.
+
+    :returns: a list of reconstituted (counts, pileups) where discontinuities
+        in the inputs cause breaks and abutting inputs are joined.
+
+    """
+    split_results = list()
+
+    def _placeholder_read_ids(n):
+        return np.array(
+            [
+                f"__placeholder_{m}".encode()
+                for m in np.arange(len(read_ids[0]))
+            ]
+        )
+
+    # First pass: need to check for discontinuities within chunks,
+    # these show up as >1 changes in the major coordinate
+    for counts, positions, read_ids in pileups:
+        move = np.ediff1d(positions["major"])
+        gaps = np.where(move > 1)[0] + 1
+        if len(gaps) == 0:
+            split_results.append((counts, positions, read_ids))
+        else:
+            start = 0
+            for n, i in enumerate(gaps):
+                split_results.append(
+                    (
+                        counts[start:i],
+                        positions[start:i],
+                        (
+                            read_ids[0]
+                            if n == 0
+                            else _placeholder_read_ids(len(read_ids[0])),
+                            _placeholder_read_ids(len(read_ids[0])),
+                        ),
+                    )
+                )
+                start = i
+            split_results.append(
+                (
+                    counts[start:],
+                    positions[start:],
+                    (_placeholder_read_ids(len(read_ids[0])), read_ids[1]),
+                )
+            )
+
+    # Second pass: stitch abutting chunks together, anything not neighbouring
+    # is kept separate whether it came from the same chunk originally or not
+    def _finalize_chunk(c_buf, p_buf, read_ids_buf):
+        chunk_counts = np.concatenate(
+            _pad_reads(_reorder_reads(c_buf, read_ids_buf))
+        )
+        chunk_positions = np.concatenate(p_buf)
+        return chunk_counts, chunk_positions
+
+    counts_buffer, positions_buffer, read_ids_buffer = list(), list(), list()
+    chunk_results = list()
+    last = None
+    for n, (counts, positions, read_ids) in enumerate(split_results):
+        if len(positions) == 0:
+            continue
+        first = positions["major"][0]
+        if len(counts_buffer) == 0 or first - last == 1:
+            # new or contiguous
+            counts_buffer.append(counts)
+            positions_buffer.append(positions)
+            read_ids_buffer.append(read_ids)
+            last = positions["major"][-1]
+        else:
+            # discontinuity
+            chunk_results.append(
+                _finalize_chunk(
+                    counts_buffer, positions_buffer, read_ids_buffer
+                )
+            )
+            counts_buffer = [counts]
+            positions_buffer = [positions]
+            read_ids_buffer = [read_ids]
+            last = positions["major"][-1]
+    if len(counts_buffer) != 0:
+        chunk_results.append(
+            _finalize_chunk(counts_buffer, positions_buffer, read_ids_buffer)
+        )
     return chunk_results
 
 
@@ -375,10 +689,13 @@ class FeatureEncoderMeta(abc.ABC, FeatureEncoderRegistrar):
 class BaseFeatureEncoder(metaclass=FeatureEncoderMeta):
     """Base class for creation of feature arrays from a `.bam` file."""
 
-    @abc.abstractmethod
-    def __init__(*args, **kwargs):
+    def __init__(self, *args, **kwargs):
         """Initialize feature encoder."""
-        raise NotImplementedError
+        opts = inspect.signature(self.__class__.__init__).parameters.keys()
+        opts = {k: getattr(self, k) for k in opts if k != "self"}
+
+        self.logger = medaka.common.get_named_logger("Feature")
+        self.logger.debug("Creating features with: {}".format(opts))
 
     @abc.abstractmethod
     def _pileup_function(self, region, reads_bam):
@@ -397,6 +714,21 @@ class BaseFeatureEncoder(metaclass=FeatureEncoderMeta):
         """Create labelled samples, should internally call bam_to_sample."""
         # TODO: should be moved outside this class?
         raise NotImplementedError
+
+    def to_dict(self):
+        """Return dictionary of keyword arguments."""
+        kwargs = {}
+        opts = inspect.signature(self.__class__.__init__).parameters
+        for opt in opts.keys():
+            if opt == 'self':
+                continue
+            elif hasattr(self, opt):
+                kwargs[opt] = getattr(self, opt)
+            elif hasattr(opts[opt], 'default'):
+                kwargs[opt] = opts[opt].default
+            else:
+                raise ValueError(f"Missing value for {opt}")
+        return {'type': self.__class__.__name__, 'kwargs': kwargs}
 
     @property
     @abc.abstractmethod
@@ -475,7 +807,6 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
             as a deletion.
 
         """
-        self.logger = medaka.common.get_named_logger('Feature')
         self.normalise = normalise
         self.dtypes = dtypes
         self.feature_indices = pileup_counts_norm_indices(self.dtypes)
@@ -490,11 +821,8 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
             raise ValueError('normalise={} is not one of {}'.format(
                 self.normalise, self._norm_modes_))
 
-        # TODO: refactor/remove/move to base class.
-        opts = inspect.signature(
-            CountsFeatureEncoder.__init__).parameters.keys()
-        opts = {k: getattr(self, k) for k in opts if k != 'self'}
-        self.logger.debug("Creating features with: {}".format(opts))
+        super().__init__()
+        self.logger.debug("Creating features with: {}".format(self.to_dict()))
 
     @property
     def feature_vector_length(self):
@@ -742,6 +1070,114 @@ class SoftRLEFeatureEncoder(HardRLEFeatureEncoder):
             read_group=self.read_group, min_mapq=self.min_mapq)
 
 
+class ReadAlignmentFeatureEncoder(CountsFeatureEncoder):
+    """Create read level features tensor representation of read pileups.
+
+    Features are 3 dimensional tensors of shape (positions, reads, features).
+    By default, there are 4-6 features per position per read, which are
+    [base, baseQ, strand, mapQ, dwell, haplotype], with the last two being
+    optional if the corresponding flag is set.
+
+    Basecalls are enumerate 0-5 correspoding to [pad, A,C,G,T,deletion].
+    Strand is +1 in the positive direction or zero otherwise. Dwells are
+    represented in number of basecaller signal strides.
+    """
+
+    feature_dtype = np.int8
+
+    def __init__(
+        self,
+        dtypes=("",),
+        tag_name=None,
+        tag_value=None,
+        tag_keep_missing=False,
+        read_group=None,
+        min_mapq=1,
+        max_reads=100,
+        row_per_read=False,
+        include_dwells=True,
+        include_haplotype=False,
+    ):
+        """Initialize creation of neural network input features.
+
+        :param dtypes: iterable of str, read id prefixes of distinct data types
+            that should be counted separately.
+        :param tag_name: two letter tag name by which to filter reads.
+        :param tag_value: integer value of tag for reads to keep.
+        :param tag_keep_missing: whether to keep reads when tag is missing.
+        :param read_group: value of RG tag to which to filter reads.
+        :param row_per_read: whether to place each read on a new row.
+        :param include_dwells: whether to include dwells channel.
+        :param include_haplotype: whether to include haplotag channel.
+        :param max_reads: max num of reads to include in feature matrix.
+        """
+        self.max_reads = max_reads
+        self.row_per_read = row_per_read
+        self.include_dwells = include_dwells
+        self.include_haplotype = include_haplotype
+        super().__init__(
+            normalise=None,
+            dtypes=dtypes,
+            tag_name=tag_name,
+            tag_value=tag_value,
+            tag_keep_missing=tag_keep_missing,
+            read_group=read_group,
+            min_mapq=min_mapq,
+        )
+
+    @property
+    def feature_vector_length(self):
+        """Return size of a single feature vector.
+
+        The number of feature channels per read per position.
+        """
+        return libmedaka.lib.base_featlen + (
+            (1 if self.include_dwells else 0)
+            + (1 if self.include_haplotype else 0)
+            + (1 if len(self.dtypes) > 1 else 0)
+        )
+
+    def _pileup_function(self, region, bam):
+        return read_alignment_matrix(
+            region,
+            bam,
+            dtype_prefixes=self.dtypes,
+            tag_name=self.tag_name,
+            tag_value=self.tag_value,
+            keep_missing=self.tag_keep_missing,
+            read_group=self.read_group,
+            min_mapq=self.min_mapq,
+            row_per_read=self.row_per_read,
+            include_dwells=self.include_dwells,
+            include_haplotype=self.include_haplotype,
+            max_reads=self.max_reads)
+
+    def _post_process_pileup(self, features, positions, region):
+        if features.ndim == 2:
+            depth = np.count_nonzero(features, axis=-1)
+        elif features.ndim == 3:
+            depth = np.count_nonzero(features[..., 0], axis=-1)
+        else:
+            raise ValueError(
+                f"Unknown feature dimension size of {features.ndim}. Should be"
+                " either 2 (counts matrices) or 3 (for read level features)."
+            )
+
+        sample = medaka.common.Sample(
+            ref_name=region.ref_name,
+            features=features,
+            labels=None,
+            ref_seq=None,
+            positions=positions,
+            label_probs=None,
+            depth=depth,
+        )
+        self.logger.info(
+            "Processed {} (depth {})".format(sample.name, np.median(depth))
+        )
+        return sample
+
+
 class SampleGenerator(object):
     """Orchestration of neural network inputs with chunking."""
 
@@ -869,6 +1305,19 @@ def create_samples(args):
             'chunk_ovlp {} is not smaller than chunk_len {}'.format(
                 args.chunk_ovlp, args.chunk_len))
     regions = medaka.common.get_bam_regions(args.bam, args.regions)
+
+    def check_region_size(region):
+        if region.size < args.min_region_size:
+            logger.warning(
+                "Region {} is smaller than min region size {}, skipping."
+                .format(
+                    region, args.min_region_size
+                )
+            )
+            return False
+        return True
+
+    regions = [r for r in regions if check_region_size(r)]
     reg_str = '\n'.join(['\t\t\t{}'.format(r) for r in regions])
     logger.info('Got regions:\n{}'.format(reg_str))
     if args.truth is None:
@@ -905,12 +1354,6 @@ def create_samples(args):
             **args.label_scheme_args)
         ds.set_meta(label_scheme, 'label_scheme')
 
-        model_function = functools.partial(
-            medaka.models.build_model,
-            feature_encoder.feature_vector_length,
-            len(label_scheme._decoding))
-        ds.set_meta(model_function, 'model_function')
-
         # TODO: this parallelism would be better in
         # `SampleGenerator.bams_to_training_samples` since training
         # alignments are usually chunked.
@@ -942,3 +1385,8 @@ def create_samples(args):
             "Warning: No training data was written to file, "
             "deleting output.")
         os.remove(args.output)
+
+
+def build_model(**kwargs):
+    """Build model. Depreciated."""
+    raise Exception("Please convert your model to Pytorch!")

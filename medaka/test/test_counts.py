@@ -49,6 +49,13 @@ class CountsTest(unittest.TestCase):
             kwargs = {'normalise': 'nonsense'}
             encoder = medaka.features.CountsFeatureEncoder(**kwargs)
 
+    def test_003_to_dict_from_dict(self):
+        kwargs = {'normalise': None}    
+        encoder = medaka.features.CountsFeatureEncoder(**kwargs)
+        d = encoder.to_dict()
+        from_dict = medaka.features.from_dict(d)
+        assert isinstance(from_dict, medaka.features.CountsFeatureEncoder)
+
     def test_010_pickleble(self):
         kwargs = {'normalise': None}
         encoder = medaka.features.CountsFeatureEncoder(**kwargs)

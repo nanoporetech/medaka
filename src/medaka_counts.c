@@ -23,94 +23,6 @@
 // For recording bad reads and skipping processing
 KHASH_SET_INIT_STR(BADREADS)
 
-/** Swap two strings
- *
- *  @param a first string
- *  @param b second string
- *  @returns a plp_data pointer.
- *
- */
-void swap_strings(char** a, char** b) {
-    char *temp = *a;
-    *a = *b;
-    *b = temp;
-}
-
-
-/** Format an array values as a comma seperate string
- *
- * @param values integer input array
- * @param length size of input array
- * @param result output char buffer of size 4 * length * sizeof char
- * @returns void
- *
- * The output buffer size comes from:
- *    a single value is max 3 chars
- *    + 1 for comma (or \0 at end)
- */
-void format_uint8_array(uint8_t* values, size_t length, char* result) {
-    size_t len = 0;
-    for (size_t i = 0; i < length; ++i) {
-        len += uint8_to_str(values[i], result + len);
-        strcpy(result + len, ",");
-        len += 1;
-    }
-    result[len-1] = '\0';
-}
-
-
-/** Destroys a string set
- *
- *  @param data the object to cleanup.
- *  @returns void.
- *
- */
-void destroy_string_set(string_set strings) {
-    for(size_t i = 0; i < strings.n; ++i) {
-        free(strings.strings[i]);
-    }
-    free(strings.strings);
-}
-
-
-/** Retrieves contents of key-value tab delimited file.
- *
- *  @param fname input file path.
- *  @returns a string_set
- *
- *  The return value can be free'd with destroy_string_set.
- *  key-value pairs are stored sequentially in the string set
- *
- */
-string_set read_key_value(char * fname) {
-    FILE *fp;
-    char *line = NULL;
-    size_t len = 0;
-    ssize_t read;
-    kvec_t(char*) strings;
-    kv_init(strings);
-    
-    fp = fopen(fname, "r");
-    if (fp == NULL)
-        exit(EXIT_FAILURE);
-
-    while ((read = getdelim(&line, &len, '\t', fp)) != -1) {
-        line[read - 1] = '\0';
-        char *key = NULL; swap_strings(&key, &line);
-        kv_push(char*, strings, key);
-        read = getline(&line, &len, fp);
-        line[read - 1] = '\0';
-        char *value = NULL; swap_strings(&value, &line);
-        kv_push(char*, strings, value);
-    }
-    free(line);
-    // move strings into a simpler container (awkward to pass kvec_t through cffi)
-    string_set my_strings;
-    my_strings.n = strings.n;
-    my_strings.strings = strings.a;
-    return(my_strings);
-}
-
 
 /** Constructs a pileup data structure.
  *
@@ -118,6 +30,7 @@ string_set read_key_value(char * fname) {
  *  @param buffer_cols number of pileup columns.
  *  @param num_dtypes number of datatypes in pileup.
  *  @param num_homop maximum homopolymer length to consider.
+ *  @param featlen number of features per column.
  *  @param fixed_size if not zero data matrix is allocated as fixed_size * n_cols, ignoring other arguments
  *  @see destroy_plp_data
  *  @returns a plp_data pointer.
@@ -125,12 +38,13 @@ string_set read_key_value(char * fname) {
  *  The return value can be freed with destroy_plp_data.
  *
  */
-plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_homop, size_t fixed_size) {
+plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, size_t num_homop, size_t featlen, size_t fixed_size) {
     assert(buffer_cols >= n_cols);
     plp_data data = xalloc(1, sizeof(_plp_data), "plp_data");
     data->buffer_cols = buffer_cols;
     data->num_dtypes = num_dtypes;
     data->num_homop = num_homop;
+    data->featlen = featlen;
     data->n_cols = n_cols;
     if (fixed_size != 0) {
         assert(buffer_cols == n_cols);
@@ -152,8 +66,8 @@ plp_data create_plp_data(size_t n_cols, size_t buffer_cols, size_t num_dtypes, s
  */
 void enlarge_plp_data(plp_data pileup, size_t buffer_cols) {
     assert(buffer_cols > pileup->buffer_cols);
-    size_t old_size = featlen * pileup->num_dtypes * pileup->num_homop * pileup->buffer_cols;
-    size_t new_size = featlen * pileup->num_dtypes * pileup->num_homop * buffer_cols;
+    size_t old_size = pileup->featlen * pileup->num_dtypes * pileup->num_homop * pileup->buffer_cols;
+    size_t new_size = pileup->featlen * pileup->num_dtypes * pileup->num_homop * buffer_cols;
 
     pileup->matrix = xrealloc(pileup->matrix, new_size * sizeof(size_t), "matrix");
     pileup->major = xrealloc(pileup->major, buffer_cols * sizeof(size_t), "major");
@@ -183,23 +97,21 @@ void destroy_plp_data(plp_data data) {
 /** Prints a pileup data structure.
  *
  *  @param pileup a pileup structure.
- *  @param num_dtypes number of datatypes in the pileup.
  *  @param dtypes datatype prefix strings.
- *  @param num_homop maximum homopolymer length to consider.
  *  @returns void
  *
  */
-void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_t num_homop){
+void print_pileup_data(plp_data pileup, char *dtypes[]){
     fprintf(stdout, "pos\tins\t");
-    if (num_dtypes > 1) {  //TODO header for multiple dtypes and num_homop > 1
-        for (size_t i = 0; i < num_dtypes; ++i) {
-            for (size_t j = 0; j < featlen; ++j){
+    if (pileup->num_dtypes > 1) {  //TODO header for multiple dtypes and num_homop > 1
+        for (size_t i = 0; i < pileup->num_dtypes; ++i) {
+            for (size_t j = 0; j < pileup->featlen; ++j){
                 fprintf(stdout, "%s.%c\t", dtypes[i], plp_bases[j]);
             }
         }
     } else {
-        for (size_t k = 0; k < num_homop; ++k) {
-            for (size_t j = 0; j < featlen; ++j){
+        for (size_t k = 0; k < pileup->num_homop; ++k) {
+            for (size_t j = 0; j < pileup->featlen; ++j){
                 fprintf(stdout, "%c.%lu\t", plp_bases[j], k+1);
             }
         }
@@ -208,8 +120,8 @@ void print_pileup_data(plp_data pileup, size_t num_dtypes, char *dtypes[], size_
     for (size_t j = 0; j < pileup->n_cols; ++j) {
         int s = 0;
         fprintf(stdout, "%zu\t%zu\t", pileup->major[j], pileup->minor[j]);
-        for (size_t i = 0; i < num_dtypes * featlen * num_homop; ++i){
-            size_t c = pileup->matrix[j * num_dtypes * featlen * num_homop + i];
+        for (size_t i = 0; i < pileup->num_dtypes * pileup->featlen * pileup->num_homop; ++i){
+            const size_t c = pileup->matrix[j * pileup->num_dtypes * pileup->featlen * pileup->num_homop + i];
             s += c;
             fprintf(stdout, "%zu\t", c);
         }
@@ -329,7 +241,7 @@ plp_data calculate_pileup(
     // allocate output assuming one insertion per ref position
     int n_cols = 0;
     size_t buffer_cols = 2 * (end - start);
-    plp_data pileup = create_plp_data(n_cols, buffer_cols, num_dtypes, num_homop, 0);
+    plp_data pileup = create_plp_data(n_cols, buffer_cols, num_dtypes, num_homop, featlen, 0);
 
     // get counts
     size_t major_col = 0;  // index into `pileup` corresponding to pos
@@ -457,41 +369,4 @@ plp_data calculate_pileup(
     free(chr);
 
     return pileup;
-}
-
-
-// Demonstrates usage
-int main(int argc, char *argv[]) {
-    if(argc < 3) {
-        fprintf(stderr, "Usage %s <bam> <region>.\n", argv[0]);
-        exit(1);
-    }
-    const char *bam_file = argv[1];
-    const char *reg = argv[2];
-
-    size_t num_dtypes = 1;
-    char **dtypes = NULL;
-    if (argc > 3) {
-        num_dtypes = argc - 3;
-        dtypes = &argv[3];
-    }
-    char tag_name[2] = "";
-    int tag_value = 0;
-    bool keep_missing = false;
-    size_t num_homop = 5;
-    bool weibull_summation = false;
-    const char* read_group = NULL;
-    const int min_mapQ = 1;
-
-    bam_fset* bam_set = create_bam_fset(bam_file);
-
-    plp_data pileup = calculate_pileup(
-        reg, bam_set, num_dtypes, dtypes,
-        num_homop, tag_name, tag_value, keep_missing,
-        weibull_summation, read_group, min_mapQ);
-    print_pileup_data(pileup, num_dtypes, dtypes, num_homop);
-    fprintf(stdout, "pileup is length %zu, with buffer of %zu columns\n", pileup->n_cols, pileup->buffer_cols);
-    destroy_plp_data(pileup);
-    destroy_bam_fset(bam_set);
-    exit(0);
 }
