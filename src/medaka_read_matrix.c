@@ -448,6 +448,9 @@ read_aln_data calculate_read_alignment(
                     for (read_i = 0; read_i < array_size; ++read_i) {
                         Read *current_read = &kv_A(read_array, read_i);
                         if ((size_t)pos >= current_read->ref_end + min_gap) {
+                            // free dwells pointer for current read
+                            // since this is not managed by htslib
+                            free(current_read -> dwells);
                             kv_A(read_array, read_i) = read;
                             kh_rv = khash_str2int_set(read_map, strdup(qname), read_i);
                             break;
@@ -592,6 +595,14 @@ read_aln_data calculate_read_alignment(
     pileup->n_reads = min(max_reads, pileup->n_reads);
 
     khash_str2int_destroy_free(read_map);
+    // free dwells pointer reads since this isn't managed by htslib
+    for (size_t r = 0; r < kv_size(read_array); ++r) {
+        Read *read = &kv_A(read_array, r);
+        if (read == NULL) {
+            continue;
+        }
+        free(read->dwells);
+    }
     kv_destroy(read_array);
 
     bam_itr_destroy(data->iter);
