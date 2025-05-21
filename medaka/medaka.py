@@ -57,6 +57,7 @@ class AutoModel(argparse.Action):
         except Exception as e:
             msg = "Error validating model from '--{}' argument: {}."
             raise RuntimeError(msg.format(self.dest, str(e)))
+        setattr(namespace, f"{self.dest}_was_given", True)
         setattr(namespace, self.dest, model_fp)
 
 
@@ -297,7 +298,7 @@ def _validate_common_args(args, parser):
             logger.debug("Guessing model")
             try:
                 model = medaka.models.model_from_basecaller(
-                    args.bam, variant="consensus")
+                    args.bam, variant=False)
                 args.model = medaka.models.resolve_model(model)
             except Exception as e:
                 logger.warning(
@@ -305,12 +306,6 @@ def _validate_common_args(args, parser):
             else:
                 logger.debug(
                     f"Chosen model '{args.model}' for input '{args.bam}'.")
-        elif args.model is not None:
-            # TODO: why is this done? it will have been done in ResolveModel?
-            #       the resolve_model function is idempotent so doesn't really
-            #       matter too much
-            args.model = medaka.models.resolve_model(args.model)
-            logger.debug(f"Model is: {args.model}")
 
 
 def print_model_path(args):
