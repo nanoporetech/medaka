@@ -179,13 +179,13 @@ pyprep-m1: venv
 .PHONY: install
 install: .package-reqs
 	@echo "\x1b[1;33mInstalling medaka\x1b[0m"
-	${IN_VENV} && LDFLAGS=$(LDFLAGS) pip install . $(EXTRA_INDEX)
+	${IN_VENV} && LDFLAGS=$(LDFLAGS) pip install .[abpoa] $(EXTRA_INDEX)
 
 
 .PHONY: develop
 develop: .package-reqs 
 	@echo "\x1b[1;33mInstalling medaka in development mode\x1b[0m"
-	${IN_VENV} && WITHDEFLATE=$(WITHDEFLATE) LDFLAGS=$(LDFLAGS) pip install -e . $(EXTRA_INDEX)
+	${IN_VENV} && WITHDEFLATE=$(WITHDEFLATE) LDFLAGS=$(LDFLAGS) pip install -e .[abpoa] $(EXTRA_INDEX)
 
 
 .PHONY: test

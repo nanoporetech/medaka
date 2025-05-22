@@ -1,0 +1,4 @@
+ref_name	start	end	n_reads	is_homozygous	empty_second_cluster	n_ambig_reads	n_unasign_reads	edits_ratio	diag_edits	nreads_cluster_phasing_matches_bhp	nreads_cluster_phasing_switched_wrt_bhp	hap0_n_reads_fwd	hap0_n_reads_rev	hap0_n_reads	hap1_n_reads_fwd	hap1_n_reads_rev	hap1_n_reads	hap2_n_reads_fwd	hap2_n_reads_rev	hap2_n_reads
+chr20	1611901	1612032	13	True	False	0	0	0	0	None	None	0	0	0	8	5	13	0	0	0
+chr20	25791179	25791250	6	False	False	0	0	0	0	3	3	0	0	0	0	1	1	2	3	5
+chr20	25791847	25791943	5	False	False	0	0	0	0	3	2	0	0	0	1	3	4	0	1	1

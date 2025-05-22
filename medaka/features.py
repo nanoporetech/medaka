@@ -39,7 +39,7 @@ class BAMHandler(object):
         self.bam = bam
         self._pool = queue.Queue(size)
         self.logger = medaka.common.get_named_logger('BAMFile')
-        self.logger.info("Creating pool of {} BAM file sets.".format(size))
+        self.logger.debug("Creating pool of {} BAM file sets.".format(size))
 
         lib, ffi = libmedaka.lib, libmedaka.ffi
         for _ in range(size):
@@ -561,7 +561,8 @@ def __enforce_read_matrix_chunk_contiguity(pileups):
 def get_trimmed_reads(
         region, bam, dtype_prefixes=None, region_split=750, chunk_overlap=150,
         workers=8, tag_name=None, tag_value=None, keep_missing=False,
-        partial=True, num_qstrat=1, read_group=None, min_mapq=1):
+        partial=True, num_qstrat=1, read_group=None, min_mapq=1,
+        include_empty_reads=False):
     """Fetch reads trimmed to a region.
 
     Overlapping chunks of the input region will be produced, with each chunk
@@ -594,14 +595,40 @@ def get_trimmed_reads(
     def _process_region(reg):
         # htslib start is 1-based, medaka.common.Region object is 0-based
         region_str = '{}:{}-{}'.format(reg.ref_name, reg.start + 1, reg.end)
-        stuff = lib.PY_retrieve_trimmed_reads(
-            region_str.encode(), bam.encode(), num_dtypes, dtypes,
-            tag_name, tag_value, keep_missing, partial, read_group, min_mapq,
-        )
+        bam_handler = bam
+        if not isinstance(bam, BAMHandler):
+            bam_handler = BAMHandler(bam, size=1)
+
+        with bam_handler.borrow() as fh:
+            stuff = lib.PY_retrieve_trimmed_reads(
+                region_str.encode(), fh, num_dtypes, dtypes,
+                tag_name, tag_value, keep_missing,
+                partial, read_group, min_mapq, include_empty_reads
+                )
+
+        # seqs format = [
+        #      is_reverse,
+        #      seq,
+        #      name,
+        #      hap,
+        #      phased_set
+        # ]
         # last string is reference
-        seqs = [(False, ffi.string(stuff.seqs[stuff.n_seqs - 1]).decode())]
+        seqs = [
+            (False,
+             ffi.string(stuff.names[stuff.n_seqs - 1]).decode(),
+             ffi.string(stuff.seqs[stuff.n_seqs - 1]).decode(),
+             0,
+             0)
+        ]
         for i in range(stuff.n_seqs - 1):
-            seqs.append((stuff.is_rev[i], ffi.string(stuff.seqs[i]).decode()))
+            seqs.append((
+                stuff.is_rev[i],
+                ffi.string(stuff.names[i]).decode(),
+                ffi.string(stuff.seqs[i]).decode(),
+                stuff.hap[i],
+                stuff.phased_set[i]
+            ))
         lib.PY_destroy_reads(stuff)
         return reg, seqs
 
@@ -903,8 +930,8 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
             labels=None, ref_seq=None,
             positions=positions, label_probs=None, depth=depth,
         )
-        self.logger.info('Processed {} (median depth {})'.format(
-            sample.name, np.median(depth)))
+        # self.logger.info('Processed {} (median depth {})'.format(
+        #     sample.name, np.median(depth)))
         return sample
 
     def bams_to_training_samples(
@@ -1207,7 +1234,7 @@ class SampleGenerator(object):
         """
         self.logger = medaka.common.get_named_logger("Sampler")
         self.sample_type = "training" if truth_bam is not None else "consensus"
-        self.logger.info("Initializing sampler for {} of region {}.".format(
+        self.logger.debug("Initializing sampler for {} of region {}.".format(
             self.sample_type, region))
         self.fencoder = feature_encoder
         self.bam = bam
@@ -1239,7 +1266,7 @@ class SampleGenerator(object):
                 self._source = self.fencoder.bam_to_sample(
                     self.bam, self.region)
             t1 = now()
-            self.logger.info("Took {:.2f}s to make features.".format(t1-t0))
+            self.logger.debug("Took {:.2f}s to make features.".format(t1-t0))
 
     def _quarantine_sample(self, sample):
         """Add sample name and pileup width to a list."""
@@ -1270,7 +1297,7 @@ class SampleGenerator(object):
                         "Region {} ({} positions) is smaller than "
                         "inference chunk length {}, quarantining.").format(
                             source.name, source.size, self.chunk_len)
-                    self.logger.warning(msg)
+                    self.logger.debug(msg)
                     self._quarantine_sample(source)
                     continue
 
@@ -1288,7 +1315,7 @@ class SampleGenerator(object):
 
 def _samples_worker(args, region, feature_encoder, label_scheme):
     logger = medaka.common.get_named_logger('PrepWork')
-    logger.info("Processing region {}.".format(region))
+    logger.debug("Processing region {}.".format(region))
     data_gen = SampleGenerator(
         args.bam, region, feature_encoder, truth_bam=args.truth,
         label_scheme=label_scheme, truth_haplotag=args.truth_haplotag,

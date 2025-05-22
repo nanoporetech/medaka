@@ -1,10 +1,16 @@
 #ifndef _MEDAKA_TRIMBAM_H
 #define _MEDAKA_TRIMBAM_H
 
+#include "medaka_bamiter.h"
+
+
 // an dynamic set of sequences
 typedef struct _trimmed_reads {
+    kvec_t(char*) read_names;
     kvec_t(char*) sequences;
     kvec_t(bool) is_reverse;
+    kvec_t(int) hap;
+    kvec_t(int) phased_set;
 } _trimmed_reads;
 
 typedef _trimmed_reads *trimmed_reads;
@@ -29,11 +35,12 @@ void destroy_trimmed_reads(trimmed_reads reads);
 /** Adds a read to a set of sequences.
  *
  * @param reads the set of reads.
- * @param read new sequence.
+ * @param read_name new sequence name.
+ * @param read_seq new sequence.
  * @param is_rev is sequence reversed.
  *
 */
-void add_read(trimmed_reads reads, char * read, bool is_rev);
+void add_read(trimmed_reads reads, char * read_name, char * read_seq, bool is_rev, int hap, int phased_set);
 
 
 /** Get reads overlapping a region, trimmed to the region.
@@ -45,8 +52,8 @@ void add_read(trimmed_reads reads, char * read, bool is_rev);
  *  @param tag name used for read filtering.
  *  @param tag value used for read filtering.
  *  @param keep_missing, if true keep reads without the tag.
- *  @param partial, whether to keep partially spanning reads. 
- *  @param read_group used for read filtering. 
+ *  @param partial, whether to keep partially spanning reads.
+ *  @param read_group used for read filtering.
  *
  *  @returns void
  *
@@ -61,7 +68,7 @@ void add_read(trimmed_reads reads, char * read, bool is_rev);
  *
  */
 trimmed_reads retrieve_trimmed_reads(
-    const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[],
-    const char tag_name[2], const int tag_value, const bool keep_missing, 
-    const bool partial, const char *read_group, const int min_mapq);
+    const char *region, const bam_fset* bam_set, size_t num_dtypes, char *dtypes[],
+    const char tag_name[2], const int tag_value, const bool keep_missing,
+    const bool partial, const char *read_group, const int min_mapq, const bool include_empty_reads);
 #endif

@@ -140,6 +140,9 @@ if __name__ == '__main__':
                 '{0}_version_report = {0}:report_binaries'.format(__pkg_name__, )
             ]
         },
+        extras_require={
+            "abpoa": ["pyabpoa==1.5.1"],
+        },
         scripts=[
             'scripts/medaka_consensus',
             'scripts/medaka_consensus_joint',

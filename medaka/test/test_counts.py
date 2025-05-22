@@ -186,7 +186,7 @@ class TrimReadsTest(unittest.TestCase):
 
     def get_reads(self, region):
         reads = list(medaka.features.get_trimmed_reads(region, self.bam))
-        reads = [x[1] for x in reads[0][1]]
+        reads = [x[2] for x in reads[0][1]]
         reads = reads[1:]  # contains reference first
         return reads
 

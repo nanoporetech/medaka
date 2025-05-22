@@ -1,14 +1,16 @@
 """Commonly used data structures and functions."""
 import collections
-import concurrent.futures
+import concurrent
 from distutils.version import LooseVersion
 import enum
 import errno
+import fileinput
 import functools
 import itertools
 import logging
 import os
 import re
+import shutil
 import tempfile
 
 import intervaltree
@@ -17,6 +19,7 @@ from pkg_resources import resource_filename
 import pysam
 
 import libmedaka
+
 
 ComprAlignPos = collections.namedtuple(
     'ComprAlignPos',
@@ -834,6 +837,69 @@ def mkdir_p(path, info=None):
             raise
 
 
+def is_file_empty(file_path):
+    """
+    Check if a file is empty.
+
+    Args:
+        file_path (str): The path to the file.
+
+    Returns:
+        bool: True if the file is empty, False otherwise.
+        None: If the file is not found or cannot be accessed.
+
+    """
+    try:
+        return os.path.getsize(file_path) == 0
+    except OSError:
+        print("File not found or cannot be accessed.")
+        return None
+
+
+def remove_if_exist(path):
+    """
+    Remove a file if it exists.
+
+    Parameters:
+    path (str): The path to the file to be removed.
+
+    Returns:
+    None
+
+    """
+    if os.path.exists(path):
+        os.remove(path)
+
+
+def remove_directory(path):
+    """
+    Remove a directory and its contents.
+
+    Args:
+        path (str): The path of the directory to be removed.
+
+    Returns:
+        None
+
+    """
+    if os.path.exists(path):
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def concat_files(input_paths, output_path, has_header=False):
+    """Concatenate a list of files into one file."""
+    if not input_paths:
+        open(output_path, 'w').close()
+        return
+    header_printed = False
+    with open(output_path, 'w') as fout, fileinput.input(input_paths) as fin:
+        for line in fin:
+            if has_header and header_printed and fin.isfirstline():
+                continue
+            fout.write(line)
+            header_printed = True
+
+
 def grouper(gen, batch_size=4):
     """Group together elements of an iterable without padding remainder."""
     if not isinstance(gen, collections.abc.Iterator):
@@ -888,7 +954,7 @@ def loose_version_sort(it, key=None):
     >>> loose_version_sort([
     ...     'chr{}c{}'.format(i,j)
     ...     for i,j in itertools.product(
-    ...        [1, 10, 2] , [1,10,2])])  # doctest: +ELLIPSIS
+    ...        [1, 10, 2], [1,10,2])])  # doctest: +ELLIPSIS
     ['chr1c1', 'chr1c2', 'chr1c10', 'chr2c1', ..., 'chr10c2', 'chr10c10']
     """
     def version_sorter(x):

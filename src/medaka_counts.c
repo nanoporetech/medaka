@@ -225,7 +225,7 @@ plp_data calculate_pileup(
     // open bam etc.
     // this is all now deferred to the caller
     htsFile *fp = bam_set->fp;
-    hts_idx_t *idx = bam_set->idx; 
+    hts_idx_t *idx = bam_set->idx;
     sam_hdr_t *hdr = bam_set->hdr;
 
     // setup bam interator
@@ -305,7 +305,7 @@ plp_data calculate_pileup(
                 }
                 if (failed) {
                     fprintf(stderr, "Datatype not found for %s.\n", bam_get_qname(p->b));
-                    exit(1); 
+                    exit(1);
                 }
             }
 

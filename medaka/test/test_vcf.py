@@ -739,13 +739,16 @@ class TestAlignReadsToHaps(unittest.TestCase):
         # remove * and make upper
         haps = [strip(h) for h in haps]
         reads = [strip(r) for r in reads]
+
         def align(r, h, go=5, ge=3, matrix=parasail.dnafull):
             return parasail.sw_trace_striped_32(r, h, go, ge, matrix).score
         # expected count for each read against first two haps
         for is_rev in False, True:
             # trimmed reads are always represented as fwd strand even if they
             # were reverse complement alignments
-            reads_ws = [(is_rev, r) for r in reads]
+            reads_ws = [
+                (is_rev, f"read_{i}", seq, 0, 0) for i, seq in enumerate(reads)
+                ]
             exp_cnts_pr = [  # expected result for each read
                 Counter({(is_rev, 0): 1}),  # reads[0] aligns best to haps[0]
                 Counter({(is_rev, 1): 1}),  # reads[1] aligns best to haps[1]
@@ -753,7 +756,7 @@ class TestAlignReadsToHaps(unittest.TestCase):
                 Counter({(is_rev, None): 1}),  # reads[3] ambig wrt haps[:2]
             ]
             exp_scores_pr = [
-                Counter({(is_rev, i): align(r[1], h)
+                Counter({(is_rev, i): align(r[2], h)
                          for i, h in enumerate(haps[:2])})
                 for r in reads_ws
             ]
@@ -771,9 +774,12 @@ class TestAlignReadsToHaps(unittest.TestCase):
             self.assertEqual(exp_cnts, cnts_got)
             self.assertEqual(exp_scrs, scrs_got)
         # counts for all three haps, where reads[3] should match haps[2]
-        reads_ws = [(False, r) for r in reads]
+        reads_ws = [
+                (False, f"read_{i}", seq, 0, 0) for i, seq in enumerate(reads)
+                ]
         exp = Counter({(False, 0): 2, (False, 1): 1, (False, 2): 1})
-        self.assertAlmostEqual(align_reads_to_haps(reads_ws, haps)[0], exp)
+        cnts_got, _ = align_reads_to_haps(reads_ws, haps)
+        self.assertEqual(cnts_got, exp)
 
 
 class TestAnnotateVCFs(unittest.TestCase):
