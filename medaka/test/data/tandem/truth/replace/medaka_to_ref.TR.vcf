@@ -1,6 +1,6 @@
 ##fileformat=VCFv4.1
 ##FILTER=<ID=PASS,Description="All filters passed">
-##medaka_version=2.0.1
+##medaka_version=2.1.0
 ##contig=<ID=chr20,length=64444167>
 ##INFO=<ID=rec,Number=.,Type=String,Description="Medaka name for haplotype-specific consensus record.">
 ##INFO=<ID=read_names_hap1,Number=1,Type=String,Description="Names of supporting reads for hap1.">
