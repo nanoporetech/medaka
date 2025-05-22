@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Models `dna_r10.4.1_e8.2_5khz_400bps_sup` and `dna_r10.4.1_e8.2_5khz_400bps_hac` added
   as aliases to those without `_5kz_` in their names. 
 - Consensus models for v5.2.0 dorado models.
+- Added `-B` option to `medaka_consensus` to allow passing a bed file or region to polish
+  via `medaka inference --regions`.
 
 ## [v2.0.1]
 ### Fixed

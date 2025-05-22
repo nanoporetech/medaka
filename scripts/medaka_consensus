@@ -29,6 +29,7 @@ GAPFILLCHAR=""
 QUALITIES=false
 MIN_MAPQ=""
 BACTERIA=""
+BED_PATH=""
 
 iflag=false
 dflag=false
@@ -60,12 +61,13 @@ $(basename "$0") [-h] -i <fastx> -d <fasta>
     -t  number of threads with which to create features (default: 1).
     -b  batchsize, controls memory use (default: ${BATCH_SIZE}).
     -q  Output consensus with per-base quality scores (fastq).
+    -B  Regions to polish.
     -M  Minimum mapQ (default: None).
     --bacteria automatically select best model for bacteria
                and plasmid sequencing. "
 
 
-while getopts ':hi::d:o:gr:m:fxt:b:qM:-:' option; do
+while getopts ':hi::d:o:gr:m:fxt:b:qM:B:-:' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
@@ -79,6 +81,7 @@ while getopts ':hi::d:o:gr:m:fxt:b:qM:-:' option; do
     t  ) THREADS=$OPTARG;;
     b  ) BATCH_SIZE=$OPTARG;;
     q  ) QUALITIES=true;;
+    B  ) BED_PATH=$OPTARG;;
     M  ) MIN_MAPQ=$OPTARG;;
     -  )
 	case "${OPTARG}" in
@@ -172,6 +175,12 @@ else
     echo "Not aligning basecalls to draft, ${CALLS2DRAFT}.bam exists."
 fi
 
+if [[ ${BED_PATH} ]]; then
+    BED_OPTIONS=" --regions $BED_PATH"
+else
+    BED_OPTIONS=""
+fi
+
 CONSENSUSPROBS="consensus_probs.hdf"
 if [[ ! -e "${CONSENSUSPROBS}" ]] || ${FORCE}; then
     echo "Running medaka inference"
@@ -182,7 +191,7 @@ if [[ ! -e "${CONSENSUSPROBS}" ]] || ${FORCE}; then
     fi
     medaka inference "${CALLS2DRAFT}.bam" "${CONSENSUSPROBS}" \
         --model "${MODEL}" --batch_size "${BATCH_SIZE}" --threads "${THREADS}" \
-        ${MAPQ_OPTS} \
+        ${MAPQ_OPTS} ${BED_OPTIONS} \
         || { echo "Failed to run medaka inference."; exit 1; }
     FORCE=true
 else
