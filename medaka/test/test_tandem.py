@@ -84,10 +84,30 @@ class TestTandem(unittest.TestCase):
       for key in truth_dict.keys():
          self.assertEqual(truth_dict[key], test_dict[key], f"Fasta files are not equal {truth_fasta}") 
 
-   def assertFilesEqual(self,file1, file2, sort_files=False):
+   def assertFilesEqual(self, file1, file2, sort_files=False, ignore_prefixes=None):
+      """
+      Compare two files line by line, optionally sorting them and ignoring lines with specified prefixes.
+
+      Args:
+          file1 (str): Path to the first file.
+          file2 (str): Path to the second file.
+          sort_files (bool): Whether to sort the lines before comparison.
+          ignore_prefixes (list): List of prefixes to ignore while comparing lines.
+
+      Raises:
+          AssertionError: If the files are not equal.
+      """
+      ignore_prefixes = ignore_prefixes or []
+
+      def filter_lines(lines):
+         return [
+            line for line in lines
+            if not any(line.startswith(prefix) for prefix in ignore_prefixes)
+         ]
+
       with open(file1, 'r') as f1, open(file2, 'r') as f2:
-         lines1 = f1.readlines()
-         lines2 = f2.readlines()
+         lines1 = filter_lines(f1.readlines())
+         lines2 = filter_lines(f2.readlines())
 
          if sort_files:
                lines1 = sorted(lines1)
@@ -150,9 +170,10 @@ class TestTandem(unittest.TestCase):
          test_bed = os.path.join(self.temp_folder, bed)
          self.assertFilesEqual(truth_bed, test_bed, sort_files=True)
 
+      ignore_prefixes = ["##medaka_version="]
       truth_vcf = os.path.join(os.path.dirname(__file__), 'data', 'tandem', 'truth', truth_folder, 'medaka_to_ref.TR.vcf')
       test_vcf = os.path.join(self.temp_folder, 'medaka_to_ref.TR.vcf')
-      self.assertFilesEqual(truth_vcf, test_vcf)
+      self.assertFilesEqual(truth_vcf, test_vcf, ignore_prefixes=ignore_prefixes)
 
       metrics = ["abpoa_region_metrics.txt", "prephased_region_metrics.txt", "unphased_region_metrics.txt"]
       for metric in metrics:
@@ -233,4 +254,3 @@ class TestCheckReadLevelModel(unittest.TestCase):
          with self.subTest(model=model):
             self.assertFalse(medaka.tandem.tandem.check_read_level_model(model))
 
-   

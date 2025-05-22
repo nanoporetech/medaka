@@ -257,6 +257,20 @@ medaka tools resolve_model --auto_model consensus_bacteria <input.bam/input.fast
 which will display the model `r1041_e82_400bps_bacterial_methylation` if
 compatible or the default model name otherwise.
 
+**Read-level models**
+
+Recently, "read-level" consensus polishing models have been developed that integrate
+additional read information, such as base quality scores, alignment quality scores, and
+(optionally) dwell time information from the signal. These models are intended primarily
+for human genome polishing. For those wishing to test these models, we recommend using
+[dorado polish](https://dorado-docs.readthedocs.io/en/latest/assembly/polish/)
+for the best performance and ease of use.
+
+The same models are also provided in medaka for completeness, indicated by "rl" in
+the model name, but they will not be selected automatically. Since read-level models are
+significantly more computationally intensive than previous medaka models, it is highly
+recommended to run them on GPU.
+
 **When automatic selection is unsuccessful, and older basecallers**
 
 If the name of the basecaller model used is known, but has been lost from the input
