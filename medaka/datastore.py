@@ -2,7 +2,7 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict, OrderedDict
 from concurrent.futures import \
-    as_completed, ProcessPoolExecutor, ThreadPoolExecutor
+    as_completed, ThreadPoolExecutor
 import contextlib
 import os
 import pickle
@@ -387,7 +387,13 @@ class DataIndex(object):
         """."""
         self.samples = []
 
-        with ProcessPoolExecutor(self.threads) as executor:
+        # Medaka performs tandem run stitching in a child process for
+        # parallelization. However, ProcessPoolExecutor cannot be used
+        # in this case because it is not possible to spawn new processes
+        # from an existing child process. To resolve this limitation,
+        # I switched to using ThreadPoolExecutor, which operates within
+        # threads instead of creating additional processes
+        with ThreadPoolExecutor(self.threads) as executor:
             future_to_fn = {
                 executor.submit(DataIndex._load_sample_registry, fn): fn
                 for fn in self.filenames}

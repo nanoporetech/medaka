@@ -39,7 +39,6 @@ requirements:
     - mappy
     - ont-fast5-api
     - parasail-python
-    - pyabpoa
     - pysam
     - pyspoa
     - requests

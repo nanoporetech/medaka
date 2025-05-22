@@ -37,7 +37,10 @@ void upper_string(char s[]) {
 trimmed_reads create_trimmed_reads(void) {
     trimmed_reads reads = xalloc(1, sizeof(*reads), "trimmed_reads");
     kv_init(reads->sequences);
+    kv_init(reads->read_names);
     kv_init(reads->is_reverse);
+    kv_init(reads->hap);
+    kv_init(reads->phased_set);
     return reads;
 }
 
@@ -52,7 +55,13 @@ void destroy_trimmed_reads(trimmed_reads reads) {
         free(reads->sequences.a[i]);
     }
     kv_destroy(reads->sequences);
+    for (size_t i=0; i<reads->read_names.n; ++i){
+        free(reads->read_names.a[i]);
+    }
+    kv_destroy(reads->read_names);
     kv_destroy(reads->is_reverse);
+    kv_destroy(reads->hap);
+    kv_destroy(reads->phased_set);
     free(reads);
 }
 
@@ -64,9 +73,12 @@ void destroy_trimmed_reads(trimmed_reads reads) {
  * @param is_rev is sequence reversed.
  *
 */
-void add_read(trimmed_reads reads, char * read, bool is_rev){
-    kv_push(char *, reads->sequences, read);
+void add_read(trimmed_reads reads, char* read_name, char * read_seq, bool is_rev, int hap, int phased_set){
+    kv_push(char *, reads->read_names, read_name);
+    kv_push(char *, reads->sequences, read_seq);
     kv_push(bool, reads->is_reverse, is_rev);
+    kv_push(int, reads->hap, hap);
+    kv_push(int, reads->phased_set, phased_set);
 }
 
 
@@ -92,7 +104,7 @@ char * trim_read(bam1_t *record, int rstart, int rend, bool partial, int *qstart
     *qstart = -1;
     *qend = -1;
     char *ref_chunk = NULL;
- 
+
     // check we span start
     if (record->core.pos > rstart) {
         if (partial) {
@@ -113,7 +125,7 @@ char * trim_read(bam1_t *record, int rstart, int rend, bool partial, int *qstart
     // Though to make the rest of the code happy we need to push at least
     // one character. see also <-> mark below
     kputc('N', &ref);
-    
+
     //uint8_t *tag = bam_aux_get((const bam1_t*) record, "cs");
     //if (tag == NULL) { // tag isn't present
     //    fprintf(stderr, "Could not read 'cs' tag from read %s\n", qname);
@@ -159,7 +171,7 @@ char * trim_read(bam1_t *record, int rstart, int rend, bool partial, int *qstart
         // based on the cigar operation
         int read_inc = 0;
         int ref_inc = 0;
- 
+
         // Process match between the read and the reference
         bool is_aligned = false;
         if (cigar_op == BAM_CMATCH || cigar_op == BAM_CEQUAL || cigar_op == BAM_CDIFF) {
@@ -167,7 +179,7 @@ char * trim_read(bam1_t *record, int rstart, int rend, bool partial, int *qstart
             read_inc = 1;
             ref_inc = 1;
         } else if (cigar_op == BAM_CDEL) {
-            ref_inc = 1;   
+            ref_inc = 1;
         } else if (cigar_op == BAM_CREF_SKIP) {
             // erm don't handle this one
             ref_inc = 1;
@@ -244,7 +256,7 @@ char * trim_read(bam1_t *record, int rstart, int rend, bool partial, int *qstart
  *  @param tag name used for read filtering.
  *  @param tag value used for read filtering.
  *  @param keep_missing, if true keep reads without the tag.
- *  @param partial, whether to keep partially spanning reads. 
+ *  @param partial, whether to keep partially spanning reads.
  *  @param read_group used for read filtering.
  *
  *  @returns void
@@ -260,9 +272,9 @@ char * trim_read(bam1_t *record, int rstart, int rend, bool partial, int *qstart
  *
  */
 trimmed_reads retrieve_trimmed_reads(
-    const char *region, const char *bam_file, size_t num_dtypes, char *dtypes[],
-    const char tag_name[2], const int tag_value, const bool keep_missing, 
-    const bool partial, const char *read_group, const int min_mapq){
+    const char *region, const bam_fset* bam_set, size_t num_dtypes, char *dtypes[],
+    const char tag_name[2], const int tag_value, const bool keep_missing,
+    const bool partial, const char *read_group, const int min_mapq, const bool include_empty_reads){
 
     if (num_dtypes == 1 && dtypes != NULL) {
         fprintf(stderr, "Recieved invalid num_dtypes and dtypes args.\n");
@@ -270,7 +282,7 @@ trimmed_reads retrieve_trimmed_reads(
     }
 
     // extract `chr`:`start`-`end` from `region`
-    //   (start is one-based and end-inclusive), 
+    //   (start is one-based and end-inclusive),
     //   hts_parse_reg below sets return value to point
     //   at ":", copy the input then set ":" to null terminator
     //   to get `chr`.
@@ -285,17 +297,12 @@ trimmed_reads retrieve_trimmed_reads(
         fprintf(stderr, "Failed to parse region: '%s'.\n", region);
         exit(1);
     }
-   
-    // open bam etc. 
-    htsFile *fp = hts_open(bam_file, "rb");
-    hts_idx_t *idx = sam_index_load(fp, bam_file);
-    sam_hdr_t *hdr = sam_hdr_read(fp);
-    if (hdr == 0 || idx == 0 || fp == 0) {
-        hts_close(fp); hts_idx_destroy(idx); sam_hdr_destroy(hdr);
-        free(chr);
-        fprintf(stderr, "Failed to read .bam file '%s'.", bam_file);
-        exit(1);
-    }
+
+    // open bam etc.
+    htsFile *fp = bam_set->fp;
+    hts_idx_t *idx = bam_set->idx;
+    sam_hdr_t *hdr = bam_set->hdr;
+
 
     // setup bam interator
     mplp_data *data = xalloc(1, sizeof(mplp_data), "pileup init data");
@@ -309,30 +316,54 @@ trimmed_reads retrieve_trimmed_reads(
     //kvec_t(bool) is_reverse; kv_init(is_reverse);
     trimmed_reads reads = create_trimmed_reads();
     //TODO: support multiple data types
-    char * ref = xalloc(1, sizeof(char), "chr"); 
+    char * ref = xalloc(1, sizeof(char), "chr");
     while(read_bam((void *) data, record) > 0){
         int qstart, qend;
         char * ref_chunk = trim_read(record, start, end, partial, &qstart, &qend);
         //if (qstart < 0) qstart = 0;
         //if (qend < 0 ) qend = record->core.l_qseq;
- 
         if (qstart >=0 && qend >=0 && ref_chunk != NULL) {
             if (strlen(ref_chunk) > strlen(ref)) {
                 free(ref); ref = ref_chunk;
             }
+            else {
+                free(ref_chunk);
+            }
             uint8_t *q = bam_get_seq(record);
             //uint32_t len = record->core.l_qseq;
+            char *qseq;
             if (qend - qstart > 1) {
-                char *qseq = xalloc(qend - qstart + 1, sizeof(char), "seq");
+                qseq = xalloc(qend - qstart + 1, sizeof(char), "seq");
                 int j = 0;
                 for(int i=qstart; i<qend ; i++){
                     qseq[j++] = seq_nt16_str[bam_seqi(q, i)];
                 }
-                //kv_push(char *, sequences, qseq);
-                //kv_push(bool, is_reverse, bam_is_rev(record));
-                add_read(reads, qseq, bam_is_rev(record));
             }
-        } else {
+            else if(include_empty_reads) {
+                qseq = xalloc(2, sizeof(char), "seq");
+                qseq[0] = 'N';
+            }
+            else {
+                continue;
+            }
+            //kv_push(char *, sequences, qseq);
+            //kv_push(bool, is_reverse, bam_is_rev(record));
+            char* tmp = bam_get_qname(record);
+            char* read_name = malloc(strlen(tmp) + 1);
+            strcpy(read_name, tmp);
+            uint8_t *hp_data = bam_aux_get(record, "HP");
+            uint8_t *ps_data = bam_aux_get(record, "PS");
+            int hp_value = 0;
+            int ps_value = 0;
+            if (hp_data) {
+                hp_value = bam_aux2i(hp_data);
+            }
+            if (ps_data) {
+                ps_value = bam_aux2i(ps_data);
+            }
+            add_read(reads, read_name, qseq, bam_is_rev(record), hp_value, ps_value);
+        }
+        else {
             if (ref_chunk != NULL) {
                free(ref_chunk);
             }
@@ -340,28 +371,26 @@ trimmed_reads retrieve_trimmed_reads(
         }
     }
     bam_destroy1(record);
-    add_read(reads, ref, 0);
+    char* region_name = malloc(strlen(region) + 1);
+    strcpy(region_name, region);
+    add_read(reads, region_name, ref, 0, 0, 0);
 
     bam_itr_destroy(data->iter);
     free(data);
     free(chr);
 
-    hts_close(fp);
-    hts_idx_destroy(idx);
-    sam_hdr_destroy(hdr);
     return reads;
 }
 
 
 // Demonstrates usage
 int _main(int argc, char *argv[]) {
-    if(argc < 3) {
-        fprintf(stderr, "Usage %s <bam> <region>.\n", argv[0]);
+    if(argc < 2) {
+        fprintf(stderr, "Usage %s <bam> <bed_file>.\n", argv[0]);
         exit(1);
     }
     const char *bam_file = argv[1];
-    const char *reg = argv[2];
-
+    const char *bed_file = argv[2];
     size_t num_dtypes = 1;
     char **dtypes = NULL;
     if (argc > 3) {
@@ -375,13 +404,43 @@ int _main(int argc, char *argv[]) {
     const char* read_group = NULL;
     const int min_mapq = 1;
 
-    trimmed_reads reads = retrieve_trimmed_reads(
-        reg, bam_file, num_dtypes, dtypes,
-        tag_name, tag_value, keep_missing, partial, read_group, min_mapq);
-    for (size_t i=0; i<reads->sequences.n; ++i){
-        fprintf(stderr, "%i  %s\n", reads->is_reverse.a[i], reads->sequences.a[i]);
+    FILE *file = fopen(bed_file, "r");
+    if(file == NULL) {
+        fprintf(stderr, "Failed to open %s.\n", bed_file);
+        exit(1);
     }
-    destroy_trimmed_reads(reads);
-    exit(0); 
+
+    // Read the BED file and get an array of regions
+    char line[256];
+    int i = 0;
+    trimmed_reads reads = NULL;
+    bam_fset* fset = create_bam_fset(bam_file);
+    while(fgets(line, sizeof(line), file) != NULL) {
+        // Parse each line in the BED file
+        // char *token = strtok(line, "\t");
+        // if(token == NULL || i >= sizeof(regions)/sizeof(regions[0])) {
+        //     break;
+        // }
+    // Replace strdup() with malloc() and manually remove the newline character.
+        line[strcspn(line, "\n")] = 0;
+        reads = retrieve_trimmed_reads(
+            line, fset, num_dtypes, dtypes,
+            tag_name, tag_value, keep_missing, partial, read_group, min_mapq, true);
+        // Add each set of trimmed reads to the total
+        for (size_t k=0; k<reads->sequences.n; ++k){
+            //fprintf( stdout,"%i %s %s\n", reads->is_reverse.a[k], reads->read_names.a[k],reads->sequences.a[k]);
+            fprintf( stdout,"%i %s %i %i\n", reads->is_reverse.a[k], reads->read_names.a[k], reads->hap.a[k], reads->phased_set.a[k]);
+        }
+        destroy_trimmed_reads(reads);
+        i++;
+    }
+
+    fclose(file);
+
+    printf("Done\n");
+    // for(int j=0; j<i; j++){
+    //     free(regions[j]);
+    // }
+    exit(0);
 }
 

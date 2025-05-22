@@ -8,10 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixes
 - Update documentation with `inference` and `sequence` command renaming.
 - Change default model resolved from bam-file from `variant` to `consensus`
+- Fix issue with initializing `inference` in Medaka tandem model.
+- Fixed a memory leak in the Medaka C library and removed redundant memory objects to reduce the footprint.
+### Changed
+- Fully refactored and redesigned `medaka tandem` code and optimised CPU-based execution.
+- Read-level models cannot be used with `medaka tandem`.
+- get_trimmed_reads now also returns the phase-set, hap and read ids.
 ### Added
+- Consensus models for v5.2.0 dorado models.
 - Models `dna_r10.4.1_e8.2_5khz_400bps_sup` and `dna_r10.4.1_e8.2_5khz_400bps_hac` added
   as aliases to those without `_5kz_` in their names. 
-- Consensus models for v5.2.0 dorado models.
+- `--cpu` option to `medaka inference` to force CPU and avoid searching for GPUs.
+- New output format for `medaka tandem` tailored for population studies.
+- New fields to `medaka tandem` output: depth, read lengths, read names, phase sets, and MAD of read lengths.
+- Read length–based outlier detection in `medaka tandem`.
 - Added `-B` option to `medaka_consensus` to allow passing a bed file or region to polish
   via `medaka inference --regions`.
 

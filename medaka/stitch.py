@@ -245,7 +245,7 @@ def stitch(args):
     def stitch_regions_serial(regions):
         label_scheme = index.metadata['label_scheme']
         for region in regions:
-            logger.info(f"Stitching {region}")
+            logger.debug(f"Stitching {region}")
             samples = index.yield_from_feature_files(regions=[region])
             yield from _stitch_samples(
                 samples, label_scheme, region, args.min_depth

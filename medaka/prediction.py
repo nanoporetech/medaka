@@ -53,7 +53,7 @@ def run_prediction(
 
             # log loading of batches
             if now() - tcache > cache_size_log_interval:
-                logger.info("Batches/Samples in cache: {}/{}".format(
+                logger.debug("Batches/Samples in cache: {}/{}".format(
                     loader._batches.qsize(), loader._samples.qsize()))
                 tcache = now()
             # calculate bases done taking into account overlap
@@ -70,7 +70,7 @@ def run_prediction(
             if t1 - tlast > 10:
                 tlast = t1
                 msg = '{:.1%} Done ({:.1f}/{:.1f} Mbases) in {:.1f}s'
-                logger.info(msg.format(
+                logger.debug(msg.format(
                     mbases_done / total_region_mbases, mbases_done,
                     total_region_mbases, t1 - t0))
 
@@ -133,7 +133,7 @@ def predict(args):
             feature_encoder.sym_indels = False
 
         import torch
-        if torch.cuda.device_count() > 0:
+        if torch.cuda.device_count() > 0 and not args.cpu:
             logger.info("Found a GPU.")
             device = torch.device("cuda")
             # logger.info(

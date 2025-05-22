@@ -1349,7 +1349,7 @@ def get_trimmed_reads(bam, region, partial, read_group):
         msg = 'Expected region {}, got region {}'
         raise ValueError(msg.format(region, region_got))
     # first read is ref, remove it.
-    ref_is_rev, ref_seq = reads.pop(0)
+    ref_is_rev, ref_name, ref_seq, _, _ = reads.pop(0)
     return reads
 
 
@@ -1370,7 +1370,7 @@ def align_reads_to_haps(
     """
     hap_counts = collections.Counter()
     total_scores = collections.Counter()
-    for is_rev, read_seq in reads:
+    for is_rev, read_name, read_seq, bhap, phased_set in reads:
         scores = align_read_to_haps(read_seq, haps, g_open, g_ext, matrix)
         # Find argmax score, or None if all scores equal
         if len(set(scores)) == 1:
