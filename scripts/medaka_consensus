@@ -7,6 +7,7 @@ function follow_link {
 
 OUTPUT="medaka"
 THREADS=1
+PREFIX="consensus"
 
 medaka_version=$(medaka --version)
 modeldata=()
@@ -49,6 +50,7 @@ $(basename "$0") [-h] -i <fastx> -d <fasta>
     -i  fastx input basecalls (required).
     -d  fasta input assembly (required).
     -o  output folder (default: medaka).
+    -p  prefix for output consensus file (default: consensus).
     -g  don't fill gaps in consensus with draft sequence.
     -r  use gap-filling character instead of draft sequence (default: None)
     -m  medaka model, (default: ${MODEL}).
@@ -67,12 +69,13 @@ $(basename "$0") [-h] -i <fastx> -d <fasta>
                and plasmid sequencing. "
 
 
-while getopts ':hi::d:o:gr:m:fxt:b:qM:B:-:' option; do
+while getopts ':hi::d:o:p:gr:m:fxt:b:qM:B:-:' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
     d  ) dflag=true; DRAFT=$(follow_link $OPTARG);;
     o  ) OUTPUT=$OPTARG;;
+    p  ) PREFIX=$OPTARG;;
     g  ) NOFILLGAPS=true;;
     r  ) GAPFILLCHAR=$OPTARG;;
     m  ) mflag=true; MODEL=$(medaka tools resolve_model --model $OPTARG);;
@@ -208,7 +211,7 @@ if "${QUALITIES}"; then
 else
     suffix="fasta"
 fi
-CONSENSUS="consensus.${suffix}"
+CONSENSUS="${PREFIX}.${suffix}"
 if [[ ! -e "${CONSENSUS}" ]] || ${FORCE}; then
     STITCH_OPTS=""
     QUALITIES_OPT=""
