@@ -227,6 +227,13 @@ class LatentSpaceLSTM(base_classes.ReadLevelFeaturesModel):
                     "the feature encoder."
                 )
                 raise ValueError(msg)
+        elif not self.use_dwells:
+            if getattr(fenc, "include_dwells", False):
+                msg = (
+                    "Model is not using dwells, however include_dwells is "
+                    "set in the feature encoder - is this intended?"
+                )
+                self.logger.warning(msg)
 
         if getattr(fenc, 'include_haplotypes', False):
             msg = (

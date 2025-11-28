@@ -6,7 +6,7 @@ include:
       file: "snippets.yaml"
 
 
-image: ${UBUNTU_IMAGE}:20.04
+image: ${UBUNTU_IMAGE}:24.04
 
 stages:
     - test
@@ -27,7 +27,7 @@ stages:
         - apt-get update -qq
         - apt-get install -y -qq 
           gcc make cmake curl wget git
-          zlib1g-dev libbz2-dev liblzma-dev libncurses5-dev libcurl4-gnutls-dev
+          zlib1g-dev libbz2-dev liblzma-dev libncurses-dev libcurl4-gnutls-dev
           libssl-dev libffi-dev valgrind
           libreadline8 libreadline-dev sqlite3 libsqlite3-dev
         - *install-pyenv

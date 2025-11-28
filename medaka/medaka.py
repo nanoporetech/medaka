@@ -315,34 +315,6 @@ def print_model_path(args):
 def is_rle_model(args):
     print(is_rle_encoder(args.model))
 
-def check_bam_for_dwells(bam):
-    """Check if a bam file contains dwell information.
-
-    :param bam: str, path to bam file.
-
-    :returns: bool, True if dwell information is present, False otherwise.
-    """
-    with pysam.AlignmentFile(bam) as bam:
-        for read in bam:
-            return "mv" in dict(read.tags)
-    return False
-
-def check_fastx_for_dwells(fastx):
-    """Check if a fastx file contains dwell information.
-
-    This is done by checking for the presence of the 'mv' tag in the comment
-    of the first read.
-
-    :param fastx: str, path to fastx file.
-
-    :returns: bool, True if dwell information is present, False otherwise.
-    """
-    with pysam.FastxFile(fastx) as fastx:
-        for read in fastx:
-            if read.comment is None: return False 
-            else: return "\tmv:" in read.comment
-    return False
-
 def check_compatible(args):
     """Check whether a model is compatible the given dataset.
 
@@ -358,10 +330,10 @@ def check_compatible(args):
     
     # check path extension is a bam or fastx
     try:
-        data_has_move_tables = check_bam_for_dwells(data)
+        data_has_move_tables = medaka.common.check_bam_for_dwells(data)
     except ValueError as e:
         try:
-            data_has_move_tables = check_fastx_for_dwells(data)
+            data_has_move_tables = medaka.common.check_fastx_for_dwells(data)
         except ValueError as e:
             raise ValueError(
                 f"Could not open data file {data} as a bam or fastx file.")

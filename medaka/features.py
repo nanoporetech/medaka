@@ -1375,6 +1375,27 @@ def create_samples(args):
         # Create and serialise to file model ancilliaries
         feature_encoder = feature_encoders[args.feature_encoder](
             **args.feature_encoder_args)
+        data_has_move_tables = medaka.common.check_bam_for_dwells(args.bam)
+        encoder_expects_dwells = getattr(
+                feature_encoder, 'include_dwells', False
+            )
+        if encoder_expects_dwells and not data_has_move_tables:
+            os.remove(args.output)
+            raise ValueError(
+                f"Provided data has dwells={data_has_move_tables}, "
+                f"but feature encoder has include_dwells="
+                f"{encoder_expects_dwells}. Please ensure dwell status of "
+                "data matches expectation of feature encoder."
+                )
+
+        elif (hasattr(feature_encoder, 'include_dwells') and
+                not feature_encoder.include_dwells and
+                data_has_move_tables):
+            logger.warning(
+                "Data has dwells but feature encoder is not using "
+                "them - is this intended?"
+                )
+
         ds.set_meta(feature_encoder, 'feature_encoder')
 
         label_scheme = medaka.labels.label_schemes[args.label_scheme](
