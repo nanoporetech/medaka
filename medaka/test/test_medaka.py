@@ -35,12 +35,12 @@ class TestCheckCompatible(unittest.TestCase):
         cls.dwells_model = medaka.models.resolve_model('r1041_e82_400bps_hac_v5.0.0_rl_lstm384_dwells')
 
     def test_001_check_bam_compatible_dwells(self):
-        self.assertFalse(medaka.medaka.check_bam_for_dwells(self.no_dwell_bam))
-        self.assertTrue(medaka.medaka.check_bam_for_dwells(self.dwell_bam))
+        self.assertFalse(medaka.common.check_bam_for_dwells(self.no_dwell_bam))
+        self.assertTrue(medaka.common.check_bam_for_dwells(self.dwell_bam))
 
     def test_002_check_fastx_compatible_dwells(self):
-        self.assertFalse(medaka.medaka.check_fastx_for_dwells(self.no_dwell_fasta))
-        self.assertTrue(medaka.medaka.check_fastx_for_dwells(self.dwell_fasta))
+        self.assertFalse(medaka.common.check_fastx_for_dwells(self.no_dwell_fasta))
+        self.assertTrue(medaka.common.check_fastx_for_dwells(self.dwell_fasta))
 
     def test_003_check_compatible(self):
         @dataclasses.dataclass

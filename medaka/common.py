@@ -1220,3 +1220,35 @@ def tag_merge_bams(args):
         fh.close()
 
     pysam.index(str(args.output), "-@", str(args.threads))
+
+
+def check_bam_for_dwells(bam):
+    """Check if a bam file contains dwell information.
+
+    :param bam: str, path to bam file.
+
+    :returns: bool, True if dwell information is present, False otherwise.
+    """
+    with pysam.AlignmentFile(bam) as bam:
+        for read in bam:
+            return "mv" in dict(read.tags)
+    return False
+
+
+def check_fastx_for_dwells(fastx):
+    """Check if a fastx file contains dwell information.
+
+    This is done by checking for the presence of the 'mv' tag in the comment
+    of the first read.
+
+    :param fastx: str, path to fastx file.
+
+    :returns: bool, True if dwell information is present, False otherwise.
+    """
+    with pysam.FastxFile(fastx) as fastx:
+        for read in fastx:
+            if read.comment is None:
+                return False
+            else:
+                return "\tmv:" in read.comment
+    return False
