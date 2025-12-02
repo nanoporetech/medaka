@@ -315,6 +315,7 @@ read_aln_data calculate_read_alignment(
     bam_mplp_t mplp = bam_mplp_init(1, read_bam, (void **)& data);
     const bam_pileup1_t **plp = xalloc(1, sizeof(bam_pileup1_t *), "pileup");
     int ret = 0, pos = 0, tid = 0, n_plp = 0;
+    int last_pos = -1;
 
     // allocate output assuming one insertion per ref position
     size_t n_pos = 0;
@@ -335,6 +336,8 @@ read_aln_data calculate_read_alignment(
     khash_t(str2int) *read_map = khash_str2int_init();
 
     while ((ret=bam_mplp_auto(mplp, &tid, &pos, &n_plp, plp) > 0)) {
+        // Store the last position because bam_mplp_auto will set it to 0 if it returns empty.
+        last_pos = pos;
         const char *c_name = data->hdr->target_name[tid];
         if (strcmp(c_name, chr) != 0) continue;
         if (pos < start) continue;
@@ -458,9 +461,6 @@ read_aln_data calculate_read_alignment(
                     }
                 } else {
                     read_i = array_size;
-                    if(array_size > max_n_reads) {
-                        max_n_reads = array_size;
-                    }
                 }
                 // no completed reads, append instead
                 if (read_i == array_size) {
@@ -474,6 +474,8 @@ read_aln_data calculate_read_alignment(
                     exit(1);
                 }
             }
+
+            max_n_reads = max(max_n_reads, kv_size(read_array));
 
             if (read_i >= pileup->buffer_reads) {
                 continue;
@@ -570,9 +572,11 @@ read_aln_data calculate_read_alignment(
         n_pos += max_ins;
     }
 
+    ++last_pos;
+
     for (size_t r = 0, nleft = 0, nright = 0; r < kv_size(read_array); ++r) {
         Read *read = &kv_A(read_array, r);
-        if (read->ref_end >= (size_t)pos) {
+        if (read->ref_end >= (size_t)last_pos) {
             pileup->read_ids_right[r] = strdup(read->qname);
         } else {
             char tmp[100];
@@ -587,11 +591,7 @@ read_aln_data calculate_read_alignment(
     }
 
     pileup->n_pos = n_pos;
-    if (row_per_read) {
-        pileup->n_reads = kv_size(read_array);
-    } else {
-        pileup->n_reads = max_n_reads;
-    }
+    pileup->n_reads = kv_size(read_array);
     pileup->n_reads = min(max_reads, pileup->n_reads);
 
     khash_str2int_destroy_free(read_map);
