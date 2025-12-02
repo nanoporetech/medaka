@@ -445,7 +445,11 @@ def _reorder_reads(chunks, read_ids):
             )
 
         reordered_chunk = np.zeros(
-            (chunk.shape[0], max(len(rids_out), len(rids_in)), chunk.shape[2]),
+            (
+                chunk.shape[0],
+                max(len(new_indices), len(rids_out), len(rids_in)),
+                chunk.shape[2],
+            ),
             dtype=chunk.dtype,
         )
         reordered_chunk[:, new_indices != -1, :] = chunk[
