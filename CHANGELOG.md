@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Changed
 - `medaka features` fails if encoder expects dwells but data does not contain move tables, or warns if available move tables are not being used.  
-- During training, warning is output if model is not using available dwell information.  
+- During training, warning is output if model is not using available dwell information.
+- Make more of an attempt to set threading appropriately for differing behaviours of pytorch and oneDNN builds. 
 
 ## [v2.1.1]
 ### Added
