@@ -55,7 +55,7 @@ deploy-checks:
 
 
 
-# medaka test suite on various Pythons, latest as of 2024-08-14
+# medaka test suite on various Pythons, latest as of 2025-11-24
 pytest: &pytest
     stage: test
     <<: *preparetest
@@ -67,10 +67,10 @@ pytest: &pytest
         - make test-variants
     parallel:
         matrix:
-            - PYENV_VERSION: 3.9.19
             - PYENV_VERSION: 3.10.14
             - PYENV_VERSION: 3.11.9
             - PYENV_VERSION: 3.12.10
+            - PYENV_VERSION: 3.13.9
 
 
 test-mem-check:
@@ -90,7 +90,7 @@ build:sdist:
     stage: build
     <<: *preparetest
     variables:
-        PYENV_VERSION: 3.9.19
+        PYENV_VERSION: 3.10.14
     script:
         - make sdist
     artifacts:
@@ -114,17 +114,6 @@ build:sdist:
         paths:
             - wheelhouse-final/*.whl
 
-
-wheels-2014:
-    extends: .many-linux
-    image: "quay.io/pypa/manylinux2014_x86_64"
-    parallel:
-        matrix:
-            - PYWHEEL: [9]
-              COMPUTE: ["gpu", "cpu"]
-              FLAVOUR: ["2014"]
-
-
 wheels-2_28:
     extends: .many-linux
     image: "quay.io/pypa/manylinux_2_28_x86_64"
@@ -132,7 +121,7 @@ wheels-2_28:
         - dnf install -y libffi-devel
     parallel:
         matrix:
-            - PYWHEEL: [9, 10, 11, 12]
+            - PYWHEEL: [10, 11, 12, 13]
               COMPUTE: ["gpu", "cpu"]
               FLAVOUR: ["2_28"]
 
@@ -158,7 +147,7 @@ wheels-arm-2014:
         - sed -i '/^torch~=[^[:space:]]*/s/^torch~=[^[:space:]]*/torch==2.0.1/' requirements.txt
     parallel:
         matrix:
-            - PYWHEEL: [9, 10]
+            - PYWHEEL: [10]
               COMPUTE: ["gpu"]
               FLAVOUR: ["2014"]
 
@@ -186,7 +175,7 @@ wheels-arm-2014:
         matrix:
             # 8 gives grief with wanted to add -mtune=haswell \:D/
             # suggests platform.machine() isn't reported correctly
-            - PYWHEEL: [9, 10, 11, 12]
+            - PYWHEEL: [10, 11, 12, 13]
 
 
 macOS-arm64-wheel:
