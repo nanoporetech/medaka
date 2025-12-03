@@ -110,10 +110,10 @@ if __name__ == '__main__':
         print("Skipping LFS model check.")
 
     pymajor, pyminor = sys.version_info[0:2]
-    if (pymajor < 3) or (pyminor not in {9, 10, 11, 12}):
+    if (pymajor < 3) or not (10 <= pyminor <= 13):
         raise RuntimeError(
             '`medaka` is unsupported on your version of python, '
-            'please use python 3.9-3.12 (inclusive)')
+            'please use python 3.10-3.13 (inclusive)')
 
     setup(
         name=__dist_name__,
@@ -123,7 +123,7 @@ if __name__ == '__main__':
         description=__description__,
         long_description=__long_description__,
         long_description_content_type=__long_description_content_type__,
-        python_requires='>=3.9,<3.13',
+        python_requires='>=3.10,<3.14',
         packages=find_packages(exclude=['*.test', '*.test.*', 'test.*', 'test']),
         package_data={
             __pkg_name__:[

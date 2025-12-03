@@ -463,8 +463,10 @@ class Sample(_Sample):
         ...     dtype=[('major', int), ('minor', int)])
         >>> feat = np.arange(len(pos))
         >>> s = Sample('contig1', feat , None, None, pos, None, None)
-        >>> s.slice(2)  #doctest: +ELLIPSIS
-        Sample(...features=2, ..., positions=(1, 1), label_probs=None,...)
+        >>> s.slice(2)  #doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+        Sample(...features=np.int64(2)...
+        ... positions=np.void((1, 1)...
+        ... label_probs=None...)
         >>> s.slice(slice(1,3)) #doctest: +ELLIPSIS
         Sample(..., features=array([1, 2]),...)
         """

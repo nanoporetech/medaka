@@ -33,16 +33,16 @@ requirements:
     # python requirements, ordered as requirement.txt for convenience
     - cffi
     - python-edlib
-    - h5py==3.10.*
+    - h5py
     - intervaltree
-    - numpy >=1.21.0,<2.0.0
+    - numpy >=2.0.0
     - mappy
     - ont-fast5-api
     - parasail-python
     - pysam
     - pyspoa
     - requests
-    - pytorch==2.3.*
+    - pytorch==2.9.*
     # see pytorch/issues/123097
     #- mkl==2024.0  # [osx]
     - toml

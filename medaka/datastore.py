@@ -235,7 +235,7 @@ class DataStore(object):
         path = '{}/{}'.format(self._meta_group_, key)
         if path in self.fh:
             del self.fh[path]
-        pickled_obj = np.string_(pickle.dumps(obj))
+        pickled_obj = np.bytes_(pickle.dumps(obj))
         self.fh[path] = pickled_obj
         self.fh.flush()
 
@@ -282,10 +282,9 @@ class DataStore(object):
                     data = getattr(sample, field)
                     # handle numpy array of unicode chars
                     if isinstance(data, np.ndarray) and \
-                            isinstance(data[0], np.compat.unicode):
+                            isinstance(data[0], str):
                         data = np.char.encode(data)
-                    location = '{}/{}/{}'.format(
-                        self._sample_path_, sample.name, field)
+                    location = f'{self._sample_path_}/{sample.name}/{field}'
                     self.write_futures.append(
                         self.write_executor.submit(
                             self._write_dataset, location, data))
@@ -332,7 +331,7 @@ class DataStore(object):
         """Write a pickled object to file."""
         if path in self.fh:
             del self.fh[path]
-        pickled_obj = np.string_(pickle.dumps(obj))
+        pickled_obj = np.bytes_(pickle.dumps(obj))
         self.fh[path] = pickled_obj
 
     def _initialise_sample_registry(self):

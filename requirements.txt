@@ -3,20 +3,20 @@
 # don't do these on the same line as CI likes to fiddle them occasionally
 cffi
 edlib
-h5py~=3.10.0
+h5py
 intervaltree
-# 2.0.0 breaks all-the-things
-numpy>=1.21.0,<2.0.0
+numpy>=2.0
 ont-mappy
 ont_fast5_api
 ont-parasail
-# 0.16.0 is broken, various others too
 packaging
-pysam>=0.16.0.1
+# 0.16.0 is broken, various others too
+# 0.23.1-? is broken for test-coverage for py3.13: https://github.com/pysam-developers/pysam/issues/1350
+pysam>=0.16.0.1,<=0.23.0
 # 0.2.0 has `min_coverage` parameter
 pyspoa>=0.2.1
 requests
 toml
-torch~=2.3
+torch~=2.9
 tqdm
 wurlitzer

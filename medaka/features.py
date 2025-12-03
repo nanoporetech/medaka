@@ -373,7 +373,7 @@ def _read_matrix_data_to_numpy(read_matrix_data):
             else ffi.string(read_matrix_data.read_ids_left[n])
             for n in range(read_matrix_data.n_reads)
         ],
-        dtype=np.string_,
+        dtype=np.bytes_,
     )
     read_ids_right = np.array(
         [
@@ -382,7 +382,7 @@ def _read_matrix_data_to_numpy(read_matrix_data):
             else ffi.string(read_matrix_data.read_ids_right[n])
             for n in range(read_matrix_data.n_reads)
         ],
-        dtype=np.string_,
+        dtype=np.bytes_,
     )
     return np_counts, positions, (read_ids_left, read_ids_right)
 
@@ -985,10 +985,10 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
                 padded_labels = np.full(
                     shape, label_scheme.padding_vector,
                     dtype=truth_labels.dtype)
-                truth_inds = np.where(np.in1d(truth_pos, sample.positions))
-                sample_inds = np.where(np.in1d(sample.positions, truth_pos))
+                truth_inds = np.where(np.isin(truth_pos, sample.positions))
+                sample_inds = np.where(np.isin(sample.positions, truth_pos))
                 assert len(truth_inds[0]) == len(sample_inds[0])
-                assert np.alltrue(
+                assert np.all(
                     truth_pos[truth_inds] == sample.positions[sample_inds])
 
                 padded_labels[sample_inds] = truth_labels[truth_inds]
