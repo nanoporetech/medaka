@@ -531,7 +531,7 @@ def medaka_parser():
     tparser.add_argument('--loss_args', action=StoreDict, default=None, nargs='+',
         metavar="KEY1=VAL1,KEY2=VAL2...", help="Training loss key-word arguments.")
     tparser.add_argument("--use_lr_schedule", action="store_true", default=True, help="Use cosine learning rate scheduler.")
-    tparser.add_argument("--amp", action="store_true", default=False, 
+    tparser.add_argument("--amp", action="store_true", default=False,
         help="Train with half precision.")
     tparser.add_argument("--validate_only", action="store_true", default=False,
         help="Run a single validation epoch, write metrics and then exit.")
@@ -550,7 +550,14 @@ def medaka_parser():
     cparser.set_defaults(func=medaka.prediction.predict)
     cparser.add_argument('bam', help='Input alignments.', action=CheckBam)
     cparser.add_argument('output', help='Output file.')
-    cparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
+    cparser.add_argument(
+        '--threads', type=int, default=1,
+        #help='Number of threads used by inference. Used with torch.set_num_threads().'
+        help=argparse.SUPPRESS)
+    cparser.add_argument(
+        '--inter_threads', type=int, default=1,
+        #help='Number of inter-op threads used by inference. Used with torch.set_num_interop_threads().'
+        help=argparse.SUPPRESS)
     cparser.add_argument('--bam_workers', type=int, default=2, help='Number of workers used to prepare data from bam.')
     cparser.add_argument('--bam_chunk', type=int, default=int(1e6), help='Size of reference chunks each worker parses from bam. (can be used to control memory use).')
     cparser.add_argument('--check_output', action='store_true', default=False,
@@ -892,7 +899,7 @@ def medaka_parser():
 
     # export models
     eparser = toolsubparsers.add_parser('export',
-        help='Export a model to run in dorado polish', 
+        help='Export a model to run in dorado polish',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     eparser.set_defaults(func=medaka.torch_ext.export_model)

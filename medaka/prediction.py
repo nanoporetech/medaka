@@ -1,4 +1,5 @@
 """Inference program and ancilliary functions."""
+import os
 import queue
 import threading
 from timeit import default_timer as now
@@ -85,6 +86,47 @@ def predict(args):
     """Inference program."""
     logger = medaka.common.get_named_logger('Predict')
 
+    # setup threading
+    # this is belt and braces approach as some builds of pytorch
+    # (looking at you conda-forge) do not seem to respect things
+    if args.threads > 2 or args.inter_threads > 1:
+        logger.warning("Reducing threads, anymore is a waste.")
+        args.threads = min(2, args.threads)  # maybe a 20% speedup walltime
+        args.inter_threads = 1               # no benefit seen in testing
+        logger.info(
+            "It looks like you "
+            "attempted to set a high number of threads. We "
+            "have scaled this down to an optimal number. If you "
+            "wish to improve performance please see "
+            "https://nanoporetech.github.io/medaka/"
+            "installation.html#improving-parallelism.")
+    logger.info(
+        "Setting pytorch intra/inter-op threads to "
+        f"{args.threads}/{args.inter_threads}.")
+
+    # intra-op threading
+    os.environ["OMP_NUM_THREADS"] = str(args.threads)
+    os.environ["MKL_NUM_THREADS"] = str(args.threads)
+    os.environ["TORCH_NUM_THREADS"] = str(args.threads)
+    import torch
+    if torch.get_num_threads() != args.threads:
+        logger.debug(
+            "PyTorch reported number of threads ({}) is different "
+            "to requested ({}).".format(
+                torch.get_num_threads(), args.threads))
+        torch.set_num_threads(args.threads)
+    # inter-op threading
+    if torch.get_num_interop_threads() != args.inter_threads:
+        logger.debug(
+            "PyTorch reported number of inter-op threads ({}) is different "
+            "to requested ({}).".format(
+                torch.get_num_interop_threads(), args.inter_threads))
+        torch.set_num_interop_threads(args.inter_threads)
+
+    logger.info(
+        "PyTorch reports intra/inter-op threads as "
+        f"{torch.get_num_threads()}/{torch.get_num_interop_threads()}.")
+
     bam_regions = medaka.common.get_bam_regions(
         args.bam, regions=args.regions)
     logger.info('Processing region(s): {}'.format(
@@ -132,19 +174,11 @@ def predict(args):
         if not hasattr(feature_encoder, "sym_indels"):
             feature_encoder.sym_indels = False
 
-        import torch
         if torch.cuda.device_count() > 0 and not args.cpu:
             logger.info("Found a GPU.")
             device = torch.device("cuda")
-            # logger.info(
-            #     "If cuDNN errors are observed, try setting the environment "
-            #     "variable `TF_FORCE_GPU_ALLOW_GROWTH=true`. To explicitely "
-            #     "disable use of cuDNN use the commandline option "
-            #     "`--disable_cudnn. If OOM (out of memory) errors are found "
-            #     "please reduce batch size.")
         else:
             device = torch.device("cpu")
-            torch.set_num_threads(args.threads)
             args.full_precision = True
 
         model = model_store.load_model(device=device)

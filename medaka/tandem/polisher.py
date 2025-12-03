@@ -68,7 +68,7 @@ class Polisher:
             "--bam_workers",
             str(self.threads),
             "--threads",
-            str(self.threads),
+            str(min(self.threads, 2)),
             "--batch_size",
             str(batch_size),
             "--chunk_len",
