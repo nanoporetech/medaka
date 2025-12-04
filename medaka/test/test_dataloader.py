@@ -43,7 +43,10 @@ class TestDataLoader(unittest.TestCase):
         self.assertEqual(len(batches), exp_batches)
 
         if read_level:
-            self.assertEqual(batches[0].read_level_features.ndim, 4)
+            expected_field_names = {'basecall', 'qscore', 'strand', 'mapq'}
+            # check all expected fields present in tensordict
+            for fname in expected_field_names:
+                self.assertIn(fname, batches[0].read_level_features)
 
     def test_010_singleton(self):
         self._run_one(200, 5000, 100, exp_batches=1, exp_samples=1)

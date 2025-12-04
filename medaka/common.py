@@ -135,36 +135,43 @@ class Sample(_Sample):
         """Create a counts matrix representation of the pileup.
 
         If the features are 2d, assume already a counts matrix, else calculate
-        from the 3d full-alignment features
+        from the read-level features array.
         """
-        if self.features.ndim == 2:
+        if self.features.ndim != 2:
+            raise ValueError(
+                "Features for counts matrices must be 2-dimensional. "
+                "3-D features for read-level array are no longer supported."
+            )
+        if self.features.dtype.names is None:
             # if features are saved as counts matrices, simply return them
             return self.features
 
         # otherwise, if features have been saved as full alignment matrices
         # calculate the counts matrix from them.
         else:
-            x = self.features
+            basecalls = self.features['basecall']
+            strand = self.features['strand']
             positions = self.positions
-            y = np.zeros((x.shape[0], 10))
+            y = np.zeros((basecalls.shape[0], 10))
             minor_inds = np.where(positions['minor'] > 0)
             major_pos_at_minor_inds = positions['major'][minor_inds]
             major_ind_at_minor_inds = np.searchsorted(
                 positions['major'], major_pos_at_minor_inds, side='left')
 
-            depth = np.sum(x[:, :, 0] != 0, axis=1)
+            depth = np.sum(basecalls != 0, axis=1)
             depth[minor_inds] = depth[major_ind_at_minor_inds]
             depth[depth == 0] = 1
             # get forward and reverse read masks by looking at strand channel
             # of features
-            forward_mask = x[:, :, 2] == 1
+            forward_mask = strand == 1
             reverse_mask = ~forward_mask
             for base_idx, base in enumerate('pacgtd'):
                 if base == 'p':
                     # ignore pad token in counts matrix
                     continue
-                cur_for = np.sum(forward_mask*(x[:, :, 0] == base_idx), axis=1)
-                cur_rev = np.sum(reverse_mask*(x[:, :, 0] == base_idx), axis=1)
+
+                cur_for = np.sum(forward_mask*(basecalls == base_idx), axis=1)
+                cur_rev = np.sum(reverse_mask*(basecalls == base_idx), axis=1)
                 y[:, base2index[base]] = cur_for/depth
                 y[:, base2index[base.upper()]] = cur_rev/depth
         return y
@@ -642,6 +649,30 @@ class Sample(_Sample):
         # we also need here
         yield from Sample.trim_samples(
             filtered_stream(samples), logger_name='DepthFilt')
+
+    @property
+    def has_structured_features(self) -> bool:
+        """Checks if a NumPy array is a structured array."""
+        return self.features.dtype.fields is not None
+
+    def pad_to_depth(self, depth):
+        """Pad features to a given depth."""
+        if not self.has_structured_features:
+            # not read level features, no padding needed for counts matrix
+            return self.amend()
+        if self.features.shape[-1] == depth:
+            return self.amend()
+        elif self.features.shape[-1] > depth:
+            raise ValueError(
+                f"Cannot pad to depth {depth} as sample has greater depth "
+                f"({self.features.shape[-1]})."
+            )
+        else:
+            fshape = list(self.features['basecall'].shape)
+            fshape[-1] = depth - fshape[-1]  # number padded reads to add
+            pad_arr = np.zeros(fshape, dtype=self.features.dtype)
+            features = np.concatenate([self.features, pad_arr], axis=-1)
+            return self.amend(features=features)
 
 
 # provide read only access to key region attrs

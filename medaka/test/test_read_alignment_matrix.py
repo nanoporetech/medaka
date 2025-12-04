@@ -36,7 +36,9 @@ class AlignmentMatrixTest(unittest.TestCase):
         assert tuple(sample.positions.shape) == (self.expected_width, )
         assert tuple(sample.positions[0]) == (50000, 0)
         assert tuple(sample.positions[-1]) == (99999, 1)
-        assert sample.features.shape == (self.expected_width, self.expected_depth, self.base_featlen)
+        assert sample.features.shape == (self.expected_width, 
+                                         self.expected_depth)
+        assert len(sample.features[0,0]) == self.base_featlen
 
     def test_002_totals_match_counts(self):
         encoder = medaka.features.ReadAlignmentFeatureEncoder(include_dwells=False)
@@ -49,13 +51,13 @@ class AlignmentMatrixTest(unittest.TestCase):
 
         # total reads per position (assuming no-read is encoded as 0)
         NO_READ_VAL = 0
-        total_reads = (sample.features[:, :, 0] != NO_READ_VAL).sum(-1)
+        total_reads = (sample.features['basecall'] != NO_READ_VAL).sum(-1)
         counts_total_reads = counts_sample.features.sum(-1)
         np.testing.assert_array_equal(total_reads, counts_total_reads)
 
         # base counts per position
         base_counts = np.array(
-            [(sample.features[:, :, 0] == (i + 1)).sum(-1) for i in range(5)])
+            [(sample.features['basecall'] == (i + 1)).sum(-1) for i in range(5)])
         counts_base_counts = np.hstack([
             counts_sample.features[:, :4] + counts_sample.features[:, 4:8],
             counts_sample.features[:, 8][:, None] + counts_sample.features[:, 9][:, None],
@@ -70,7 +72,8 @@ class AlignmentMatrixTest(unittest.TestCase):
         assert tuple(sample.positions.shape) == (self.expected_width, )
         assert tuple(sample.positions[0]) == (50000, 0)
         assert tuple(sample.positions[-1]) == (99999, 1)
-        assert sample.features.shape == (self.expected_width, 291, self.base_featlen)
+        assert sample.features.shape == (self.expected_width, 291)
+        assert len(sample.features[0,0]) == self.base_featlen
 
     def test_010_pickleble(self):
         encoder = medaka.features.ReadAlignmentFeatureEncoder()
@@ -174,7 +177,20 @@ class AlignmentMatrixTest(unittest.TestCase):
             depth=np.array(9 * [10]),
         )
 
-        np.testing.assert_equal(expected.features.shape, (9, 4, 4))
+        # convert expected features to match structed array format
+        structured_features_arr = expected.features.copy()
+        structured_features_arr.dtype = np.dtype([
+            ('basecall', 'int8'),
+            ('qscore', 'int8'),
+            ('strand', 'int8'),
+            ('mapq', 'int8'),
+        ])
+
+
+        # squash final 1d array into structured array
+        expected = expected.amend(features=structured_features_arr[...,0])
+
+        np.testing.assert_equal(expected.features.shape, (9, 4))
         np.testing.assert_equal(result.features.shape, expected.features.shape)
 
         np.testing.assert_equal(result.labels, expected.labels)
@@ -257,7 +273,19 @@ class AlignmentMatrixTest(unittest.TestCase):
             depth=np.array(9 * [10]),
         )
 
-        np.testing.assert_equal(expected.features.shape, (9, 4, 5))
+        # convert expected features to match structed array format
+        structured_features_arr = expected.features.copy()
+        structured_features_arr.dtype = np.dtype([
+            ('basecall', 'int8'),
+            ('qscore', 'int8'),
+            ('strand', 'int8'),
+            ('mapq', 'int8'),
+            ('dwell', 'int8'),
+        ])
+        # squash final 1d array into structured array
+        expected = expected.amend(features=structured_features_arr[...,0])
+
+        np.testing.assert_equal(expected.features.shape, (9, 4))
         np.testing.assert_equal(result.features.shape, expected.features.shape)
 
         print(result.features.swapaxes(0, 1))
@@ -276,9 +304,10 @@ class AlignmentMatrixTest(unittest.TestCase):
         result = encoder.bams_to_training_samples(
             __reads_truth__, __reads_bam__, region, label_scheme)[0]
 
-        expected_feature_shape = (177981, 43, 4)
+        expected_feature_shape = (177981, 43)
         got_feature_shape = result.features.shape
         self.assertEqual(expected_feature_shape, got_feature_shape)
+        assert len(result.features[0,0]) == 4
 
         expected_label_shape = (177981,)
         got_label_shape = result.labels.shape
@@ -296,7 +325,9 @@ class AlignmentMatrixTest(unittest.TestCase):
             max_reads=test_depth, include_dwells=False)
         result = encoder.bams_to_training_samples(
             __reads_truth__, __reads_bam__, region, label_scheme)[0]
-        expected_feature_shape = (177981, test_depth, 4)
+        expected_feature_shape = (177981, test_depth)
+
+        assert len(result.features[0,0]) == 4
         got_feature_shape = result.features.shape
         self.assertEqual(expected_feature_shape, got_feature_shape)
 
@@ -393,6 +424,16 @@ class ReadMatrixSplitAndJoin(unittest.TestCase):
             ]],
             dtype='int8'
         ).swapaxes(0, 1)
+        # convert expected features to match structed array format
+        cls.counts.dtype = np.dtype([
+            ('basecall', 'int8'),
+            ('qscore', 'int8'),
+            ('strand', 'int8'),
+            ('mapq', 'int8'),
+            ('dwell', 'int8'),
+        ])
+        # squash final 1d array into structured array
+        cls.counts = cls.counts[...,0]
         cls.positions = np.array(
             [(0, 0), (1, 0), (2, 0), (3, 0), (3, 1),
              (4, 0), (5, 0), (6, 0), (7, 0)],
@@ -415,7 +456,7 @@ class ReadMatrixSplitAndJoin(unittest.TestCase):
         np.testing.assert_equal(reorder[1], self.counts[5:])
 
     def test_002_reorder_swapped(self):
-        counts_chunks = [self.counts[:5], self.counts[5:, [0, 2, 3, 1], :]]
+        counts_chunks = [self.counts[:5], self.counts[5:, [0, 2, 3, 1]]]
         read_ids = [
             (
                 np.array(["read_id_1", "read_id_2", "read_id_3", "read_id_4"]), #chunk1 in
@@ -431,7 +472,7 @@ class ReadMatrixSplitAndJoin(unittest.TestCase):
         np.testing.assert_equal(reorder[1], self.counts[5:])
 
     def test_003_reorder_missing_right(self):
-        counts_chunks = [self.counts[:5], self.counts[5:, [0, 2, 3], :]]
+        counts_chunks = [self.counts[:5], self.counts[5:, [0, 2, 3]]]
         read_ids = [
             (
                 np.array(["read_id_1", "read_id_2", "read_id_3", "read_id_4"]), #chunk1 in
@@ -443,9 +484,9 @@ class ReadMatrixSplitAndJoin(unittest.TestCase):
         ]
         reorder = medaka.features._reorder_reads(counts_chunks, read_ids)
         expected_output = np.concatenate([
-                self.counts[5:, [0], :],
-                np.zeros_like(self.counts[5:, [0], :]),
-                self.counts[5:, 2:, :],
+                self.counts[5:, [0]],
+                np.zeros_like(self.counts[5:, [0]]),
+                self.counts[5:, 2:],
             ],
             axis=1
         )
@@ -465,7 +506,7 @@ class ReadMatrixSplitAndJoin(unittest.TestCase):
             )
         ]
         reorder = medaka.features._reorder_reads(counts_chunks, read_ids)
-        expected_output = self.counts[5:, [0, 1, 3, 2], :]
+        expected_output = self.counts[5:, [0, 1, 3, 2]]
 
         np.testing.assert_equal(reorder[0], self.counts[:5, [0, 1, 3]])
         np.testing.assert_equal(reorder[1], expected_output)
@@ -561,6 +602,18 @@ class FeaturesFromBam(unittest.TestCase):
             ]],
             dtype='int8'
         ).swapaxes(0, 1)
+
+
+        # convert expected features to match structed array format
+        cls.expected_counts.dtype = np.dtype([
+            ('basecall', 'int8'),
+            ('qscore', 'int8'),
+            ('strand', 'int8'),
+            ('mapq', 'int8'),
+        ])
+        # squash final 1d array into structured array
+        cls.expected_counts = cls.expected_counts[...,0]
+
         cls.expected_positions = np.array(
             [(0, 0), (1, 0), (2, 0), (3, 0), (3, 1),
              (4, 0), (5, 0), (6, 0), (7, 0)],
@@ -569,6 +622,7 @@ class FeaturesFromBam(unittest.TestCase):
     def test_000_counts_no_dtypes(self):
         counts, positions = medaka.features.read_alignment_matrix(
             self.region, self.bam)[0]
+        print(self.expected_counts.shape, counts.shape)
 
         np.testing.assert_equal(counts.shape, self.expected_counts.shape)
         self.assertTrue(np.array_equal(counts, self.expected_counts))
@@ -594,8 +648,9 @@ class FeaturesFromBam(unittest.TestCase):
         counts, positions = medaka.features.read_alignment_matrix(
             self.region, self.bam, dtype_prefixes=['r9', 'r10'])[0]
 
-        expected_shape = (9, 4, 5)
+        expected_shape = (9, 4)
         self.assertEqual(expected_shape, counts.shape)
+        self.assertEqual(len(counts[0,0]), 5)
 
     def test_050_read_groups(self):
         bam = tempfile.NamedTemporaryFile(suffix='.bam').name
@@ -613,8 +668,8 @@ class FeaturesFromBam(unittest.TestCase):
         counts, positions = medaka.features.read_alignment_matrix(
             region, bam)[0]
         self.assertEqual(counts.shape[1], 2*self.expected_counts.shape[1])
-        self.assertTrue(np.array_equal(counts[:, [0, 1, 4, 5], :], self.expected_counts))
-        self.assertTrue(np.array_equal(counts[:, [2, 3, 6, 7], :], self.expected_counts))
+        self.assertTrue(np.array_equal(counts[:, [0, 1, 4, 5]], self.expected_counts))
+        self.assertTrue(np.array_equal(counts[:, [2, 3, 6, 7]], self.expected_counts))
         self.assertTrue(np.array_equal(positions, self.expected_positions))
 
         # use one or other

@@ -39,13 +39,20 @@ def get_test_samples(num_train=1000, num_test=500, chunk_size=1000, read_level_f
         # choose random depth between 10 & 20
         depths = np.ones_like(labels)*np.random.randint(10, 20)
         if read_level_features:
+            # make structured array for read-level features
+            field_names = ['basecall', 'qscore', 'strand', 'mapq', 'dwell']
 
-            features = np.zeros((num_samples, chunk_size, np.max(depths), 5)
+            features = np.zeros((num_samples, chunk_size, np.max(depths), 5))
+
+            features = features.view(
+                dtype=[(name, 'int64') for name in field_names]
+            ).reshape(
+                (num_samples, chunk_size, np.max(depths))
             )
             # bases
-            features[:,:,:, 0] = np.random.randint(0, 5, size=(num_samples, chunk_size, np.max(depths)))
+            features['basecall'] = np.random.randint(0, 5, size=(num_samples, chunk_size, np.max(depths)))
             # q scores
-            features[:,:,:, 1] = np.random.randint(0, 50, size=(num_samples, chunk_size, np.max(depths)))
+            features['qscore'] = np.random.randint(0, 50, size=(num_samples, chunk_size, np.max(depths)))
         else:
             features = np.random.random(size=(num_samples, chunk_size,10))
             depths = np.ones_like(labels)
@@ -390,10 +397,14 @@ class TestSample(unittest.TestCase):
         samples, _ = get_test_samples(num_train=1, num_test=1, chunk_size=10, read_level_features=True)
         sample = samples[0]
         assert sample.counts_matrix.ndim == 2
-        assert sample.features.ndim == 3
-
-
-
+        assert sample.counts_matrix.dtype.name == 'float64'
+        # check is structured array with expected fields and not standard ndarray
+        assert isinstance(sample.features, np.ndarray)
+        assert sample.features.dtype.names is not None
+        # minimal set of expected fields for read-level features
+        expected_field_names = ('basecall', 'qscore', 'strand', 'dwell')
+        for fname in expected_field_names:
+            assert fname in sample.features.dtype.names
 
 
 class TestTrimSamples(unittest.TestCase):

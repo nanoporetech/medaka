@@ -45,6 +45,7 @@ requirements:
     - pytorch==2.9.*
     # see pytorch/issues/123097
     #- mkl==2024.0  # [osx]
+    - tensordict
     - toml
     - tqdm
     - wurlitzer
