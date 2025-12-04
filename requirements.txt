@@ -16,6 +16,7 @@ pysam>=0.16.0.1,<=0.23.0
 # 0.2.0 has `min_coverage` parameter
 pyspoa>=0.2.1
 requests
+tensordict
 toml
 torch~=2.9
 tqdm

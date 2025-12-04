@@ -12,6 +12,7 @@ import time
 from timeit import default_timer as now
 
 import numpy as np
+from numpy.lib import recfunctions as rfn
 
 import libmedaka
 import medaka.common
@@ -308,6 +309,29 @@ def read_alignment_matrix(
         lib.destroy_read_aln_data(counts)
         if clip_to_zero:
             np_counts = np.maximum(np_counts, 0)
+
+        fieldnames = ['basecall', 'qscore', 'strand', 'mapq']
+        if include_dwells:
+            fieldnames.append('dwell')
+        if include_haplotype:
+            fieldnames.append('haplotag')
+        if num_dtypes > 1:
+            fieldnames.append('dtype')
+
+        assert np_counts.shape[2] == len(fieldnames), (
+            f"Expected feature length {len(fieldnames)}, "
+            f"got {np_counts.shape[2]}"
+        )
+        feature_dtype = np.dtype([
+            (name, np_counts.dtype)
+            for name in fieldnames       # ['basecall', 'qscore', ...]
+        ])
+
+        np_counts = rfn.unstructured_to_structured(
+            np_counts,                    # shape (n_pos, depth, feat_len)
+            dtype=feature_dtype,
+            copy=False                    # keep shared memory
+        )
         return np_counts, positions, read_ids
 
     # split large regions for performance
@@ -398,7 +422,7 @@ def _pad_reads(chunks, target_depth=None):
                     (
                         chunk.shape[0],
                         target_depth - chunk.shape[1],
-                        chunk.shape[2],
+                        # chunk.shape[2],
                     ),
                     dtype=chunk.dtype,
                 ),
@@ -448,12 +472,11 @@ def _reorder_reads(chunks, read_ids):
             (
                 chunk.shape[0],
                 max(len(new_indices), len(rids_out), len(rids_in)),
-                chunk.shape[2],
             ),
             dtype=chunk.dtype,
         )
-        reordered_chunk[:, new_indices != -1, :] = chunk[
-            :, new_indices[new_indices != -1], :
+        reordered_chunk[:, new_indices != -1] = chunk[
+            :, new_indices[new_indices != -1]
         ]
 
         reordered_chunks.append(reordered_chunk)
@@ -1104,10 +1127,13 @@ class SoftRLEFeatureEncoder(HardRLEFeatureEncoder):
 class ReadAlignmentFeatureEncoder(CountsFeatureEncoder):
     """Create read level features tensor representation of read pileups.
 
-    Features are 3 dimensional tensors of shape (positions, reads, features).
-    By default, there are 4-6 features per position per read, which are
-    [base, baseQ, strand, mapQ, dwell, haplotype], with the last two being
-    optional if the corresponding flag is set.
+    Features are structured arrays of shape (positions, reads). The
+    datatype is an integer array where each position contains multiple
+    features.
+
+    By default, there are 4-8 features per position per read, which are
+    [base, baseQ, strand, mapQ, dtype, dwell, haplotype, snp_qv],
+    with the last four being optional if the corresponding flag is set.
 
     Basecalls are enumerate 0-5 correspoding to [pad, A,C,G,T,deletion].
     Strand is +1 in the positive direction or zero otherwise. Dwells are
@@ -1179,21 +1205,12 @@ class ReadAlignmentFeatureEncoder(CountsFeatureEncoder):
             read_group=self.read_group,
             min_mapq=self.min_mapq,
             row_per_read=self.row_per_read,
-            include_dwells=self.include_dwells,
-            include_haplotype=self.include_haplotype,
+            include_dwells=getattr(self, "include_dwells", True),
+            include_haplotype=getattr(self, "include_haplotype", False),
             max_reads=self.max_reads)
 
     def _post_process_pileup(self, features, positions, region):
-        if features.ndim == 2:
-            depth = np.count_nonzero(features, axis=-1)
-        elif features.ndim == 3:
-            depth = np.count_nonzero(features[..., 0], axis=-1)
-        else:
-            raise ValueError(
-                f"Unknown feature dimension size of {features.ndim}. Should be"
-                " either 2 (counts matrices) or 3 (for read level features)."
-            )
-
+        depth = np.count_nonzero(features['basecall'], axis=-1)
         sample = medaka.common.Sample(
             ref_name=region.ref_name,
             features=features,

@@ -9,6 +9,7 @@ import tarfile
 from time import perf_counter
 
 import numpy as np
+import tensordict
 import toml
 import torch
 from tqdm import tqdm
@@ -103,7 +104,7 @@ class Sequence(torch.utils.data.Dataset):
 class Batch:
     """Batch of samples, used for both training and inference."""
 
-    read_level_features: torch.Tensor = None
+    read_level_features: tensordict.TensorDict = None
     counts_matrix: torch.Tensor = None
     labels: torch.Tensor = None
     majority_vote_probs: torch.Tensor = None
@@ -120,36 +121,42 @@ class Batch:
         :returns: torch_ext.Batch
         """
         batch_size = len(samples)
-        feature_shape = samples[0].features.shape
-        features = [torch.from_numpy(s.features) for s in samples]
-        batch_dict = {}
-
-        def pad_to_max_depth(read_level_features):
-            depths = [rlf.shape[1] for rlf in read_level_features]
-            npos, _, nfeats = feature_shape
-            depths = [rlf.shape[1] for rlf in read_level_features]
-            max_depth = max(depths)
-            rlf_shape = (batch_size, npos, max_depth, nfeats)
-            feature_matrix = np.zeros(rlf_shape, dtype=np.uint8)
-            for i, rlf in enumerate(read_level_features):
-                feature_matrix[i, :, : depths[i], :] = rlf
-            return torch.from_numpy(feature_matrix).to(torch.uint8)
-
-        if features[0].ndim == 3:
-            # 3-dimensional features are read level
-            batch_dict['read_level_features'] = pad_to_max_depth(features)
-            if counts_matrix:
-                batch_dict['counts_matrix'] = torch.stack(
-                    [
-                        torch.from_numpy(s.counts_matrix)
-                        for s in samples
-                    ]).float()
-        elif features[0].ndim == 2:
-            batch_dict['counts_matrix'] = torch.stack(features).float()
-        else:
+        if len(set(s.has_structured_features for s in samples)) > 1:
             raise ValueError(
-                f"Unknown feature dimension {features[0].ndim}. Expect 3 for"
-                "read level features or 2 for counts matrices.")
+                "All samples in a batch must either have structured array "
+                "features or not."
+            )
+
+        if samples[0].has_structured_features:
+            maxdepth = max(s.features.shape[-1] for s in samples)
+            feats = np.stack([
+                s.pad_to_depth(maxdepth).features for s in samples])
+        else:
+            feats = np.stack([s.features for s in samples])
+
+        # if feats is a structured array, make a tensordict from fields
+        if feats.dtype.fields is not None:
+            feats = tensordict.TensorDict({
+                k: torch.from_numpy(feats[k]) for k in feats.dtype.names
+            }, batch_size=batch_size)
+            batch_dict = {'read_level_features': feats}
+            if counts_matrix:
+                # also get counts matrix if requested
+                batch_dict['counts_matrix'] = torch.stack([
+                    torch.from_numpy(s.counts_matrix)
+                    for s in samples
+                ]).float()
+        else:
+            # if it's not structured, it should be a counts matrix
+            # if it's >3D it will be a read level feature in the deprecated
+            # format, raise error
+            if feats.ndim > 3:
+                raise ValueError(
+                    ">3-dimensional feature tensors are no longer "
+                    "supported - read level features are now folded into"
+                    " the feature datatype."
+                )
+            batch_dict = {'counts_matrix': torch.from_numpy(feats).float()}
 
         if getattr(batch_dict, 'counts_matrix', None) is not None:
             # also get the majority vote probs for comparison of model

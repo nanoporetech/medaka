@@ -162,20 +162,20 @@ class LatentSpaceLSTM(base_classes.ReadLevelFeaturesModel):
                 (num_positions, num_classes).
         """
         non_empty_position_mask = (
-            x.sum((1, -1)) != 0
+            x['basecall'].sum(1) != 0
         )  # shape batch_size x n_reads
 
         # get the base and strand embeddings for each position in each read
-        bases_embedding = self.base_embedder(x[:, :, :, 0].long())
-        strand_embedding = self.strand_embedder(x[:, :, :, 2].long() + 1)
+        bases_embedding = self.base_embedder(x['basecall'].long())
+        strand_embedding = self.strand_embedder(x['strand'].long() + 1)
         # map the quality scores from approximately [0,50] -> [-1,1]
         # done to ensure roughly equal magnitude of input channels
-        scaled_q_scores = (x[:, :, :, 1] / 25 - 1).unsqueeze(-1)
+        scaled_q_scores = (x['qscore'] / 25 - 1).unsqueeze(-1)
         if self.use_dwells:
             assert (
-                x.shape[-1] == 5
+                'dwell' in x
             ), "if using dwells, x must have 5 features/read/position"
-            dwells = x[:, :, :, 4].unsqueeze(-1)
+            dwells = x['dwell'].unsqueeze(-1)
             x = torch.cat(
                 [bases_embedding + strand_embedding, scaled_q_scores, dwells],
                 dim=-1,
