@@ -326,7 +326,7 @@ medaka inference calls_to_draft.bam results/contigs1-4.hdf \
     --region contig1 contig2 contig3 contig4
 ...
 # wait for jobs, then collate results
-medaka sequence results/*.hdf polished.assembly.fasta
+medaka sequence results/*.hdf assembly.fasta polished.assembly.fasta
 ```
 
 It is not recommended to specify a value of `--threads` greater than 2 for
