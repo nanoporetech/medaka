@@ -6,7 +6,7 @@ import sys
 
 from packaging.version import Version
 
-__version__ = "2.1.1"
+__version__ = "2.2.0"
 
 try:
     import pyabpoa as abpoa
@@ -52,7 +52,8 @@ def check_htslib_tool_version(tool, pos=2):
         if proc.returncode != 0:
             return None
         # tabix (htslib) 1.3.1\n...
-        first_line = proc.stdout.decode().split("\n", 1)[0]
+        first_line = proc.stdout.decode(
+            'utf-8', errors='replace').split("\n", 1)[0]
         version = first_line.split()[pos]
         version = Version(version)
     except Exception:

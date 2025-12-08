@@ -4,16 +4,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-### Changed
-- `medaka features` fails if encoder expects dwells but data does not contain move tables, or warns if available move tables are not being used.
-- During training, warning is output if model is not using available dwell information.
-- Make more of an attempt to set threading appropriately for differing behaviours of pytorch and oneDNN builds. 
-- Replace read level features 3-dimensional tensor with structured numpy array for clarity and easier extension.
+## [v2.2.0]
 ### Added
-- Python 3.13 support
+- Python 3.13 support.
+- `medaka_consensus` now has a `-p <prefix>` option to set the prefix for
+  output consensus file (rather than always being `consensus`).
+### Fixed
+- Issue where samtools version detection would stumble on meta-information
+  lines in some builds of samtools.
 ### Removed
 - Python 3.9 support (EOL).
+### Changed
+- `medaka features` fails if encoder expects dwells but data does not contain
+  move tables, or warns if available move tables are not being used.
+- During training, warning is output if model is not using available dwell
+  information.
+- Make more of an attempt to set threading appropriately for differing
+  behaviours of pytorch and oneDNN builds. 
+- Replace read level features 3-dimensional tensor with structured numpy array
+  for clarity and easier extension.
 
 ## [v2.1.1]
 ### Added
