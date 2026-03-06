@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 ### Fixed
 - The newly added `-p` prefix option to `medaka_consensus` was not correctly recognized.
+- Save optimiser state in corresponding training folder.
 - Training with `--model` pointing to a model archive now correctly loads the weights
   for the model rather than just creating a model with the same parameters but random
   weights.
