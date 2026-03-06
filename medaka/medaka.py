@@ -517,7 +517,7 @@ def medaka_parser():
     tparser.add_argument('features', nargs='+', help='Paths to training data.')
     tparser.add_argument('--train_name', type=str, default='medaka_train', help='Name for training run.')
     tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .tar.gz, or .toml with kwargs to build model.')
-    tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
+    tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of training epochs.')
     tparser.add_argument('--batch_size', type=int, default=100, help='Training batch size.')
     tparser.add_argument('--max_samples', type=int, default=None, help='Only train on max_samples.')
     tparser.add_argument('--max_valid_samples', type=int, default=None, help='Only validate on max_valid_samples.')
@@ -530,9 +530,10 @@ def medaka_parser():
         metavar="KEY1=VAL1,KEY2=VAL2...", help="Optimizer key-word arguments.")
     tparser.add_argument('--loss_args', action=StoreDict, default=None, nargs='+',
         metavar="KEY1=VAL1,KEY2=VAL2...", help="Training loss key-word arguments.")
-    tparser.add_argument("--use_lr_schedule", action="store_true", default=True, help="Use cosine learning rate scheduler.")
+    tparser.add_argument("--use_lr_schedule", action="store_true", default=False, help="Use cosine learning rate scheduler.")
     tparser.add_argument("--amp", action="store_true", default=False,
         help="Train with half precision.")
+    tparser.add_argument("--no_early_stopping", action="store_true", default=False, help="Turn off early stopping of training.")
     tparser.add_argument("--validate_only", action="store_true", default=False,
         help="Run a single validation epoch, write metrics and then exit.")
 

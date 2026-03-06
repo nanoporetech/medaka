@@ -51,7 +51,8 @@ def train(args):
                 threads_io=args.threads_io, optimizer=args.optimizer,
                 optim_args=args.optim_args,
                 loss_args=args.loss_args,
-                amp=args.amp, use_lr_schedule=args.use_lr_schedule,)
+                amp=args.amp, use_lr_schedule=args.use_lr_schedule,
+                early_stopping=not args.no_early_stopping)
 
     # stop batching threads
     logger.info("Training finished.")
@@ -62,7 +63,8 @@ def run_training(
         epochs=10, threads_io=1,
         samples_per_training_epoch=None, optimizer="adam", optim_args=None,
         loss_args=None, quantile_grad_clip=True,
-        amp=False, use_lr_schedule=True, save_optim_every=5):
+        amp=False, use_lr_schedule=True, save_optim_every=5,
+        early_stopping=True):
     """Run training."""
     from medaka.torch_ext import ModelMetaCheckpoint
 
@@ -161,9 +163,12 @@ def run_training(
         lr_scheduler = medaka.torch_ext.linear_warmup_cosine_decay()
         logger.info("Using cosine learning rate decay.")
     else:
-        lr_scheduler = medaka.torch_ext.no_schedule(warmup_steps=None)
+        lr_scheduler = medaka.torch_ext.no_schedule()
         logger.info("Using constant learning rate.")
-    lr_scheduler = lr_scheduler(optimizer, train_loader, epochs, 0)
+    lr_scheduler = lr_scheduler(
+        optimizer, total_steps=epochs * min(
+            samples_per_training_epoch // train_loader.batch_size,
+            len(train_loader)))
 
     best_val_loss, best_val_loss_epoch = np.inf, -1
     best_metrics = {k: 0 for k in metrics}
@@ -193,7 +198,7 @@ def run_training(
 
             val_loss, val_metrics = medaka.torch_ext.run_epoch(
                 model, valid_loader, loss, optimizer, scaler, clip_grad,
-                is_training_epoch=False, lr_scheduler=lr_scheduler,
+                is_training_epoch=False, lr_scheduler=None,
                 loss_log=None)
 
             logger.info(
@@ -233,7 +238,7 @@ def run_training(
                 best_val_loss_epoch = n
 
             # early stopping
-            if n >= best_val_loss_epoch + 20:
+            if early_stopping and n >= best_val_loss_epoch + 20:
                 break
 
 
