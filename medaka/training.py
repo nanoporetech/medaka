@@ -74,6 +74,7 @@ def run_training(
         logger.info(msg.format(model_fp))
         model_store = medaka.models.open_model(model_fp)
         partial_model_function = model_store.get_meta('model_function')
+        model = model_store.load_model(device='cuda')
     elif model_fp is None or model_fp.endswith('toml'):
         if model_fp is None:
             model_dict = medaka.models.DEFAULT_MODEL_DICT
@@ -84,11 +85,11 @@ def run_training(
         partial_model_function = functools.partial(
             medaka.models.model_from_dict, model_dict
         )
+        model = partial_model_function().to('cuda')
     else:
         raise ValueError(f"Unknown model file type: {model_fp}")
 
     # now build model
-    model = partial_model_function().to('cuda')
     logger.info("Model loaded: {}".format(model))
 
     model_metadata = {
