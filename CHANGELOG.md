@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corrected learning-rate schedule for `samples_per_training_epoch`.
 - Turn off scheduler update during validation.
 - Fix command-line parsing so schedule is off by default.
+- Prevent empty columns from potentially appearing in read-level features by allowing
+  the insertion of reads whose alignment started while there was no available rows in
+  the feature tensor.
 
 ## [v2.2.0]
 ### Added

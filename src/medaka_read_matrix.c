@@ -390,6 +390,29 @@ read_aln_data calculate_read_alignment(
             int read_i;
             int kh_rv = khash_str2int_get(read_map, qname, &read_i);
             if (kh_rv == -1) { // a new read
+                // try to determine position to insert this read
+                const size_t array_size = kv_size(read_array);
+                if (! row_per_read) {
+                    // look for a completed read that we can replace
+                    for (read_i = 0; read_i < array_size; ++read_i) {
+                        Read *current_read = &kv_A(read_array, read_i);
+                        if ((size_t)pos >= current_read->ref_end + min_gap) {
+                            // free dwells pointer for current read
+                            // since this is not managed by htslib
+                            free(current_read -> dwells);
+                            break;
+                        }
+                    }
+                } else {
+                    // always append if row_per_read is true
+                    read_i = array_size;
+                }
+                if (read_i >= pileup->buffer_reads) {
+                    // no space to include this read in the pileup so skip it
+                    continue;
+                }
+
+                // construct the read data
                 // get dtype tag
                 size_t dtype = 0;
                 bool failed = false;
@@ -444,34 +467,16 @@ read_aln_data calculate_read_alignment(
                     .dwells = (include_dwells ? calculate_dwells(alignment) : NULL),
                 };
 
-                // insert read into read_array in place of a read that's already completed
-                const size_t array_size = kv_size(read_array);
-                int kh_rv = -1;
-                if (! row_per_read) {
-                    for (read_i = 0; read_i < array_size; ++read_i) {
-                        Read *current_read = &kv_A(read_array, read_i);
-                        if ((size_t)pos >= current_read->ref_end + min_gap) {
-                            // free dwells pointer for current read
-                            // since this is not managed by htslib
-                            free(current_read -> dwells);
-                            kv_A(read_array, read_i) = read;
-                            kh_rv = khash_str2int_set(read_map, strdup(qname), read_i);
-                            break;
-                        }
-                    }
-                } else {
-                    read_i = array_size;
-                }
-                // no completed reads, append instead
-                if (read_i == array_size) {
-                    if (read_i < pileup->buffer_reads) {
-                        kv_push(Read, read_array, read);
-                    }
-                    kh_rv = khash_str2int_set(read_map, strdup(qname), read_i);
-                }
+                // insert read into read_array at position read_i, or append
+                kh_rv = khash_str2int_set(read_map, strdup(qname), read_i);
                 if (kh_rv == -1) {
                     fprintf(stdout, "Error inserting read %s into hash map\n", qname);
                     exit(1);
+                }
+                if (read_i < array_size) {
+                    kv_A(read_array, read_i) = read;
+                } else {
+                    kv_push(Read, read_array, read);
                 }
             }
 
