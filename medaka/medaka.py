@@ -565,12 +565,12 @@ def medaka_parser():
     cparser.add_argument('--save_features', action='store_true', default=False,
             help='Save features with consensus probabilities.')
     cparser.add_argument('--cpu',  action='store_true', default=False, help='Execute the model on the CPU.')
+    cparser.add_argument('--min_mapq', type=int, default=None, help='Minimum mapping quality. (Default: use model default.')
+    cparser.add_argument('--full_precision', action='store_true', default=False, help='Run model in full precision (default is half on GPU).')
     tag_group = cparser.add_argument_group('filter tag', 'Filtering alignments by an integer valued tag.')
     tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
     tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
-    tag_group.add_argument('--min_mapq', type=int, default=None, help='Minimum mapping quality. (Default: use model default.')
-    tag_group.add_argument('--full_precision', action='store_true', default=False, help='Run model in full precision (default is half on GPU).')
 
     # Consensus from single-molecules with subreads
     smparser = subparsers.add_parser('smolecule',
