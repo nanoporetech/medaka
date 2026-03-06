@@ -69,7 +69,7 @@ $(basename "$0") [-h] -i <fastx> -d <fasta>
                and plasmid sequencing. "
 
 
-while getopts ':hi::d:o:gr:m:fxt:b:qM:B:-:' option; do
+while getopts ':hi::d:o:p:gr:m:fxt:b:qM:B:-:' option; do
   case "$option" in
     h  ) echo "$usage" >&2; exit;;
     i  ) iflag=true; BASECALLS=$(follow_link $OPTARG);;
