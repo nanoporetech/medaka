@@ -516,7 +516,7 @@ def medaka_parser():
     tparser.set_defaults(func=medaka.training.train)
     tparser.add_argument('features', nargs='+', help='Paths to training data.')
     tparser.add_argument('--train_name', type=str, default='medaka_train', help='Name for training run.')
-    tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .hdf, or .toml with kwargs to build model.')
+    tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .tar.gz, or .toml with kwargs to build model.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
     tparser.add_argument('--batch_size', type=int, default=100, help='Training batch size.')
     tparser.add_argument('--max_samples', type=int, default=None, help='Only train on max_samples.')
