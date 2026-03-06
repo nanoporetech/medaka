@@ -188,8 +188,9 @@ def run_training(
 
             # save optimizer state dict
             if n % save_optim_every == 0:
-                with open("optim_{}.pt".format(n), "wb") as f:
-                    torch.save(optimizer.state_dict(), f)
+                torch.save(
+                    optimizer.state_dict(),
+                    os.path.join(train_name, 'optim_{}.pt'.format(n)))
 
             val_loss, val_metrics = medaka.torch_ext.run_epoch(
                 model, valid_loader, loss, optimizer, scaler, clip_grad,
