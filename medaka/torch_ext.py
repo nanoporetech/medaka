@@ -458,23 +458,23 @@ def func_scheduler(
 
 def linear_warmup_cosine_decay(end_ratio=0.01, warmup_steps=500, **kwargs):
     """Linear warmup, cosine decay scheduler."""
-    return lambda optimizer, train_loader, epochs, last_epoch: func_scheduler(
+    return lambda optimizer, total_steps: func_scheduler(
         optimizer=optimizer,
         func=cosine_decay_schedule(1.0, end_ratio),
-        total_steps=epochs * len(train_loader),
+        total_steps=total_steps,
         warmup_steps=warmup_steps,
-        start_step=last_epoch * len(train_loader),
+        # start_step=0,
     )
 
 
 def no_schedule(warmup_steps=None, **kwargs):
     """Linear warmup, cosine decay scheduler."""
-    return lambda optimizer, train_loader, epochs, last_epoch: func_scheduler(
+    return lambda optimizer, total_steps: func_scheduler(
         optimizer=optimizer,
         func=lambda x: 1.0,
-        total_steps=epochs * len(train_loader),
+        total_steps=total_steps,
         warmup_steps=warmup_steps,
-        start_step=last_epoch * len(train_loader),
+        # start_step=last_epoch * len(train_loader),
     )
 
 

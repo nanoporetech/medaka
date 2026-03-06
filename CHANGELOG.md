@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for the model rather than just creating a model with the same parameters but random
   weights.
 - Move some inference options into correct parser section.
+- Corrected learning-rate schedule for `samples_per_training_epoch`.
+- Turn off scheduler update during validation.
+- Fix command-line parsing so schedule is off by default.
 
 ## [v2.2.0]
 ### Added

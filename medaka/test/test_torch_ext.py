@@ -109,7 +109,7 @@ class TestNamespace:
             model_dict = self._get_model()
             scheduler_func = medaka.torch_ext.no_schedule()
             lr_scheduler = scheduler_func(
-                model_dict["optimizer"], self.dataloader_train, 1, 0)
+                model_dict["optimizer"], total_steps=len(self.dataloader_train))
             expected_lrs = [
                 0.01, # default lr for RMSProp
             ] * (self.num_train // self.batch_size)
@@ -123,7 +123,7 @@ class TestNamespace:
             warmup_steps = 3
             scheduler_func = medaka.torch_ext.no_schedule(warmup_steps=warmup_steps)
             lr_scheduler = scheduler_func(
-                model_dict["optimizer"], self.dataloader_train, 1, 0)
+                model_dict["optimizer"], total_steps=len(self.dataloader_train))
             expected_lrs = [
                 0.001,
                 0.004,
@@ -141,7 +141,7 @@ class TestNamespace:
                 end_ratio=end_ratio,
                 warmup_steps=0)
             lr_scheduler = scheduler_func(
-                model_dict["optimizer"], self.dataloader_train, 1, 0)
+                model_dict["optimizer"], total_steps=len(self.dataloader_train))
             expected_lrs = end_ratio*start_lr + 0.5 * (1-end_ratio)* start_lr * (
                 1 + np.cos(np.linspace(0,1,len(self.dataloader_train)+1) * np.pi))
             for n, _ in enumerate(iter(self.dataloader_train)):
@@ -154,7 +154,7 @@ class TestNamespace:
                 end_ratio=0.01,
                 warmup_steps=3)
             lr_scheduler = scheduler_func(
-                model_dict["optimizer"], self.dataloader_train, 1, 0)
+                model_dict["optimizer"], total_steps=len(self.dataloader_train))
             expected_lrs = [0.001, 0.004, 0.007,] + \
                 list(0.0001 + 0.5 * 0.0099 * (1 + np.cos(np.arange(0, 7) * np.pi / 7.)))
             for n, _ in enumerate(iter(self.dataloader_train)):
