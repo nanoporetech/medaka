@@ -165,10 +165,13 @@ def run_training(
     else:
         lr_scheduler = medaka.torch_ext.no_schedule()
         logger.info("Using constant learning rate.")
+    steps_per_epoch = len(train_loader)
+    if samples_per_training_epoch is not None:
+        steps_per_epoch = min(
+            steps_per_epoch,
+            samples_per_training_epoch // train_loader.batch_size)
     lr_scheduler = lr_scheduler(
-        optimizer, total_steps=epochs * min(
-            samples_per_training_epoch // train_loader.batch_size,
-            len(train_loader)))
+        optimizer, total_steps=epochs * steps_per_epoch)
 
     best_val_loss, best_val_loss_epoch = np.inf, -1
     best_metrics = {k: 0 for k in metrics}
