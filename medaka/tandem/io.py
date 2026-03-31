@@ -2,7 +2,6 @@
 
 from itertools import groupby
 import os
-from typing import List
 
 import numpy as np
 import pysam
@@ -24,7 +23,9 @@ import medaka.vcf
 class SpanningReadsExtractor:
     """A class to extract and process reads spanning specified regions."""
 
-    def __init__(self, bam_path: str, read_filters: dict):
+    def __init__(
+        self, bam_path: str, read_filters: dict, ref_fasta: str = None
+    ):
         """Initialize the SpanningReadsExtractor with the BAM and read filters.
 
         Args:
@@ -32,18 +33,20 @@ class SpanningReadsExtractor:
             read_filters (dict): Filters to apply to reads, e.g., minimum mapq.
 
         """
-        self.bam_handle = medaka.features.BAMHandler(bam_path, size=1)
+        self.bam_handle = medaka.features.BAMHandler(
+            bam_path, size=1, ref_fname=ref_fasta
+        )
         self.read_filters = read_filters
         self.bam_path = bam_path
 
-    def get_subreads(self, rec) -> List[medaka.smolecule.Subread]:
+    def get_subreads(self, rec) -> list["medaka.smolecule.Subread"]:
         """Extract a sub-part of the read spanning the read record.
 
         Args:
             rec (RecordName): record descriping the tandem repeat region.
 
         Returns:
-            List[medala.smolecule.Subread]: subreads spanning the record.
+            list[medala.smolecule.Subread]: subreads spanning the record.
 
         """
         reg_padded = rec.to_padded_region()
@@ -86,7 +89,7 @@ class SpanningReadsExtractor:
             region (str): The genomic region in "chr:start-end" format.
 
         Returns:
-            List[str]: A list of trimmed reads that span the specified region.
+            list[str]: A list of trimmed reads that span the specified region.
 
         """
         region_got, reads = next(
@@ -211,7 +214,7 @@ class RefFastaHandle:
             ref_fasta_handle (RefFastaHandle): A handle to the ref FASTA file.
 
         Returns:
-            List[Tuple[str, int]]: A tuple of reference names and lengths.
+            list[tuple[str, int]]: A tuple of reference names and lengths.
 
         """
         return [
@@ -332,7 +335,7 @@ def convert_alignments_to_variants(
     """Convert alignments to variants.
 
     Args:
-        alignments (List[pysam.AlignedSegment]): alignments to be converted.
+        alignments (list[pysam.AlignedSegment]): alignments to be converted.
         reads_bam (pysam.AlignmentFile): The BAM path containing the reads.
         ref_fasta_handle (RefFastaHandle): A handle to the ref FASTA file.
         add_read_names (bool): Flag for adding read names to the vcf.
@@ -374,16 +377,16 @@ def convert_alignments_to_variants_decomposition(
     will be written to the vcf on different records.
 
     Args:
-        alignments (List[pysam.AlignedSegment]): A list of alignments.
+        alignments (list[pysam.AlignedSegment]): A list of alignments.
         reads_bam (pysam.AlignmentFile): The BAM file containing the reads.
         add_read_names (bool): Flag to add read names to vcf.
         rseq (str): The reference sequence.
 
     Returns:
-        List[Variant]: A list of variants.
+        list[Variant]: A list of variants.
 
     """
-    results: List[medaka.vcf.Variant] = []
+    results: list[medaka.vcf.Variant] = []
     for aln in alignments:
         rn = RecordName.from_str(aln.query_name)
         reads = list(reads_bam.fetch(aln.query_name))
@@ -391,7 +394,7 @@ def convert_alignments_to_variants_decomposition(
         for v in medaka.variant.yield_variants_from_aln(
             aln,
             rseq,
-            rn.to_unpadded_region(),
+            rn.to_padded_region(),
         ):
             v.genotype_data["SD"] = depth
             v.ident = (
@@ -429,14 +432,14 @@ def convert_alignments_to_variants_replacement_style(
     will be printed on the same line.
 
     Args:
-        alignments (List[pysam.AlignedSegment]): A list of alignments.
+        alignments (list[pysam.AlignedSegment]): A list of alignments.
         reads_bam (pysam.AlignmentFile): The BAM file containing the reads.
         add_read_names (bool): Flag indicating whether to add read names
         to the variant information.
         ref_fasta (str): The reference sequence.
 
     Returns:
-        List[Variant]: A list of variants.
+        list[Variant]: A list of variants.
 
     """
     format = {"SD": [], 'ALLR': []}

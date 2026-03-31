@@ -7,7 +7,7 @@ from cffi import FFI
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
 #samver is pulled from this file in the Makefile
-samver = "1.14"
+samver = "1.20"
 htslib_dir = os.path.join(dir_path, 'submodules', 'samtools-{}'.format(samver), 'htslib-{}'.format(samver))
 deflatever = "1.10"
 deflate_dir = os.path.join(dir_path, 'submodules', 'libdeflate-{}'.format(deflatever))
@@ -71,6 +71,7 @@ ffibuilder.set_source("libmedaka",
 cdef = [
     "typedef struct { ...; } bam_fset;"
     "bam_fset* create_bam_fset(char* fname);"
+    "bam_fset* create_bam_fset_with_ref(char* fname, char* ref_fname);"
     "void destroy_bam_fset(bam_fset* fset);"
 ]
 for header in ('medaka_counts.h','fastrle.h', 'medaka_pytrimbam.h', 'medaka_read_matrix.h', 'medaka_rnn_variants.h'):

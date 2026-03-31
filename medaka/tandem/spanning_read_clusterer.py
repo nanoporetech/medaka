@@ -4,16 +4,15 @@ from abc import ABC, abstractmethod
 import collections
 from copy import copy
 from itertools import filterfalse
-from typing import Dict, List, Tuple
 
 
 import edlib
 import numpy as np
-import wurlitzer
 
 from medaka import abpoa
 import medaka.common
 import medaka.smolecule
+from medaka.tandem.abpoa_utils import run_abpoa_consensus
 from medaka.tandem.record_name import RecordName
 
 
@@ -21,21 +20,21 @@ class SpanningReadClusterer(ABC):
     """Abstract base class for spanning read clustering."""
 
     def cluster_spanningreads(
-        self, rec: RecordName, spanning_reads: List[medaka.smolecule.Subread]
-    ) -> Tuple[
-        Dict[str, int], Dict[RecordName, List[medaka.smolecule.Subread]]
+        self, rec: RecordName, spanning_reads: list["medaka.smolecule.Subread"]
+    ) -> tuple[
+        dict[str, int], dict[RecordName, list["medaka.smolecule.Subread"]]
     ]:
         """Clusters spanning reads based on the chosen method.
 
         Args:
             rec (RecordName): A record name object with an identifier.
-            spanning_reads (List[medaka.smolecule.Subread]): spanning reads.
+            spanning_reads (list[medaka.smolecule.Subread]): spanning reads.
 
         Returns:
-            Tuple[
-            Dict[str, int],
-            Dict[RecordName,
-            List[medaka.smolecule.Subread]]]:
+            tuple[
+            dict[str, int],
+            dict[RecordName,
+            list[medaka.smolecule.Subread]]]:
             1. Statistics Dictionary
             2. Clustered spanning reads dict with updated RecordName keys.
 
@@ -59,21 +58,21 @@ class SpanningReadClusterer(ABC):
     def _cluster_spanningreads(
         self,
         recordname: RecordName,
-        spanningreads: List[medaka.smolecule.Subread],
-    ) -> Tuple[
-        Dict[str, int], Dict[RecordName, List[medaka.smolecule.Subread]]
+        spanningreads: list["medaka.smolecule.Subread"],
+    ) -> tuple[
+        dict[str, int], dict[RecordName, list["medaka.smolecule.Subread"]]
     ]:
         """Clusters spanning reads based on the chosen method.
 
         Args:
             recordname (RecordName): A record name object with an identifier.
-            spanningreads (List[medaka.smolecule.Subread]): spanning reads.
+            spanningreads (list[medaka.smolecule.Subread]): spanning reads.
 
         Returns:
-            Tuple[
-            Dict[str, int],
-            Dict[RecordName,
-            List[medaka.smolecule.Subread]]]:
+            tuple[
+            dict[str, int],
+            dict[RecordName,
+            list[medaka.smolecule.Subread]]]:
             1. Statistics Dictionary
             2. Clustered spanning reads dict with updated RecordName keys.
 
@@ -82,7 +81,7 @@ class SpanningReadClusterer(ABC):
 
     def summarize_reads(
         self, names, prefix="", bhp_counts=False
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Generate counts of reads by strand and optionally bam HP tags."""
         records = [RecordName.from_str(n) for n in names]
         counts = collections.Counter()
@@ -118,21 +117,21 @@ class PrephasedClusterer(SpanningReadClusterer):
         self.min_depth_for_outliers = min_depth_for_outliers
 
     def _cluster_spanningreads(
-        self, rec: RecordName, spanningreads: List[medaka.smolecule.Subread]
-    ) -> Tuple[
-        Dict[str, int], Dict[RecordName, List[medaka.smolecule.Subread]]
+        self, rec: RecordName, spanningreads: list["medaka.smolecule.Subread"]
+    ) -> tuple[
+        dict[str, int], dict[RecordName, list["medaka.smolecule.Subread"]]
     ]:
         """Clusters spanning reads by looking at HP and PS tags from the BAM.
 
         Args:
             rec (RecordName): A record name object with an identifier.
-            spanningreads (List[medaka.smolecule.Subread]): spanning reads.
+            spanningreads (list[medaka.smolecule.Subread]): spanning reads.
 
         Returns:
-            Tuple[
-            Dict[str, int],
-            Dict[RecordName,
-            List[medaka.smolecule.Subread]]]:
+            tuple[
+            dict[str, int],
+            dict[RecordName,
+            list[medaka.smolecule.Subread]]]:
             1. Statistics Dictionary
             2. Clustered spanning reads dict with updated RecordName keys.
 
@@ -187,12 +186,12 @@ class PrephasedClusterer(SpanningReadClusterer):
         """Remove outliers from a list of subreads based on sequence length.
 
         Args:
-            subreads (List[medaka.smolecule.Subread]): List of subreads.
+            subreads (list[medaka.smolecule.Subread]): List of subreads.
             multiplier (int): Multiplier for the IQR.
 
         Returns:
-            List[medaka.smolecule.Subread]: Filtered subreads without outliers.
-            List[medaka.smolecule.Subread]: outliers.
+            list[medaka.smolecule.Subread]: Filtered subreads without outliers.
+            list[medaka.smolecule.Subread]: outliers.
 
         """
         # don't remove the outliers for few reads because it can be biased
@@ -226,12 +225,12 @@ class PrephasedClusterer(SpanningReadClusterer):
         """Filter a list of items based on the most common phased_set.
 
         Args:
-            reads (List[medaka.smolecule.Subread]): subreads to be filtered.
+            reads (list[medaka.smolecule.Subread]): subreads to be filtered.
 
         Returns:
-            Tuple[
-            List[medaka.smolecule.Subread],
-            List[medaka.smolecule.Subread]
+            tuple[
+            list[medaka.smolecule.Subread],
+            list[medaka.smolecule.Subread]
             ]:
             1. Reads belonging to the most common phased_set
             2. Rejected reads
@@ -264,7 +263,10 @@ class ABPOAClusterer(SpanningReadClusterer):
     """Cluster spanning reads using the ABPOA method."""
 
     def __init__(
-        self, put_bam_hp_in_name: bool = True, orderings: str = "dsc"
+        self,
+        put_bam_hp_in_name: bool = True,
+        orderings: str = "dsc",
+        abpoa_cluster_min_freq: float = 0.3,
     ):
         """Initialize the ABPOAClusterer.
 
@@ -273,10 +275,13 @@ class ABPOAClusterer(SpanningReadClusterer):
             in the record name.
             orderings (str): The ordering of clusters; 'asc' for ascending,
             'desc' for descending.
+            abpoa_cluster_min_freq (float): abPOA multi-consensus min_freq
+            used by the spanning-read clustering path.
 
         """
         self.put_bam_hp_in_name = put_bam_hp_in_name
         self.orderings = orderings
+        self.abpoa_cluster_min_freq = abpoa_cluster_min_freq
 
     @staticmethod
     def rle_seq(seq):
@@ -356,15 +361,23 @@ class ABPOAClusterer(SpanningReadClusterer):
         subreads_rle_dsc = subreads_rle_asc[::-1]
         aligner = abpoa.msa_aligner(aln_mode="g")
         if self.orderings in {"asc", "both"}:
-            result_rle_asc, err_asc = ABPOAClusterer.abpoa_consensus(
-                aligner, subreads_rle_asc, max_n_cons=recordname.ploidy
+            result_rle_asc, err_asc = run_abpoa_consensus(
+                aligner,
+                subreads_rle_asc,
+                max_n_cons=recordname.ploidy,
+                min_freq=self.abpoa_cluster_min_freq,
+                context_label=str(recordname.to_unpadded_region()),
             )
             if self.orderings == "asc":
                 result_rle_dsc, err_dsc = result_rle_asc, err_asc
                 subreads_rle_dsc = subreads_rle_asc
         if self.orderings in {"dsc", "both"}:
-            result_rle_dsc, err_dsc = ABPOAClusterer.abpoa_consensus(
-                aligner, subreads_rle_dsc, max_n_cons=recordname.ploidy
+            result_rle_dsc, err_dsc = run_abpoa_consensus(
+                aligner,
+                subreads_rle_dsc,
+                max_n_cons=recordname.ploidy,
+                min_freq=self.abpoa_cluster_min_freq,
+                context_label=str(recordname.to_unpadded_region()),
             )
             if self.orderings == "dsc":
                 result_rle_asc, err_asc = result_rle_dsc, err_dsc
@@ -381,21 +394,23 @@ class ABPOAClusterer(SpanningReadClusterer):
         )
 
     def _cluster_spanningreads(
-        self, recordname: RecordName, subreads: List[medaka.smolecule.Subread]
-    ) -> Tuple[
-        Dict[str, int], Dict[RecordName, List[medaka.smolecule.Subread]]
+        self,
+        recordname: RecordName,
+        subreads: list["medaka.smolecule.Subread"],
+    ) -> tuple[
+        dict[str, int], dict[RecordName, list["medaka.smolecule.Subread"]]
     ]:
         """Clusters spanning reads using the ABPOA method.
 
         Args:
             recordname (RecordName): A record name object with an identifier.
-            spanningreads (List[medaka.smolecule.Subread]): spanning reads.
+            spanningreads (list[medaka.smolecule.Subread]): spanning reads.
 
         Returns:
-            Tuple[
-            Dict[str, int],
-            Dict[RecordName,
-            List[medaka.smolecule.Subread]]]:
+            tuple[
+            dict[str, int],
+            dict[RecordName,
+            list[medaka.smolecule.Subread]]]:
             1. Statistics Dictionary
             2. Clustered spanning reads dict with updated RecordName keys.
 
@@ -406,28 +421,6 @@ class ABPOAClusterer(SpanningReadClusterer):
 
         d["phasing_method"] = "abpoa"
         return d, clustered_subreads
-
-    @staticmethod
-    def abpoa_consensus(aligner, subreads, max_n_cons=2):
-        """Run abpoa consensus."""
-        records = [RecordName.from_str(s.name) for s in subreads]
-        seqs = [
-            s.seq
-            if r.strand == "fwd"
-            else medaka.common.reverse_complement(s.seq)
-            for s, r in zip(subreads, records)
-        ]
-        # capture abpoa c-code error messages written to sterr so we can report
-        # which regions / records had errors.
-        with wurlitzer.pipes(bufsize=0) as (out, err):
-            result = aligner.msa(
-                seqs,
-                out_cons=True,
-                out_msa=False,
-                max_n_cons=max_n_cons,
-                min_freq=0.3,
-            )
-        return result, err.read()
 
     @staticmethod
     def check_cluster_read_partitioning(res_a, res_b, subreads_a, subreads_b):
@@ -578,21 +571,21 @@ class HybridClusterer(SpanningReadClusterer):
     def _cluster_spanningreads(
         self,
         recordname: RecordName,
-        spanningreads: List[medaka.smolecule.Subread],
-    ) -> Tuple[
-        Dict[str, int], Dict[RecordName, List[medaka.smolecule.Subread]]
+        spanningreads: list["medaka.smolecule.Subread"],
+    ) -> tuple[
+        dict[str, int], dict[RecordName, list["medaka.smolecule.Subread"]]
     ]:
         """Clusters spanning reads using the hybrid method.
 
         Args:
             recordname (RecordName): A record name object with an identifier.
-            spanningreads (List[medaka.smolecule.Subread]): spanning reads.
+            spanningreads (list[medaka.smolecule.Subread]): spanning reads.
 
         Returns:
-            Tuple[
-            Dict[str, int],
-            Dict[RecordName,
-            List[medaka.smolecule.Subread]]]:
+            tuple[
+            dict[str, int],
+            dict[RecordName,
+            list[medaka.smolecule.Subread]]]:
             1. Statistics Dictionary
             2. Clustered spanning reads dict with updated RecordName keys.
 
@@ -638,6 +631,9 @@ class SpanningReadClusterFactory:
             return ABPOAClusterer(
                 put_bam_hp_in_name=kwargs.get("put_bam_hp_in_name", True),
                 orderings=kwargs.get("orderings", "dsc"),
+                abpoa_cluster_min_freq=kwargs.get(
+                    "abpoa_cluster_min_freq", 0.3
+                ),
             )
         elif method == "hybrid":
             remove_outliers = kwargs.get("remove_outliers", True)

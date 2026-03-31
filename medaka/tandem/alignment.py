@@ -63,12 +63,16 @@ def align_chunk_to_ref(
     )
     result = parasail_aligner(query_seq, ref_seq)
     rstart, cigar = medaka.align.parasail_to_sam(result, query_seq)
-    # rstart may not be zero if alignent starts with a SNP / indel.
-    # TODO - do we want to automatically increase padding and rerun?
-    if rstart > 0:
-        logger.warning(
-            f"rstart not 0 when using global alignment for {chunk.name}. "
-            "Consider rerunning this region with more padding."
+    # rstart may not be zero if alignment starts with a SNP / indel.
+    # Ignore small shifts within half the effective left padding.
+    assert rn.ref_start >= rn.ref_start_padded
+    left_padding = rn.ref_start - rn.ref_start_padded
+    if rstart > 0 and 2 * rstart > left_padding:
+        logger.info(
+            "Alignment start offset for %s when using global alignment is "
+            "%s exceeding half of padding (%s). "
+            "Consider rerunning this region with more padding.",
+            chunk.name, rstart, left_padding
         )
 
     aln = medaka.align.initialise_alignment(

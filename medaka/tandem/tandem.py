@@ -1,10 +1,10 @@
 """Variant calling in tandem repeats."""
 
 import importlib.metadata
+import logging
 import os
 import re
 import sys
-from typing import List
 
 from packaging.version import Version
 import pysam
@@ -12,6 +12,7 @@ import pysam
 from medaka import abpoa
 import medaka.common
 import medaka.medaka
+import medaka.models
 from medaka.tandem.consensus_generator import (
     ConsensusGenerator,
     ParallelConsensusGenerator,
@@ -19,6 +20,8 @@ from medaka.tandem.consensus_generator import (
 from medaka.tandem.io import bam_to_vcfs
 from medaka.tandem.record_name import RecordName
 from medaka.tandem.spanning_read_clusterer import SpanningReadClusterFactory
+
+PYABPOA_REQUIRED_VERSION = "1.5.6"
 
 
 def determine_ploidy(
@@ -70,17 +73,24 @@ def check_abpoa_version():
         RuntimeError: If pyabpoa is not installed or its version is less than
                       the required minimum version.
     """
-    abpoa_required_version = '1.5.1'
     if abpoa is None:
         raise RuntimeError(
-            f'pyabpoa == {abpoa_required_version} is not installed. Refer to '
-            'abpoa documentation at https://github.com/yangao07/abPOA '
-            'for installation instructions.')
-    else:
-        version = importlib.metadata.distribution("pyabpoa").version
-        if Version(version) != Version(abpoa_required_version):
-            raise RuntimeError(
-                f"pyabpoa == {abpoa_required_version} required, got {version}")
+            "pyabpoa=={} is required for medaka tandem, but pyabpoa is not "
+            "installed. See medaka/tandem/README.md "
+            "(Requirements section).".format(PYABPOA_REQUIRED_VERSION)
+        )
+
+    version = importlib.metadata.distribution("pyabpoa").version
+    if Version(version) != Version(PYABPOA_REQUIRED_VERSION):
+        raise RuntimeError(
+            "pyabpoa=={} is required for medaka tandem, but found "
+            "pyabpoa=={}. See medaka/tandem/README.md "
+            "(Requirements section)."
+            .format(
+                PYABPOA_REQUIRED_VERSION,
+                version,
+            )
+        )
 
 
 def check_read_level_model(model: str) -> bool:
@@ -99,29 +109,173 @@ def check_read_level_model(model: str) -> bool:
     return bool(re.search(read_level_regex, str(model)))
 
 
+def normalize_model_name(model: str) -> str:
+    """Normalize a model path/name for policy checks."""
+    model_name = os.path.basename(str(model or "")).lower()
+    for suffix in medaka.models.model_suffixes:
+        if model_name.endswith(suffix):
+            return model_name.removesuffix(suffix)
+    return model_name
+
+
+def _has_model_token(normalized_model: str, token: str) -> bool:
+    """Check for model token using underscore-aware boundaries."""
+    return bool(re.search(rf"(^|_){re.escape(token)}(_|$)", normalized_model))
+
+
+def _is_read_level_model(model: str) -> bool:
+    """Check if model belongs to the read-level family."""
+    return check_read_level_model(model)
+
+
+def _is_variant_model(normalized_model: str) -> bool:
+    """Check if model belongs to the variant family."""
+    return _has_model_token(normalized_model, "variant")
+
+
+def _is_snp_model(normalized_model: str) -> bool:
+    """Check if model belongs to the SNP family."""
+    return _has_model_token(normalized_model, "snp")
+
+
+def _is_bacterial_model(normalized_model: str) -> bool:
+    """Check if model belongs to the bacterial family."""
+    return _has_model_token(normalized_model, "bacterial")
+
+
+def validate_tandem_model(model: str):
+    """Validate that model is supported for tandem polishing."""
+    normalized_model = normalize_model_name(model)
+    if not any((
+        _is_read_level_model(model),
+        _is_variant_model(normalized_model),
+        _is_snp_model(normalized_model),
+        _is_bacterial_model(normalized_model),
+    )):
+        return
+    raise RuntimeError(
+        "The selected model is incompatible with Medaka Tandem. "
+        "Medaka Tandem supports consensus models only; "
+        f"detected unsupported model '{model}'. "
+        "Please choose a consensus model name or a basecaller model "
+        "suffixed with ':consensus'."
+    )
+
+
+def validate_tandem_inputs(
+    bam_path: str, ref_fasta_path: str
+) -> None:
+    """Validate tandem BAM/CRAM and reference input paths."""
+    if not os.path.exists(ref_fasta_path):
+        raise RuntimeError(
+            f"Reference FASTA for tandem does not exist: {ref_fasta_path}"
+        )
+    try:
+        with pysam.FastaFile(ref_fasta_path):
+            pass
+    except Exception as exc:
+        raise RuntimeError(
+            "Reference FASTA for tandem could not be opened/read: {}. "
+            "Check that the FASTA is valid and indexed (.fai; for "
+            "bgzipped FASTA, also .gzi).".format(ref_fasta_path)
+        ) from exc
+
+    if not os.path.exists(bam_path):
+        raise RuntimeError(
+            f"Alignment file for tandem does not exist: {bam_path}"
+        )
+
+    bam_open_kwargs = {}
+    if str(bam_path).lower().endswith(".cram"):
+        bam_open_kwargs["reference_filename"] = ref_fasta_path
+    try:
+        with pysam.AlignmentFile(bam_path, **bam_open_kwargs) as bam:
+            # Touch references to ensure file/header are readable.
+            _ = bam.references
+            try:
+                has_index = bool(bam.check_index())
+            except Exception:
+                has_index = False
+    except Exception as exc:
+        raise RuntimeError(
+            f"Alignment file for tandem could not be read: {bam_path}"
+        ) from exc
+
+    if not has_index:
+        raise RuntimeError(
+            "Alignment index for 'bam' is missing or unreadable: {}. "
+            "Provide an indexed BAM (.bai/.csi) or CRAM (.crai).".format(
+                bam_path
+            )
+        )
+
+
+def cli_error(message: str, code: int = 2) -> None:
+    """Print a concise CLI error and exit."""
+    print(f"medaka tandem: error: {message}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def get_effective_regions(
+    regions: list[medaka.common.Region], sex: str, sex_chromosomes: list
+) -> list[medaka.common.Region]:
+    """Apply tandem-specific region filtering and deduplicate."""
+    if sex == "female":
+        _, chr_y_name = sex_chromosomes
+        regions = [
+            region for region in regions if region.ref_name != chr_y_name
+        ]
+
+    if not regions:
+        raise RuntimeError(
+            "No tandem regions remain after input parsing/filtering; "
+            "please provide a non-empty BED file."
+        )
+    # keep input order while removing duplicate intervals
+    return list(dict.fromkeys(regions))
+
+
 def main(args):
     """Entry point for targeted tandem repeat variant calling."""
+    tandem_formatter = logging.Formatter(
+        '[%(asctime)s - %(levelname)s - %(name)s] %(message)s',
+        datefmt='%H:%M:%S')
+    for handler in logging.getLogger().handlers:
+        handler.setFormatter(tandem_formatter)
+
     logger = medaka.common.get_named_logger("TR")
+    # Suppress medaka inference progress logs in tandem runs.
+    medaka.common.get_named_logger("Predict").setLevel(logging.WARNING)
     out_dir = args.output  # args.output will be later changed
     logger.info(f"Running medaka tr with options: {' '.join(sys.argv)}")
+    try:
+        validate_tandem_inputs(args.bam, args.ref_fasta)
+    except RuntimeError as exc:
+        cli_error(str(exc))
     check_abpoa_version()
-    if check_read_level_model(args.model):
-        logger.error(
-            "The provided model is incompatible "
-            "with tandem repeat genotyping. "
-            "Please use a compatible model."
-        )
-        logger.error(f"Model: {args.model}")
-        return
+    validate_tandem_model(args.model)
+    logger.info("Using polishing model: %s", args.model)
+    with pysam.FastaFile(args.ref_fasta) as ref_fasta:
+        contig_lengths = dict(zip(ref_fasta.references, ref_fasta.lengths))
 
-    medaka.common.mkdir_p(out_dir, info="Results will be overwritten.")
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    elif not os.path.isdir(out_dir):
+        raise NotADirectoryError(
+            f"Output path exists and is not a directory: {out_dir}"
+        )
+    else:
+        with os.scandir(out_dir) as entries:
+            if next(entries, None) is not None:
+                logger.warning(
+                    "The path %s exists and is not empty. "
+                    "Results may be overwritten.",
+                    out_dir,
+                )
 
     consensus_bam_file = os.path.join(out_dir, "trimmed_reads_to_poa.bam")
     poa_file = os.path.join(out_dir, "poa.fasta")
     output_fasta = os.path.join(out_dir, "consensus.{}".format("fasta"))
-
-    with pysam.FastaFile(args.ref_fasta) as ref_fasta:
-        contig_lengths = dict(zip(ref_fasta.references, ref_fasta.lengths))
 
     spanning_read_clusterer = SpanningReadClusterFactory.create_clusterer(
         args.phasing,
@@ -129,18 +283,11 @@ def main(args):
         remove_outliers=not args.disable_outlier_filter
     )
 
-    if args.sex == "female":
-        _, chr_y_name = args.sex_chrs
-        args.regions = [
-            region for region in args.regions if region.ref_name != chr_y_name
-        ]
-    # remove duplicates
-    args.regions = set(str(r) for r in args.regions)
-    args.regions = [medaka.common.Region.from_string(r) for r in args.regions]
+    args.regions = get_effective_regions(args.regions, args.sex, args.sex_chrs)
     par_regions = [
         medaka.common.Region.from_string(r) for r in args.par_regions
     ]
-    records: List[RecordName] = [
+    records: list[RecordName] = [
         RecordName(
             query_name="tr",
             ref_name=r.ref_name,
@@ -185,15 +332,18 @@ def main(args):
         success = generator.process()
 
     if not success:
-        return
+        raise RuntimeError(
+            "Tandem processing failed. Please check the logs for details."
+        )
 
     if medaka.common.is_file_empty(poa_file) or \
             medaka.common.is_file_empty(output_fasta):
-        logger.error(
+        msg = (
             "Medaka failed to generate a consensus sequence "
             "for the input regions."
         )
-        return
+        logger.error(msg)
+        raise RuntimeError(msg)
 
     medaka_bam = os.path.join(out_dir, "medaka_to_ref.bam")
     bam_to_vcfs(

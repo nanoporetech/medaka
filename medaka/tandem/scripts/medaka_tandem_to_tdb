@@ -1,0 +1,79 @@
+#!/bin/bash
+set -euo pipefail
+
+# This Medaka version was adopted from Hyunah Lee (King's College London) original script.
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") <input_vcf> <output_vcf_gz>
+
+Prepare Medaka Tandem VCF output for TDB import.
+
+Arguments:
+  input_vcf     medaka_to_ref.TR.vcf (or .vcf.gz)
+  output_vcf_gz Output .vcf.gz path for later `tdb create`
+EOF
+}
+
+if [[ $# -ne 2 ]]; then
+    usage >&2
+    exit 1
+fi
+
+INPUT_VCF="$1"
+OUTPUT_VCF="$2"
+
+if [[ "${OUTPUT_VCF}" != *.vcf.gz ]]; then
+    echo "Output path must end with .vcf.gz: ${OUTPUT_VCF}" >&2
+    exit 1
+fi
+
+if [[ ! -f "${INPUT_VCF}" ]]; then
+    echo "Input VCF not found: ${INPUT_VCF}" >&2
+    exit 1
+fi
+
+for tool in bcftools bgzip tabix awk; do
+    if ! command -v "${tool}" >/dev/null 2>&1; then
+        echo "Required tool not found in PATH: ${tool}" >&2
+        exit 1
+    fi
+done
+
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "${tmp_dir}"' EXIT
+
+am_header="${tmp_dir}/AM_header.txt"
+cat > "${am_header}" <<EOF
+##FORMAT=<ID=AM,Number=A,Type=Float,Description="Mean methylation level per allele">
+EOF
+
+step1="${tmp_dir}/step1.vcf.gz"
+step2="${tmp_dir}/step2.vcf.gz"
+step3="${tmp_dir}/step3.vcf.gz"
+step4="${tmp_dir}/step4.vcf.gz"
+
+# Step 1: ensure bgzipped VCF
+bcftools view -Oz -o "${step1}" "${INPUT_VCF}"
+tabix -f "${step1}"
+
+# Step 2: sort
+bcftools sort -Oz -o "${step2}" "${step1}"
+tabix -f "${step2}"
+
+# Step 3: add AM field and placeholder values
+bcftools annotate -h "${am_header}" "${step2}" | \
+awk 'BEGIN {OFS="\t"} /^#/ {print; next} { $9 = $9 ":AM"; for (i=10; i<=NF; i++) { $i = $i ":.,." }; print }' | \
+bgzip -c > "${step3}"
+tabix -f "${step3}"
+
+# Step 4: split multi-allelic records
+bcftools norm -m +any -Oz -o "${step4}" "${step3}"
+tabix -f "${step4}"
+
+# Step 5: final sort to output VCF for TDB import
+bcftools sort -Oz -o "${OUTPUT_VCF}" "${step4}"
+tabix -f "${OUTPUT_VCF}"
+
+echo "Prepared VCF for TDB import: ${OUTPUT_VCF}"
+echo "Run: tdb create -o <output.tdb> ${OUTPUT_VCF}"

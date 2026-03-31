@@ -141,7 +141,7 @@ if __name__ == '__main__':
             ]
         },
         extras_require={
-            "abpoa": ["pyabpoa==1.5.1"],
+            "abpoa": ["pyabpoa==1.5.6"],
         },
         scripts=[
             'scripts/medaka_consensus',

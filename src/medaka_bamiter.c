@@ -49,17 +49,36 @@ int read_bam(void *data, bam1_t *b) {
 
 
 // Initialise BAM file, index and header structures
-bam_fset* create_bam_fset(const char* fname) {
+bam_fset* create_bam_fset_with_ref(const char* fname, const char* ref_fname) {
     bam_fset* fset = xalloc(1, sizeof(bam_fset), "bam fileset");
     fset->fp = hts_open(fname, "rb");
+    if (fset->fp != 0 &&
+        ref_fname != NULL && ref_fname[0] != '\0' &&
+        fset->fp->format.format == cram) {
+        if (hts_set_fai_filename(fset->fp, ref_fname) != 0) {
+            destroy_bam_fset(fset);
+            fprintf(
+                stderr,
+                "Failed to set reference '%s' for '%s'.\n",
+                ref_fname,
+                fname
+            );
+            exit(1);
+        }
+    }
     fset->idx = sam_index_load(fset->fp, fname);
     fset->hdr = sam_hdr_read(fset->fp);
     if (fset->hdr == 0 || fset->idx == 0 || fset->fp == 0) {
         destroy_bam_fset(fset);
-        fprintf(stderr, "Failed to read .bam file '%s'.", fname);
+        fprintf(stderr, "Failed to read .bam file '%s'.\n", fname);
         exit(1);
     }
     return fset;
+}
+
+
+bam_fset* create_bam_fset(const char* fname) {
+    return create_bam_fset_with_ref(fname, NULL);
 }
 
 

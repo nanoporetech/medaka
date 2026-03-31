@@ -26,6 +26,7 @@ typedef struct {
 
 // Initialise BAM file, index and header structures
 bam_fset* create_bam_fset(const char* fname);
+bam_fset* create_bam_fset_with_ref(const char* fname, const char* ref_fname);
 
 // Destory BAM file, index and header structures
 void destroy_bam_fset(bam_fset* fset);

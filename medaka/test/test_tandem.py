@@ -254,3 +254,31 @@ class TestCheckReadLevelModel(unittest.TestCase):
          with self.subTest(model=model):
             self.assertFalse(medaka.tandem.tandem.check_read_level_model(model))
 
+
+class TestValidateTandemModel(unittest.TestCase):
+   def test_validate_tandem_model_accepts_consensus_models(self):
+      valid_models = [
+         "r1041_e82_400bps_hac_v5.2.0",
+         "r1041_e82_400bps_sup_v5.0.0",
+         "/fake/path/to/r1041_e82_400bps_hac_v5.2.0_model_pt.tar.gz",
+      ]
+      for model in valid_models:
+         with self.subTest(model=model):
+            medaka.tandem.tandem.validate_tandem_model(model)
+
+   def test_validate_tandem_model_rejects_invalid_models(self):
+      invalid_models = [
+         "r1041_e82_400bps_sup_variant_v5.0.0",
+         "/fake/path/to/r1041_e82_400bps_sup_variant_v5.0.0_model_pt.tar.gz",
+         "r941_min_fast_snp_g507",
+         "/fake/path/to/r941_min_fast_snp_g507_model_pt.tar.gz",
+         "r1041_e82_400bps_bacterial_methylation",
+         "/fake/path/to/r1041_e82_400bps_hac_bacterial_v1_model_pt.tar.gz",
+         "/fake/path/to/r1041_e82_400bps_sup_v5.0.0_rl_lstm384_dwells_model_pt.tar.gz",
+      ]
+      for model in invalid_models:
+         with self.subTest(model=model):
+            with self.assertRaisesRegex(
+               RuntimeError, "supports consensus models only"
+            ):
+               medaka.tandem.tandem.validate_tandem_model(model)

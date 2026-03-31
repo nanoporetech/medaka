@@ -1,23 +1,43 @@
 """Module for generating consensus sequences from reads."""
+
+from concurrent.futures import (
+    as_completed,
+    ProcessPoolExecutor,
+    TimeoutError as FuturesTimeoutError,
+)
+from concurrent.futures.process import BrokenProcessPool
 from contextlib import ExitStack
 import dataclasses
+import faulthandler
 import math
-import multiprocessing
 import os
 import tempfile
 import time
 from timeit import default_timer as now
-from typing import Dict, List, Optional
 
 import pysam
 
+from medaka import abpoa
 import medaka.common
 import medaka.smolecule
+from medaka.tandem.abpoa_utils import run_abpoa_consensus
 from medaka.tandem.alignment import align_consensus_fx_to_ref
 from medaka.tandem.io import SpanningReadsExtractor
 from medaka.tandem.polisher import Polisher
 from medaka.tandem.record_name import RecordName
 from medaka.tandem.spanning_read_clusterer import SpanningReadClusterer
+
+
+def _enable_faulthandler():
+    """Enable faulthandler in worker processes for crash diagnostics."""
+    try:
+        faulthandler.enable(all_threads=True)
+    except Exception as exc:
+        # Avoid failing pool startup if faulthandler cannot be enabled
+        medaka.common.get_named_logger("ParallelConsensusGenerator").info(
+            "Could not enable faulthandler in worker process: %s",
+            exc,
+        )
 
 
 class InsufficientCoverage(Exception):
@@ -34,8 +54,7 @@ class ConsensusResult:
     subreads: tuple
     consensus_seq: str = ""
     consensus_alignments: tuple = dataclasses.field(default_factory=tuple)
-    ref_seq: str = ""
-    exception: Optional[Exception] = None
+    exception: Exception | None = None
 
 
 class ConsensusGenerator:
@@ -45,12 +64,12 @@ class ConsensusGenerator:
 
     def __init__(
         self,
-        regions: List[RecordName],
+        regions: list[RecordName],
         bam: str,
         ref: str,
         reads_clusterer: SpanningReadClusterer,
         min_depth: int,
-        reads_filter: Dict[str, int],
+        reads_filter: dict[str, int],
         output_prefix: str,
         process_large_regions: bool = False,
         model=None,
@@ -58,20 +77,22 @@ class ConsensusGenerator:
         """Initialize the ConsensusGenerator with the specified parameters.
 
         Args:
-            regions (List[RecordName]): list of genomic regions to process.
+            regions (list[RecordName]): list of genomic regions to process.
             bam (str): Path to the BAM file with sequencing reads.
             ref (str): Path to the reference genome file.
             reads_clusterer (SpanningReadClusterer): Clustering Method
             ('abpoa', 'prephased', 'hybrid').
             min_depth (int): Minimum depth threshold for filtering reads.
-            reads_filter (Dict[str, int]): Filtering criteria for reads.
+            reads_filter (dict[str, int]): Filtering criteria for reads.
             process_large_regions (bool): Flag to process large regions.
             output_prefix (str): Prefix for output files.
             model (medaka.model.Model): Medaka model for polishing.
 
         """
         self.regions = regions
-        self.bam_reader = SpanningReadsExtractor(bam, reads_filter)
+        self.bam_reader = SpanningReadsExtractor(
+            bam, reads_filter, ref_fasta=ref
+        )
         self.ref = ref
         self.reads_clusterer = reads_clusterer
         self.min_depth = min_depth
@@ -89,7 +110,6 @@ class ConsensusGenerator:
         op = output_prefix
         self.poa_file = os.path.join(op, "poa.fasta")
         self.trimmed_reads_file = os.path.join(op, "trimmed_reads.fasta")
-        self.ref_chunks_file = os.path.join(op, "ref_chunks.fasta")
         self.skipped_bed_file = os.path.join(op, "skipped.bed")
         self.skipped_large_file = os.path.join(op, "skipped_large.bed")
         self.trimmed_to_poa_bam = os.path.join(op, "trimmed_reads_to_poa.bam")
@@ -100,7 +120,6 @@ class ConsensusGenerator:
         for f in (
             self.poa_file,
             self.trimmed_reads_file,
-            self.ref_chunks_file,
         ):
             medaka.common.remove_if_exist(f + ".fai")
 
@@ -119,9 +138,6 @@ class ConsensusGenerator:
         # main outputs
         self.trimmed_reads_fh = stack.enter_context(
             open(self.trimmed_reads_file, "w")
-        )
-        self.ref_chunks_fh = stack.enter_context(
-            open(self.ref_chunks_file, "w")
         )
         self.skipped_bed_fh = stack.enter_context(
             open(self.skipped_bed_file, "w")
@@ -149,7 +165,7 @@ class ConsensusGenerator:
         )
 
     def write_spanning_reads(
-        self, spanning_reads: List[medaka.smolecule.Subread]
+        self, spanning_reads: list["medaka.smolecule.Subread"]
     ) -> None:
         """Write the spanning reads to the trimmed reads file.
 
@@ -161,19 +177,18 @@ class ConsensusGenerator:
             self.trimmed_reads_fh.write(f">{read.name}\n{read.seq}\n")
 
     def write_consensus(self, consensus: ConsensusResult):
-        """Write the consensus sequence and reference sequence."""
+        """Write the consensus sequence."""
         self.poa_fh.write(
             ">{}\n{}\n".format(str(consensus.rec), consensus.consensus_seq)
-        )
-        self.ref_chunks_fh.write(
-            f">{str(consensus.rec)}\n{consensus.ref_seq}\n"
         )
         self.header["SQ"].append(
             {"LN": len(consensus.consensus_seq), "SN": str(consensus.rec)}
         )
         self.all_consensus_alignments.append(consensus.consensus_alignments)
 
-    def get_subreads(self, rec: RecordName) -> List[medaka.smolecule.Subread]:
+    def get_subreads(
+        self, rec: RecordName
+    ) -> list["medaka.smolecule.Subread"]:
         """Get the subreads for a given record.
 
         Args:
@@ -213,14 +228,14 @@ class ConsensusGenerator:
 
     def generate_consensus(
         self,
-        clustered_spanning_reads: Dict[RecordName,
-                                       List[medaka.smolecule.Subread]]
+        clustered_spanning_reads: dict[RecordName,
+                                       list["medaka.smolecule.Subread"]]
     ):
         """Generate the consensus sequences for clustered subreads.
 
         Args:
-            clustered_spanning_reads (Dict[RecordName,
-                        List[medaka.smolecule.Subread]]):
+            clustered_spanning_reads (dict[RecordName,
+                        list[medaka.smolecule.Subread]]):
                                         clustered subreads.
 
         """
@@ -312,7 +327,7 @@ class ConsensusGenerator:
         return len(self.regions)
 
     def consensus_pileup_from_reads(
-        self, rec: RecordName, subreads: List[medaka.smolecule.Subread]
+        self, rec: RecordName, subreads: list["medaka.smolecule.Subread"]
     ) -> ConsensusResult:
         """Run consensus and generate read-consensus alignments."""
         if isinstance(rec, str):
@@ -335,9 +350,7 @@ class ConsensusGenerator:
                 )
             )
             return res
-        # Sort reads for consistent results.
-        # I am starting with shorter reads first
-        # since we hypothesize that the basecaller is overcalling.
+        # Sort reads for deterministic baseline ordering.
         non_empty_subreads.sort(
             key=lambda read: (len(read.seq), read.name), reverse=True
         )
@@ -354,15 +367,19 @@ class ConsensusGenerator:
             )
             return res
 
-        consensus_read = medaka.smolecule.Read(
-            name=str(rec), subreads=res.subreads
+        aligner = abpoa.msa_aligner(aln_mode="g")
+        ordered_subreads = self._order_subreads_for_abpoa(
+            list(res.subreads),
+            strategy="interleaved",
         )
-        # avoid realignment to discover strandedness
-        consensus_read._orient = [
-            RecordName.from_str(s.name).strand == "fwd" for s in res.subreads
-        ]
-        consensus_read._initialized = True
-        res.consensus_seq = consensus_read.poa_consensus(method="abpoa")
+        result, abpoa_stderr = run_abpoa_consensus(
+            aligner=aligner,
+            subreads=ordered_subreads,
+            context_label=str(rec),
+        )
+        if abpoa_stderr:
+            self.logger.debug("Abpoa stderr for %s:\n%s", rec, abpoa_stderr)
+        res.consensus_seq = result.cons_seq[0]
         # estimate depth of coverage from number of bp and round to be generous
         depth = sum(len(s) for s in subreads)
         if round(depth) < self.min_depth:
@@ -372,23 +389,83 @@ class ConsensusGenerator:
             )
             return res
 
-        # use global aligner
-        consensus_read.parasail_aligner_name = self.PARASAIL_ALIGNER_NAME
-
         # align sub-reads (i.e. trimmed pileup) to consensus
-        res.consensus_alignments = consensus_read.align_to_template(
-            template=res.consensus_seq,
-            template_name=consensus_read.name,
+        res.consensus_alignments = self._align_subreads_to_consensus(
+            rec=rec,
+            subreads=res.subreads,
+            consensus_seq=res.consensus_seq,
         )
         return res
 
     @staticmethod
-    def merge_results(out_dir, temp_outputs_prefix: List[str]):
+    def _order_subreads_for_abpoa(
+        subreads: list["medaka.smolecule.Subread"],
+        strategy: str,
+    ) -> list["medaka.smolecule.Subread"]:
+        """Order subreads for abPOA.
+
+        The `interleaved` path is borrowed from smolecule's
+        `Read.interleaved_subreads`.
+        """
+        if strategy == "desc":
+            return list(subreads)
+        if strategy != "interleaved":
+            raise ValueError(
+                "Unknown abPOA ordering strategy: "
+                f"{strategy}. Expected 'desc' or 'interleaved'."
+            )
+
+        fwd = []
+        rev = []
+        for subread in subreads:
+            is_fwd = RecordName.from_str(subread.name).strand == "fwd"
+            if is_fwd:
+                fwd.append([subread, 0.0])
+            else:
+                rev.append([subread, 0.0])
+
+        for grouped_subreads in (fwd, rev):
+            if grouped_subreads:
+                rate = 1.0 / len(grouped_subreads)
+                for i, row in enumerate(grouped_subreads):
+                    row[1] = rate * i
+
+        interleaved = sorted(fwd + rev, key=lambda x: x[1])
+        return [subread for subread, _ in interleaved]
+
+    def _align_subreads_to_consensus(
+        self,
+        rec: RecordName,
+        subreads: tuple["medaka.smolecule.Subread", ...],
+        consensus_seq: str,
+    ):
+        """Align `subreads` to `consensus_seq` for record `rec`.
+
+        Uses `smolecule.Read.align_to_template`, with orientation derived from
+        subread names via `RecordName` to avoid extra strand alignments.
+        """
+        consensus_read = medaka.smolecule.Read(
+            name=str(rec), subreads=subreads
+        )
+        # Populate orientation from record metadata and skip `initialize()`.
+        consensus_read._orient = [
+            RecordName.from_str(s.name).strand == "fwd" for s in subreads
+        ]
+        consensus_read._initialized = True
+        consensus_read.consensus = consensus_seq
+        consensus_read.parasail_aligner_name = self.PARASAIL_ALIGNER_NAME
+        return consensus_read.align_to_template(
+            template=consensus_seq,
+            template_name=consensus_read.name,
+        )
+
+    @staticmethod
+    def merge_results(out_dir, temp_outputs_prefix: list[str]):
         """Merge the results of the consensus generation process.
 
         Args:
             out_dir (str): Path to the output directory.
-            temp_outputs_prefix (List[str]): list of temporary output folders.
+            temp_outputs_prefix (list[str]): list of temporary output folders.
 
         Returns:
             None
@@ -421,7 +498,6 @@ class ConsensusGenerator:
 
         outputFiles = [
             "trimmed_reads.fasta",
-            "ref_chunks.fasta",
             "skipped.bed",
             "skipped_large.bed",
             "poa.fasta",
@@ -479,12 +555,12 @@ class ParallelConsensusGenerator:
 
     def __init__(
         self,
-        regions: List[RecordName],
+        regions: list[RecordName],
         bam: str,
         ref: str,
         reads_clusterer: SpanningReadClusterer,
         min_depth: int,
-        reads_filter: Dict[str, int],
+        reads_filter: dict[str, int],
         process_large_regions: bool,
         output_prefix: str,
         num_processes: int,
@@ -493,13 +569,13 @@ class ParallelConsensusGenerator:
         """Initialize the ParallelConsensusGenerator class.
 
         Args:
-            regions (List[RecordName]): list of genomic regions to process.
+            regions (list[RecordName]): list of genomic regions to process.
             bam (str): Path to the BAM file with sequencing reads.
             ref (str): Path to the reference genome file.
             reads_clusterer (SpanningReadClusterer): The method to use for
             consensus generation('abpoa', 'prephased', 'hybrid').
             min_depth (int): Minimum depth threshold for filtering reads.
-            reads_filter (Dict[str, int]): Filtering criteria for reads.
+            reads_filter (dict[str, int]): Filtering criteria for reads.
             process_large_regions (bool): Flag to process large regions.
             output_prefix (str): Prefix for output files.
             num_processes (int): Number of processes to run in parallel.
@@ -514,6 +590,8 @@ class ParallelConsensusGenerator:
         self.reads_filter = reads_filter
         self.process_large_regions = process_large_regions
         self.output_prefix = output_prefix
+        self.temp_dir = os.path.join(self.output_prefix, "tmp")
+        os.makedirs(self.temp_dir, exist_ok=True)
         self.num_processes = num_processes
         self.t0 = now()
         self.t1, self.tlast = self.t0, self.t0
@@ -523,40 +601,136 @@ class ParallelConsensusGenerator:
 
     def process(self):
         """Process the genomic regions in parallel using multiprocessing."""
-        running_jobs = []
         finished_temp_results = []
         logger = medaka.common.get_named_logger("ParallelConsensusGenerator")
+        stall_warn_timeout = float(
+            os.environ.get(
+                "MEDAKA_TANDEM_STALL_WARN_TIMEOUT_SECONDS",
+                str(5 * 60),
+            )
+        )
+        max_tasks_per_child_raw = os.environ.get(
+            "MEDAKA_TANDEM_MAX_TASKS_PER_CHILD", "0"
+        )
+        try:
+            max_tasks_per_child = int(max_tasks_per_child_raw)
+        except ValueError as e:
+            raise RuntimeError(
+                "Invalid MEDAKA_TANDEM_MAX_TASKS_PER_CHILD value "
+                f"'{max_tasks_per_child_raw}'. Expected integer >= 0."
+            ) from e
+        if max_tasks_per_child < 0:
+            raise RuntimeError(
+                "Invalid MEDAKA_TANDEM_MAX_TASKS_PER_CHILD value "
+                f"'{max_tasks_per_child_raw}'. Expected integer >= 0."
+            )
+        poll_interval_seconds = 60
         error = False
-        with multiprocessing.Pool(
-            processes=self.num_processes, maxtasksperchild=1
-        ) as pool:
-            for sub_region in self.sub_regions:
-                result = pool.apply_async(
-                    self.run_consensus_generator,
-                    (
-                        sub_region,
-                        self.bam,
-                        self.ref,
-                        self.reads_clusterer,
-                        self.min_depth,
-                        self.reads_filter,
-                        self.process_large_regions,
-                        self.output_prefix,
-                        self.model,
-                    ),
-                )
-                running_jobs.append(result)
+        executor = None
+        num_sub_regions = len(self.sub_regions)
+        futures = {}
+        in_flight = {}
+        try:
+            executor_kwargs = dict(
+                max_workers=self.num_processes,
+                initializer=_enable_faulthandler,
+            )
+            # Optional for diagnostics: recycle workers after N tasks.
+            # Default (0) keeps workers alive for better throughput.
+            if max_tasks_per_child > 0:
+                executor_kwargs["max_tasks_per_child"] = max_tasks_per_child
+            executor = ProcessPoolExecutor(**executor_kwargs)
 
-            num_sub_regions = len(self.sub_regions)
+            for sub_region in self.sub_regions:
+                future = executor.submit(
+                    self.run_consensus_generator,
+                    sub_region,
+                    self.bam,
+                    self.ref,
+                    self.reads_clusterer,
+                    self.min_depth,
+                    self.reads_filter,
+                    self.process_large_regions,
+                    self.temp_dir,
+                    self.model,
+                )
+                futures[future] = sub_region
+                in_flight[future] = (sub_region, time.monotonic())
             self.sub_regions = []
 
-            while len(running_jobs) > 0 and not error:
-                res = self._collect_results(running_jobs, logger)
-                running_jobs, finished_results, error = res
-                finished_temp_results.extend(finished_results)
-                time.sleep(
-                    1
-                )  # Sleep for a short period before checking the result again
+            pending = set(futures)
+            while pending:
+                try:
+                    future = next(
+                        as_completed(pending, timeout=poll_interval_seconds)
+                    )
+                except FuturesTimeoutError:
+                    now_ts = time.monotonic()
+                    over_threshold = []
+                    for pending_future in pending:
+                        sub_region, started = in_flight[pending_future]
+                        age = now_ts - started
+                        if age < stall_warn_timeout:
+                            continue
+                        first_region, region_count = (
+                            self._peek_first_region_info(sub_region)
+                        )
+                        region_info = ""
+                        if first_region:
+                            region_info = (
+                                " first_record="
+                                f"{first_region} (first of {region_count})"
+                            )
+                        over_threshold.append(
+                            f"{sub_region} age={age:.1f}s{region_info}"
+                        )
+                    if over_threshold:
+                        logger.debug(
+                            "No worker result yet; "
+                            "%d in-flight sub-region(s) >= %.0fs",
+                            len(over_threshold),
+                            stall_warn_timeout,
+                        )
+                        logger.debug(
+                            "Stalled sub-regions: %s",
+                            "; ".join(over_threshold),
+                        )
+                    continue
+
+                pending.remove(future)
+                sub_region = futures[future]
+                in_flight.pop(future, None)
+                try:
+                    temp_results, n_processed_regions = future.result()
+                except BrokenProcessPool as e:
+                    logger.error(
+                        "Process pool became unusable while processing %s: %s",
+                        sub_region,
+                        e,
+                    )
+                    error = True
+                except Exception as e:
+                    logger.error(
+                        "Error while processing sub-region %s: %s",
+                        sub_region,
+                        e,
+                    )
+                    error = True
+
+                if error:
+                    for pending_future in pending:
+                        if not pending_future.done():
+                            pending_future.cancel()
+                    break
+
+                finished_temp_results.append(temp_results)
+                self.update_progress(n_processed_regions, logger)
+        except BrokenProcessPool as e:
+            logger.error("Process pool became unusable: %s", e)
+            error = True
+        finally:
+            if executor is not None:
+                executor.shutdown(wait=True, cancel_futures=True)
 
         if error or len(finished_temp_results) != num_sub_regions:
             logger.error(
@@ -580,26 +754,26 @@ class ParallelConsensusGenerator:
 
         return True
 
-    def _collect_results(self, jobs, logger):
-        running_jobs = []
-        error = False
-        finished_temp_results = []
-        for result in jobs:
-            if result.ready():
-                if result.successful():
-                    temp_results, n_processed_regions = result.get()
-                    finished_temp_results.append(temp_results)
-                    self.update_progress(n_processed_regions, logger)
-                else:
-                    try:
-                        error = True
-                        result.get()
-                    except Exception as e:
-                        logger.error(f"Error encountered: {e}")
-                        break
-            else:
-                running_jobs.append(result)
-        return running_jobs, finished_temp_results, error
+    @staticmethod
+    def _peek_first_region_info(
+        sub_region_path: str,
+    ) -> tuple[str | None, int]:
+        """Return first RecordName and total count from a sub-region file."""
+        try:
+            count = 0
+            first_line = None
+            with open(sub_region_path, "r") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        count += 1
+                        if first_line is None:
+                            first_line = line
+            if count == 0:
+                return None, 0
+            return first_line, count
+        except Exception:
+            return None, 0
 
     def update_progress(self, n_processed, logger):
         """Update the progress of the consensus generation process."""
@@ -657,7 +831,9 @@ class ParallelConsensusGenerator:
         regions = big_regions + rest
         for i in range(0, len(regions), num_regions_per_process):
             region_file = tempfile.NamedTemporaryFile(
-                dir=self.output_prefix, delete=False
+                dir=self.temp_dir,
+                delete=False,
+                prefix="subregions_",
             )
             region_file.write(
                 "\n".join(
@@ -676,7 +852,7 @@ class ParallelConsensusGenerator:
         min_depth,
         reads_filter,
         process_large_regions,
-        output_prefix,
+        temp_dir,
         model,
     ):
         """Run the consensus generator for a given set of sub-regions.
@@ -688,9 +864,9 @@ class ParallelConsensusGenerator:
             reads_clusterer (SpanningReadClusterer): Clustering method:
             ('abpoa', 'prephased', 'hybrid').
             min_depth (int): Minimum depth threshold.
-            reads_filter (Dict[str, int]): Filtering criteria for reads.
+            reads_filter (dict[str, int]): Filtering criteria for reads.
             process_large_regions (bool): Flag to process large regions.
-            output_prefix (str): Prefix for the output files.
+            temp_dir (str): Directory for temporary worker files.
             model (str): Path to the model.
 
         Returns:
@@ -702,12 +878,22 @@ class ParallelConsensusGenerator:
         logger = medaka.common.get_named_logger("ParallelConsensusGenerator")
         processed = 0
         try:
-            temp_folder = tempfile.mkdtemp(dir=output_prefix)
+            logger.debug(
+                "Worker %s processing sub-region file %s.",
+                os.getpid(),
+                sub_regions,
+            )
+            temp_folder = tempfile.mkdtemp(dir=temp_dir)
             with open(sub_regions, "r") as f:
                 regions = [
                     RecordName.from_str(line.strip()) for line in f.readlines()
                 ]
-            medaka.common.remove_if_exist(sub_regions)
+            logger.debug(
+                "Worker %s loaded %d regions from %s.",
+                os.getpid(),
+                len(regions),
+                sub_regions,
+            )
             consensus_generator = ConsensusGenerator(
                 regions=regions,
                 bam=bam,
@@ -720,8 +906,14 @@ class ParallelConsensusGenerator:
                 model=model,
             )
             processed = consensus_generator.process()
+            medaka.common.remove_if_exist(sub_regions)
         except Exception as e:
-            logger.error(f"Error encountered: {e}")
+            logger.error(
+                "Worker %s error while processing %s: %s",
+                os.getpid(),
+                sub_regions,
+                e,
+            )
             raise e
 
         return temp_folder, processed
