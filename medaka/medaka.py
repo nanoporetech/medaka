@@ -158,6 +158,47 @@ class RegionParser(argparse.Action):
         setattr(namespace, self.dest, regions)
 
 
+class TandemRegionParser(RegionParser):
+    """Parse tandem regions from a BED file and validate coordinates."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        bed_path = values
+        if not os.path.exists(bed_path):
+            parser.error(
+                "BED file for 'regions' does not exist: {}".format(bed_path)
+            )
+
+        try:
+            regions = [
+                medaka.common.Region(chrom, start, stop)
+                for chrom, start, stop in medaka.common.yield_from_bed(bed_path)
+            ]
+        except Exception:
+            parser.error(
+                "BED file for 'regions' could not be parsed: {}.".format(
+                    bed_path
+                )
+            )
+
+        if len(regions) == 0:
+            parser.error(
+                "No valid tandem regions were parsed from BED input: {}. "
+                "Ensure the file is non-empty and each data row has at least "
+                "three columns: chrom start end.".format(bed_path)
+            )
+
+        invalid = [r for r in regions if r.end <= r.start]
+        if invalid:
+            display = ', '.join(str(r) for r in invalid[:3])
+            if len(invalid) > 3:
+                display = display + ', ...'
+            parser.error(
+                "Tandem regions require end > start. "
+                "Invalid region(s): {}.".format(display)
+            )
+        setattr(namespace, self.dest, regions)
+
+
 class RegionRefNameParser(RegionParser):
     """Parse regions, retaining only region ref_names."""
 
@@ -306,7 +347,6 @@ def _validate_common_args(args, parser):
             else:
                 logger.debug(
                     f"Chosen model '{args.model}' for input '{args.bam}'.")
-
 
 def print_model_path(args):
     print(os.path.abspath(args.model))
@@ -601,20 +641,20 @@ def medaka_parser():
         parents=[_log_level(), _model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     trparser.set_defaults(func=medaka.tandem.tandem.main)
-    trparser.add_argument('bam', help='Read alignments (preferably haplotagged) in BAM format.', action=CheckBam)
+    trparser.add_argument('bam', help='Read alignments (preferably haplotagged) in BAM/CRAM format.')
     trparser.add_argument('ref_fasta', help='Reference genome in FASTA format.')
-    trparser.add_argument('regions', action=RegionParser, nargs='+',
-        help='List of STR regions or path to a BED file specifying STR regions for analysis')
+    trparser.add_argument('regions', action=TandemRegionParser,
+        help='Path to a BED or BED.gz file specifying STR regions for analysis.')
     trparser.add_argument('sex', choices={'female', 'male'},
         help='Specifies sample sex to ensure correct handling of X/Y chromosomes, including pseudoautosomal regions')
     trparser.add_argument('output', help='Output directory for results.')
     trparser.add_argument('--workers', type=int, default=1,
-        help='Number of parallel worker processes to use (default: 1).')
+        help='Number of parallel worker processes to use.')
     trparser.add_argument('--process_large_regions', action='store_true', default=False,
         help=(
-            'Process TRs with estimated length (of one or both alleles) exceeding 10kbp (default: False). '
+            'Process TRs with estimated length (of one or both alleles) exceeding 10kbp. '
             'Processing large regions can substantially increase RAM usage. With the default setting, the expected '
-            'peak RAM consumption on Addotto repeat catalogue is approximately 14GB when using 8 workers, and 23GB '
+            'peak RAM consumption on Adotto repeat catalogue is approximately 14GB when using 8 workers, and 23GB '
             'when using 16 workers. Skipped regions will be output to `skipped_large.bed`.'
         ))
     trparser.add_argument(
@@ -637,15 +677,15 @@ def medaka_parser():
     trparser.add_argument('--disable_outlier_filter', action='store_true', default=False,
         help='Disable exclusion of reads with significantly divergent spanning region lengths.')
     trparser.add_argument('--padding', type=int, default=10,
-        help='Number of bases to pad spanning read regions and reference sequence (default: 10).')
-    trparser.add_argument('--sex_chrs', metavar='<X> <Y>', default=['chrX', 'chrY'],
-        nargs=2, help='Comma-separated names of X and Y chromosomes in reference FASTA.')
+        help='Number of bases to pad spanning read regions and reference sequence.')
+    trparser.add_argument('--sex_chrs', metavar=('<X>', '<Y>'), default=['chrX', 'chrY'],
+        nargs=2, help='Names of X and Y chromosomes in reference FASTA as two arguments, e.g. `--sex_chrs chrX chrY`.')
     trparser.add_argument('--par_regions', nargs='+', type=str,
         help=(
             'Coordinates of pseudoautosomal regions (PARs) on the X chromosome. Will be treated as diploid in male samples. '
             'The analysis assumes that the corresponding PARs on chromosome Y have been hard-masked (i.e. replaced with Ns) '
-            'in the reference to avoid ambiguous read alignments. Default: chrX:10000-2781479,chrX:155701382-156030895 '
-            'assuming use of the GRCh38 analysis set, e.g. `GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta`.'
+            'in the reference to avoid ambiguous read alignments. Default values '
+            'assume use of the GRCh38 analysis set (e.g. `GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta`).'
         ),
         default=["chrX:10000-2781479", "chrX:155701382-156030895"])
     trparser.add_argument('--decompose', action='store_true', default=False,

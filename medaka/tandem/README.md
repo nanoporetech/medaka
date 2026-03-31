@@ -26,40 +26,43 @@ Medaka Tandem carries out the following steps for each specified tandem repeat r
 Requirements
 -----
 
-In addition to usual Medaka dependencies, Medaka Tandem also requires [pyabpoa](https://github.com/yangao07/abPOA) v1.5.1 to be available.
-On Linux, it can be installed as follows:
-- if medaka was installed from conda, `conda install bioconda::pyabpoa==1.5.1`.
-- if medaka was installed via pip, `pip install pyabpoa==1.5.1` but development libraries are required to build the wheel.
-- if medaka was built from source with `make install`, pyabpoa was built as part of this installation and should already be present.
+In addition to usual Medaka dependencies, Medaka Tandem also requires [pyabpoa](https://github.com/yangao07/abPOA) v1.5.6 to be available:
+- If medaka is being installed via pip, on Linux it can be installed with `pip install 'medaka[abpoa]'` but development libraries are required to build the `pyabpoa` wheel.
+- If medaka was already installed via pip, `pyabpoa` can be added with `pip install pyabpoa==1.5.6`.
+- If medaka was installed from conda, pyabpoa should have been installed as a dependency.
+- If medaka was built from source with `make install`, pyabpoa was built as part of this installation and should already be present.
 
 
 Usage
 -----
 
 `medaka tandem` command requires five positional arguments:
-1. Reference genome in FASTA format.
-2. Read alignments (preferably haplotagged) in BAM format.
-3. Genomic regions to be analysed in BED format
-4. Sample sex (‘male|female`)
-5. Output directory
-Addotto repeat catalogues can be downloaded from [here](https://github.com/ACEnglish/adotto/blob/main/regions/DataDescription.md).
+Positional arguments: bam, ref_fasta, regions, sex, output.
+1. Read alignments (preferably haplotagged) in BAM/CRAM format; the alignment file must be indexed.
+2. Reference genome in FASTA format.
+3. Path to a BED or BED.gz file with genomic regions to be analysed.
+4. Sample sex (`male|female`)
+5. Output directory.
 
-Command line example
+Adotto repeat catalogues can be downloaded from [here](https://github.com/ACEnglish/adotto/blob/main/regions/DataDescription.md).
 
-    medaka tandem \
-            happlotagged.bam \
-            ref.fna \
-            adotto_TRregions_v1.2.bed \
-            male \
-            output_folder
+Command-line example
 
+```bash
+medaka tandem \
+  haplotagged.bam \
+  ref.fna \
+  adotto_TRregions_v1.2.bed \
+  male \
+  output_folder
+```
 
 ## Additional options
 
 ### Performance-Related Options
 
 1. `--workers` Number of parallel worker processes to use (default: 1).
-2. `--process_large_regions` Process TRs with estimated length (of one or both alleles) exceeding 10kbp (default: False). Processing large regions can substantially increase RAM usage. With the default setting, the expected peak RAM consumption on Addotto repeat catalogue is approximately 14GB when using 8 workers, and 23GB when using 16 workers. Skipped regions will be output to `skipped_large.bed`.
+2. `--process_large_regions` Process TRs with estimated length (of one or both alleles) exceeding 10kbp (default: False). Processing large regions can substantially increase RAM usage. With the default setting, the expected peak RAM consumption on Adotto repeat catalogue is approximately 14GB when using 8 workers, and 23GB when using 16 workers. Skipped regions will be output to `skipped_large.bed`.
 
 ### Behaviour-Related Options
 1. `--phasing` Specify the strategy for dividing the reads between haplotypes. (default: `hybrid`)
@@ -69,20 +72,41 @@ Command line example
     - `unphased` Assume the sample is haploid.
 2. `--min_depth` Minimum number of spanning reads required for allele consensus reconstruction. (default: 3)
 3. `--min_mapq` Minimum mapping quality (MAPQ) for alignments filtering. (default: 5)
-4. `-- disable_outlier_filter` Disable exclusion of reads with significantly divergent spanning region lengths. (default: False).
-5.  `--padding` Number of bases to pad spanning read regions and reference sequence. (default: 10)
-6. `--sex_chrs` Comma separated names of X and Y chromosomes in reference FASTA. (default: ['chrX', 'chrY'])
+4. `--disable_outlier_filter` Disable exclusion of reads with significantly divergent spanning region lengths. (default: False).
+5. `--padding` Number of bases to pad spanning read regions and reference sequence. (default: 10)
+6. `--sex_chrs` Names of X and Y chromosomes in reference FASTA as two arguments (e.g. `--sex_chrs chrX chrY`). (default: ['chrX', 'chrY'])
 7. `--par_regions` Coordinates of pseudoautosomal regions (PARs) on the X chromosome. Will be treated as diploid in male samples. The analysis assumes that the corresponding PARs on chromosome Y have been hard-masked (i.e. replaced with Ns) in the reference to avoid ambiguous read alignments. (default: chrX:10000-2781479,chrX:155701382-156030895 assuming use of the GRCh38 analysis set, e.g. `GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta`)
-8. `--model` Model to be used for polishing. Can be a medaka model name or a basecaller model name suffixed with ':consensus'`
-Please review the [Medaka Tandem README](../../README.md) for more information about the model choice.
+8. `--model` Model to be used for polishing. Use a Medaka consensus model name (for example, `r1041_e82_400bps_hac_v5.2.0`), or a basecaller model name suffixed with `:consensus` (for example, `dna_r10.4.1_e8.2_400bps_hac@v4.1.0:consensus`).
+9. `--auto_model TYPE INPUT` Automatically choose a model by inspecting `INPUT`. For Medaka Tandem, `TYPE` must be `consensus`. `INPUT` should be a basecaller output file containing basecaller-model metadata (BAM/CRAM/SAM with `@RG DS` header entries containing `basecall_model=...`, or FASTQ with basecaller model metadata in read comments).
+
+Example (using the same BAM for both auto-model detection and tandem input):
+
+```bash
+BAM=haplotagged.bam
+medaka tandem \
+  --auto_model consensus "${BAM}" \
+  "${BAM}" \
+  ref.fna \
+  adotto_TRregions_v1.2.bed \
+  male \
+  output_folder
+```
+
+`--model` and `--auto_model` are mutually exclusive.
+Please review the [Medaka README](../../README.md) for more information about model selection.
+Note: Medaka Tandem shares Medaka CLI help text for model arguments. Hence, while `--help` lists other model types (suffixed with `:variant` or `--auto_model variant`), Medaka Tandem can only be used with consensus models.
+
+### Logging Options
+1. `--quiet` Reduce logging verbosity to warnings and errors only.
+2. `--debug` Enable verbose debug logging.
+`--quiet` and `--debug` are mutually exclusive. By default, Medaka Tandem logs at INFO level.
 
 
 ### Output-Related Options
 
 1. `--decompose` Align polished sequences back to reference region and extract a list of (left-aligned) variants. By default, Medaka Tandem reports entire haplotype-specific tandem repeats as alternative alleles.
-2. `--add_read_names` Report names of spanning reads in the output VCF files.
-
-3. `--sample_name` Sample name used in the output VCF file. (default: SAMPLE)
+2. `--add_read_names` Report names of spanning reads in the output VCF file.
+3. `--sample_name` Sample name used in the output VCF file. (default: `SAMPLE`)
 
 Output Folder Content
 -----
@@ -97,14 +121,32 @@ Output Folder Content
 8. `poa.fasta`: Draft consensus allele sequences before polishing.
 9. `trimmed_reads_to_poa.bam`: alignments of sequences from `trimmed_reads.fasta` to `poa.fasta`, used during polishing.
 
+VCF Preparation for TDB
+-----
 
+A helper script is provided to preprocess tandem output VCF for TDB import:
 
-Licence and Copyright
-======
+```bash
+./medaka/tandem/scripts/medaka_tandem_to_tdb medaka_to_ref.TR.vcf prepared_for_tdb.vcf.gz
+```
+
+It performs the preprocessing steps for TDB import and writes a `.vcf.gz` with `.tbi` index:
+sort, add `AM` FORMAT field placeholder values, split multi-allelic records, and final sort.
+
+Then create a TDB explicitly:
+
+```bash
+tdb create -o output.tdb prepared_for_tdb.vcf.gz
+```
+
+Help
+----
+
+**Licence and Copyright**
 
 © 2018- Oxford Nanopore Technologies Ltd.
 
-`medaka` is distributed under the terms of the Mozilla Public License 2.0.
+`medaka` is distributed under the terms of the Oxford Nanopore Technologies PLC. Public License Version 1.0
 
 **Research Release**
 
@@ -117,4 +159,3 @@ like to rectify every issue and piece of feedback users may have, the
 developers may have limited resource for support of this software. Research
 releases may be unstable and subject to rapid iteration by Oxford Nanopore
 Technologies.
-

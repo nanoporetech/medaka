@@ -5,6 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [unreleased]
+### Added
+- tandem: add CRAM input support with optional reference FASTA for alignment reading.
+- tandem: support gzipped BED region inputs.
+### Changed
+- Upgraded `pyabpoa` to version 1.5.6.
+- tandem: fail fast on invalid inputs.
+- Upgraded bundled `HTSlib` from 1.14 to 1.20.
 ### Fixed
 - The newly added `-p` prefix option to `medaka_consensus` was not correctly recognized.
 - Save optimiser state in corresponding training folder.

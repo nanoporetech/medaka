@@ -31,22 +31,30 @@ def from_dict(dict):
 class BAMHandler(object):
     """Opening of BAM file handles and indices."""
 
-    def __init__(self, bam, size=16):
+    def __init__(self, bam, size=16, ref_fname=None):
         """Initialise a pool of HTSlib filehandles."""
         # note: the default size here is set to match the default
         #       `bam_workers` of prediction.DataLoader and `workers`
         #       of features.pileup_counts, such that this class
         #       should never block computations
         self.bam = bam
+        self.ref_fname = ref_fname
         self._pool = queue.Queue(size)
         self.logger = medaka.common.get_named_logger('BAMFile')
         self.logger.debug("Creating pool of {} BAM file sets.".format(size))
 
         lib, ffi = libmedaka.lib, libmedaka.ffi
         for _ in range(size):
-            fset = ffi.gc(
-                lib.create_bam_fset(self.bam.encode()),
-                self._destroy_fset)
+            if self.ref_fname is not None:
+                fset = ffi.gc(
+                    lib.create_bam_fset_with_ref(
+                        self.bam.encode(), self.ref_fname.encode()
+                    ),
+                    self._destroy_fset)
+            else:
+                fset = ffi.gc(
+                    lib.create_bam_fset(self.bam.encode()),
+                    self._destroy_fset)
             self._pool.put(fset)
 
     @contextmanager

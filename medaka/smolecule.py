@@ -195,6 +195,12 @@ class Read(object):
 
     def poa_consensus(self, method='spoa', spoa_min_coverage=None):
         """Create a consensus sequence for the read."""
+        if method != 'spoa':
+            raise ValueError(
+                "Unsupported method '{}'. Only 'spoa' is available.".format(
+                    method
+                )
+            )
         self.initialize()
         seqs = list()
         if self.consensus_run:
@@ -207,19 +213,11 @@ class Read(object):
             else:
                 seq = medaka.common.reverse_complement(subread.seq)
             seqs.append(seq)
-        if method == 'spoa':
-            consensus_seq, _ = spoa.poa(
-                seqs,
-                genmsa=False,
-                min_coverage=spoa_min_coverage
-            )
-        elif method == 'abpoa':
-            import pyabpoa as pa
-            abpoa_aligner = pa.msa_aligner(aln_mode='g')
-            result = abpoa_aligner.msa(seqs, out_cons=True, out_msa=False)
-            consensus_seq = result.cons_seq[0]
-        else:
-            raise ValueError('Unrecognised method: {}.'.format(method))
+        consensus_seq, _ = spoa.poa(
+            seqs,
+            genmsa=False,
+            min_coverage=spoa_min_coverage
+        )
         self.consensus = consensus_seq
         self._alignments_valid = False
         self.consensus_run = True

@@ -5,6 +5,7 @@ import enum
 import errno
 import fileinput
 import functools
+import gzip
 import importlib.resources
 import itertools
 import logging
@@ -1104,10 +1105,16 @@ def yield_from_bed(bedfile):
     :param bedfile: str, filepath.
     :yields: (str chrom, int start, int stop).
     """
-    with open(bedfile) as fh:
+    try:
+        with gzip.open(bedfile, "r") as fh:
+            fh.peek(1)
+        opener = gzip.open
+    except gzip.BadGzipFile:
+        opener = open
+    with opener(bedfile, 'rt') as fh:
         for line in fh:
             split_line = line.split()
-            if split_line[0] in {'browser', 'track'} or len(split_line) < 3:
+            if len(split_line) < 3 or split_line[0] in {'browser', 'track'}:
                 continue
             chrom = split_line[0]
             start = int(split_line[1])

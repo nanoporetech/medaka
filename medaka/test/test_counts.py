@@ -223,6 +223,23 @@ class TrimReadsTest(unittest.TestCase):
         n_chunks = len(list(medaka.features.get_trimmed_reads(region, self.bam, region_split=1000, chunk_overlap=0)))
         self.assertEqual(n_chunks, 1)
 
+    def test_006_bamhandler_accepts_optional_ref(self):
+        region = Region('ref', start=0, end=8)
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.fasta', delete=False
+        ) as fh:
+            ref_fa = fh.name
+            fh.write(">ref\nACGTACGT\n")
+        try:
+            bam = medaka.features.BAMHandler(
+                self.bam, size=1, ref_fname=ref_fa
+            )
+            got = list(medaka.features.get_trimmed_reads(region, bam))
+            self.assertGreater(len(got), 0)
+            self.assertGreater(len(got[0][1]), 1)
+        finally:
+            os.remove(ref_fa)
+
 
 class CountsSplittingTest(unittest.TestCase):
 
