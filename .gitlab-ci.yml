@@ -126,11 +126,11 @@ wheels-2_28:
               FLAVOUR: ["2_28"]
 
 
-wheels-arm-2014:
+wheels-arm-2_28:
     extends: .many-linux
     tags:
         - arm64
-    image: quay.io/pypa/manylinux2014_aarch64
+    image: quay.io/pypa/manylinux_2_28_aarch64
     before_script:
         # ARM CI image doesn't have git lfs, so need to jump some hoops
         - yum install -y wget
@@ -141,15 +141,11 @@ wheels-arm-2014:
           && cd git-lfs-3.5.1 && chmod +x install.sh && ./install.sh
         - cd ${ROOT_DIR}
         - GIT_SSL_NO_VERIFY=1 git lfs pull
-        # pytorch 2.3 wheel is busted with something looking like pytorch/issues/97226:
-        #   we get Illegal instruction when running medaka counts test, so use 2.0.1 which
-        #   is known to work
-        - sed -i '/^torch~=[^[:space:]]*/s/^torch~=[^[:space:]]*/torch==2.0.1/' requirements.txt
     parallel:
         matrix:
-            - PYWHEEL: [10]
+            - PYWHEEL: [10, 11, 12, 13]
               COMPUTE: ["gpu"]
-              FLAVOUR: ["2014"]
+              FLAVOUR: ["2_28"]
 
 
 ###

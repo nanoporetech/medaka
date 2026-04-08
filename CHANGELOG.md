@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgraded `pyabpoa` to version 1.5.6.
 - tandem: fail fast on invalid inputs.
 - Upgraded bundled `HTSlib` from 1.14 to 1.20.
+- Updated build environment for arm wheels from `manylinux2014` to `manylinux_2_28`.
 ### Fixed
 - The newly added `-p` prefix option to `medaka_consensus` was not correctly recognized.
 - Save optimiser state in corresponding training folder.
