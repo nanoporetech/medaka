@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - tandem: add CRAM input support with optional reference FASTA for alignment reading.
 - tandem: support gzipped BED region inputs.
 ### Changed
+- Stopped building `medaka-cpu` pypi packages.
 - Upgraded `pyabpoa` to version 1.5.6.
 - tandem: fail fast on invalid inputs.
 - Upgraded bundled `HTSlib` from 1.14 to 1.20.

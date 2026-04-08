@@ -69,8 +69,15 @@ The default installation has the capacity to run on a GPU (see _Using a GPU_ bel
 or on CPU. If you are using `medaka` exclusively on CPU, and don't need the ability
 to run on GPU, you may wish to install the CPU-only version with:
 
-    pip install medaka-cpu --extra-index-url https://download.pytorch.org/whl/cpu
+    pip install medaka --extra-index-url https://download.pytorch.org/whl/cpu
 
+> The `medaka-cpu` package has been deprecated for versions >2.2.0 because these are
+> now identical to the standard `medaka` package. To upgrade an existing virtual
+> environment, remove the `medaka-cpu` package and install `medaka` instead.
+> ```
+> pip uninstall medaka-cpu
+> pip install medaka
+> ```
 
 **Installation with conda**
 
@@ -139,11 +146,11 @@ the [CUDA Toolkit Archive](https://developer.nvidia.com/cuda-toolkit-archive).
 > documentation. In summary, the conda package should do something sensible
 > bespoke to the computer it is being installed on.
 
-As described above, if the capability to run on GPU is not required, `medaka-cpu`
+As described above, if the capability to run on GPU is not required, `medaka`
 can be installed with a CPU-only version of PyTorch that doesn't depend on the
 CUDA libraries, as follows:
 
-    pip install medaka-cpu --extra-index-url https://download.pytorch.org/whl/cpu
+    pip install medaka --extra-index-url https://download.pytorch.org/whl/cpu
 
 if using the prebuilt packages, or 
 

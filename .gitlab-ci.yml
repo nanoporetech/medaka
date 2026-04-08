@@ -106,9 +106,7 @@ build:sdist:
         DO_COUNT_TEST: 1
         MEDAKA_CPU: 1
     script:
-        - echo "Building a Python ${PYWHEEL} wheel on manylinux_${FLAVOUR} for ${COMPUTE}"
-        - if [[ "${COMPUTE}" == "cpu" ]]; then export PACKAGE_NAME=medaka-cpu; sed -i "s/torch==[0-9]\+[\.0-9]\+/&+cpu/" requirements.txt; fi
-        - cat requirements.txt
+        - echo "Building a Python ${PYWHEEL} wheel on manylinux_${FLAVOUR}"
         - ./build-wheels.sh . ${PYWHEEL}
     artifacts:
         paths:
@@ -122,7 +120,7 @@ wheels-2_28:
     parallel:
         matrix:
             - PYWHEEL: [10, 11, 12, 13]
-              COMPUTE: ["gpu", "cpu"]
+              COMPUTE: ["cpu"]
               FLAVOUR: ["2_28"]
 
 
