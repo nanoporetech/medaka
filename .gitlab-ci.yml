@@ -5,6 +5,12 @@ include:
     - project: "epi2melabs/ci-templates"
       file: "snippets.yaml"
 
+default:
+    tags:
+        - linux
+        - small
+        - standard
+        - x86_64
 
 image: ${UBUNTU_IMAGE}:24.04
 
@@ -102,6 +108,7 @@ build:sdist:
 #
 .many-linux:
     stage: build
+    image: ${MANYLINUX_IMAGE}:2_28
     variables:
         DO_COUNT_TEST: 1
         MEDAKA_CPU: 1
@@ -114,7 +121,6 @@ build:sdist:
 
 wheels-2_28:
     extends: .many-linux
-    image: "quay.io/pypa/manylinux_2_28_x86_64"
     before_script: 
         - dnf install -y libffi-devel
     parallel:
@@ -127,22 +133,14 @@ wheels-2_28:
 wheels-arm-2_28:
     extends: .many-linux
     tags:
+        - linux
+        - small
+        - standard
         - arm64
-    image: quay.io/pypa/manylinux_2_28_aarch64
-    before_script:
-        # ARM CI image doesn't have git lfs, so need to jump some hoops
-        - yum install -y wget
-        - ROOT_DIR=$(pwd)
-        - mkdir git-lfs && cd git-lfs
-          && wget https://github.com/git-lfs/git-lfs/releases/download/v3.5.1/git-lfs-linux-arm64-v3.5.1.tar.gz
-          && tar -xzvf git-lfs-linux-arm64-v3.5.1.tar.gz
-          && cd git-lfs-3.5.1 && chmod +x install.sh && ./install.sh
-        - cd ${ROOT_DIR}
-        - GIT_SSL_NO_VERIFY=1 git lfs pull
     parallel:
         matrix:
             - PYWHEEL: [10, 11, 12, 13]
-              COMPUTE: ["gpu"]
+              COMPUTE: ["cpu"]
               FLAVOUR: ["2_28"]
 
 
