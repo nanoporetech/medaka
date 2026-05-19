@@ -3,6 +3,8 @@ include:
     - project: "epi2melabs/ci-templates"
       file: "push-conda.yaml"
     - project: "epi2melabs/ci-templates"
+      file: "push-github.yaml"
+    - project: "epi2melabs/ci-templates"
       file: "snippets.yaml"
 
 default:
@@ -252,40 +254,22 @@ push-pypi:
             - wheelhouse-final/*.whl
 
 
-.setup-gh-push:
-    before_script:
-        - apt-get update -qq && apt-get install -y -qq
-          git python3-all-dev python3-venv git-lfs
-        - mkdir ~/.ssh/
-        - cp $RESEARCH_BOT_GH_KEY ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
-        - echo -e "Host github.com\n\tStrictHostKeyChecking no\n\tHostname ssh.github.com\n\tPort 443\n\n" > ~/.ssh/config
+# Mirrors rule in ci-templates/push-github.yaml but replaces user details
+# and authorisation to skip OTP and use existing token
+.github:
+    setup-gh-repo:
         - git config --global user.email "research.git@nanoporetech.com"
         - git config --global user.name "ontresearch"
-        - git remote add ont ${CI_REPOSITORY_URL} || true
-        - git remote add github git@github.com:nanoporetech/${CI_PROJECT_NAME}.git || true
-        - git fetch ont dev --tags
+        - gh auth status  # check auth status
 
 # Send all tags matching vX.Y.Z to github (code and release)
 push-github:
-    stage: release
-    extends: .setup-gh-push
-    script:
-        # Push master and tag to github
-        - git checkout ${CI_COMMIT_TAG}
-        - git branch -D master || echo "No master branch to delete"
-        - git fetch github
-        - git checkout -b master
-        - git push -f github master
-        - git push github ${CI_COMMIT_TAG}
-        # Make a github release page
-        - python3 -m venv release_env --prompt "(release) "
-        - source release_env/bin/activate
-        - pip install pip --upgrade
-        - pip install git+https://github.com/epi2me-labs/github_release.git
-        - github_release ${CI_PROJECT_NAME} ${CI_COMMIT_TAG} CHANGELOG.md ${RESEARCH_BOT_GH_TOKEN} --artifacts dist/*.tar.gz
-    rules:
-        - if: '$CI_COMMIT_TAG =~ /^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$/'
-
+    image: ${UBUNTU_IMAGE}:24.04  # if not set, resolves to 20.04 which is missing uv index
+    variables:
+        GH_NAMESPACE: "nanoporetech"
+        GH_TOKEN: ${RESEARCH_BOT_GH_TOKEN}
+        GITHUB_AUTH_SCOPES: ""
+    
 
 # Deploy to conda - need to rebuild because the template code
 # is a one step build and push, for reasons...
