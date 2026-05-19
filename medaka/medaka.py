@@ -356,12 +356,12 @@ def is_rle_model(args):
     print(is_rle_encoder(args.model))
 
 def check_compatible(args):
-    """Check whether a model is compatible the given dataset.
+    """Check whether a model is compatible with the given dataset.
+
+    Raises an error if there is a compatibility problem.
 
     :param model: str, model name or path.
     :param data: str, path to basecall data, stored as a bam or fastx file.
-
-    :returns: bool, True if compatible, False otherwise.
     """
     model = args.model
     if not os.path.exists(model):
@@ -381,8 +381,8 @@ def check_compatible(args):
     if not os.path.exists(data):
         raise FileNotFoundError(f"Data file {data} not found.")
 
-    # open model and check if it has move tables
-    model_needs_dwells,_  = encoder_needs_dwells_and_haplotype(model)
+    # open model and check if it requires move tables
+    model_needs_dwells,_  = model_needs_dwells_and_haplotype(model)
     if model_needs_dwells and not data_has_move_tables:
         raise ValueError(
             f"Model {model} requires dwell information, but data {data} does"
@@ -406,12 +406,43 @@ def is_read_level_model(model_name):
     return issubclass(enc_type, medaka.features.ReadAlignmentFeatureEncoder)
 
 def encoder_needs_dwells_and_haplotype(model_name):
-    """Return true if model uses dwell features"""
+    """Return whether feature encoder returns dwell and haplotype features"""
     modelstore = medaka.models.open_model(model_name)
     encoder = modelstore.get_meta("feature_encoder")
     return (
         getattr(encoder, "include_dwells", False),
         getattr(encoder, "include_haplotype", False)
+    )
+
+def model_needs_dwells_and_haplotype(model_name):
+    """Return whether model uses dwell and haplotag features.
+
+    We use the model_function to prevent loading the entire model and weights.
+    For recent models constructed with the `medaka.models.model_from_dict`
+    function, the args should be a tuple containing a dict of model type and
+    kwargs. We look for use_dwells and use_haplotags in the kwargs. E.g.
+        model_function.args: ({'type': 'LatentSpaceLSTM',
+                               'kwargs': {'lstm_size': 384,
+                                          'cnn_size': 64,
+                                          'use_dwells': True,
+                                          'bidirectional': False}},)
+    For older CountsMatrixModels that were constructed with the function
+    `medaka.models.build_model_torch`, the args are the in and out sizes with
+    no kwargs, so we always return (False, False).
+    """
+    modelstore = medaka.models.open_model(model_name)
+    model_func = modelstore.get_meta("model_function")
+    if model_func.func is medaka.models.build_model_torch:
+        # This is an older CountsMatrixModel
+        return False, False
+    first_arg = model_func.args[0]
+    if not isinstance(first_arg, dict):
+        raise RuntimeError(
+            "Failed to parse feature requirements from model. "
+            "Model builder function has an unexpected signature.")
+    return (
+        first_arg.get("kwargs", {}).get("use_dwells", False),
+        first_arg.get("kwargs", {}).get("use_haplotype", False)
     )
 
 def get_alignment_params(model):

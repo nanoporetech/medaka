@@ -101,17 +101,55 @@ class TestTandemRegionParser(unittest.TestCase):
             args.regions, [medaka.common.Region('chr20', 100, 140)])
 
 
+@dataclasses.dataclass
+class DummyArgs:
+    model: str
+    data: str
+
+
+class TestCheckModelNeedsDwells(unittest.TestCase):
+
+    def test_001_check_no_dwells_model(self):
+        # check non dwells model needs neither dwells nor haplotypes
+        model = medaka.models.resolve_model('r1041_e82_400bps_hac_v5.0.0_rl_lstm384_no_dwells')
+        needs_dwells, needs_haplotypes = medaka.medaka.model_needs_dwells_and_haplotype(model)
+        self.assertFalse(needs_dwells)
+        self.assertFalse(needs_haplotypes)
+
+    def test_002_check_dwells_model(self):
+        # check dwells model needs dwells, not haplotypes
+        model = medaka.models.resolve_model('r1041_e82_400bps_hac_v5.0.0_rl_lstm384_dwells')
+        needs_dwells, needs_haplotypes = medaka.medaka.model_needs_dwells_and_haplotype(model)
+        self.assertTrue(needs_dwells)
+        self.assertFalse(needs_haplotypes)
+
+    def test_003_check_pileup_from_dict_model(self):
+        # check counts model created with model_from_dict, needs neither
+        model = medaka.models.resolve_model('r1041_e82_400bps_hac_v6.0.0')
+        needs_dwells, needs_haplotypes = medaka.medaka.model_needs_dwells_and_haplotype(model)
+        self.assertFalse(needs_dwells)
+        self.assertFalse(needs_haplotypes)
+
+    def test_004_check_pileup_torch_model(self):
+        # check counts model created with build_torch_model, needs neither
+        model = medaka.models.resolve_model('r1041_e82_400bps_hac_v5.0.0')
+        needs_dwells, needs_haplotypes = medaka.medaka.model_needs_dwells_and_haplotype(model)
+        self.assertFalse(needs_dwells)
+        self.assertFalse(needs_haplotypes)
+
+
 class TestCheckCompatible(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
         cls.root_dir = os.path.abspath(os.path.dirname(__file__))
         cls.no_dwell_bam = os.path.join(cls.root_dir, 'data', 'test_reads.bam')
-        cls.dwell_bam = os.path.join(cls.root_dir, 'data', 'test_reads_dwells.bam') # same bam with dummy move table 
+        cls.dwell_bam = os.path.join(cls.root_dir, 'data', 'test_reads_dwells.bam') # same bam with dummy move table
         cls.no_dwell_fasta = os.path.join(cls.root_dir, 'data', 'test_reads.fastq')
         cls.dwell_fasta = os.path.join(cls.root_dir, 'data', 'test_reads_dwells.fastq')
-        cls.no_dwells_model = medaka.models.resolve_model(medaka.options.default_models['consensus'])
+        cls.no_dwells_model = medaka.models.resolve_model('r1041_e82_400bps_hac_v5.0.0_rl_lstm384_no_dwells')
         cls.dwells_model = medaka.models.resolve_model('r1041_e82_400bps_hac_v5.0.0_rl_lstm384_dwells')
+        cls.counts_model = medaka.models.resolve_model('r1041_e82_400bps_hac_v5.0.0')
 
     def test_001_check_bam_compatible_dwells(self):
         self.assertFalse(medaka.common.check_bam_for_dwells(self.no_dwell_bam))
@@ -121,18 +159,14 @@ class TestCheckCompatible(unittest.TestCase):
         self.assertFalse(medaka.common.check_fastx_for_dwells(self.no_dwell_fasta))
         self.assertTrue(medaka.common.check_fastx_for_dwells(self.dwell_fasta))
 
-    def test_003_check_compatible(self):
-        @dataclasses.dataclass
-        class DummyArgs:
-            model: str
-            data: str
-
+    def test_003_check_compatible_no_file(self):
         # check non-existant model names fail
         with self.assertRaises(FileNotFoundError):
             medaka.medaka.check_compatible(
                 DummyArgs(model='NotAModel', data=self.no_dwell_bam)
             )
 
+    def test_004_check_compatible_no_dwells_model(self):
         # check non dwells model is compatible with non dwells bam
         medaka.medaka.check_compatible(
             DummyArgs(model=self.no_dwells_model, data=self.no_dwell_bam)
@@ -146,10 +180,28 @@ class TestCheckCompatible(unittest.TestCase):
         medaka.medaka.check_compatible(
             DummyArgs(model=self.no_dwells_model, data=self.dwell_fasta)
         )
-        
+
+    def test_005_check_compatible_dwells_model(self):
         # check dwells model is not compatible with non dwells bam
         with self.assertRaises(ValueError):
             medaka.medaka.check_compatible(
                 DummyArgs(model=self.dwells_model, data=self.no_dwell_bam)
             )
-                                        
+
+        # check dwells model is compatible with dwells bam
+        medaka.medaka.check_compatible(
+            DummyArgs(model=self.dwells_model, data=self.dwell_bam)
+        )
+        # check dwells model is compatible with dwells fastq
+        medaka.medaka.check_compatible(
+            DummyArgs(model=self.dwells_model, data=self.dwell_fasta)
+        )
+
+    def test_006_check_compatible_counts_model(self):
+        # check counts model is always compatible
+        medaka.medaka.check_compatible(
+            DummyArgs(model=self.counts_model, data=self.dwell_bam)
+        )
+        medaka.medaka.check_compatible(
+            DummyArgs(model=self.counts_model, data=self.no_dwell_bam)
+        )
