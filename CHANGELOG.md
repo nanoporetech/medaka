@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 ### Added
 - Consensus models for v6.0.0 dorado hac model.
-
+### Fixed
+- Dwells compatibility check is now based on model rather than feature encoder
+  arguments.
 
 ## [v2.2.1]
 ### Added
