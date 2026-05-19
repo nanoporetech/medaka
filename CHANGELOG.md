@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Dwells compatibility check is now based on model rather than feature encoder
   arguments.
+- Corrected docstring for ReadAlignmentFeatureEncoder.
+- Added dummy arguments to ReadAlignmentFeatureEncoder required by Dorado config
+  specification.
+- Added class to FeatureEncoder debug logging.
 
 ## [v2.2.1]
 ### Added

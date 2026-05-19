@@ -753,11 +753,10 @@ class BaseFeatureEncoder(metaclass=FeatureEncoderMeta):
 
     def __init__(self, *args, **kwargs):
         """Initialize feature encoder."""
-        opts = inspect.signature(self.__class__.__init__).parameters.keys()
-        opts = {k: getattr(self, k) for k in opts if k != "self"}
-
         self.logger = medaka.common.get_named_logger("Feature")
-        self.logger.debug("Creating features with: {}".format(opts))
+        opts = self.to_dict()["kwargs"]
+        self.logger.debug(
+            "Creating {} with: {}".format(self.__class__.__name__, opts))
 
     @abc.abstractmethod
     def _pileup_function(self, region, reads_bam):
@@ -884,7 +883,6 @@ class CountsFeatureEncoder(BaseFeatureEncoder):
                 self.normalise, self._norm_modes_))
 
         super().__init__()
-        self.logger.debug("Creating features with: {}".format(self.to_dict()))
 
     @property
     def feature_vector_length(self):
@@ -1139,13 +1137,15 @@ class ReadAlignmentFeatureEncoder(CountsFeatureEncoder):
     datatype is an integer array where each position contains multiple
     features.
 
-    By default, there are 4-8 features per position per read, which are
-    [base, baseQ, strand, mapQ, dtype, dwell, haplotype, snp_qv],
-    with the last four being optional if the corresponding flag is set.
+    By default, there are 4-7 features per position per read, which are
+    [base, baseQ, strand, mapQ, dwell, haplotype, dtype],
+    with the last three being optional if the corresponding flag is set.
 
-    Basecalls are enumerate 0-5 correspoding to [pad, A,C,G,T,deletion].
-    Strand is +1 in the positive direction or zero otherwise. Dwells are
-    represented in number of basecaller signal strides.
+    Basecalls are enumerated 0-5 correspoding to [pad,A,C,G,T,deletion].
+    Strand is +1 in the positive direction or zero otherwise.
+    Dtype are integer values corresponding to keys specified in `dtypes`.
+    Dwells are represented as the number of basecaller signal strides.
+    Haplotype is 0 if unassigned, otherwise the haplotag value.
     """
 
     feature_dtype = np.int8
@@ -1162,6 +1162,8 @@ class ReadAlignmentFeatureEncoder(CountsFeatureEncoder):
         row_per_read=False,
         include_dwells=True,
         include_haplotype=False,
+        include_snp_qv=False,
+        right_align_insertions=False,
     ):
         """Initialize creation of neural network input features.
 
@@ -1175,6 +1177,10 @@ class ReadAlignmentFeatureEncoder(CountsFeatureEncoder):
         :param include_dwells: whether to include dwells channel.
         :param include_haplotype: whether to include haplotag channel.
         :param max_reads: max num of reads to include in feature matrix.
+        :param include_snp_qv: False, dummy parameter required according to
+            dorado specification, currently unused.
+        :param right_align_insertions: False, dummy parameter required
+            according to dorado specification, currently unused.
         """
         self.max_reads = max_reads
         self.row_per_read = row_per_read
