@@ -198,7 +198,8 @@ test: install
 		--statistics
 	${IN_VENV} && pytest medaka -n 4 --doctest-modules \
 		--cov=medaka --cov-report html --cov-report term \
-		--cov-fail-under=${COVFAIL} --cov-report term-missing
+		--cov-fail-under=${COVFAIL} --cov-report term-missing \
+		--dist worksteal
 
 
 .PHONY: test-consensus

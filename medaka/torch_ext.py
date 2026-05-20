@@ -10,14 +10,11 @@ from time import perf_counter
 
 import numpy as np
 import tensordict
-import toml
 import torch
 from tqdm import tqdm
 
 import medaka.common
 import medaka.datastore
-
-EXPORT_CONFIG_VERSION = 3
 
 
 # Subclass to save model and metadata
@@ -476,65 +473,3 @@ def no_schedule(warmup_steps=None, **kwargs):
         warmup_steps=warmup_steps,
         # start_step=last_epoch * len(train_loader),
     )
-
-
-def export_model(args):
-    """Export a model to a torchscript model and config file."""
-    logger = medaka.common.get_named_logger('ModelExport')
-    model_fp = args.model
-    output_fp = args.output
-    force = args.force
-    script = args.script
-    supported_basecallers = args.supported_basecallers
-
-    if not os.path.exists(model_fp):
-        raise FileNotFoundError(f"Model file not found: {model_fp}")
-
-    if output_fp is None:
-        output_fp = os.path.basename(model_fp).replace(".tar.gz", "_export")
-
-    logger.info(f"Exporting model from {model_fp} to {output_fp}.tar.gz")
-    logger.info("Supported basecallers: {}".format(supported_basecallers))
-    if force:
-        os.makedirs(output_fp, exist_ok=True)
-    else:
-        os.mkdir(output_fp)
-
-    msg = "Output file path cannot be the same as the model file path"
-    assert model_fp != output_fp, msg
-
-    model_store = medaka.models.open_model(model_fp)
-    model = model_store.load_model()
-    label_scheme = model_store.get_meta("label_scheme")
-    feature_encoder = model_store.get_meta("feature_encoder")
-
-    config = {
-        'config_version': EXPORT_CONFIG_VERSION,
-        'model': model.to_dict(),
-        'feature_encoder': feature_encoder.to_dict(),
-        'supported_basecallers': supported_basecallers,
-        'label_scheme': label_scheme.to_dict()}
-
-    with open(os.path.join(output_fp, 'config.toml'), 'w') as f:
-        toml.dump(config, f)
-
-    if script:
-        for name, module in model.named_modules():
-            if (
-                isinstance(module, torch.nn.LSTM) or
-                isinstance(module, torch.nn.GRU)
-            ):
-                module.flatten_parameters()
-        scripted_model = torch.jit.script(model)
-        scripted_model.save(os.path.join(output_fp, 'model.pt'))
-
-    # save state dict
-    w = {k: v.cpu() for k, v in model.state_dict().items()}
-    torch.save(w, os.path.join(output_fp, 'weights.pt'))
-
-    # now add to tarfile
-    output_tarfile = output_fp + ".tar.gz"
-    with tarfile.open(output_tarfile, "w:gz") as tar:
-        tar.add(output_fp, arcname='model')
-
-    shutil.rmtree(output_fp)

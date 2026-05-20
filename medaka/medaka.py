@@ -2,11 +2,10 @@ import argparse
 import logging
 import os
 
-import medaka.torch_ext
 import pysam
 
 import medaka.common
-import medaka.datastore
+import medaka.export
 import medaka.features
 import medaka.labels
 import medaka.models
@@ -974,12 +973,16 @@ def medaka_parser():
         help='Export a model to run in dorado polish',
         parents=[_log_level()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    eparser.set_defaults(func=medaka.torch_ext.export_model)
+    eparser.set_defaults(func=medaka.export.export_model)
     eparser.add_argument('model', help='Tarball containing model to export.')
     eparser.add_argument('--output', help='Output directory, default is to save in current dir with _export added', default=None)
-    eparser.add_argument('--supported_basecallers', nargs='+', help='List of supported basecaller models to export.', required=True)
-    eparser.add_argument('-f', '--force', action='store_true', help='Overwrite existing files.')
-    eparser.add_argument('-n', '--script', action='store_true', help='If set, generate torch script of model.')
+    eparser.add_argument('--params', action=StoreDict, nargs='+',
+        default=dict(), metavar="KEY1=VAL1,VAL2 KEY2.key1=VAL2a KEY2.key2=VAL2b ...",
+        help='Additional arguments to store in config.toml.', required=True)
+    eparser.add_argument('--config_version', default=medaka.export.LATEST_CONFIG, type=int, help='Config version specification.')
+    eparser.add_argument('--force', action='store_true', help='Overwrite existing files.')
+    eparser.add_argument('--script', action='store_true', help='If set, generate torch script of model.')
+    eparser.add_argument('--compress', action='store_true', help='If set, create a .zip archive.')
     return parser
 
 

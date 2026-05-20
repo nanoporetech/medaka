@@ -19,6 +19,15 @@ class TestArchitectures(unittest.TestCase):
     batch_size = 10
     @classmethod
     def setUpClass(cls):
+        # intra-op threading
+        threads = 2
+        inter_threads = 1
+        os.environ["OMP_NUM_THREADS"] = str(threads)
+        os.environ["MKL_NUM_THREADS"] = str(threads)
+        os.environ["TORCH_NUM_THREADS"] = str(threads)
+        torch.set_num_threads(threads)
+        torch.set_num_interop_threads(inter_threads)
+
         counts_matrix_samples, _ = get_test_samples(num_train=cls.batch_size, num_test=1, read_level_features=False)
         read_level_samples, _ = get_test_samples(num_train=cls.batch_size, num_test=1, read_level_features=True)
 

@@ -372,7 +372,7 @@ class BaseLabelScheme(metaclass=LabelSchemeMeta):
 
     def to_dict(self):
         """Export label scheme to dict."""
-        return {"type": self.__class__.__name__}
+        return medaka.common.to_dict(self)
 
     @staticmethod
     def _singleton(it):

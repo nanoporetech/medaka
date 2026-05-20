@@ -7,6 +7,7 @@ import fileinput
 import functools
 import gzip
 import importlib.resources
+import inspect
 import itertools
 import logging
 import os
@@ -1292,3 +1293,27 @@ def check_fastx_for_dwells(fastx):
             else:
                 return "\tmv:" in read.comment
     return False
+
+
+def to_dict(obj):
+    """Serialise an object into a dictionary."""
+    kwargs = {}
+    params = inspect.signature(obj.__class__.__init__).parameters
+    for key, val in params.items():
+        if key == 'self':
+            continue
+        elif hasattr(obj, key):
+            set_value = getattr(obj, key)
+            if set_value is not None:
+                kwargs[key] = set_value
+            else:
+                continue
+        elif hasattr(val, 'default'):
+            default = getattr(val, 'default')
+            if not (default is inspect.Parameter.empty or default is None):
+                kwargs[key] = val.default
+            else:
+                continue
+        else:
+            raise ValueError(f"Failed to find value for {key}")
+    return {'type': obj.__class__.__name__, 'kwargs': kwargs}

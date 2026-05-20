@@ -1,14 +1,11 @@
-import copy
 import functools
 import os
 import tempfile
 import unittest
 
 import numpy as np
-import tarfile
 import torch
 
-import medaka.common
 import medaka.datastore
 import medaka.training
 import medaka.torch_ext
@@ -252,54 +249,5 @@ class TestSequenceBatcher(unittest.TestCase):
     def test_002_correct_num_validation_batches(self):
         self.assertEqual(len(self.sb_valid),
             self.n_valid_samples // self.batch_size)
-
-class TestModelExport(unittest.TestCase):
-    @classmethod
-    def setUpClass(self):
-        self.root_dir = os.path.abspath(os.path.dirname(__file__))
-        self.toml_config = os.path.join(self.root_dir, 'data', 'test_export_config.toml')
-        self.model_dict = {
-            'type': "GRUModel",
-            'kwargs': {
-                'num_features': 10,
-                'num_classes': 5,
-                'gru_size': 128}}
-        self.label_scheme = medaka.labels.HaploidLabelScheme
-        self.feature_encoder = medaka.features.CountsFeatureEncoder
-
-    def test_export_model(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # build model
-            meta_data = {
-                'model_function': functools.partial(medaka.models.model_from_dict, self.model_dict),
-                'feature_encoder': self.feature_encoder(),
-                'label_scheme': self.label_scheme(),
-            }
-            model = meta_data['model_function']()
-            # save model to tarball
-            checkpoint = medaka.torch_ext.ModelMetaCheckpoint(
-                meta_data, os.path.join(tmpdir, 'model'))
-            checkpoint.on_epoch_end(0, model)
-
-            model_saved_fp = os.path.join(tmpdir, 'model', 'model-0.tar.gz')
-            export_name = model_saved_fp.replace('-0.tar.gz','_export')
-
-            class DummyArgs:
-                model = model_saved_fp
-                output = export_name 
-                force = True
-                script = True
-                supported_basecallers = ["dna_r10.4.1_e8.2_400bps_hac@v5.0.0",]
-
-            medaka.torch_ext.export_model(DummyArgs())
-
-            assert os.path.exists(export_name + '.tar.gz')
-            # check that there is a model file in the export directory
-
-            with tarfile.open(export_name + '.tar.gz', 'r:gz') as tar:
-                files=tar.getnames()
-                assert 'model/weights.pt' in files
-                assert 'model/config.toml' in files
-                assert 'model/model.pt' in files
 
 
