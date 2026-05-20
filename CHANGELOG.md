@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Consensus models for v6.0.0 dorado hac model.
 ### Fixed
+- Remove minor columns with no inserted bases from read-level features
 - Dwells compatibility check is now based on model rather than feature encoder
   arguments.
 - Corrected docstring for ReadAlignmentFeatureEncoder.
