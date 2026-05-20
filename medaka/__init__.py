@@ -6,7 +6,7 @@ import sys
 
 from packaging.version import Version
 
-__version__ = "2.2.1"
+__version__ = "2.2.2"
 
 try:
     import pyabpoa as abpoa
