@@ -515,41 +515,50 @@ def __enforce_read_matrix_chunk_contiguity(pileups):
     split_results = list()
 
     def _placeholder_read_ids(n):
-        return np.array(
-            [
-                f"__placeholder_{m}".encode()
-                for m in np.arange(len(read_ids[0]))
-            ]
-        )
+        return np.array([f"__placeholder_{m}".encode() for m in np.arange(n)])
 
     # First pass: need to check for discontinuities within chunks,
-    # these show up as >1 changes in the major coordinate
+    # these show up as >1 changes in the major coordinate.
+    # Also remove any minor columns that have no bases.
     for counts, positions, read_ids in pileups:
+        if len(positions) == 0:
+            split_results.append((counts, positions, read_ids))
+            continue
+
         move = np.ediff1d(positions["major"])
-        gaps = np.where(move > 1)[0] + 1
-        if len(gaps) == 0:
+        discontinuities = np.where(move > 1)[0] + 1
+        gap_intervals = list(zip(discontinuities, discontinuities))
+
+        is_minor = positions["minor"] != 0
+        is_empty = np.all(
+            np.isin(counts['basecall'], [0, libmedaka.lib.del_val]), axis=1)
+        empty_minor_intervals = [
+            (r['start'], r['start'] + r['length'])
+            for r in medaka.common.rle(is_minor & is_empty) if r['value']]
+        gap_intervals = sorted(gap_intervals + empty_minor_intervals)
+
+        if len(gap_intervals) == 0:
             split_results.append((counts, positions, read_ids))
         else:
-            start = 0
-            for n, i in enumerate(gaps):
+            start_idx = 0
+            _gap_read_ids = _placeholder_read_ids(len(read_ids[0]))
+            for n, (end_idx, next_start_idx) in enumerate(gap_intervals):
                 split_results.append(
                     (
-                        counts[start:i],
-                        positions[start:i],
+                        counts[start_idx:end_idx],
+                        positions[start_idx:end_idx],
                         (
-                            read_ids[0]
-                            if n == 0
-                            else _placeholder_read_ids(len(read_ids[0])),
-                            _placeholder_read_ids(len(read_ids[0])),
+                            read_ids[0] if n == 0 else _gap_read_ids,
+                            _gap_read_ids,
                         ),
                     )
                 )
-                start = i
+                start_idx = next_start_idx
             split_results.append(
                 (
-                    counts[start:],
-                    positions[start:],
-                    (_placeholder_read_ids(len(read_ids[0])), read_ids[1]),
+                    counts[start_idx:],
+                    positions[start_idx:],
+                    (_gap_read_ids, read_ids[1]),
                 )
             )
 
@@ -559,22 +568,48 @@ def __enforce_read_matrix_chunk_contiguity(pileups):
         chunk_counts = np.concatenate(
             _pad_reads(_reorder_reads(c_buf, read_ids_buf))
         )
+        # Look for splits on minor indices and re-enumerate
+        for n, pos_arr in enumerate(p_buf):
+            if n == 0 or pos_arr['minor'][0] <= 1:
+                continue
+
+            prev_position = p_buf[n - 1][-1]
+            if prev_position['major'] != pos_arr['major'][0]:
+                msg = (
+                    "Minor position split detected but major coordinate {}"
+                    "doesn't match previous chunk {}.")
+                raise ValueError(
+                    msg.format(pos_arr['major'][0], prev_position['major']))
+
+            # we are at a split on minors
+            major_indices = np.flatnonzero(pos_arr['minor'] == 0)
+            if len(major_indices) == 0:
+                next_major_idx = len(pos_arr)
+            else:
+                next_major_idx = major_indices[0]
+
+            pos_arr['minor'][:next_major_idx] = (
+                prev_position['minor'] + 1 + np.arange(next_major_idx))
+
         chunk_positions = np.concatenate(p_buf)
         return chunk_counts, chunk_positions
 
     counts_buffer, positions_buffer, read_ids_buffer = list(), list(), list()
     chunk_results = list()
-    last = None
+    last_major, last_minor = None, None
     for n, (counts, positions, read_ids) in enumerate(split_results):
         if len(positions) == 0:
             continue
-        first = positions["major"][0]
-        if len(counts_buffer) == 0 or first - last == 1:
+        first_major, first_minor = positions[0]
+        if (
+            len(counts_buffer) == 0 or
+            ((first_major - last_major == 1) and (first_minor == 0)) or
+            ((first_major == last_major) and (first_minor > last_minor))
+        ):
             # new or contiguous
             counts_buffer.append(counts)
             positions_buffer.append(positions)
             read_ids_buffer.append(read_ids)
-            last = positions["major"][-1]
         else:
             # discontinuity
             chunk_results.append(
@@ -585,7 +620,7 @@ def __enforce_read_matrix_chunk_contiguity(pileups):
             counts_buffer = [counts]
             positions_buffer = [positions]
             read_ids_buffer = [read_ids]
-            last = positions["major"][-1]
+        last_major, last_minor = positions[-1]
     if len(counts_buffer) != 0:
         chunk_results.append(
             _finalize_chunk(counts_buffer, positions_buffer, read_ids_buffer)

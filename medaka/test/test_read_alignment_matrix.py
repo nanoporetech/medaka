@@ -9,6 +9,7 @@ import numpy as np
 from .mock_data import simple_data, create_simple_bam
 import libmedaka
 import medaka.features
+from medaka.features import __enforce_read_matrix_chunk_contiguity as ermcc
 from medaka.common import Region, Sample
 import medaka.labels
 
@@ -325,7 +326,9 @@ class AlignmentMatrixTest(unittest.TestCase):
             max_reads=test_depth, include_dwells=False)
         result = encoder.bams_to_training_samples(
             __reads_truth__, __reads_bam__, region, label_scheme)[0]
-        expected_feature_shape = (177981, test_depth)
+        # expected length is reduced because we remove minor positions where
+        # only reads in rows > test_depth have insertions
+        expected_feature_shape = (123013, test_depth)
 
         assert len(result.features[0,0]) == 4
         got_feature_shape = result.features.shape
@@ -438,6 +441,7 @@ class ReadMatrixSplitAndJoin(unittest.TestCase):
             [(0, 0), (1, 0), (2, 0), (3, 0), (3, 1),
              (4, 0), (5, 0), (6, 0), (7, 0)],
              dtype=[('major', '<i8'), ('minor', '<i8')])
+        cls.read_ids = np.array(["read_id_1", "read_id_2", "read_id_3", "read_id_4"])
 
     def test_001_reorder_matching(self):
         counts_chunks = [self.counts[:5], self.counts[5:]]
@@ -543,6 +547,143 @@ class ReadMatrixSplitAndJoin(unittest.TestCase):
 
         np.testing.assert_equal(reorder[0], expected_output1)
         np.testing.assert_equal(reorder[1], expected_output2)
+
+    def test_006_split_on_discontinuous_position(self):
+        positions_with_gaps = np.array(
+            [(0, 0), (1, 0), (2, 0), (4, 0), (4, 1),
+             (5, 0), (6, 0), (16, 0), (17, 0)],
+             dtype=[('major', '<i8'), ('minor', '<i8')])
+        expected_split_positions = [3, 7]
+        expected_split_arrays = len(expected_split_positions) + 1
+
+        pileups = ermcc(
+            ((self.counts, positions_with_gaps, (self.read_ids, self.read_ids)),))
+
+        self.assertEqual(len(pileups), expected_split_arrays)
+        for start, end, (features, positions) in zip(
+                [0, *expected_split_positions],
+                [*expected_split_positions, len(self.positions)],
+                pileups):
+            self.assertTrue(np.all(features == self.counts[start:end]))
+            self.assertTrue(np.all(positions == positions_with_gaps[start:end]))
+
+    def test_007_join_on_continuous_position(self):
+        pileups = ermcc((
+            (self.counts[:5], self.positions[:5], (self.read_ids, self.read_ids)),
+            (self.counts[5:6], self.positions[5:6], (self.read_ids, self.read_ids)),
+            (self.counts[6:], self.positions[6:], (self.read_ids, self.read_ids))
+        ))
+
+        self.assertEqual(len(pileups), 1)
+        features, positions = pileups[0]
+        self.assertTrue(np.all(features == self.counts))
+        self.assertTrue(np.all(positions == self.positions))
+
+    def test_008_trim_empty_minors(self):
+        # cls.positions = np.array(
+        #     [(0, 0), (1, 0), (2, 0), (3, 0), (3, 1),
+        #     (4, 0), (5, 0), (6, 0), (7, 0)],
+        #     dtype=[('major', '<i8'), ('minor', '<i8')])
+        # Set all data in a minor column as deletions.
+        # This should be removed.
+        modified_counts = self.counts.copy()
+        modified_counts[4]['basecall'] = libmedaka.lib.del_val
+        # do the same for a major column, we shouldn't remove this
+        modified_counts[7]['basecall'] = libmedaka.lib.del_val
+        expected_indices = np.ones(len(self.positions), dtype=bool)
+        expected_indices[4] = False
+        expected_split_arrays = 1
+
+        pileups = ermcc(
+            ((modified_counts, self.positions, (self.read_ids, self.read_ids)),))
+
+        self.assertEqual(len(pileups), expected_split_arrays)
+        features, positions = pileups[0]
+        self.assertTrue(np.all(features == modified_counts[expected_indices]))
+        self.assertTrue(np.all(positions == self.positions[expected_indices]))
+
+    def test_009_trim_empty_minors_right_aligned(self):
+        # Extended test for deletion of the first minor columns in a
+        # right-aligned multi-position insertion while later columns
+        # are retained.
+        # Minor columns should be re-enumerated to start from 1 for
+        # each insertion.
+        # The array should still be re-joined
+        modified_positions = np.array(
+            [(0, 0), (1, 0), (1, 1), (1, 2), (1, 3), (2, 0), (2, 1),
+             (3, 0), (4, 0), (4, 1), (4, 2), (5, 0), (6, 0), (6, 1),
+             (6, 2), (6, 3), (7, 0),],
+            dtype=[('major', '<i8'), ('minor', '<i8')])
+        deleted_columns = [2, 3, 6, 13]
+        expected_positions = np.array(
+            [(0, 0), (1, 0), (1, 1), (2, 0), 
+             (3, 0), (4, 0), (4, 1), (4, 2), (5, 0), (6, 0), (6, 1),
+             (6, 2), (7, 0),],
+            dtype=[('major', '<i8'), ('minor', '<i8')])
+
+        # construct array with blanked columns
+        modified_counts = np.concatenate([self.counts, self.counts[:8]], axis=0)
+        for col in deleted_columns:
+            modified_counts[col]['basecall'] = libmedaka.lib.del_val
+        expected_indices = [0, 1, 4, 5, 7, 8, 9, 10, 11, 12, 14, 15, 16]
+        expected_split_arrays = 1
+
+        pileups = ermcc(
+            ((modified_counts, modified_positions, (self.read_ids, self.read_ids)),))
+
+        self.assertEqual(len(pileups), expected_split_arrays)
+        features, positions = pileups[0]
+        self.assertTrue(np.all(features == modified_counts[expected_indices]))
+        self.assertTrue(np.all(positions == expected_positions))
+
+    def test_010_trim_empty_minors_only_chunk(self):
+        # Test deletion of multiple discontinuous columns in a single insertion
+        # Minor columns should be re-enumerated continuously.
+        modified_positions = np.array(
+            [(0, 0), (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5),
+             (2, 0), (3, 0),],
+            dtype=[('major', '<i8'), ('minor', '<i8')])
+        deleted_columns = [2, 4, 5]
+        expected_positions = np.array(
+            [(0, 0), (1, 0), (1, 1), (1, 2), (2, 0), (3, 0),],
+            dtype=[('major', '<i8'), ('minor', '<i8')])
+
+        # construct array with blanked columns
+        modified_counts = self.counts.copy()
+        for col in deleted_columns:
+            modified_counts[col]['basecall'] = libmedaka.lib.del_val
+        expected_indices = [0, 1, 3, 6, 7, 8]
+        expected_split_arrays = 1
+
+        pileups = ermcc(
+            ((modified_counts, modified_positions, (self.read_ids, self.read_ids)),))
+
+        self.assertEqual(len(pileups), expected_split_arrays)
+        features, positions = pileups[0]
+        self.assertTrue(np.all(features == modified_counts[expected_indices]))
+        self.assertTrue(np.all(positions == expected_positions))
+
+
+
+
+class ReadMatrixSplittingTest(unittest.TestCase):
+    # Mirroring CountsSplittingTest
+
+    def test_000_split_gap(self):
+        # The gapped bam has:
+        # @SQ    SN:ref    LN:30
+        # seq1    0    ref    1    7    10M
+        # seq2    0    ref    15    13    16M
+        # so an alignment from [0:10] and one from [14:30] without insertions
+        chunk_lengths = [10, 16]
+
+        region = Region.from_string('ref:0-30')
+        results = medaka.features.read_alignment_matrix(region, __gapped_bam__)
+        self.assertEqual(len(results), 2, 'Number of chunks from gapped alignment')
+        for exp_len, chunk in zip(chunk_lengths, results):
+            for i in (0, 1):
+                # check both pileup and positions
+                self.assertEqual(exp_len, len(chunk[i]))
 
 
 class FeaturesFromBam(unittest.TestCase):
