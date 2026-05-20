@@ -2,7 +2,6 @@
 
 import abc
 import importlib
-import inspect
 import itertools
 import os
 import pathlib
@@ -350,20 +349,7 @@ class TorchModel(torch.nn.Module):
 
         Used for serialisation to recreate the model.
         """
-        kwargs = inspect.signature(self.__class__.__init__).parameters
-        out_kwargs = {}
-        for k, v in kwargs.items():
-            if k == "self":
-                continue
-            elif hasattr(self, k):
-                out_kwargs[k] = getattr(self, k)
-            elif v.default != inspect.Parameter.empty:
-                out_kwargs[k] = v.default
-            else:
-                raise ValueError(
-                    f"Model parameter {k} not set, Cannot serialise model."
-                )
-        return {"type": self.__class__.__name__, "kwargs": out_kwargs}
+        return medaka.common.to_dict(self)
 
     @abc.abstractmethod
     def get_model_input_features(self, batch):

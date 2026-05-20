@@ -4,7 +4,6 @@ from collections import defaultdict
 import concurrent.futures
 from contextlib import contextmanager
 import importlib
-import inspect
 import itertools
 import os
 import queue
@@ -813,18 +812,7 @@ class BaseFeatureEncoder(metaclass=FeatureEncoderMeta):
 
     def to_dict(self):
         """Return dictionary of keyword arguments."""
-        kwargs = {}
-        opts = inspect.signature(self.__class__.__init__).parameters
-        for opt in opts.keys():
-            if opt == 'self':
-                continue
-            elif hasattr(self, opt):
-                kwargs[opt] = getattr(self, opt)
-            elif hasattr(opts[opt], 'default'):
-                kwargs[opt] = opts[opt].default
-            else:
-                raise ValueError(f"Missing value for {opt}")
-        return {'type': self.__class__.__name__, 'kwargs': kwargs}
+        return medaka.common.to_dict(self)
 
     @property
     @abc.abstractmethod

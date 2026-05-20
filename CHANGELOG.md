@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added dummy arguments to ReadAlignmentFeatureEncoder required by Dorado config
   specification.
 - Added class to FeatureEncoder debug logging.
+### Changed
+- `medaka tools export` now enforces that all parameters required by the versioned
+  dorado model config spec are provided.
+- Change compessed export format from tar.gz to zip.
+- Added spec for config version 4.
+- Consolidate serialisation methods into one common function.
 
 ## [v2.2.1]
 ### Added
