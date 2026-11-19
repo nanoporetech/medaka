@@ -155,7 +155,7 @@ class Batch:
                 )
             batch_dict = {'counts_matrix': torch.from_numpy(feats).float()}
 
-        if getattr(batch_dict, 'counts_matrix', None) is not None:
+        if counts_matrix and batch_dict.get('counts_matrix') is not None:
             # also get the majority vote probs for comparison of model
             # with argmax
             batch_dict['majority_vote_probs'] = torch.stack(
