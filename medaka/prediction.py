@@ -1,4 +1,5 @@
 """Inference program and ancilliary functions."""
+from contextlib import closing
 import os
 import queue
 import threading
@@ -35,7 +36,7 @@ def run_prediction(
 
     remainder_regions = list()
     n_batches = 0
-    with medaka.datastore.DataStore(output, 'a') as ds:
+    with closing(loader), medaka.datastore.DataStore(output, 'a') as ds:
         mbases_done = 0
         cache_size_log_interval = 5
 
@@ -278,10 +279,15 @@ class DataLoader(object):
             `features.SampleGenerator` instances.
         """
         self.logger = medaka.common.get_named_logger('DLoader')
+        if min(batch_size, batch_cache_size, bam_workers) < 1:
+            raise ValueError('batch sizes and bam_workers must be positive')
         self.bam = bam
         self.batch_size = batch_size
         self.bam_workers = bam_workers
         self.kwargs = kwargs
+        self._stop = threading.Event()
+        self._error = None
+        self._error_lock = threading.Lock()
 
         # Memory use is dominated by number of workers as each will
         # produce many batches in one shot. We make workers
@@ -326,22 +332,54 @@ class DataLoader(object):
         :returns: (list of `Samples`, ndarray of stacks features).
         """
         while True:
+            if self._stop.is_set():
+                self.close()
+                if self._error is not None:
+                    raise self._error
+                raise StopIteration
             try:
-                batch = self._batches.get_nowait()
+                batch = self._batches.get(timeout=0.1)
                 self.logger.debug(
                     "Batches ready: {}. Samples ready: {} ({} batches)".format(
                         self._batches.qsize(), self._samples.qsize(),
                         self._samples.qsize()/self.batch_size))
             except queue.Empty:
-                pass
+                continue
             else:
                 self._batches.task_done()
                 if batch is StopIteration:
                     # we have a single batch worker, safe to stop after
                     # seeing a single StopIteration
-                    break
+                    self.close()
+                    if self._error is not None:
+                        raise self._error
+                    raise StopIteration
                 return batch
-        raise StopIteration
+
+    def close(self):
+        """Cancel queued work and wait for loader threads to finish."""
+        self._stop.set()
+        for worker in self._sample_workers + [self._bthread]:
+            if worker is not threading.current_thread():
+                worker.join()
+
+    def _fail(self, error):
+        """Record the first worker error and stop all producers."""
+        with self._error_lock:
+            if self._error is None:
+                self._error = error
+        self.logger.debug('Inference loader worker failed', exc_info=True)
+        self._stop.set()
+
+    def _put(self, output_queue, item):
+        """Queue an item while allowing cancellation under backpressure."""
+        while not self._stop.is_set():
+            try:
+                output_queue.put(item, timeout=0.1)
+                return True
+            except queue.Full:
+                continue
+        return False
 
     @staticmethod
     def _run_region(bam, region, *args, **kwargs):
@@ -352,40 +390,44 @@ class DataLoader(object):
     def _region_worker(self):
         t = threading.current_thread()
         self.logger.debug("{}: started".format(t.name))
-        while True:
-            try:
-                region = self._regions.get_nowait()
-            except queue.Empty:
-                # when queue is empty there will never be more items
-                self._samples.put(StopIteration)
-                break
-            else:
-                samples, remain = self._run_region(
-                    self.bam, region, **self.kwargs)
-                for sample in samples:
-                    self._samples.put(sample)
-                self.remainders.extend(remain)
-                self._regions.task_done()
-        self.logger.debug("{}: finished".format(t.name))
+        try:
+            while not self._stop.is_set():
+                try:
+                    region = self._regions.get_nowait()
+                except queue.Empty:
+                    # All regions were queued before workers started.
+                    break
+                try:
+                    samples, remain = self._run_region(
+                        self.bam, region, **self.kwargs)
+                    for sample in samples:
+                        if not self._put(self._samples, sample):
+                            return
+                    self.remainders.extend(remain)
+                finally:
+                    self._regions.task_done()
+        except Exception as exc:
+            self._fail(exc)
+        finally:
+            self._put(self._samples, StopIteration)
+            self.logger.debug("{}: finished".format(t.name))
 
     def _get_samples(self):
         """Iterate over items in internal network input cache."""
         nstops = 0  # careful to track workers have all signalled stop
-        while True:
+        while not self._stop.is_set():
             try:
-                res = self._samples.get_nowait()
+                res = self._samples.get(timeout=0.1)
             except queue.Empty:
-                # more items may come
-                pass
+                continue
             else:
+                self._samples.task_done()
                 if res is StopIteration:
                     nstops += 1
                     if nstops == self.bam_workers:
-                        self._samples.task_done()
                         break
                 else:
                     yield res
-                    self._samples.task_done()
 
     def _batch_worker(self):
         """Create batch from list of samples to be used for inference.
@@ -396,9 +438,14 @@ class DataLoader(object):
         from where in the assembly, the second element is the actual data
         passed to the model's predict_on_batch function.
         """
-        for data in medaka.common.grouper(
-                self._get_samples(), self.batch_size):
-
-            batch = medaka.torch_ext.Batch.collate(data)
-            self._batches.put((data, batch))
-        self._batches.put(StopIteration)
+        try:
+            for data in medaka.common.grouper(
+                    self._get_samples(), self.batch_size):
+                if self._stop.is_set():
+                    return
+                batch = medaka.torch_ext.Batch.collate(data)
+                if not self._put(self._batches, (data, batch)):
+                    return
+            self._put(self._batches, StopIteration)
+        except Exception as exc:
+            self._fail(exc)

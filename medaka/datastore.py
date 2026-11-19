@@ -1,6 +1,6 @@
 """Storing of training and inference data to file."""
 from abc import ABC, abstractmethod
-from collections import defaultdict, OrderedDict
+from collections import defaultdict, deque, OrderedDict
 from concurrent.futures import \
     as_completed, ThreadPoolExecutor
 import contextlib
@@ -182,19 +182,23 @@ class DataStore(object):
     _sample_path_ = 'samples/data'  # data group contains sample Datasets
     _sample_registry_path_ = 'samples/registry'  # set of sample keys
 
-    def __init__(self, filename, mode='r'):
+    def __init__(self, filename, mode='r', max_pending_writes=64):
         """Initialize a datastore.
 
         :param filename: file to open.
         :param mode: file opening mode ('r', 'w', 'a').
+        :param max_pending_writes: maximum number of queued dataset writes.
         """
+        if max_pending_writes < 1:
+            raise ValueError('max_pending_writes must be positive')
         self.filename = filename
         self.mode = mode
+        self.max_pending_writes = max_pending_writes
 
         self.logger = medaka.common.get_named_logger('DataStre')
 
         self.write_executor = ThreadPoolExecutor(1)
-        self.write_futures = []
+        self.write_futures = deque()
 
         self._sample_registry = None
         self.fh = h5py.File(self.filename, self.mode)
@@ -205,14 +209,31 @@ class DataStore(object):
 
     def __exit__(self, *args):
         """Shutdown sample writer and close."""
-        if self.mode != 'r':
-            self.write_executor.shutdown(wait=True)
-            self._write_sample_registry()
         self.close()
 
     def close(self):
-        """Close filehandle of back-end file."""
-        self.fh.close()
+        """Finish writes, validate them, and close the back-end file."""
+        if not self.fh:
+            return
+        try:
+            self.write_executor.shutdown(wait=True)
+            for future in self.write_futures:
+                future.result()
+            if self.mode != 'r':
+                self._write_sample_registry()
+        finally:
+            self.write_futures.clear()
+            self.fh.close()
+
+    def _drain_writes(self):
+        """Check completed writes and bound outstanding work."""
+        while self.write_futures and (
+                self.write_futures[0].done() or
+                len(self.write_futures) >= self.max_pending_writes):
+            # Leave a failed future queued so close() also detects the error
+            # and does not commit a registry containing incomplete samples.
+            self.write_futures[0].result()
+            self.write_futures.popleft()
 
     def get_meta(self, key):
         """Load (deserialise) a meta data item.
@@ -285,6 +306,7 @@ class DataStore(object):
                             isinstance(data[0], str):
                         data = np.char.encode(data)
                     location = f'{self._sample_path_}/{sample.name}/{field}'
+                    self._drain_writes()
                     self.write_futures.append(
                         self.write_executor.submit(
                             self._write_dataset, location, data))
@@ -402,8 +424,9 @@ class DataIndex(object):
                     sample_registry = future.result()
                     self.samples.extend(
                         [(s, fn) for s in sample_registry])
-                except Exception:
-                    self.logger.info('No sample_registry in {}'.format(fn))
+                except Exception as exc:
+                    raise RuntimeError(
+                        f'Failed to load sample registry from {fn}') from exc
                 else:
                     self.logger.info(
                         'Loaded {}/{} ({:.2f}%) sample files.'.format(

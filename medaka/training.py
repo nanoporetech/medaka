@@ -71,7 +71,7 @@ def run_training(
     logger = medaka.common.get_named_logger('RunTraining')
 
     time_steps, feat_dim = batcher.feature_shape[0:2]
-    if model_fp.endswith('.gz') or model_fp.endswith('.hdf'):
+    if model_fp is not None and model_fp.endswith(('.gz', '.hdf')):
         msg = "Loading pretrained model from model store: {}"
         logger.info(msg.format(model_fp))
         model_store = medaka.models.open_model(model_fp)
